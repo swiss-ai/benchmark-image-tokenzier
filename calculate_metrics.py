@@ -15,7 +15,7 @@ ASSETS_FOLDER = "assets"
 # Device (GPU if available)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Transform for LPIPS and SSIM (preserve original size)
+# Transform for SSIM (preserve original size)
 basic_transform = transforms.ToTensor()
 
 lpips_transform = transforms.Compose([
@@ -73,7 +73,6 @@ def calculate_metrics():
                 print(f"  Skipping folder {folder_name}: mismatched image counts.")
                 continue
 
-            # PSNR and SSIM: resize original to generated image size before computing
             psnr_values = []
             ssim_values = []
             lpips_values = []
@@ -89,10 +88,11 @@ def calculate_metrics():
                 orig_np = np.array(orig)
                 gen_np = np.array(gen_resized)
 
+                # PSNR
                 psnr_values.append(psnr(orig_np, gen_np))
+                # SSIM
                 ssim_values.append(ssim(orig_np, gen_np, channel_axis=-1))
-
-                # LPIPS: convert resized original and generated images to tensors
+                # LPIPS
                 orig_tensor = lpips_transform(orig).unsqueeze(0).to(device)
                 gen_tensor = lpips_transform(gen_resized).unsqueeze(0).to(device)
                 lpips_score = lpips_model(orig_tensor, gen_tensor).item()
@@ -104,7 +104,6 @@ def calculate_metrics():
 
             # FID remains unchanged, original and generated images as is
             fid_value = calculate_fid(original_images, generated_images)
-
 
             # Results
             print(f"  Average PSNR:  {avg_psnr:.2f}")
