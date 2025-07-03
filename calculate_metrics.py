@@ -1,0 +1,110 @@
+import os
+import numpy as np
+from PIL import Image
+from skimage.metrics import peak_signal_noise_ratio as psnr
+from skimage.metrics import structural_similarity as ssim
+import torch
+from torchvision import transforms
+from torchmetrics.image.fid import FrechetInceptionDistance
+from lpips import LPIPS
+import warnings
+
+# Path to the assets folder
+ASSETS_FOLDER = "assets"
+
+# Device (GPU if available)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# Transform for LPIPS and SSIM (preserve original size)
+basic_transform = transforms.ToTensor()
+
+lpips_transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.5]*3, std=[0.5]*3),  # scales [0,1] to [-1,1]
+])
+
+# Transform specifically for FID (resize to 299x299 for InceptionV3)
+fid_transform = transforms.Compose([
+    transforms.Resize((299, 299)),
+    transforms.PILToTensor(),
+])
+
+# Initialize LPIPS model
+warnings.filterwarnings("ignore", category=UserWarning)
+lpips_model = LPIPS(net='alex').to(device)
+
+# Function to calculate FID
+def calculate_fid(original_images, generated_images):
+    fid = FrechetInceptionDistance(feature=64).to(device)
+    for img in original_images:
+        fid.update(fid_transform(img).unsqueeze(0).to(device), real=True)
+    for img in generated_images:
+        fid.update(fid_transform(img).unsqueeze(0).to(device), real=False)
+    return fid.compute().item()
+
+# Function to load images from a folder
+def load_images_from_folder(folder_path):
+    images = []
+    for filename in sorted(os.listdir(folder_path)):
+        if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+            img_path = os.path.join(folder_path, filename)
+            images.append(Image.open(img_path).convert("RGB"))
+    return images
+
+# Main function to calculate metrics
+def calculate_metrics():
+    original_folder = os.path.join(ASSETS_FOLDER, "original")
+    if not os.path.exists(original_folder):
+        print(f"Original folder not found: {original_folder}")
+        return
+
+    original_images = load_images_from_folder(original_folder)
+    if not original_images:
+        print("No original images found.")
+        return
+
+    # for folder_name in os.listdir(ASSETS_FOLDER):
+    for folder_name in ["OpenMAGViT2"]:
+        folder_path = os.path.join(ASSETS_FOLDER, folder_name)
+        if os.path.isdir(folder_path) and folder_name != "original":
+            print(f"\nCalculating metrics for folder: {folder_name}")
+            generated_images = load_images_from_folder(folder_path)
+
+            if len(original_images) != len(generated_images):
+                print(f"  Skipping folder {folder_name}: mismatched image counts.")
+                continue
+
+            # PSNR
+            psnr_values = [
+                psnr(np.array(orig), np.array(gen))
+                for orig, gen in zip(original_images, generated_images)
+            ]
+            avg_psnr = np.mean(psnr_values)
+
+            # SSIM
+            ssim_values = [
+                ssim(np.array(orig), np.array(gen), channel_axis=-1)
+                for orig, gen in zip(original_images, generated_images)
+            ]
+            avg_ssim = np.mean(ssim_values)
+
+            # LPIPS
+            lpips_values = []
+            for orig, gen in zip(original_images, generated_images):
+                orig_tensor = lpips_transform(orig).unsqueeze(0).to(device)
+                gen_tensor = lpips_transform(gen).unsqueeze(0).to(device)
+                lpips_score = lpips_model(orig_tensor, gen_tensor).item()
+                lpips_values.append(lpips_score)
+            avg_lpips = np.mean(lpips_values)
+
+            # FID
+            fid_value = calculate_fid(original_images, generated_images)
+
+            # Results
+            print(f"  Average PSNR:  {avg_psnr:.2f}")
+            print(f"  Average SSIM:  {avg_ssim:.4f}")
+            print(f"  Average LPIPS: {avg_lpips:.4f}")
+            print(f"  FID:          {fid_value:.2f}")
+
+if __name__ == "__main__":
+    calculate_metrics()
