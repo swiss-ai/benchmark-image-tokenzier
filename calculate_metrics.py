@@ -63,8 +63,7 @@ def calculate_metrics():
         print("No original images found.")
         return
 
-    # for folder_name in os.listdir(ASSETS_FOLDER):
-    for folder_name in ["OpenMAGViT2"]:
+    for folder_name in os.listdir(ASSETS_FOLDER):
         folder_path = os.path.join(ASSETS_FOLDER, folder_name)
         if os.path.isdir(folder_path) and folder_name != "original":
             print(f"\nCalculating metrics for folder: {folder_name}")
@@ -74,31 +73,38 @@ def calculate_metrics():
                 print(f"  Skipping folder {folder_name}: mismatched image counts.")
                 continue
 
-            # PSNR
-            psnr_values = [
-                psnr(np.array(orig), np.array(gen))
-                for orig, gen in zip(original_images, generated_images)
-            ]
-            avg_psnr = np.mean(psnr_values)
-
-            # SSIM
-            ssim_values = [
-                ssim(np.array(orig), np.array(gen), channel_axis=-1)
-                for orig, gen in zip(original_images, generated_images)
-            ]
-            avg_ssim = np.mean(ssim_values)
-
-            # LPIPS
+            # PSNR and SSIM: resize original to generated image size before computing
+            psnr_values = []
+            ssim_values = []
             lpips_values = []
-            for orig, gen in zip(original_images, generated_images):
+
+            # Resize generated images to match original resolution
+            resized_generated_images = [
+                gen.resize(orig.size, Image.LANCZOS)
+                for orig, gen in zip(original_images, generated_images)
+            ]
+
+            for orig, gen_resized in zip(original_images, resized_generated_images):
+                # Convert to numpy arrays for PSNR and SSIM
+                orig_np = np.array(orig)
+                gen_np = np.array(gen_resized)
+
+                psnr_values.append(psnr(orig_np, gen_np))
+                ssim_values.append(ssim(orig_np, gen_np, channel_axis=-1))
+
+                # LPIPS: convert resized original and generated images to tensors
                 orig_tensor = lpips_transform(orig).unsqueeze(0).to(device)
-                gen_tensor = lpips_transform(gen).unsqueeze(0).to(device)
+                gen_tensor = lpips_transform(gen_resized).unsqueeze(0).to(device)
                 lpips_score = lpips_model(orig_tensor, gen_tensor).item()
                 lpips_values.append(lpips_score)
+
+            avg_psnr = np.mean(psnr_values)
+            avg_ssim = np.mean(ssim_values)
             avg_lpips = np.mean(lpips_values)
 
-            # FID
+            # FID remains unchanged, original and generated images as is
             fid_value = calculate_fid(original_images, generated_images)
+
 
             # Results
             print(f"  Average PSNR:  {avg_psnr:.2f}")
