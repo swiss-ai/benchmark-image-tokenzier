@@ -8,6 +8,6 @@
 | **FlowMo Hi** | Diffusion Autoencoder (Transformer-based) | Sequential (1D latent) | 256×256 | 256×256 | 1,024 | 16,384 | Unknown | — | ✅ | Imagenet2012 |
 | **TiTok** | 1D VQ-VAE (Transformer-based) | Sequential (1D latent) | 256×256, 512×512 | 256×256, 512×512 | 256 | 4,096 | Unknown | — | ✅ | ImageNet |
 | **Selftok** | Diffusion-based AR Prior | Sequential (Autoregressive Prior) | 256×256 | 256×256 | 512 / 1,024 / 1,536 | 32,768 | Unknown | ✅ | ✅ | DataComp: 25.45%, <br> LAION-2B En: 25.36%, <br> LAION-2B Multi: 24.26%, <br> COYO-700M: 12.96%, <br> In-house T2I: 7.98%, <br> In-house Text: 4.00% |
-| **UniTok** | VQ-VAE | Sequential (1D latent) | 256×256 | flexible | flexible(8 x 256 for 256 x 256) | 8 x 16000 | Unknown | ✅ | ✅ | DataComp: DataComp-1B |
-| **DetailFlow** | Autoregressive | Sequential (AR coarse-to-fine, next-detail-prediction) | 256×256 | 256×256 | 128 / 256 / 512 | 8,192 | Unknown | - | ✅ | DataComp: ImageNet-1K |
-| **TokenFlow** | VQ-VAE (Transformer-based) | Spatial (2D latent, next-scale-prediction) | 256×256 / 384x384 | 256×256 / 384x384 |  16x16 / 27x27 | 32,768 | Unknown | ✅ | ✅ | DataComp: LAION and COYO-700M (no ocr data!) |
+| **UniTok** | VQ-VAE | Sequential (1D latent) | 256×256 | flexible | flexible(8 x 256 for 256 x 256) | 8 x 16000 | Unknown | ✅ | ✅ | DataComp-1B |
+| **DetailFlow** | Autoregressive | Sequential (AR coarse-to-fine, next-detail-prediction) | 256×256 | 256×256 | 128 / 256 / 512 | 8,192 | Unknown | - | ✅ | ImageNet-1K |
+| **TokenFlow** | VQ-VAE (Transformer-based) | Spatial (2D latent, next-scale-prediction) | 256×256 / 384x384 | 256×256 / 384x384 |  16x16 / 27x27 | 32,768 | Unknown | ✅ | ✅ | LAION and COYO-700M (no ocr data!) |
