@@ -103,7 +103,7 @@ def calculate_metrics():
             avg_lpips = np.mean(lpips_values)
 
             # FID remains unchanged, original and generated images as is
-            fid_value = calculate_fid(original_images, generated_images)
+            fid_value = calculate_fid(original_images, resized_generated_images)
 
             # Results
             print(f"  Average PSNR:  {avg_psnr:.2f}")
