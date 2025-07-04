@@ -6,3 +6,5 @@
 /src
 /SEED
 /1d-tokenizer 
+/LlamaGen
+/Tokenizer/__pycache__
