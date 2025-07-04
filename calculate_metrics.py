@@ -109,7 +109,7 @@ def calculate_metrics():
             print(f"  Average PSNR:  {avg_psnr:.2f}")
             print(f"  Average SSIM:  {avg_ssim:.4f}")
             print(f"  Average LPIPS: {avg_lpips:.4f}")
-            print(f"  FID:          {fid_value:.2f}")
-
+            print(f"  FID:           {fid_value:.2f}")
+            print("We currently do not have enough data to calculate the true FID or rFID. Do not use this value for any serious evaluation.")
 if __name__ == "__main__":
     calculate_metrics()
