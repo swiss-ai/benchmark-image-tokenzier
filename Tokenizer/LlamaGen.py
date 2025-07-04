@@ -72,7 +72,7 @@ class LlamaGen(Tokenizer):
         # img = center_crop_arr(image, self.image_size)
         
         # Normalize to [-1, 1] range
-        x = np.array(image) / 177.5 - 1.0 
+        x = np.array(image) / 127.5 - 1.0 
         
         # Convert to tensor and rearrange dimensions
         x = torch.tensor(x, dtype=torch.float32)
@@ -87,11 +87,11 @@ class LlamaGen(Tokenizer):
     def postprocess(self, tensor: torch.Tensor) -> Image.Image:
         """Postprocess tensor back to PIL image"""
         # Interpolate to target size (using bicubic like in original)
-        target_size = [self.image_size, self.image_size]
-        output = F.interpolate(tensor, size=target_size, mode='bicubic')
+        # target_size = [self.image_size, self.image_size]
+        # output = F.interpolate(tensor, size=target_size, mode='bicubic')
         
         # Convert from NCHW to NHWC and remove batch dimension
-        output = output.permute(0, 2, 3, 1)[0]
+        output = tensor.permute(0, 2, 3, 1)[0]
         
         # Convert from [-1, 1] range to [0, 255] uint8
         sample = torch.clamp(127.5 * output + 128.0, 0, 255).to("cpu", dtype=torch.uint8).numpy()

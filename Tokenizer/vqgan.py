@@ -54,7 +54,7 @@ class VQGAN(Tokenizer):
         # image = image.resize((self.image_size, self.image_size))
         
         # Normalize to [-1, 1] range as expected by VQGAN
-        x = (np.array(image) / 127.5) - 1.0
+        x = np.array(image) / 127.5 - 1.0
         
         # Convert to tensor and rearrange dimensions
         x = torch.tensor(x, dtype=torch.float32)
