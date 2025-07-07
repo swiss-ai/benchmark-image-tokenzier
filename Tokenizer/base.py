@@ -83,3 +83,26 @@ class Tokenizer(ABC):
         }
         
         return reconstructed_image, metrics
+
+    def get_params(self) -> Dict[str, Any]:
+        """Get parameter counts for the model"""
+        assert self.model is not None, "Model must be loaded before getting parameters"
+        assert hasattr(self, 'name'), "Model must have name attribute"
+
+        total_params = sum(p.numel() for p in self.model.parameters())
+        trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        print(f"{self.name} loaded:")
+        print(f"  Total parameters: {Tokenizer._format_number(total_params)} ({total_params:,})")
+        print(f"  Trainable parameters: {Tokenizer._format_number(trainable_params)} ({trainable_params:,})")
+
+    @staticmethod
+    def _format_number(num: int) -> str:
+        """Format large numbers with appropriate units"""
+        if num >= 1e9:
+            return f"{num/1e9:.2f}B"
+        elif num >= 1e6:
+            return f"{num/1e6:.2f}M"
+        elif num >= 1e3:
+            return f"{num/1e3:.2f}K"
+        else:
+            return str(num)
