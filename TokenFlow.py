@@ -9,7 +9,7 @@ from utils_benchmark import load_all_images
 from pathlib import Path
 
 from Tiler import Tiler
-from Tokenizer import Tokenizer
+from Tokenizer.base import Tokenizer
 
 os.chdir('/users/nirmiger/TokenFlow')
 sys.path.append('/users/nirmiger/TokenFlow')
@@ -79,10 +79,8 @@ class TokenFlowTokenizer(Tokenizer):
 
     def postprocess(self, tensor: torch.Tensor) -> Image.Image:
         """Convert output tensor back to PIL Image"""
-        tensor = tensor.squeeze(0).cpu()
-        tensor = tensor * 0.5 + 0.5  # [-1, 1] → [0, 1]
-        tensor = tensor.mul(255).add(0.5).clamp(0, 255).to(torch.uint8)
-        return Image.fromarray(tensor.permute(1, 2, 0).numpy())
+        tensor = torch.clamp(127.5 * tensor + 128.0, 0, 255).permute(0, 2, 3, 1).squeeze(0).to("cpu", dtype=torch.uint8).numpy()
+        return Image.fromarray(tensor)
 
     def encode(self, tensor: torch.Tensor) -> Tuple[torch.Tensor, dict]:
         """Encode tensor into discrete tokens"""
@@ -116,8 +114,7 @@ if __name__ == "__main__":
         
         # Load and normalize image manually
         image = Image.open(image_path).convert("RGB")
-        image_np = (np.array(image) / 127.5 - 1.0).astype(np.float32)
-        image_tensor = torch.from_numpy(image_np).permute(2, 0, 1)  # (C, H, W)
+        image_tensor = tokenizer.preprocess(image).squeeze(0)  # Shape: (3, H, W)
         print(f"Normalized image shape: {image_tensor.shape}")
 
         # Tile the image

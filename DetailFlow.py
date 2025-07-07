@@ -11,7 +11,7 @@ from torchvision.utils import make_grid
 
 
 from Tiler import Tiler
-from Tokenizer import Tokenizer
+from Tokenizer.base import Tokenizer
 
 os.chdir('/users/nirmiger/DetailFlow')
 sys.path.append('/users/nirmiger/DetailFlow')
@@ -65,7 +65,6 @@ class DetailFlowTokenizer(Tokenizer):
 
     def preprocess(self, image: Image.Image) -> torch.Tensor:
         """Preprocess image to tensor format"""
-        image = image.convert("RGB")
         tensor = self.preprocess_transform(image).unsqueeze(0).to(self.device)  # Shape: (1, 3, H, W)
         return tensor
 
@@ -106,8 +105,7 @@ if __name__ == "__main__":
         
         # Load and normalize image manually
         image = Image.open(image_path).convert("RGB")
-        image_np = (np.array(image) / 127.5 - 1.0).astype(np.float32)
-        image_tensor = torch.from_numpy(image_np).permute(2, 0, 1)  # (C, H, W)
+        image_tensor = tokenizer.preprocess(image).squeeze(0)  # Shape: (3, H, W)
         print(f"Normalized image shape: {image_tensor.shape}")
 
         # Tile the image
