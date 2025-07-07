@@ -9,7 +9,7 @@ from utils_benchmark import load_all_images
 from pathlib import Path
 
 from Tiler import Tiler
-from Tokenizer import Tokenizer
+from Tokenizer.base import Tokenizer
 
 os.chdir('/users/nirmiger/UniTok')
 sys.path.append('/users/nirmiger/UniTok')
@@ -54,9 +54,6 @@ class UniTokTokenizer(Tokenizer):
 
     def preprocess(self, image: Image.Image) -> torch.Tensor:
         """Preprocess PIL image to tensor format expected by UniTok"""
-        if not image.mode == "RGB":
-            image = image.convert("RGB")
-
         preprocess = transforms.Compose([
             transforms.ToTensor(),
             normalize_01_into_pm1,
@@ -101,8 +98,7 @@ if __name__ == "__main__":
         
         # Load and normalize image manually
         image = Image.open(image_path).convert("RGB")
-        image_np = (np.array(image) / 127.5 - 1.0).astype(np.float32)
-        image_tensor = torch.from_numpy(image_np).permute(2, 0, 1)  # (C, H, W)
+        image_tensor = tokenizer.preprocess(image).squeeze(0)  # Shape: (3, H, W)
         print(f"Normalized image shape: {image_tensor.shape}")
 
         # Tile the image

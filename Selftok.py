@@ -11,7 +11,7 @@ from torchvision.utils import make_grid
 
 
 from Tiler import Tiler
-from Tokenizer import Tokenizer
+from Tokenizer.base import Tokenizer
 
 os.chdir('/users/nirmiger/SelftokTokenizer')
 sys.path.append('/users/nirmiger/SelftokTokenizer')
@@ -19,10 +19,10 @@ sys.path.append('/users/nirmiger/SelftokTokenizer')
 from mimogpt.infer.SelftokPipeline import SelftokPipeline, NormalizeToTensor
 from mimogpt.infer.infer_utils import parse_args_from_yaml
 
-TOKENIZER_PATH = '/iopsstor/scratch/cscs/nirmiger/renderer_1024_ckpt.pth'
+TOKENIZER_PATH = '/iopsstor/scratch/cscs/nirmiger/renderer_512_ckpt.pth'
 CONFIG_PATH = '/users/nirmiger/SelftokTokenizer/configs/renderer/renderer-eval.yml'
 SD3_PATH = '/iopsstor/scratch/cscs/nirmiger/models--stabilityai--stable-diffusion-3-medium-diffusers/snapshots/ea42f8cef0f178587cf766dc8129abd379c90671'
-TOKENIZER = 'selftok_1024'
+TOKENIZER = 'selftok_512'
 RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}'
 
 class SelftokTokenizer(Tokenizer):
@@ -48,8 +48,6 @@ class SelftokTokenizer(Tokenizer):
 
         # Preprocessing transform
         self.preprocess_transform = transforms.Compose([
-            transforms.Resize(image_size),
-            transforms.CenterCrop(image_size),
             NormalizeToTensor(),
         ])
 
@@ -109,8 +107,7 @@ if __name__ == "__main__":
         
         # Load and normalize image manually
         image = Image.open(image_path).convert("RGB")
-        image_np = (np.array(image) / 127.5 - 1.0).astype(np.float32)
-        image_tensor = torch.from_numpy(image_np).permute(2, 0, 1)  # (C, H, W)
+        image_tensor = tokenizer.preprocess(image).squeeze(0)  # Shape: (3, H, W)
         print(f"Normalized image shape: {image_tensor.shape}")
 
         # Tile the image
