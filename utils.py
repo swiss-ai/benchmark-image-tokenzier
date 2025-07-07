@@ -15,7 +15,7 @@ def load_all_images(folder_path):
     for file_path in sorted(folder.iterdir()):
         if file_path.is_file() and file_path.suffix.lower() in image_extensions:
             try:
-                images.append(Image.open(file_path))
+                images.append(Image.open(file_path).convert("RGB") )
                 image_names.append(file_path.stem)  # filename without extension
                 image_paths.append(str(file_path))
                 print(f"Loaded: {file_path.name}")
