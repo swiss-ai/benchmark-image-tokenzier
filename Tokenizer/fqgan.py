@@ -50,7 +50,7 @@ class FQGAN(Tokenizer):
         """Load the FQGAN VQ model"""
         
         # Create VQ model and assign to self.model for base class compatibility
-        self.model = VQ_models[self.vq_model_name](  # Use vq_model_name for lookup
+        self.model = VQ_models[self.vq_model_name](
             codebook_size=self.codebook_size,
             codebook_embed_dim=self.codebook_embed_dim,
             with_clip_supervision=self.with_clip_supervision,

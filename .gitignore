@@ -3,8 +3,9 @@
 /FlowMo
 /OpenMAGViT2
 /SelftokTokenizer
-/src
+/notebook/src
 /SEED
 /1d-tokenizer 
 /LlamaGen
+/FQGAN
 /Tokenizer/__pycache__

@@ -1,324 +1,212 @@
 import torch
+import torch.nn.functional as F
 import numpy as np
 from einops import rearrange
-import torch.nn.functional as F
 from PIL import Image
 import math
 from typing import Union, Tuple, Dict, Any
-import torchshow as ts 
-import torchvision.transforms as T
+import torchshow as ts
+
 
 class Tiler:
     """
-    A simple class for padding images and extracting tiles.
-    Core functionality: pad -> tile -> resize -> reconstruct (stitch + resize) -> remove_pad
+    Optimal tiler using tile_resize/tile_size ratio.
+    
+    Workflow: downsample → pad → tile → process → stitch → unpad → upsample
     """
     
-    def __init__(self, tile_size: int = 256, pad_value: float = 0, tile_resize: int = None):
+    def __init__(self, tile_size: int = 384, tile_resize: int = 256, pad_value: float = 0):
         """
-        Initialize the Tiler.
-        
         Args:
-            tile_size: Size of each square tile (default: 256)
-            pad_value: Value to use for padding (default: 0)
-            tile_resize: If provided, resize each tile to this size after extraction (default: None)
+            tile_size: Original tile extraction size
+            tile_resize: Target processing size  
+            pad_value: Padding value
         """
-        self.tile_size   = tile_size
-        self.pad_value   = pad_value
+        self.tile_size = tile_size
         self.tile_resize = tile_resize
+        self.pad_value = pad_value
+        self.ratio = tile_resize / tile_size
         
+        # Calculate both ratios for clarity
+        area_ratio = (tile_resize ** 2) / (tile_size ** 2)
+        
+        print(f"Linear scaling ratio: {tile_resize}/{tile_size} = {self.ratio:.3f}")
+        print(f"Pixel per tile ratio: {tile_resize}²/{tile_size}² = {area_ratio:.3f}")
+        
+        if area_ratio < 1.0:
+            print(f"Pixel reduction: {1 - area_ratio:.1%} fewer pixels per tile (downsampling)")
+        elif area_ratio > 1.0:
+            print(f"Pixel increase: {area_ratio - 1:.1%} more pixels per tile (upsampling)")
+        else:
+            print(f"No pixel change: same resolution processing")
+    
     def _convert_input(self, image: Union[torch.Tensor, Image.Image, np.ndarray]) -> torch.Tensor:
-        """Convert various input formats to CHW tensor format."""
-        
+        """Convert input to CHW tensor."""
         if isinstance(image, Image.Image):
-            # Use torch.tensor instead of torch.from_numpy
             image = torch.tensor(np.array(image), dtype=torch.float32)
             if len(image.shape) == 3 and image.shape[-1] in [1, 3, 4]:
-                image = image.permute(2, 0, 1)  # HWC to CHW
-            elif len(image.shape) == 2:  # Grayscale PIL image
-                image = image.unsqueeze(0)  # Add channel dimension
-        
+                image = image.permute(2, 0, 1)
+            elif len(image.shape) == 2:
+                image = image.unsqueeze(0)
         elif isinstance(image, np.ndarray):
-            # Use torch.tensor instead of torch.from_numpy
             image = torch.tensor(image, dtype=torch.float32)
             if len(image.shape) == 3 and image.shape[-1] in [1, 3, 4]:
-                image = image.permute(2, 0, 1)  # HWC to CHW
-            elif len(image.shape) == 2:  # Grayscale numpy array
-                image = image.unsqueeze(0)  # Add channel dimension
-        
+                image = image.permute(2, 0, 1)
+            elif len(image.shape) == 2:
+                image = image.unsqueeze(0)
         elif isinstance(image, torch.Tensor):
             image = image.float()
-            # Handle different tensor formats
-            if len(image.shape) == 3:
-                if image.shape[0] in [1, 3, 4]:  # CHW format
-                    pass  # Already correct
-                elif image.shape[-1] in [1, 3, 4]:  # HWC format
-                    image = image.permute(2, 0, 1)  # Convert to CHW
-                else:
-                    # Assume first dimension is channels if not clear
-                    print(f"Warning: Ambiguous tensor shape {image.shape}, assuming CHW format")
-            elif len(image.shape) == 2:  # Grayscale HW
-                image = image.unsqueeze(0)  # Add channel dimension
-            else:
-                raise ValueError(f"Unsupported tensor shape: {image.shape}")
+            if len(image.shape) == 3 and image.shape[-1] in [1, 3, 4]:
+                image = image.permute(2, 0, 1)
+            elif len(image.shape) == 2:
+                image = image.unsqueeze(0)
         
         return image
     
-    def pad(self, image: Union[torch.Tensor, Image.Image, np.ndarray]) -> Dict[str, Any]:
+    def process(self, image: Union[torch.Tensor, Image.Image, np.ndarray]) -> Dict[str, Any]:
         """
-        Pad image so both dimensions are multiples of tile_size.
-        Image is centered with symmetric padding.
-        
-        Args:
-            image: Input image
+        Process image using optimal ratio-based workflow.
         
         Returns:
             dict: {
-                'padded_image': Padded image tensor,
-                'metadata': Metadata needed for reconstruction
+                'tiles': 4D tensor (N, C, tile_resize, tile_resize),
+                'metadata': reconstruction metadata
             }
         """
         image = self._convert_input(image)
-        C, H, W = image.shape
-        original_size = (H, W)
+        C, orig_H, orig_W = image.shape
+        print(f"Original image: {C}×{orig_H}×{orig_W}")
         
-        print(f"Original image shape: C={C}, H={H}, W={W}")
+        # Step 1: Downsample by ratio
+        scaled_H = int(orig_H * self.ratio)
+        scaled_W = int(orig_W * self.ratio)
         
-        # Calculate target dimensions independently
-        target_h = math.ceil(H / self.tile_size) * self.tile_size
-        target_w = math.ceil(W / self.tile_size) * self.tile_size
+        print(f"Downsampling to: {scaled_H}×{scaled_W} (ratio: {self.ratio:.3f})")
         
-        print(f"Target size: H={target_h}, W={target_w}")
+        downsampled = F.interpolate(
+            image.unsqueeze(0), 
+            size=(scaled_H, scaled_W), 
+            mode='bicubic', 
+            align_corners=False, 
+            antialias=True
+        ).squeeze(0)
         
-        # Calculate symmetric padding for centering
-        pad_h = target_h - H
-        pad_w = target_w - W
+        # Step 2: Pad for tiling at tile_resize scale
+        target_H = math.ceil(scaled_H / self.tile_resize) * self.tile_resize
+        target_W = math.ceil(scaled_W / self.tile_resize) * self.tile_resize
         
-        # Distribute padding symmetrically
-        pad_top = pad_h // 2
-        pad_bottom = pad_h - pad_top
-        pad_left = pad_w // 2
-        pad_right = pad_w - pad_left
+        pad_H = target_H - scaled_H
+        pad_W = target_W - scaled_W
+        pad_top = pad_H // 2
+        pad_left = pad_W // 2
+        pad_bottom = pad_H - pad_top
+        pad_right = pad_W - pad_left
         
-        # Apply padding: (left, right, top, bottom)
-        padded_image = F.pad(image, (pad_left, pad_right, pad_top, pad_bottom), 
-                            mode='constant', value=self.pad_value)
+        print(f"Padding to: {target_H}×{target_W}")
         
-        print(f"Padded image shape: {padded_image.shape}")
+        padded = F.pad(downsampled, (pad_left, pad_right, pad_top, pad_bottom), 
+                      mode='constant', value=self.pad_value)
         
-        # Calculate number of tiles in each dimension
-        num_tiles_h = target_h // self.tile_size
-        num_tiles_w = target_w // self.tile_size
+        # Step 3: Tile at tile_resize scale (no per-tile resizing needed!)
+        num_tiles_H = target_H // self.tile_resize
+        num_tiles_W = target_W // self.tile_resize
         
-        print(f"Number of tiles: H={num_tiles_h}, W={num_tiles_w}, Total={num_tiles_h * num_tiles_w}")
+        print(f"Creating {num_tiles_H}×{num_tiles_W} = {num_tiles_H * num_tiles_W} tiles of {self.tile_resize}×{self.tile_resize}")
         
+        tiles = rearrange(
+            padded, 
+            'c (nh th) (nw tw) -> (nh nw) c th tw',
+            nh=num_tiles_H, nw=num_tiles_W, 
+            th=self.tile_resize, tw=self.tile_resize
+        )
+        
+        # Store metadata for reconstruction
         metadata = {
-            'original_size': original_size,
-            'target_size': (target_h, target_w),
-            'num_tiles': (num_tiles_h, num_tiles_w),
-            'padding_info': {
-                'pad_top': pad_top,
-                'pad_bottom': pad_bottom,
-                'pad_left': pad_left,
-                'pad_right': pad_right
-            }
+            'original_size': (orig_H, orig_W),
+            'scaled_size': (scaled_H, scaled_W),
+            'grid_shape': (num_tiles_H, num_tiles_W),
+            'padding': (pad_top, pad_bottom, pad_left, pad_right),
+            'ratio': self.ratio
         }
         
         return {
-            'padded_image': padded_image,
+            'tiles': tiles, 
             'metadata': metadata
         }
     
-    def tile(self, padded_image: torch.Tensor) -> Tuple[torch.Tensor, Tuple[int, int]]:
-        """
-        Extract tiles from the padded image using einops.
-        If tile_resize is specified, tiles are automatically resized after extraction.
-        
-        Args:
-            padded_image: Image tensor where H and W are multiples of tile_size
-        
-        Returns:
-            tiles: Tensor of shape (total_tiles, C, tile_resize or tile_size, tile_resize or tile_size)
-            grid_shape: Tuple (num_tiles_h, num_tiles_w) for reconstruction
-        """
-        C, H, W = padded_image.shape
-        
-        print(f"Tiling padded image of shape: C={C}, H={H}, W={W}")
-        
-        # Ensure the image dimensions are divisible by tile_size
-        assert H % self.tile_size == 0 and W % self.tile_size == 0, \
-            f"Image size ({H}, {W}) must be divisible by tile_size ({self.tile_size})"
-        
-        # Calculate number of tiles
-        nh = H // self.tile_size  # number of tiles in height
-        nw = W // self.tile_size  # number of tiles in width
-        
-        print(f"Tiles grid: {nh} rows × {nw} columns = {nh * nw} total tiles")
-        
-        # Use einops to extract tiles and flatten to 4D
-        tiles = rearrange(
-            padded_image, 
-            'c (nh th) (nw tw) -> (nh nw) c th tw',
-            nh=nh, nw=nw,
-            th=self.tile_size, 
-            tw=self.tile_size
-        )
-        
-        print(f"Extracted tiles shape: {tiles.shape} (total_tiles, c, th, tw)")
-        
-        # Resize tiles if tile_resize parameter is specified
-        if self.tile_resize is not None:
-            tiles = self.resize_tiles(tiles, self.tile_resize)
-            print(f"Resized tiles to: {tiles.shape}")
-        
-        assert len(tiles.shape) == 4, f"Tiles should be 4D, got {len(tiles.shape)}D: {tiles.shape}"
-        
-        return tiles, (nh, nw)
-    
-    def resize_tiles(self, tiles: torch.Tensor, new_size: int) -> torch.Tensor:
-        """
-        Resize all tiles to a new size using PIL's LANCZOS interpolation.
-        
-        Args:
-            tiles: Tensor of shape (total_tiles, C, tile_size, tile_size)
-            new_size: New size for each tile (square)
-        
-        Returns:
-            resized_tiles: Tensor of shape (total_tiles, C, new_size, new_size)
-        """
-        total_tiles, C, old_h, old_w = tiles.shape
-        
-        if old_h == new_size and old_w == new_size:
-            print(f"Tiles already at target size {new_size}x{new_size}")
-            return tiles
-        
-        print(f"Resizing {tiles.shape[0]} tiles from {tiles.shape[-2:]} to {new_size}x{new_size}")
-    
-        resized = F.interpolate(
-            tiles, 
-            size=(new_size, new_size), 
-            mode='bicubic',           # High quality, very close to LANCZOS
-            align_corners=False,
-            antialias=True
-        )
-
-        return resized
-    
     def reconstruct(self, tiles: torch.Tensor, metadata: Dict[str, Any]) -> torch.Tensor:
         """
-        Reconstruct the padded image from 4D tiles using einops.
-        Tiles are stitched at their current size, then the full image is resized if needed.
+        Reconstruct to original size and scale.
         
         Args:
-            tiles: Tensor of shape (total_tiles, C, tile_h, tile_w)
-            metadata: Metadata containing grid shape and target size
-        
+            tiles: 4D tensor (N, C, tile_resize, tile_resize)
+            metadata: From process()
+            
         Returns:
-            reconstructed_image: Tensor of shape (C, H, W) at original scale
+            Reconstructed image at original size
         """
-        total_tiles, C, th, tw = tiles.shape
-        nh, nw = metadata["tiles_grid_shape"]
+        num_tiles_H, num_tiles_W = metadata['grid_shape']
         
-        # Verify the grid dimensions match
-        assert total_tiles == nh * nw, f"Total tiles {total_tiles} doesn't match grid {nh}×{nw}={nh*nw}"
+        print(f"Reconstructing from {tiles.shape[0]} tiles")
         
-        # First: Stitch tiles at their current size
-        expected_h = nh * th
-        expected_w = nw * tw
-        
-        print(f"Stitching tiles at current size: {expected_h}x{expected_w}")
-        
-        reconstructed = rearrange(
-            tiles,
+        # Step 1: Stitch tiles
+        stitched = rearrange(
+            tiles, 
             '(nh nw) c th tw -> c (nh th) (nw tw)',
-            nh=nh, nw=nw
+            nh=num_tiles_H, nw=num_tiles_W
         )
         
-        # Second: If tile_resize was used, resize the full stitched image back to original scale
-        if self.tile_resize is not None and th != self.tile_size:
-            target_h, target_w = metadata['target_size']
-            print(f"Resizing full image from {expected_h}x{expected_w} to {target_h}x{target_w} using bicubic interpolation")
-            
-            reconstructed = F.interpolate(
-                reconstructed.unsqueeze(0), 
-                size=(target_h, target_w), 
-                mode='bicubic',
-                align_corners=False,
-                antialias=True
-            ).squeeze(0) 
+        # Step 2: Remove padding
+        pad_top, pad_bottom, pad_left, pad_right = metadata['padding']
+        scaled_H, scaled_W = metadata['scaled_size']
+        
+        unpadded = stitched[:, pad_top:pad_top + scaled_H, pad_left:pad_left + scaled_W]
+        print(f"After removing padding: {unpadded.shape}")
+        
+        # Step 3: Upsample back to original scale
+        orig_H, orig_W = metadata['original_size']
+        upscale_ratio = 1.0 / metadata['ratio']
+        
+        print(f"Upsampling by {upscale_ratio:.3f} to restore original size")
+        
+        reconstructed = F.interpolate(
+            unpadded.unsqueeze(0), 
+            size=(orig_H, orig_W),
+            mode='bicubic', 
+            align_corners=False, 
+            antialias=True
+        ).squeeze(0)
         
         return reconstructed
     
-    def remove_pad(self, padded_image: torch.Tensor, metadata: Dict[str, Any]) -> torch.Tensor:
-        """
-        Remove padding to get back to original size.
-        
-        Args:
-            padded_image: Padded image tensor of shape (C, H, W)
-            metadata: Metadata containing padding info
-        
-        Returns:
-            original_image: Image cropped to original size
-        """
-        orig_h, orig_w = metadata['original_size']
-        pad_top = metadata['padding_info']['pad_top']
-        pad_left = metadata['padding_info']['pad_left']
-        
-        # Crop from the center where the original image is located
-        original = padded_image[:, pad_top:pad_top + orig_h, pad_left:pad_left + orig_w]
-        
-        return original
-    
     def __call__(self, image: Union[torch.Tensor, Image.Image, np.ndarray]) -> Dict[str, Any]:
         """
-        Convenience method: pad and tile in one call.
+        Convenience method: same as process().
         
         Args:
             image: Input image
         
         Returns:
             dict: {
-                'tiles': Extracted tiles as 4D tensor (total_tiles, C, tile_h, tile_w),
-                'metadata': Metadata for reconstruction
+                'tiles': 4D tensor (N, C, tile_resize, tile_resize),
+                'metadata': reconstruction metadata
             }
         """
-        pad_result = self.pad(image)
-        tiles, grid_shape = self.tile(pad_result['padded_image'])
-        
-        # Store grid info in metadata for reconstruction
-        metadata = pad_result['metadata']
-        metadata['grid_shape'] = metadata['target_size']  # (H, W) of padded image
-        metadata['tiles_grid_shape'] = grid_shape  # (nh, nw)
-        
-        return {
-            'tiles': tiles,
-            'metadata': metadata
-        }
+        return self.process(image)
     
     def full_reconstruct(self, tiles: torch.Tensor, metadata: Dict[str, Any]) -> torch.Tensor:
         """
-        Convenience method: reconstruct and remove padding in one call.
-        Tiles are stitched first, then the full image is resized back to original scale.
-        
-        Args:
-            tiles: Tiles tensor as 4D (total_tiles, C, tile_h, tile_w)
-            metadata: Metadata from pad() or __call__()
-        
-        Returns:
-            original_image: Fully reconstructed original image (unpadded, original scale)
+        Alias for reconstruct() for compatibility.
         """
-        padded = self.reconstruct(tiles, metadata)
-        original = self.remove_pad(padded, metadata)
-        return original
+        return self.reconstruct(tiles, metadata)
     
     def show(self, image: Union[torch.Tensor, Image.Image, np.ndarray]):
         """
-        Quick display image using torchshow.
+        Display image using torchshow.
         
         Args:
             image: Input image to display
         """
-        
         # Convert input to tensor if needed
         if not isinstance(image, torch.Tensor):
             image = self._convert_input(image)
@@ -332,68 +220,69 @@ class Tiler:
         
         Args:
             tiles: Tiles tensor of shape (total_tiles, C, tile_size, tile_size)
-            metadata: Metadata containing grid shape (nh, nw)
+            metadata: Metadata containing grid shape (num_H, num_W)
             tight_layout: Whether to use tight layout
         """
-        assert len(tiles.shape) == 4, f"Tiles must be of shape (total_tiles, C, tile_size, tile_size), got {tiles.shape}"
+        assert len(tiles.shape) == 4, f"Tiles must be 4D, got {tiles.shape}"
         total_tiles, C, tile_h, tile_w = tiles.shape
         
         # Get grid shape from metadata
-        nh, nw = metadata["tiles_grid_shape"]
+        num_H, num_W = metadata["grid_shape"]
         
         # Verify grid consistency
-        assert total_tiles == nh * nw, f"Total tiles {total_tiles} doesn't match grid {nh}×{nw}={nh*nw}"
+        assert total_tiles == num_H * num_W, f"Total tiles {total_tiles} doesn't match grid {num_H}×{num_W}={num_H*num_W}"
 
         # Handle different channel counts
+        display_tiles = tiles
         if C == 4:  # RGBA - convert to RGB by dropping alpha
             print("4-channel image detected, converting RGBA to RGB")
-            tiles = tiles[:, :3, :, :]  # Keep only RGB channels
+            display_tiles = tiles[:, :3, :, :]
             C = 3
         elif C > 4:
             print(f"Warning: {C} channels detected, showing only first 3 channels")
-            tiles = tiles[:, :3, :, :]  # Keep only first 3 channels
+            display_tiles = tiles[:, :3, :, :]
             C = 3
         
-        print(f"Showing {nh}×{nw} = {nh*nw} tiles")
+        print(f"Showing {num_H}×{num_W} = {num_H*num_W} tiles")
         
-        # Show tiles using torchshow with correct parameter names
-        ts.show(tiles, nrows=nh, ncols=nw, tight_layout=tight_layout, figsize=(nw * tile_w / 200, nh * tile_h / 200))
+        # Show tiles using torchshow
+        ts.show(display_tiles, nrows=num_H, ncols=num_W, tight_layout=tight_layout, 
+                figsize=(num_W * tile_w / 200, num_H * tile_h / 200))
 
-# Example usage
+# Example usage and comparison
 if __name__ == "__main__":
-    # Test 1: Tiler with tile_resize - stitch first, then resize full image
-    print("=== Test 1: Tiler with tile_resize (stitch first, then resize) ===")
-    tiler = Tiler(tile_size=384, pad_value=0, tile_resize=256)
+    print("=== Ratio-Based Tiler Demo ===")
+    
+    # Test downsampling
+    print("\n--- Test 1: Downsampling (384→256) ---")
+    tiler_down = Tiler(tile_size=384, tile_resize=256)
+    
+    # Test upsampling  
+    print("\n--- Test 2: Upsampling (256→384) ---")
+    tiler_up = Tiler(tile_size=256, tile_resize=384)
+    
+    # Test same size
+    print("\n--- Test 3: Same size (256→256) ---")
+    tiler_same = Tiler(tile_size=256, tile_resize=256)
     
     # Test image
-    image = torch.randn(3, 567, 789)
+    image = torch.randn(3, 1200, 1600)
+    
+    # Process with downsampling
+    print("\n=== Processing with downsampling ===")
+    result_down = tiler_down.process(image)
+    tiles_down = result_down['tiles']
+    reconstructed_down = tiler_down.reconstruct(tiles_down, result_down['metadata'])
+    
+    # Process with upsampling
+    print("\n=== Processing with upsampling ===")
+    result_up = tiler_up.process(image)
+    tiles_up = result_up['tiles']
+    reconstructed_up = tiler_up.reconstruct(tiles_up, result_up['metadata'])
+    
+    print(f"\nComparison:")
     print(f"Original: {image.shape}")
-    
-    # Extract and resize tiles automatically
-    result = tiler(image)
-    tiles = result['tiles']
-    metadata = result['metadata']
-    print(f"Tiles: {tiles.shape}")  # Should be (N, 3, 256, 256)
-    
-    # Reconstruct (stitch 256x256 tiles, then resize full image back)
-    reconstructed = tiler.full_reconstruct(tiles, metadata)
-    print(f"Reconstructed: {reconstructed.shape}")  # Should match original
-    
-    # Test 2: Tiler without tile_resize - direct stitching
-    print("\n=== Test 2: Tiler without tile_resize ===")
-    tiler_no_resize = Tiler(tile_size=256, pad_value=0)  # tile_resize=None by default
-    
-    result2 = tiler_no_resize(image)
-    tiles2 = result2['tiles']
-    print(f"Tiles without tile_resize: {tiles2.shape}")  # Should be (N, 3, 256, 256)
-    
-    reconstructed2 = tiler_no_resize.full_reconstruct(tiles2, result2['metadata'])
-    print(f"Reconstructed without tile_resize: {reconstructed2.shape}")
-    
-    # Test 3: Compare performance characteristics
-    print(f"\nBoth reconstruct to same size: {reconstructed.shape == reconstructed2.shape}")
-    print("Workflow comparison:")
-    print("- With tile_resize: Extract 384→256 → Process 256 → Stitch 256 → Resize full image")
-    print("- Without tile_resize: Extract 256 → Process 256 → Stitch 256 (final)")
-    
-    print("\n✅ All tests completed!")
+    print(f"Downsampling tiles: {tiles_down.shape[0]} tiles of {tiles_down.shape[-1]}×{tiles_down.shape[-1]}")
+    print(f"Upsampling tiles: {tiles_up.shape[0]} tiles of {tiles_up.shape[-1]}×{tiles_up.shape[-1]}")
+    print(f"Both reconstruct to: {reconstructed_down.shape}")
+    print(f"Perfect reconstruction: {image.shape == reconstructed_down.shape == reconstructed_up.shape}")
