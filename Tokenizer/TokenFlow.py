@@ -5,90 +5,120 @@ from typing import Tuple, Any
 from torchvision import transforms
 import os
 import sys
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from utils_benchmark import load_all_images
 from pathlib import Path
 
 from Tiler import Tiler
-from Tokenizer.base import Tokenizer
+from base import Tokenizer
 
-os.chdir('/users/nirmiger/UniTok')
-sys.path.append('/users/nirmiger/UniTok')
+os.chdir('/users/nirmiger/TokenFlow')
+sys.path.append('/users/nirmiger/TokenFlow')
 
-from models.unitok import UniTok
-from utils.config import Args
-from utils.data import normalize_01_into_pm1
+from tokenflow.tokenizer.vq_model import VQ_models
 
-TOKENIZER_PATH = '/iopsstor/scratch/cscs/nirmiger/unitok_tokenizer.pth'
-TOKENIZER = 'unitok'
+TOKENIZER = 'tokenflow_224'
+if TOKENIZER == 'tokenflow_384':
+    TOKENIZER_PATH = '/iopsstor/scratch/cscs/nirmiger/tokenflow_siglip_32k.pt'
+    TEACHER = 'siglip_384'
+    IMAGE_SIZE = 384
+    ENHANCED_DECODER = False
+if TOKENIZER == 'tokenflow_224':
+    TOKENIZER_PATH = '/iopsstor/scratch/cscs/nirmiger/tokenflow_clipb_32k_enhanced.pt'
+    TEACHER = 'clipb_224'
+    IMAGE_SIZE = 224
+    ENHANCED_DECODER = True
+
+
 RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}'
 
-class UniTokTokenizer(Tokenizer):
+class TokenFlowTokenizer(Tokenizer):
     """UniTok tokenizer implementation"""
-
     def __init__(self,
                  ckpt_path: str,
+                 vq_model_name: str = "TokenFlow",
+                 teacher: str = "siglip_384",
+                 codebook_size: int = 32768,
+                 codebook_embed_dim: int = 8,
+                 semantic_code_dim: int = 32,
+                 image_size: int = 384,
+                 enhanced_decoder: bool = False,
+                 infer_interpolate: bool = False,
                  device: str = "cuda",
-                 image_size: int = 256,
                  seed: int = 0,
                  **kwargs):
-        self.ckpt_path = ckpt_path
+
         self.device = device
         self.image_size = image_size
+        self.ckpt_path = ckpt_path
+        self.vq_model_name = vq_model_name
+        self.teacher = teacher
+        self.codebook_size = codebook_size
+        self.codebook_embed_dim = codebook_embed_dim
+        self.semantic_code_dim = semantic_code_dim
+        self.enhanced_decoder = enhanced_decoder
+        self.infer_interpolate = infer_interpolate
         self.seed = seed
+        super().__init__(**kwargs)
 
         torch.manual_seed(seed)
         torch.set_grad_enabled(False)
 
-        super().__init__(**kwargs)
-
     def _load_model(self) -> None:
-        """Load UniTok model from checkpoint"""
-        ckpt = torch.load(self.ckpt_path, map_location='cpu')
-        unitok_cfg = Args()
-        unitok_cfg.load_state_dict(ckpt['args'])
+        """Load TokenFlow VQ model from checkpoint."""
+        self.model = VQ_models[self.vq_model_name](
+            codebook_size=self.codebook_size,
+            codebook_embed_dim=self.codebook_embed_dim,
+            semantic_code_dim=self.semantic_code_dim,
+            teacher=self.teacher,
+            enhanced_decoder=self.enhanced_decoder,
+            infer_interpolate=self.infer_interpolate
+        ).to(self.device).eval()
 
-        self.model = UniTok(unitok_cfg)
-        self.model.load_state_dict(ckpt['trainer']['unitok'])
-        self.model.to(self.device)
-        self.model.eval()
+        checkpoint = torch.load(self.ckpt_path, map_location="cpu")
+        state_dict = checkpoint.get("ema") or checkpoint.get("model") or checkpoint.get("state_dict")
+        if state_dict is None:
+            raise ValueError("Checkpoint does not contain valid model weights.")
+        self.model.load_state_dict(state_dict)
 
     def preprocess(self, image: Image.Image) -> torch.Tensor:
-        """Preprocess PIL image to tensor format expected by UniTok"""
-        preprocess = transforms.Compose([
+        """Preprocess image (PIL → normalized tensor)"""
+        transform = transforms.Compose([
             transforms.ToTensor(),
-            normalize_01_into_pm1,
+            transforms.Normalize(mean=[0.5] * 3, std=[0.5] * 3),  # [0,1] → [-1,1]
         ])
-
-        tensor = preprocess(image).unsqueeze(0).to(self.device)  # Shape: (1, 3, H, W)
-        return tensor
+        return transform(image).unsqueeze(0).to(self.device)
 
     def postprocess(self, tensor: torch.Tensor) -> Image.Image:
-        """Convert tensor output back to a PIL image"""
-        img = tensor.add(1).mul_(0.5 * 255).round().nan_to_num_(128, 0, 255).clamp_(0, 255)
-        img = img.to(dtype=torch.uint8).permute(0, 2, 3, 1).cpu().numpy()[0]  # Shape: HWC
-        return Image.fromarray(img)
+        """Convert output tensor back to PIL Image"""
+        tensor = torch.clamp(127.5 * tensor + 128.0, 0, 255).permute(0, 2, 3, 1).squeeze(0).to("cpu", dtype=torch.uint8).numpy()
+        return Image.fromarray(tensor)
 
-    def encode(self, tensor: torch.Tensor) -> Tuple[torch.Tensor, Any]:
-        """Encode tensor into discrete token indices"""
+    def encode(self, tensor: torch.Tensor) -> Tuple[torch.Tensor, dict]:
+        """Encode tensor into discrete tokens"""
         with torch.no_grad():
-            code_idx = self.model.img_to_idx(tensor)
-        return code_idx, {}  # Additional info unused here
+            latent, _, _ = self.model.encode(tensor)
+        return latent, {}  # TokenFlow doesn’t use auxiliary info
 
-    def decode(self, indices: torch.Tensor, additional_info: Any = None) -> torch.Tensor:
-        """Decode discrete tokens back into an image tensor"""
+    def decode(self, indices: torch.Tensor, additional_info: dict = None) -> torch.Tensor:
+        """Decode discrete tokens back into image tensor"""
         with torch.no_grad():
-            img_tensor = self.model.idx_to_img(indices)
-        return img_tensor
+            output = self.model.decode(indices)
+            if isinstance(output, tuple):
+                output = output[1]
+        return output
 
     def get_num_tokens(self, indices: torch.Tensor) -> int:
-        """Get total number of tokens"""
-        return indices.numel()
+        """Return number of tokens in flattened index tensor"""
+        return int(indices.numel()/40) # 40 is the embedding dimension for TokenFlow
     
 
 if __name__ == "__main__":
     # Example usage
-    tokenizer = UniTokTokenizer(ckpt_path=TOKENIZER_PATH, device='cuda', image_size=256)
-    tiler = Tiler(tile_size=256, pad_value=-1.0)
+    tokenizer = TokenFlowTokenizer(ckpt_path=TOKENIZER_PATH, teacher=TEACHER, image_size=IMAGE_SIZE, enhanced_decoder=ENHANCED_DECODER)
+    tiler = Tiler(tile_size=IMAGE_SIZE, pad_value=-1.0)
     images, _, image_paths = load_all_images('/users/nirmiger/benchmark-image-tokenzier/assets/original')
     batch_size = 8  # Adjust based on GPU memory
     os.makedirs(RECONSTRUCTION_PATH, exist_ok=True)
@@ -140,7 +170,7 @@ if __name__ == "__main__":
         reconstructed_image = tokenizer.postprocess(reconstructed_full.unsqueeze(0))
 
         # Metrics
-        total_tokens = all_indices_tensor.numel()
+        total_tokens = tokenizer.get_num_tokens(all_indices_tensor)
         original_pixels = image_tensor.shape[-2] * image_tensor.shape[-1]
         compression_ratio = original_pixels / total_tokens
 

@@ -5,37 +5,51 @@ from typing import Tuple, Any
 from torchvision import transforms
 import os
 import sys
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from utils_benchmark import load_all_images
 from pathlib import Path
 from torchvision.utils import make_grid
 
 
 from Tiler import Tiler
-from Tokenizer.base import Tokenizer
+from base import Tokenizer
 
-os.chdir('/users/nirmiger/DetailFlow')
-sys.path.append('/users/nirmiger/DetailFlow')
+os.chdir('/users/nirmiger/SelftokTokenizer')
+sys.path.append('/users/nirmiger/SelftokTokenizer')
 
-from inference.load_vq import load_vq_model
+from mimogpt.infer.SelftokPipeline import SelftokPipeline, NormalizeToTensor
+from mimogpt.infer.infer_utils import parse_args_from_yaml
 
-TOKENIZER_PATH = '/iopsstor/scratch/cscs/nirmiger/512.pt'
-TOKENIZER = 'datailflow'
+TOKENIZER = 'selftok_512'
+if TOKENIZER == 'selftok_512':
+    TOKENIZER_PATH = '/iopsstor/scratch/cscs/nirmiger/renderer_512_ckpt.pth'
+    CONFIG_PATH = '/users/nirmiger/SelftokTokenizer/configs/renderer/renderer-eval.yml'
+elif TOKENIZER == 'selftok_1024':
+    TOKENIZER_PATH = '/iopsstor/scratch/cscs/nirmiger/renderer_1024_ckpt.pth'
+    CONFIG_PATH = '/users/nirmiger/SelftokTokenizer/configs/renderer/renderer-eval_1024.yml'
+
+SD3_PATH = '/iopsstor/scratch/cscs/nirmiger/models--stabilityai--stable-diffusion-3-medium-diffusers/snapshots/ea42f8cef0f178587cf766dc8129abd379c90671'
+
 RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}'
 
-class DetailFlowTokenizer(Tokenizer):
-    """DetailFlow tokenizer implementation"""
+class SelftokTokenizer(Tokenizer):
+    """Selftok tokenizer implementation"""
 
     def __init__(self,
+                 yml_path: str,
                  ckpt_path: str,
+                 sd3_path: str,
                  device: str = "cuda",
                  image_size: int = 256,
                  seed: int = 0,
-                 use_ema: bool = False,
                  **kwargs):
+        self.yml_path = yml_path
+        self.ckpt_path = ckpt_path
+        self.sd3_path = sd3_path
         self.device = device
         self.image_size = image_size
-        self.vq_model_path = ckpt_path
-        self.use_ema = use_ema
         self.seed = seed
 
         torch.manual_seed(seed)
@@ -43,58 +57,55 @@ class DetailFlowTokenizer(Tokenizer):
 
         # Preprocessing transform
         self.preprocess_transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5] * 3, std=[0.5] * 3),
+            NormalizeToTensor(),
         ])
 
         super().__init__(**kwargs)
 
     def _load_model(self) -> None:
-        """Load DetailFlow VQ model and config"""
-        self.vq_model, self.config, self.config_yaml, self.res_deg = load_vq_model(
-            self.vq_model_path,
-            ema=self.use_ema,
-            device=self.device,
-            eval_mode=True,
-        )
-        # Move to GPU
-        self.vq_model = self.vq_model.to(self.device)
-        # Convert to fp16 if supported
-        self.vq_model = self.vq_model.half()
-
+        """Load Selftok model from checkpoint"""
+        cfg = parse_args_from_yaml(self.yml_path)
+        self.model = SelftokPipeline(cfg=cfg,
+                                     ckpt_path=self.ckpt_path,
+                                     sd3_path=self.sd3_path,
+                                     datasize=self.image_size,
+                                     device=self.device)
 
     def preprocess(self, image: Image.Image) -> torch.Tensor:
         """Preprocess image to tensor format"""
+        image = image.convert("RGB")
         tensor = self.preprocess_transform(image).unsqueeze(0).to(self.device)  # Shape: (1, 3, H, W)
         return tensor
 
     def postprocess(self, tensor: torch.Tensor) -> Image.Image:
         """Convert tensor output back to a PIL image"""
-        tensor = tensor.squeeze(0)  # Remove batch dimension
-        img = torch.clamp(127.5 * tensor + 128, 0, 255).to(torch.uint8)
-        img = img.permute(1, 2, 0).cpu().numpy()
-        return Image.fromarray(img)
+        grid = make_grid(tensor)
+        ndarr = grid.mul(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to("cpu", torch.uint8).numpy()
+        return Image.fromarray(ndarr)
 
     def encode(self, tensor: torch.Tensor) -> tuple[torch.Tensor, dict]:
         """Encode tensor into token indices"""
         with torch.no_grad():
-            tokens, _, _ = self.vq_model.encode(tensor)
+            tokens = self.model.encoding(tensor, device=self.device)
         return tokens, {}  # Add any metadata if needed
 
     def decode(self, indices: torch.Tensor, additional_info=None) -> torch.Tensor:
         """Decode token indices back into image tensor"""
         with torch.no_grad():
-            output = self.vq_model.decode(indices)
-        img_tensor = output.pixel_value
+            if isinstance(indices, torch.Tensor):
+                idx_np = indices.cpu().numpy()
+            else:
+                idx_np = indices
+            img_tensor = self.model.decoding_with_renderer(idx_np, device=self.device)
         return img_tensor
 
     def get_num_tokens(self, indices: torch.Tensor) -> int:
         """Get total number of tokens"""
-        return int(indices.numel()/8) # 8 is the embedding dimension for DetailFlow
+        return indices.numel()
 
 if __name__ == "__main__":
     # Example usage
-    tokenizer = DetailFlowTokenizer(ckpt_path=TOKENIZER_PATH)
+    tokenizer = SelftokTokenizer(yml_path=CONFIG_PATH, ckpt_path=TOKENIZER_PATH, sd3_path=SD3_PATH, device='cuda', image_size=256)
     tiler = Tiler(tile_size=256, pad_value=-1.0)
     images, _, image_paths = load_all_images('/users/nirmiger/benchmark-image-tokenzier/assets/original')
     batch_size = 8  # Adjust based on GPU memory
@@ -130,7 +141,7 @@ if __name__ == "__main__":
                 indices, additional_info = tokenizer.encode(batch_tiles)
                 reconstructed_batch = tokenizer.decode(indices, additional_info)
 
-            reconstructed_tiles_list.append(reconstructed_batch)
+            reconstructed_tiles_list.append(reconstructed_batch.cpu())
             all_indices.append(indices.cpu())
 
             del batch_tiles, reconstructed_batch, indices
@@ -147,7 +158,7 @@ if __name__ == "__main__":
         reconstructed_image = tokenizer.postprocess(reconstructed_full.unsqueeze(0))
 
         # Metrics
-        total_tokens = tokenizer.get_num_tokens(all_indices_tensor)
+        total_tokens = all_indices_tensor.numel()
         original_pixels = image_tensor.shape[-2] * image_tensor.shape[-1]
         compression_ratio = original_pixels / total_tokens
 
