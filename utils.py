@@ -1,5 +1,10 @@
 from pathlib import Path
 from PIL import Image
+import torch
+import torch.nn.functional as F
+import numpy as np
+from PIL import Image
+from typing import Union
 
 # Simple function to load all images from a folder
 def load_all_images(folder_path):
@@ -25,25 +30,61 @@ def load_all_images(folder_path):
     return images, image_names, image_paths
 
 
-def split_into_quadrants(image_path):
-    original_img = Image.open(image_path).convert("RGB")
-    W, H = original_img.size
-    print(f"Original size: {W}×{H}")
+def _convert_input(image: Union[torch.Tensor, Image.Image, np.ndarray]) -> torch.Tensor:
+    """Convert input to CHW tensor format."""
+    if isinstance(image, Image.Image):
+        image = torch.tensor(np.array(image), dtype=torch.float32)
+        if len(image.shape) == 3 and image.shape[-1] in [1, 3, 4]:
+            image = image.permute(2, 0, 1)  # HWC -> CHW
+        elif len(image.shape) == 2:
+            image = image.unsqueeze(0)  # HW -> CHW
+    elif isinstance(image, np.ndarray):
+        image = torch.tensor(image, dtype=torch.float32)
+        if len(image.shape) == 3 and image.shape[-1] in [1, 3, 4]:
+            image = image.permute(2, 0, 1)  # HWC -> CHW
+        elif len(image.shape) == 2:
+            image = image.unsqueeze(0)  # HW -> CHW
+    elif isinstance(image, torch.Tensor):
+        image = image.float()
+        if len(image.shape) == 3 and image.shape[-1] in [1, 3, 4]:
+            image = image.permute(2, 0, 1)  # HWC -> CHW
+        elif len(image.shape) == 2:
+            image = image.unsqueeze(0)  # HW -> CHW
     
-    square_size = min(W, H)
-    left = (W - square_size) // 2
-    top = (H - square_size) // 2
-    square_img = original_img.crop((left, top, left + square_size, top + square_size))
+    return image
 
-    W, H = square_img.size
-    W_half, H_half = W // 2, H // 2
-    print(f"Each quadrant: {W_half}×{H_half}")
+
+def resize_by_ratio(image: Union[torch.Tensor, Image.Image, np.ndarray], 
+                   ratio: float, 
+                   align_corners: bool = False,) -> torch.Tensor:
+    """
+    Resize image by a scaling ratio.
     
-    quadrants = [
-        square_img.crop((0, 0, W_half, H_half)),           # Top-left
-        square_img.crop((W_half, 0, W, H_half)),           # Top-right
-        square_img.crop((0, H_half, W_half, H)),           # Bottom-left
-        square_img.crop((W_half, H_half, W, H)),           # Bottom-right
-    ]
-
-    return square_img, quadrants
+    Args:
+        image: Input image
+        ratio: Scaling ratio (>1 for upscaling, <1 for downscaling)
+        interpolation_mode: Interpolation method ('nearest', 'linear', 'bilinear', 'bicubic', 'trilinear', 'area')
+        align_corners: Whether to align corners in interpolation
+        antialias: Whether to use antialiasing (only for bicubic/bilinear)
+        
+    Returns:
+        Resized image as torch.Tensor in CHW format
+    """
+    tensor = _convert_input(image)
+    C, H, W = tensor.shape
+    
+    target_H = int(H * ratio)
+    target_W = int(W * ratio)
+    
+    print(f"Resizing by ratio {ratio:.3f}: {H}×{W} → {target_H}×{target_W}")
+    
+    # Resize using interpolation
+    resized = F.interpolate(
+        tensor.unsqueeze(0),  # Add batch dimension
+        size=(target_H, target_W),
+        mode='bicubic',
+        # align_corners=align_corners,
+        antialias=True
+    ).squeeze(0)  # Remove batch dimension
+    
+    return resized
