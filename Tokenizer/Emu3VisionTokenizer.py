@@ -5,8 +5,7 @@ import os
 import sys
 from typing import Tuple, Any
 from transformers import AutoModel, AutoImageProcessor
-from .base import Tokenizer 
-
+from base import Tokenizer 
 
 class Emu3VisionTokenizer(Tokenizer):
     """Emu3 Vision Tokenizer implementation"""
@@ -86,51 +85,140 @@ if __name__ == "__main__":
 
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-    from utils import load_all_images
-    
-    # Initialize tokenizer
+    from utils import load_all_images, resize_by_ratio
+
+    # Initialize the Emu3 tokenizer
     tokenizer = Emu3VisionTokenizer()
     
-    # Set up paths (adjust as needed)
-    RECONSTRUCTION_PATH = f'/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/{tokenizer.name}'
-    os.makedirs(RECONSTRUCTION_PATH, exist_ok=True)
+    # Get model parameters
+    tokenizer.get_params()
+    
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    
+    # Process multiple ratios
+    processing_ratios = [1.0, 0.9, 0.8, 0.7]
     
     # Load images
-    images, image_names, _ = load_all_images("/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/original")
+    images, image_names, image_paths = load_all_images('/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/original')
     
-    # Process and encode each image individually
-    for idx, (image, name) in enumerate(zip(images, image_names)):
-        print(f"\nProcessing image {idx+1}: {name}")
+    print(f"Found {len(images)} images to process")
+    print(f"Processing ratios: {processing_ratios}")
+    
+    # Process each ratio
+    for processing_ratio in processing_ratios:
+        print(f"\n{'='*80}")
+        if processing_ratio == 1.0:
+            print(f"PROCESSING WITH FULL RESOLUTION (no resize)")
+        else:
+            print(f"PROCESSING WITH RATIO: {processing_ratio}")
+            print(f"EFFECTIVE AREA RATIO: {processing_ratio**2:.3f}")
+        print(f"{'='*80}")
         
-        # Reconstruct image using the tokenizer
-        recon_image, metrics = tokenizer.reconstruct(image)
+        # Setup paths - different naming for ratio 1.0
+        if processing_ratio == 1.0:
+            RECONSTRUCTION_PATH = f'/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/{tokenizer.name}'
+        else:
+            RECONSTRUCTION_PATH = f'/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/{tokenizer.name}_ratio_{processing_ratio**2:.3f}'
+        os.makedirs(RECONSTRUCTION_PATH, exist_ok=True)
         
-        # Print metrics
-        print(f"Input image shape: {metrics['input_shape']}")
-        print(f"Encoded codes shape: {metrics['indices_shape']}")
-        print(f"Number of tokens: {metrics['num_tokens']}")
-        print(f"Original image pixels: {metrics['original_pixels']}")
-        print(f"Compression ratio: {metrics['compression_ratio']:.2f}x")
-        
-        # Save the reconstructed image
-        name_without_ext = os.path.splitext(name)[0]
-        output_filename = f"{name_without_ext}_{metrics['num_tokens']}.png"
-        output_path = os.path.join(RECONSTRUCTION_PATH, output_filename)
-        recon_image.save(output_path)
-        print(f"Saved: {output_filename}")
-        
-        # Display comparison
-        fig, axes = plt.subplots(1, 2, figsize=(20, 10))
-        
-        # Original image
-        axes[0].imshow(image)
-        axes[0].set_title(f"Original: {name}")
-        axes[0].axis('off')
-        
-        # Reconstructed image
-        axes[1].imshow(recon_image)
-        axes[1].set_title(f"Reconstructed: {name}")
-        axes[1].axis('off')
-        
-        plt.tight_layout()
-        plt.show()
+        # Process each image with current ratio
+        with torch.no_grad():
+            for idx, (image, name) in enumerate(zip(images, image_names)):
+                print(f"\n{'-'*60}")
+                print(f"Processing image {idx+1}/{len(images)}: {name} (ratio {processing_ratio})")
+                print(f"{'-'*60}")
+
+                # Use tokenizer's preprocess method but remove batch dimension
+                image_tensor = tokenizer.preprocess(image).squeeze(0)
+                print(f"Normalized image shape: {image_tensor.shape}")
+                
+                # Store original size for later restoration
+                original_size = (image_tensor.shape[1], image_tensor.shape[2])  # (H, W)
+                
+                # Step 1: Resize by ratio to processing size (skip if ratio is 1.0)
+                if processing_ratio == 1.0:
+                    print("📷 Using full resolution (no resize)")
+                    resized_tensor = image_tensor
+                else:
+                    print("📉 Resizing by ratio to processing size...")
+                    resized_tensor = resize_by_ratio(image_tensor, processing_ratio)
+                
+                # Step 2: Process through tokenizer (encode + decode)
+                print("🔄 Processing through tokenizer...")
+                # Add batch dimension for tokenizer
+                batch_tensor = resized_tensor.unsqueeze(0).to(device)
+                
+                # Encode and decode
+                indices, additional_info = tokenizer.encode(batch_tensor)
+                reconstructed_batch = tokenizer.decode(indices, additional_info)
+                
+                # Remove batch dimension and move to CPU
+                reconstructed_tensor = reconstructed_batch.squeeze(0).clamp(-1, 1).cpu()
+                
+                print(f"Encoded codes shape: {indices.shape}")
+                
+                # Calculate tokens and compression ratio
+                total_tokens = tokenizer.get_num_tokens(indices)
+                original_pixels = original_size[0] * original_size[1]  # H * W
+                compression_ratio = original_pixels / total_tokens
+                
+                print(f"Total tokens: {total_tokens}")
+                print(f"Original image pixels: {original_pixels}")
+                print(f"Compression ratio: {compression_ratio:.2f}x")
+                
+                # Convert to PIL for display and saving using tokenizer's postprocess
+                original_pil = tokenizer.postprocess(image_tensor.unsqueeze(0))
+                reconstructed_pil = tokenizer.postprocess(reconstructed_tensor.unsqueeze(0))
+                
+                # Create filename with ratio and token count
+                name_without_ext = os.path.splitext(name)[0]
+                output_filename = f"{name_without_ext}_{total_tokens}.png"
+                output_path = os.path.join(RECONSTRUCTION_PATH, output_filename)
+                
+                # Save the reconstructed image
+                reconstructed_pil.save(output_path)
+                print(f"  💾 Saved: {output_filename}")
+                
+                # Show results
+                if processing_ratio == 1.0:
+                    # For full resolution, show only original and reconstructed
+                    fig, axes = plt.subplots(1, 2, figsize=(20, 10))
+                    
+                    # Original image
+                    axes[0].imshow(original_pil)
+                    axes[0].set_title(f"Original: {name}\n{original_size[0]}×{original_size[1]}")
+                    axes[0].axis('off')
+                    
+                    # Reconstructed image
+                    axes[1].imshow(reconstructed_pil)
+                    axes[1].set_title(f"Reconstructed: {name_without_ext}\n{total_tokens} tokens, {compression_ratio:.2f}x compression")
+                    axes[1].axis('off')
+                else:
+                    # For resized versions, show all three
+                    fig, axes = plt.subplots(1, 3, figsize=(30, 10))
+                    
+                    # Original image
+                    axes[0].imshow(original_pil)
+                    axes[0].set_title(f"Original: {name}\n{original_size[0]}×{original_size[1]}")
+                    axes[0].axis('off')
+                    
+                    # Resized version (for reference)
+                    resized_pil = tokenizer.postprocess(resized_tensor.unsqueeze(0))
+                    axes[1].imshow(resized_pil)
+                    axes[1].set_title(f"Resized (ratio {processing_ratio:.3f})\n{resized_tensor.shape[-2]}×{resized_tensor.shape[-1]}")
+                    axes[1].axis('off')
+                    
+                    # Reconstructed image
+                    axes[2].imshow(reconstructed_pil)
+                    axes[2].set_title(f"Reconstructed: {name_without_ext}\n{total_tokens} tokens, {compression_ratio:.2f}x compression")
+                    axes[2].axis('off')
+                
+                plt.tight_layout()
+                plt.show()
+                
+                # Clean up memory
+                del image_tensor, resized_tensor, batch_tensor, indices, reconstructed_batch, reconstructed_tensor
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+    print("\n✅ Processing complete for all ratios!")
