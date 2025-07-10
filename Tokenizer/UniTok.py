@@ -23,7 +23,11 @@ from utils.data import normalize_01_into_pm1
 
 TOKENIZER_PATH = '/iopsstor/scratch/cscs/nirmiger/unitok_tokenizer.pth'
 TOKENIZER = 'unitok'
-RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}'
+IMAGE_SIZE = 256
+TILE_SIZE = 412
+
+RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}_ratio_{(IMAGE_SIZE/TILE_SIZE)*(IMAGE_SIZE/TILE_SIZE)}'
+
 
 class UniTokTokenizer(Tokenizer):
     """UniTok tokenizer implementation"""
@@ -91,7 +95,7 @@ class UniTokTokenizer(Tokenizer):
 if __name__ == "__main__":
     # Example usage
     tokenizer = UniTokTokenizer(ckpt_path=TOKENIZER_PATH, device='cuda', image_size=256)
-    tiler = Tiler(tile_size=256, pad_value=-1.0)
+    tiler = Tiler(tile_size=TILE_SIZE, pad_value=-1.0, tile_resize=IMAGE_SIZE)
     images, _, image_paths = load_all_images('/users/nirmiger/benchmark-image-tokenzier/assets/original')
     batch_size = 8  # Adjust based on GPU memory
     os.makedirs(RECONSTRUCTION_PATH, exist_ok=True)

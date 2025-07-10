@@ -24,7 +24,11 @@ import vila_u
 
 TOKENIZER_PATH = '/iopsstor/scratch/cscs/nirmiger/vila-u-7b-256'
 TOKENIZER = 'vila-u-7b-256'
-RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}'
+
+IMAGE_SIZE = 256
+TILE_SIZE = 256
+
+RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}_ratio_{(IMAGE_SIZE/TILE_SIZE)*(IMAGE_SIZE/TILE_SIZE)}'
 
 class VILA_U_Tokenizer(Tokenizer):
     """UniTok tokenizer implementation"""
@@ -81,13 +85,13 @@ class VILA_U_Tokenizer(Tokenizer):
 
     def get_num_tokens(self, indices: torch.Tensor) -> int:
         """Get total number of tokens"""
-        return indices.numel()/256
+        return int(indices.numel()/256)
     
 
 if __name__ == "__main__":
     # Example usage
     tokenizer = VILA_U_Tokenizer(model_path=TOKENIZER_PATH, device='cuda', image_size=256)
-    tiler = Tiler(tile_size=256, tile_resize=256, pad_value=-1.0)
+    tiler = Tiler(tile_size=TILE_SIZE, pad_value=-1.0, tile_resize=IMAGE_SIZE)
     images, _, image_paths = load_all_images('/users/nirmiger/benchmark-image-tokenzier/assets/original')
     batch_size = 8  # Adjust based on GPU memory
     os.makedirs(RECONSTRUCTION_PATH, exist_ok=True)
@@ -133,6 +137,7 @@ if __name__ == "__main__":
         all_indices_tensor = torch.cat(all_indices, dim=0)
 
         # Reconstruct full image
+        reconstructed_tiles = reconstructed_tiles.to(torch.float32)
         reconstructed_full = tiler.full_reconstruct(reconstructed_tiles, metadata)
 
         # Convert to PIL

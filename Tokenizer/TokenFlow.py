@@ -19,7 +19,7 @@ sys.path.append('/users/nirmiger/TokenFlow')
 
 from tokenflow.tokenizer.vq_model import VQ_models
 
-TOKENIZER = 'tokenflow_224'
+TOKENIZER = 'tokenflow_384'
 if TOKENIZER == 'tokenflow_384':
     TOKENIZER_PATH = '/iopsstor/scratch/cscs/nirmiger/tokenflow_siglip_32k.pt'
     TEACHER = 'siglip_384'
@@ -31,8 +31,10 @@ if TOKENIZER == 'tokenflow_224':
     IMAGE_SIZE = 224
     ENHANCED_DECODER = True
 
+TILE_SIZE = 412
 
-RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}'
+RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}_ratio_{(IMAGE_SIZE/TILE_SIZE)*(IMAGE_SIZE/TILE_SIZE)}'
+
 
 class TokenFlowTokenizer(Tokenizer):
     """UniTok tokenizer implementation"""
@@ -118,7 +120,7 @@ class TokenFlowTokenizer(Tokenizer):
 if __name__ == "__main__":
     # Example usage
     tokenizer = TokenFlowTokenizer(ckpt_path=TOKENIZER_PATH, teacher=TEACHER, image_size=IMAGE_SIZE, enhanced_decoder=ENHANCED_DECODER)
-    tiler = Tiler(tile_size=IMAGE_SIZE, pad_value=-1.0)
+    tiler = Tiler(tile_size=TILE_SIZE, pad_value=-1.0, tile_resize=IMAGE_SIZE)
     images, _, image_paths = load_all_images('/users/nirmiger/benchmark-image-tokenzier/assets/original')
     batch_size = 8  # Adjust based on GPU memory
     os.makedirs(RECONSTRUCTION_PATH, exist_ok=True)
