@@ -22,7 +22,7 @@ sys.path.append('/users/nirmiger/SelftokTokenizer')
 from mimogpt.infer.SelftokPipeline import SelftokPipeline, NormalizeToTensor
 from mimogpt.infer.infer_utils import parse_args_from_yaml
 
-TOKENIZER = 'selftok_512'
+TOKENIZER = 'selftok_1024'
 if TOKENIZER == 'selftok_512':
     TOKENIZER_PATH = '/iopsstor/scratch/cscs/nirmiger/renderer_512_ckpt.pth'
     CONFIG_PATH = '/users/nirmiger/SelftokTokenizer/configs/renderer/renderer-eval.yml'
@@ -31,8 +31,10 @@ elif TOKENIZER == 'selftok_1024':
     CONFIG_PATH = '/users/nirmiger/SelftokTokenizer/configs/renderer/renderer-eval_1024.yml'
 
 SD3_PATH = '/iopsstor/scratch/cscs/nirmiger/models--stabilityai--stable-diffusion-3-medium-diffusers/snapshots/ea42f8cef0f178587cf766dc8129abd379c90671'
+IMAGE_SIZE = 256
+TILE_SIZE = 256
 
-RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}'
+RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}_ratio_{(IMAGE_SIZE/TILE_SIZE)*(IMAGE_SIZE/TILE_SIZE)}'
 
 class SelftokTokenizer(Tokenizer):
     """Selftok tokenizer implementation"""
@@ -106,7 +108,8 @@ class SelftokTokenizer(Tokenizer):
 if __name__ == "__main__":
     # Example usage
     tokenizer = SelftokTokenizer(yml_path=CONFIG_PATH, ckpt_path=TOKENIZER_PATH, sd3_path=SD3_PATH, device='cuda', image_size=256)
-    tiler = Tiler(tile_size=256, pad_value=-1.0)
+
+    tiler = Tiler(tile_size=TILE_SIZE, pad_value=-1.0, tile_resize=IMAGE_SIZE)
     images, _, image_paths = load_all_images('/users/nirmiger/benchmark-image-tokenzier/assets/original')
     batch_size = 8  # Adjust based on GPU memory
     os.makedirs(RECONSTRUCTION_PATH, exist_ok=True)
@@ -152,6 +155,7 @@ if __name__ == "__main__":
         all_indices_tensor = torch.cat(all_indices, dim=0)
 
         # Reconstruct full image
+        reconstructed_tiles = reconstructed_tiles.to(torch.float32)
         reconstructed_full = tiler.full_reconstruct(reconstructed_tiles, metadata)
 
         # Convert to PIL
