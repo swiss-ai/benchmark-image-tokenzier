@@ -84,22 +84,22 @@ def calculate_metrics():
 
             # Resize generated images to match original resolution
             original_images_resized = [
-                orig.resize(gen.size, Image.LANCZOS)
+                orig.resize(gen.size, Image.BICUBIC)
                 for orig, gen in zip(original_images, generated_images)
             ]
 
-            for orig, gen_resized in zip(original_images_resized, generated_images):
+            for orig_resized, gen in zip(original_images_resized, generated_images):
                 # Convert to numpy arrays for PSNR and SSIM
-                orig_np = np.array(orig)
-                gen_np = np.array(gen_resized)
+                orig_np = np.array(orig_resized)
+                gen_np = np.array(gen)
 
                 # PSNR
                 psnr_values.append(psnr(orig_np, gen_np))
                 # SSIM
                 ssim_values.append(ssim(orig_np, gen_np, channel_axis=-1))
                 # LPIPS
-                orig_tensor = lpips_transform(orig).unsqueeze(0).to(device)
-                gen_tensor = lpips_transform(gen_resized).unsqueeze(0).to(device)
+                orig_tensor = lpips_transform(orig_resized).unsqueeze(0).to(device)
+                gen_tensor = lpips_transform(gen).unsqueeze(0).to(device)
                 lpips_score = lpips_model(orig_tensor, gen_tensor).item()
                 lpips_values.append(lpips_score)
 
