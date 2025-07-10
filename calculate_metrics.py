@@ -83,12 +83,12 @@ def calculate_metrics():
             lpips_values = []
 
             # Resize generated images to match original resolution
-            resized_generated_images = [
-                gen.resize(orig.size, Image.LANCZOS)
+            original_images_resized = [
+                orig.resize(gen.size, Image.LANCZOS)
                 for orig, gen in zip(original_images, generated_images)
             ]
 
-            for orig, gen_resized in zip(original_images, resized_generated_images):
+            for orig, gen_resized in zip(original_images_resized, generated_images):
                 # Convert to numpy arrays for PSNR and SSIM
                 orig_np = np.array(orig)
                 gen_np = np.array(gen_resized)
@@ -108,7 +108,7 @@ def calculate_metrics():
             avg_lpips = np.mean(lpips_values)
 
             # FID remains unchanged, original and generated images as is
-            fid_value = calculate_fid(original_images, resized_generated_images)
+            fid_value = calculate_fid(original_images_resized, generated_images)
 
             results.append({
                 "Folder": folder_name,
