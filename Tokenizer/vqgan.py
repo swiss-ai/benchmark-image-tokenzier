@@ -138,7 +138,7 @@ if __name__ == "__main__":
     images, image_names, image_paths = load_all_images('/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/original')
 
 
-    TOKENIZER = "vqgan_openimage_f8_16384" # vqgan_openimage_f8_256 , vqgan_openimage_f8_16384
+    TOKENIZER = "vqgan_openimage_f8_256" # vqgan_openimage_f8_256 , vqgan_openimage_f8_16384
     RECONSTRUCTION_PATH = f'/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/{TOKENIZER}'
     os.makedirs(RECONSTRUCTION_PATH, exist_ok=True)
 
@@ -171,19 +171,19 @@ if __name__ == "__main__":
         reconstructed_image.save(output_path)
         print(f"Saved: {output_filename}")
         
-        # Display comparison
-        fig, axes = plt.subplots(1, 2, figsize=(20, 10))
+        # # Display comparison
+        # fig, axes = plt.subplots(1, 2, figsize=(20, 10))
         
-        # Original image
-        axes[0].imshow(image)
-        axes[0].set_title(f"Original: {name}")
-        axes[0].axis('off')
+        # # Original image
+        # axes[0].imshow(image)
+        # axes[0].set_title(f"Original: {name}")
+        # axes[0].axis('off')
         
-        # Reconstructed image
-        axes[1].imshow(reconstructed_image)
-        axes[1].set_title(f"Reconstructed: {name} ({metrics['num_tokens']} tokens)")
-        axes[1].axis('off')
+        # # Reconstructed image
+        # axes[1].imshow(reconstructed_image)
+        # axes[1].set_title(f"Reconstructed: {name} ({metrics['num_tokens']} tokens)")
+        # axes[1].axis('off')
         
-        plt.tight_layout()
-        plt.show()
+        # plt.tight_layout()
+        # plt.show()
         
