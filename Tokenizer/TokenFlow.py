@@ -31,9 +31,9 @@ if TOKENIZER == 'tokenflow_224':
     IMAGE_SIZE = 224
     ENHANCED_DECODER = True
 
-TILE_SIZE = 412
+TILE_SIZE = 384
 
-RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}_ratio_{(IMAGE_SIZE/TILE_SIZE)*(IMAGE_SIZE/TILE_SIZE)}'
+RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}_ratio_{(IMAGE_SIZE/TILE_SIZE)*(IMAGE_SIZE/TILE_SIZE)}_tests'
 
 
 class TokenFlowTokenizer(Tokenizer):
@@ -101,20 +101,20 @@ class TokenFlowTokenizer(Tokenizer):
     def encode(self, tensor: torch.Tensor) -> Tuple[torch.Tensor, dict]:
         """Encode tensor into discrete tokens"""
         with torch.no_grad():
-            latent, _, _ = self.model.encode(tensor)
-        return latent, {}  # TokenFlow doesn’t use auxiliary info
+            latent, _, info = self.model.encode(tensor)
+        return latent, info  # TokenFlow doesn’t use auxiliary info
 
     def decode(self, indices: torch.Tensor, additional_info: dict = None) -> torch.Tensor:
         """Decode discrete tokens back into image tensor"""
         with torch.no_grad():
-            output = self.model.decode(indices)
+            output = self.model.decode_code(indices)
             if isinstance(output, tuple):
                 output = output[1]
         return output
 
     def get_num_tokens(self, indices: torch.Tensor) -> int:
         """Return number of tokens in flattened index tensor"""
-        return int(indices.numel()/40) # 40 is the embedding dimension for TokenFlow
+        return indices.numel()
     
 
 if __name__ == "__main__":
@@ -152,8 +152,8 @@ if __name__ == "__main__":
             print(f"Batch {i//batch_size + 1}: tiles {i}-{end_idx - 1}")
 
             with torch.no_grad():
-                indices, additional_info = tokenizer.encode(batch_tiles)
-                reconstructed_batch = tokenizer.decode(indices, additional_info)
+                vectors, indices = tokenizer.encode(batch_tiles)
+                reconstructed_batch = tokenizer.decode(indices, vectors)
 
             reconstructed_tiles_list.append(reconstructed_batch.cpu())
             all_indices.append(indices.cpu())
