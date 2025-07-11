@@ -11,6 +11,7 @@ from lpips import LPIPS
 import warnings
 import matplotlib.pyplot as plt
 import seaborn as sns
+import re
 
 # Path to the assets folder
 ASSETS_FOLDER = "assets"
@@ -35,6 +36,20 @@ fid_transform = transforms.Compose([
 # Initialize LPIPS model
 warnings.filterwarnings("ignore", category=UserWarning)
 lpips_model = LPIPS(net='alex').to(device)
+
+# Function to round ratio values in folder names
+def round_ratio_in_name(folder_name):
+    """Round ratio values in folder names to 2 decimal places"""
+    if "ratio" in folder_name.lower():
+        # Find all decimal numbers in the string
+        def round_match(match):
+            number = float(match.group())
+            return f"{number:.2f}"
+        
+        # Replace decimal numbers with rounded versions
+        rounded_name = re.sub(r'\d+\.\d+', round_match, folder_name)
+        return rounded_name
+    return folder_name
 
 # Function to calculate FID
 def calculate_fid(original_images, generated_images):
@@ -110,8 +125,11 @@ def calculate_metrics():
             # FID remains unchanged, original and generated images as is
             fid_value = calculate_fid(original_images_resized, generated_images)
 
+            # Round ratio values in folder name for consistent display
+            display_folder_name = round_ratio_in_name(folder_name)
+            
             results.append({
-                "Folder": folder_name,
+                "Folder": display_folder_name,
                 "PSNR": avg_psnr,
                 "SSIM": avg_ssim,
                 "LPIPS": avg_lpips,
@@ -135,8 +153,8 @@ def calculate_metrics():
         with open("metrics_results.md", "w") as f:
             f.write(df_sorted.to_markdown(index=False))
             
-        # --- Plot LPIPS Scores ---
-        plt.figure(figsize=(10, 5))
+        # --- Plot LPIPS Scores with rounded ratio names ---
+        plt.figure(figsize=(12, 6))  # Made slightly wider to accommodate labels
         sns.barplot(data=df_sorted, x="Folder", y="LPIPS", palette="viridis")
         plt.title("LPIPS Scores per Tokenizer (Lower is Better)")
         plt.ylabel("LPIPS")
