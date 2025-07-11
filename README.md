@@ -11,3 +11,4 @@
 | **UniTok** | VQ-VAE | Sequential (1D latent) | 256×256 | flexible | flexible(8 x 256 for 256 x 256) | 8 x 16000 | Unknown | ✅ | ✅ | DataComp-1B |
 | **DetailFlow** | Autoregressive | Sequential (AR coarse-to-fine, next-detail-prediction) | 256×256 | 256×256 | 128 / 256 / 512 | 8,192 | Unknown | - | ✅ | ImageNet-1K |
 | **TokenFlow** | VQ-VAE (Transformer-based) | Spatial (2D latent, next-scale-prediction) | 256×256 / 384x384 | 256×256 / 384x384 |  16x16 / 27x27 | 32,768 | Unknown | ✅ | ✅ | LAION and COYO-700M (no ocr data!) |
+| **VILA-U** | RQ-VAE | Spatial (2D latent) | 256×256 | 256×256 |  16x16x4 | 16,384 | Unknown | ✅ | ✅ | COYO-700M |
