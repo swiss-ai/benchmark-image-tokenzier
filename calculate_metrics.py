@@ -154,12 +154,12 @@ def calculate_metrics():
             f.write(df_sorted.to_markdown(index=False))
             
         # --- Plot LPIPS Scores with rounded ratio names ---
-        plt.figure(figsize=(12, 6))  # Made slightly wider to accommodate labels
+        plt.figure(figsize=(16, 6))  # Made slightly wider to accommodate labels
         sns.barplot(data=df_sorted, x="Folder", y="LPIPS", palette="viridis")
         plt.title("LPIPS Scores per Tokenizer (Lower is Better)")
         plt.ylabel("LPIPS")
         plt.xlabel("Tokenizer")
-        plt.xticks(rotation=45, ha="right")
+        plt.xticks(rotation=45, ha="right", fontsize=8)
         plt.tight_layout()
         plt.savefig("lpips_comparison_plot.png", dpi=300)
         print("Saved LPIPS plot to lpips_comparison_plot.png")
