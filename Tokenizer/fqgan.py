@@ -1,12 +1,17 @@
+import os
+import sys
+base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(base_dir)
+sys.path.insert(0, os.path.join(base_dir, "FQGAN"))
+
 import torch
 import torch.nn.functional as F
 from PIL import Image
 import numpy as np
 from typing import Tuple, List, Optional, Union, Dict, Any
 import torchvision.transforms as T
-from abc import ABC, abstractmethod
 from FQGAN.tokenizer.vq_model_triple import VQ_models
-from .base import Tokenizer
+from Tokenizer.base import Tokenizer
 
 class FQGAN(Tokenizer):
     """FQGAN Tokenizer using triple VQ model architecture"""
@@ -225,3 +230,210 @@ class FQGAN(Tokenizer):
                 }
         
         return reconstructed_image, metrics
+
+
+def print_metrics(name, total_tokens, total_tokens_vis, total_tokens_sem_mid, total_tokens_sem_high, 
+                 compression_ratio, original_pixels, processing_ratio=None):
+    """Print comprehensive metrics for the processed image"""
+    print(f"\n📊 METRICS for {name}:")
+    print(f"  💾 Total tokens: {total_tokens:,}")
+    print(f"     ├─ Visual tokens: {total_tokens_vis:,}")
+    print(f"     ├─ Semantic mid tokens: {total_tokens_sem_mid:,}")
+    print(f"     └─ Semantic high tokens: {total_tokens_sem_high:,}")
+    print(f"  🖼️  Original pixels: {original_pixels:,}")
+    print(f"  📈 Compression ratio: {compression_ratio:.2f}x")
+    if processing_ratio is not None and processing_ratio != 1.0:
+        print(f"  🔍 Processing ratio: {processing_ratio} (area: {processing_ratio**2:.3f})")
+
+
+def setup_environment():
+    """Set up environment variables for threading"""
+    os.environ['OMP_NUM_THREADS'] = '16'
+    os.environ['MKL_NUM_THREADS'] = '16'
+    os.environ['OPENBLAS_NUM_THREADS'] = '16'
+    os.environ['NUMEXPR_NUM_THREADS'] = '16'
+
+
+def create_tiler(processing_ratio, tile_resize):
+    """Create tiler based on processing ratio"""
+    from Tiler import Tiler
+
+    if processing_ratio == 1.0:
+        tile_orig_size = tile_resize  # No resize, so orig_size = resize
+        return Tiler(tile_size=tile_orig_size, pad_value=-1.0), tile_orig_size  # No resize
+    else:
+        tile_orig_size = round(tile_resize / processing_ratio)
+        return Tiler(tile_size=tile_orig_size, pad_value=-1.0, tile_resize=tile_resize), tile_orig_size
+
+
+def process_single_image(tokenizer, tiler, image, name, batch_size, processing_ratio, reconstruction_path):
+    """Process a single image through the tokenization pipeline"""
+    print(f"\n{'-'*60}")
+    print(f"Processing image: {name} (ratio {processing_ratio})")
+    print(f"{'-'*60}")
+
+    # Use tokenizer's preprocess method but remove batch dimension for tiling
+    image_tensor = tokenizer.preprocess(image).squeeze(0)
+    print(f"Normalized image shape: {image_tensor.shape}")
+
+    # Tile the normalized image
+    print("🔲 Tiling image...")
+    result = tiler(image_tensor)
+    tiles = result['tiles']  # Shape: (total_tiles, C, tile_h, tile_w)
+    metadata = result['metadata']
+
+    print(f"Number of tiles: {tiles.shape[0]}")
+    print(f"Tile shape: {tiles.shape[1:]}")
+
+    # Process tiles in smaller batches
+    total_tiles = tiles.shape[0]
+    reconstructed_tiles_list = []
+    all_indices_vis = []
+    all_indices_sem_mid = []
+    all_indices_sem_high = []
+    all_additional_info = []
+
+    print(f"🔄 Processing {total_tiles} tiles in batches of {batch_size}")
+
+    for i in range(0, total_tiles, batch_size):
+        end_idx = min(i + batch_size, total_tiles)
+        batch_tiles = tiles[i:end_idx].to(tokenizer.device)
+
+        print(f"  📦 Processing batch {i//batch_size + 1}/{(total_tiles + batch_size - 1)//batch_size}: tiles {i+1}-{end_idx}")
+
+        # Process this batch through the tokenizer
+        indices, additional_info = tokenizer.encode(batch_tiles)
+        reconstructed_batch = tokenizer.decode(indices, additional_info)
+
+        # Store indices from all three codebooks
+        all_indices_vis.append(indices['indices_vis'].cpu())
+        all_indices_sem_mid.append(indices['indices_sem_mid'].cpu())
+        all_indices_sem_high.append(indices['indices_sem_high'].cpu())
+        all_additional_info.append(additional_info)
+
+        # Move to CPU and clamp
+        reconstructed_batch = reconstructed_batch.clamp(-1, 1).cpu()
+        reconstructed_tiles_list.append(reconstructed_batch)
+
+        # Clear GPU memory
+        del batch_tiles, reconstructed_batch, indices
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    # Reconstruct full image
+    print("🔧 Reconstructing full image from processed tiles...")
+    reconstructed_tiles = torch.cat(reconstructed_tiles_list, dim=0)
+
+    # Combine all indices from all batches
+    all_indices_combined = {
+        'indices_vis': torch.cat(all_indices_vis, dim=0),
+        'indices_sem_mid': torch.cat(all_indices_sem_mid, dim=0),
+        'indices_sem_high': torch.cat(all_indices_sem_high, dim=0)
+    }
+
+    # Calculate total tokens across all three codebooks
+    total_tokens_vis = all_indices_combined['indices_vis'].numel()
+    total_tokens_sem_mid = all_indices_combined['indices_sem_mid'].numel()
+    total_tokens_sem_high = all_indices_combined['indices_sem_high'].numel()
+    total_tokens = total_tokens_vis + total_tokens_sem_mid + total_tokens_sem_high
+
+    original_pixels = image_tensor.shape[-2] * image_tensor.shape[-1]
+    compression_ratio = original_pixels / total_tokens
+
+    # Reconstruct and postprocess
+    reconstructed_full = tiler.full_reconstruct(reconstructed_tiles, metadata)
+
+    # Convert to PIL for saving using tokenizer's postprocess
+    reconstructed_pil = tokenizer.postprocess(reconstructed_full.unsqueeze(0))
+
+    # Create filename with token count
+    name_without_ext = os.path.splitext(name)[0]
+    output_filename = f"{name_without_ext}_tiled_{total_tokens}.png"
+    output_path = os.path.join(reconstruction_path, output_filename)
+
+    # Save the reconstructed image
+    reconstructed_pil.save(output_path)
+    print(f"  💾 Saved: {output_filename}")
+    
+    # Print metrics
+    print_metrics(name, total_tokens, total_tokens_vis, total_tokens_sem_mid, 
+                 total_tokens_sem_high, compression_ratio, original_pixels, processing_ratio)
+
+    # Clean up memory
+    del tiles, reconstructed_tiles, all_indices_combined, image_tensor, reconstructed_full
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+if __name__ == "__main__":
+    # Setup environment
+    setup_environment()
+    
+    # Import here to avoid circular imports when used as module
+    from Tiler import Tiler
+    from utils import load_all_images
+
+    # Initialize tokenizer
+    tokenizer = FQGAN(
+        vq_model="VQ-16",
+        vq_ckpt="/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/FQGAN/checkpoints/fqgan_triple_ds16.pt",
+        codebook_size=16384,
+        codebook_embed_dim=8,
+        image_size=256,
+        with_clip_supervision=True,
+        with_disentanglement=False,
+        disentanglement_ratio=0.1
+    )
+
+    # Configuration
+    processing_ratios = [1.0, 0.9, 0.8, 0.7]
+    tile_resize = 256
+    batch_size = 8
+
+    # Load images
+    image_folder = '/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/original'
+    print(f"Loading images from: {image_folder}")
+    
+    try:
+        images, image_names, image_paths = load_all_images(image_folder)
+        print(f"Successfully loaded {len(images)} images")
+    except Exception as e:
+        print(f"Error loading images: {e}")
+        sys.exit(1)
+
+    # Process each ratio
+    for processing_ratio in processing_ratios:
+        print(f"\n{'='*80}")
+        if processing_ratio == 1.0:
+            print(f"PROCESSING WITH TILING AT FULL RESOLUTION (no tile resize)")
+            RECONSTRUCTION_PATH = f'/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/fqgan_triple_tiled_{tile_resize}'
+        else:
+            print(f"PROCESSING WITH TILING RATIO: {processing_ratio}")
+            tile_orig_size = round(tile_resize / processing_ratio)
+            print(f"TILE ORIG SIZE: {tile_orig_size} -> TILE RESIZE: {tile_resize}")
+            print(f"EFFECTIVE AREA RATIO: {processing_ratio**2:.3f}")
+            RECONSTRUCTION_PATH = f'/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/fqgan_triple_tiled_{tile_resize}_ratio_{processing_ratio**2:.3f}'
+        print(f"OUTPUT PATH: {RECONSTRUCTION_PATH}")
+        print(f"{'='*80}")
+        
+        # Create output directory
+        os.makedirs(RECONSTRUCTION_PATH, exist_ok=True)
+        
+        # Initialize tiler for current ratio
+        tiler, tile_orig_size = create_tiler(processing_ratio, tile_resize)
+        
+        print(f"Using tiler with tile_size={tiler.tile_size}, tile_resize={getattr(tiler, 'tile_resize', 'None')}")
+        
+        # Process each image with current ratio
+        with torch.no_grad():
+            for idx, (image, name) in enumerate(zip(images, image_names)):
+                try:
+                    process_single_image(
+                        tokenizer, tiler, image, name, batch_size, processing_ratio, RECONSTRUCTION_PATH
+                    )
+                except Exception as e:
+                    print(f"❌ Error processing {name}: {e}")
+                    continue
+
+    print(f"\n🎉 All processing completed!")
+    print(f"Check the output directories for reconstructed images.")

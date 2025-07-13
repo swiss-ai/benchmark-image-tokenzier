@@ -140,7 +140,8 @@ if __name__ == "__main__":
     from utils import load_all_images
     from Tiler import Tiler
     # Example usage
-    tokenizer = FlowMo(model_name="flowmo_hi", device="cuda", num_tokens=1024)
+    # tokenizer = FlowMo(model_name="flowmo_hi", device="cuda", num_tokens=1024)
+    tokenizer = FlowMo(model_name="flowmo_lo", device="cuda", num_tokens=256)
 
     processing_ratios = [1.0, 0.9, 0.8, 0.7]
     tile_resize = 256

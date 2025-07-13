@@ -4,7 +4,7 @@ import numpy as np
 from einops import rearrange
 from PIL import Image
 import math
-from typing import Union, Tuple, Dict, Any
+from typing import Union, Tuple, Dict, Any, Optional
 import torchshow as ts
 
 
@@ -15,7 +15,7 @@ class Tiler:
     Workflow: downsample → pad → tile → process → stitch → unpad → upsample
     """
     
-    def __init__(self, tile_size: int = 384, tile_resize: int = 256, pad_value: float = 0):
+    def __init__(self, tile_size: int = 256, tile_resize: Optional[int] = None, pad_value: float = 0):
         """
         Args:
             tile_size: Original tile extraction size
@@ -23,12 +23,11 @@ class Tiler:
             pad_value: Padding value
         """
         self.tile_size = tile_size
-        self.tile_resize = tile_resize
+        self.tile_resize = tile_resize if tile_resize is not None else tile_size
         self.pad_value = pad_value
-        self.ratio = tile_resize / tile_size
-        
-        # Calculate both ratios for clarity
-        area_ratio = (tile_resize ** 2) / (tile_size ** 2)
+
+        self.ratio = self.tile_resize / self.tile_size
+        area_ratio = (self.tile_resize ** 2) / (self.tile_size ** 2)
         
         print(f"Linear scaling ratio: {tile_resize}/{tile_size} = {self.ratio:.3f}")
         print(f"Pixel per tile ratio: {tile_resize}²/{tile_size}² = {area_ratio:.3f}")

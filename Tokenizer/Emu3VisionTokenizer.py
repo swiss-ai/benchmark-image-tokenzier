@@ -5,7 +5,7 @@ import os
 import sys
 from typing import Tuple, Any
 from transformers import AutoModel, AutoImageProcessor
-from base import Tokenizer 
+from Tokenizer.base import Tokenizer 
 
 class Emu3VisionTokenizer(Tokenizer):
     """Emu3 Vision Tokenizer implementation"""
