@@ -45,12 +45,11 @@ def load_image(image_path):
         with PIL.Image.open(image_path) as image:
             return load_image(image)
 
-
 def resize_and_pad(
     image,
     desired_output_size,
     is_training=False,
-    pad_value=0,
+    pad_value=-1,
     rng=np.random
 ):
     """Resize an image while padding to preserve its aspect ratio."""
@@ -66,10 +65,8 @@ def resize_and_pad(
     scaled_width = int(np.array(width, np.float32) * image_scale)
 
     image = torch.permute(torch.from_numpy(image), [2, 0, 1])
-    image = convert_image_dtype(image)  # resize in float32 to match the training code
     mode = InterpolationMode.BICUBIC
     image = torchvision.transforms.Resize([scaled_height, scaled_width], mode, antialias=True)(image)
-    image = torch.clip(image, 0.0, 1.0)
     image = torch.permute(image, [1, 2, 0]).numpy()
 
     top_pad = (desired_height - scaled_height) // 2
@@ -82,134 +79,6 @@ def resize_and_pad(
     image_mask = np.pad(np.ones_like(image[:, :, 0], dtype=bool), padding[:2])
     image = np.pad(image, padding, constant_values=pad_value)
     return image, image_mask
-
-def resize_and_pad_tensor(image, desired_output_size, pad_value=0):
-    """Resize a tensor image while padding to preserve its aspect ratio."""
-    desired_height, desired_width = desired_output_size
-    c, h, w = image.shape
-
-    # Convert to float32 NumPy array in HWC format
-    image = image.to(torch.float32)
-    image = image.permute(1, 2, 0).cpu().numpy()  # HWC, float32
-
-    # Calculate scaling
-    scale_y = np.float32(desired_height) / np.float32(h)
-    scale_x = np.float32(desired_width) / np.float32(w)
-    scale = min(scale_x, scale_y)
-
-    scaled_height = int(np.round(h * scale))
-    scaled_width = int(np.round(w * scale))
-
-    # Resize using torchvision (convert back to tensor temporarily)
-    image_t = TF.resize(torch.from_numpy(image).permute(2, 0, 1), [scaled_height, scaled_width],
-                        interpolation=InterpolationMode.BICUBIC, antialias=True)
-    image_t = torch.clamp(image_t, 0.0, 1.0)  # In case of overflows
-
-    # Back to NumPy HWC
-    image = image_t.permute(1, 2, 0).numpy()
-
-    # Calculate padding
-    top_pad = (desired_height - scaled_height) // 2
-    left_pad = (desired_width - scaled_width) // 2
-    padding = [
-        [top_pad, desired_height - scaled_height - top_pad],
-        [left_pad, desired_width - scaled_width - left_pad],
-        [0, 0],
-    ]
-
-    # Mask is True where image is present
-    image_mask = np.pad(
-        np.ones((scaled_height, scaled_width), dtype=bool),
-        padding[:2],
-        mode='constant',
-        constant_values=False
-    )
-
-    # Pad image with constant value
-    image = np.pad(image, padding, mode='constant', constant_values=pad_value)
-    return image, image_mask
-# The resize and pad functions are currently unused, keep here for reference
-# def metaclip_resize(image, desired_output_size):
-#     image = torch.permute(torch.from_numpy(image), [2, 0, 1])
-#     if torch.is_floating_point(image):
-#         image = torchvision.transforms.Resize(
-#             desired_output_size, InterpolationMode.BICUBIC, antialias=True)(image)
-#         image = torch.clip(image, 0.0, 1.0)
-#     else:
-#         assert image.dtype == torch.uint8, "Expected float images or uint8 images, but got {}".format(image.dtype)
-#         image = torchvision.transforms.Resize(
-#             desired_output_size, InterpolationMode.BICUBIC, antialias=True)(image)
-#         image = image.to(torch.float32)
-#         image = torch.clip(image, 0, 255)
-#         image = image / 255.0
-#     resized = torch.permute(image, [1, 2, 0]).numpy()
-#     image_mask = np.ones_like(resized[:, :, 0], dtype=np.bool_)
-#     return resized, image_mask
-
-
-# def siglip_resize_and_pad(
-#     image: np.ndarray,
-#     desired_output_size: Tuple[int, int],
-# ) -> Tuple[np.ndarray, np.ndarray]:
-#     image = torch.permute(torch.from_numpy(image), [2, 0, 1])
-#     dtype = image.dtype
-#     if torch.is_floating_point(image):
-#         in_min = 0.0
-#         in_max = 1.0
-#         resized = torchvision.transforms.Resize(
-#             desired_output_size,
-#             InterpolationMode.BILINEAR,
-#             antialias=False,
-#         )(image)
-#         resized = torch.clip(resized, 0.0, 1.0).to(dtype)
-#     else:
-#         assert image.dtype == torch.uint8, "SigLIP expects float images or uint8 images, but got {}".format(image.dtype)
-#         in_min = 0.0
-#         in_max = 255.0
-#         resized = torchvision.transforms.Resize(
-#             desired_output_size,
-#             InterpolationMode.BILINEAR,
-#             antialias=False,
-#         )(image)
-#         resized = torch.clip(resized, 0, 255).to(dtype)
-
-#     resized = resized.to(torch.float32)
-#     resized = (resized - in_min) / (in_max - in_min)
-
-#     resized = torch.permute(resized, [1, 2, 0]).numpy()
-#     image_mask = np.ones_like(resized[:, :, 0], dtype=np.bool_)
-    
-#     return resized, image_mask
-
-
-# def dino_resize_and_pad(
-#     image: np.ndarray,
-#     desired_output_size: Tuple[int, int],
-# ) -> Tuple[np.ndarray, np.ndarray]:
-#     image = torch.permute(torch.from_numpy(image), [2, 0, 1])
-#     dtype = image.dtype
-#     if torch.is_floating_point(image):
-#         resized = torchvision.transforms.Resize(
-#             desired_output_size,
-#             InterpolationMode.BICUBIC,
-#             antialias=True,
-#         )(image)
-#         resized = torch.clip(resized, 0.0, 1.0).to(torch.float32)
-#     else:
-#         assert image.dtype == torch.uint8, "DINOv2 expects float images or uint8 images, but got {}".format(image.dtype)
-#         resized = torchvision.transforms.Resize(
-#             desired_output_size,
-#             InterpolationMode.BICUBIC,
-#             antialias=True,
-#         )(image)
-#         resized = torch.clip(resized, 0, 255).to(torch.float32)
-#         resized = resized / 255.0
-    
-#     resized = torch.permute(resized, [1, 2, 0]).numpy()
-#     image_mask = np.ones_like(resized[:, :, 0], dtype=np.bool_)
-
-#     return resized, image_mask
-
 
 def select_tiling(h, w, patch_size, max_num_crops):
     """Divide in image of size [w, h] in up to max_num_patches of size patch_size"""
@@ -242,45 +111,6 @@ def select_tiling(h, w, patch_size, max_num_crops):
         required_scale = np.where(required_scale < 1.0, 10e9, required_scale)
         ix = np.argmin(required_scale)
     return candidate_tilings[ix]
-
-# We currently do not want to reshape the images into patches, but keep the code here for reference
-# def pixels_to_patches(array, patch_size):
-#     """Reshape an image of [h, w, 3] -> [n_patches, pixels_per_patch]"""
-#     if len(array.shape) == 3:
-#         w, h, c = array.shape
-#         h_patches = h//patch_size
-#         w_patches = w//patch_size
-#         array = np.reshape(array, [h_patches, patch_size, w_patches, patch_size, c])
-#         array = np.transpose(array, [0, 2, 1, 3, 4])
-#         array = np.reshape(array, [h_patches*w_patches, patch_size*patch_size*c])
-#     else:
-#         w, h = array.shape
-#         h_patches = h//patch_size
-#         w_patches = w//patch_size
-#         array = np.reshape(array, [h_patches, patch_size, w_patches, patch_size])
-#         array = np.transpose(array, [0, 2, 1, 3])
-#         array = np.reshape(array, [h_patches*w_patches, patch_size*patch_size])
-#     return array
-
-
-# def batch_pixels_to_patches(array, patch_size):
-#     """Reshape images of [n_images, h, w, 3] -> [n_images, n_patches, pixels_per_patch]"""
-#     if len(array.shape) == 3:
-#         n_crops, w, h = array.shape
-#         h_patches = h//patch_size
-#         w_patches = w//patch_size
-#         array = np.reshape(array, [n_crops, h_patches, patch_size, w_patches, patch_size])
-#         array = np.transpose(array, [0, 1, 3, 2, 4])
-#         array = np.reshape(array, [n_crops, h_patches*w_patches, patch_size*patch_size])
-#         return array
-#     else:
-#         n_crops, w, h, c = array.shape
-#         h_patches = h//patch_size
-#         w_patches = w//patch_size
-#         array = np.reshape(array, [n_crops, h_patches, patch_size, w_patches, patch_size, c])
-#         array = np.transpose(array, [0, 1, 3, 2, 4, 5])
-#         array = np.reshape(array, [n_crops, h_patches*w_patches, patch_size*patch_size*c])
-#         return array
 
 
 @dataclasses.dataclass
@@ -322,28 +152,9 @@ class MultiModalPreprocessor:
         self.image_patch_token_id = 0
         self.image_prompt_token_id = 0
 
-    # Not used at the moment
-    # def _normalize(self, image):
-    #     if self.normalize == "openai":
-    #         image -= np.array(OPENAI_CLIP_MEAN, dtype=np.float32)[None, None, :]
-    #         image /= np.array(OPENAI_CLIP_STD, dtype=np.float32)[None, None, :]
-    #     elif self.normalize == "siglip":
-    #         image = np.asarray(-1.0, dtype=np.float32) + image * np.asarray(2.0, dtype=np.float32)
-    #     elif self.normalize == "dino":
-    #         image -= np.array([0.485, 0.456, 0.406], dtype=np.float32)[None, None, :]
-    #         image /= np.array([0.229, 0.224, 0.225], dtype=np.float32)[None, None, :]
-    #     else:
-    #         raise NotImplementedError(self.normalize)
-    #     return image
-
     def resize_image(self, image, output_size, is_training, rng):
-        if isinstance(image, torch.Tensor):
-            return resize_and_pad_tensor(image, output_size, pad_value=self.pad_value)
-        elif isinstance(image, np.ndarray):
-            return resize_and_pad(
-                image, output_size, pad_value=self.pad_value, rng=rng, is_training=is_training)
-        else:
-            raise ValueError(f"Unsupported image type: {type(image)}. Expected np.ndarray or torch.Tensor.")
+        return resize_and_pad(
+            image, output_size, pad_value=self.pad_value, rng=rng, is_training=is_training)
 
 
     def image_to_patches_and_tokens(
@@ -369,29 +180,6 @@ class MultiModalPreprocessor:
 
         original_image_h, original_image_w = image.shape[:2]
         crop_size = base_image_input_size[0]
-
-        # This part is not important for us at the moment
-        # if self.crop_mode == "resize":
-        #     resized, img_mask = self.resize_image(image, base_image_input_size, is_training, rng)
-        #     resized = self._normalize(resized)
-        #     patches = pixels_to_patches(resized, image_patch_size)
-        #     img_mask = pixels_to_patches(img_mask, image_patch_size)
-
-        #     per_row = np.full(
-        #         (image_token_length_w,),
-        #         self.image_patch_token_id,
-        #         dtype=np.int32
-        #     )
-        #     if self.use_col_tokens:
-        #         per_row = np.concatenate([per_row, [self.image_col_token_id]], 0, dtype=np.int32)
-        #     extra_tokens = np.tile(per_row, [image_token_length_h])
-        #     joint = [
-        #         [self.image_start_token_id],
-        #         extra_tokens,
-        #         [self.image_end_token_id],
-        #     ]
-        #     joint = np.concatenate(joint, 0, dtype=np.int32)
-        #     return np.expand_dims(patches, 0), joint, None, img_mask
 
         if self.crop_mode == "overlap-and-resize-c2":
             # Discard this many patches from the (left/top, right/bottom) of crops
@@ -419,8 +207,6 @@ class MultiModalPreprocessor:
                 is_training,
                 rng
             )
-            # src = self._normalize(src)
-
             # Now we have to split the image into crops, while keeping track of how each patch in the
             # each crop should be ordered in the global image, this require a lot of tricky booking
             n_crops = tiling[0] * tiling[1]
@@ -482,29 +268,8 @@ class MultiModalPreprocessor:
             img_mask = np.stack(mask_arr)
             mask_arr = img_mask
 
-            # Switch to [n_crops, n_patches, pixels_per_patch] format
-            image_layout_impatch_w, image_layout_impatch_h = tiling[0], tiling[1]
-
-            # patches = batch_pixels_to_patches(patches, image_patch_size)
-            # img_mask = batch_pixels_to_patches(img_mask, image_patch_size)
             img_mask = img_mask.astype(np.float32).mean(axis=-1)
 
-            # For now i do not do patch ordering, so we skip this part
-            # patch_ordering = np.reshape(patch_ordering, [-1])
-            # valid = patch_ordering >= 0
-
-            # # Patch order numbers the patches crop-by-crop, here we transpose
-            # # it to get left-to-right order
-            # patch_ordering_rh = np.reshape(
-            #     patch_ordering,
-            #     [tiling[0], tiling[1], image_token_length_h, image_token_length_w]
-            # )
-            # patch_ordering_rh = np.transpose(patch_ordering_rh, [0, 2, 1, 3])
-            # patch_ordering_rh = np.reshape(patch_ordering_rh, [-1])
-
-            # # The transpose will screw up which patches are masked, project the
-            # # new order into sparse structure of `patch_ordering` to fix it
-            # patch_ordering[valid] = patch_ordering_rh[patch_ordering_rh >= 0]
             def get_num_patches(num_tiles: int, pooling_size: int) -> int:
                 if num_tiles > 1:
                     left_crop_window_patches = (crop_window_patches + left_margin + pooling_size - 1) // pooling_size * pooling_size
@@ -535,8 +300,7 @@ class MultiModalPreprocessor:
 
             # Finally do the same for the global image
             resized, mask = self.resize_image(image, base_image_input_size, is_training, rng)
-            # resized = self._normalize(resized)
-            # resized = pixels_to_patches(resized, image_patch_size)
+
             patches = np.concatenate([np.expand_dims(resized, 0), patches], 0)
 
             # Global image goes first, so the order of patches in previous crops gets increased
@@ -547,8 +311,7 @@ class MultiModalPreprocessor:
             )
             base_ordering = np.arange(tokens_per_image).reshape(16, 16)
             patch_ordering = np.concatenate([base_ordering[None], patch_ordering], axis=0)
-            # Old way to do it
-            # patch_ordering = np.concatenate([np.arange(0, tokens_per_image), patch_ordering], 0)
+
             per_row = np.full(
                 (image_token_length_w,),
                 self.image_patch_token_id,
@@ -566,9 +329,7 @@ class MultiModalPreprocessor:
             joint = np.concatenate(joint, 0)
             img_mask = np.pad(img_mask, [[0, 1], [0, 0]], constant_values=-1)
             mask_arr = np.concatenate([np.expand_dims(mask, 0), mask_arr], 0)
-            return patches, tiling, patch_ordering, mask_arr
-            # Original return statement
-            # return patches, joint, patch_ordering, img_mask
+            return torch.tensor(patches), tiling, patch_ordering, mask_arr
         else:
             raise NotImplementedError(self.crop_mode)
 
@@ -649,8 +410,11 @@ class MultiModalPreprocessor:
         tiles_x, tiles_y = tiling
         # reshape the crops into a grid
         # The first crop is the global image, the rest are the crops
-        grid = np.array(trimmed_crops[1:], dtype=object).reshape(tiles_x, tiles_y)
-        rows = [np.concatenate(grid[y, :], axis=1) for y in range(grid.shape[0])]
+        crops_grid = [
+            trimmed_crops[1 + y * tiles_y : 1 + (y + 1) * tiles_y]
+            for y in range(tiles_x)
+        ]
+        rows = [np.concatenate(row, axis=1) for row in crops_grid]
         full_image = np.concatenate(rows, axis=0)
 
         return full_image, trimmed_crops[0]  # Return the full image and the first crop (global image)
@@ -746,12 +510,12 @@ if __name__ == "__main__":
     print("Tiling:", tiling)
     print("Patch ordering shape:", patch_ordering.shape)
     print("Image mask shape:", masks.shape)
-    breakpoint()
+
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-
-    images_to_plot = (crops * 255).astype(np.uint8)
+    crops = crops.numpy()
+    images_to_plot = crops.astype(np.uint8)
 
     # Plot
     fig, axes = plt.subplots(1, len(crops), figsize=(20, 3))
@@ -764,8 +528,8 @@ if __name__ == "__main__":
     plt.close()
 
     full_grid, first_crop = preprocessor.reconstruct(crops, tiling, patch_ordering, masks)
-    first_image = (first_crop * 255).clip(0, 255).astype(np.uint8)
+    first_image = first_crop.clip(0, 255).astype(np.uint8)
     PIL.Image.fromarray(first_image).save("first_crop_image.png")
-    full_image = (full_grid * 255).clip(0, 255).astype(np.uint8)
+    full_image = full_grid.clip(0, 255).astype(np.uint8)
     PIL.Image.fromarray(full_image).save("reconstructed_image.png")
 
