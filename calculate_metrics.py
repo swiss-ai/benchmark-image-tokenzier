@@ -61,13 +61,19 @@ def calculate_fid(original_images, generated_images):
     return fid.compute().item()
 
 # Function to load images from a folder
-def load_images_from_folder(folder_path):
+def load_images_from_folder(folder_path, original=False):
     images = []
+    numbers = []
     for filename in sorted(os.listdir(folder_path)):
         if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
             img_path = os.path.join(folder_path, filename)
             images.append(Image.open(img_path).convert("RGB"))
-    return images
+            if not original:
+                base_name = os.path.splitext(filename)[0]
+                number_str = base_name.split('_')[-1] 
+                number = int(number_str)
+                numbers.append(number)
+    return images, numbers
 
 # Main function to calculate metrics
 def calculate_metrics():
@@ -76,7 +82,7 @@ def calculate_metrics():
         print(f"Original folder not found: {original_folder}")
         return
 
-    original_images = load_images_from_folder(original_folder)
+    original_images, _ = load_images_from_folder(original_folder, original=True)
     if not original_images:
         print("No original images found.")
         return
@@ -87,7 +93,7 @@ def calculate_metrics():
         folder_path = os.path.join(ASSETS_FOLDER, folder_name)
         if os.path.isdir(folder_path) and folder_name != "original":
             print(f"\nCalculating metrics for folder: {folder_name}")
-            generated_images = load_images_from_folder(folder_path)
+            generated_images, numbers = load_images_from_folder(folder_path)
 
             if len(original_images) != len(generated_images):
                 print(f"  Skipping folder {folder_name}: mismatched image counts.")
@@ -96,6 +102,7 @@ def calculate_metrics():
             psnr_values = []
             ssim_values = []
             lpips_values = []
+            used_tokens = []
 
             # Resize generated images to match original resolution
             original_images_resized = [
@@ -103,11 +110,13 @@ def calculate_metrics():
                 for orig, gen in zip(original_images, generated_images)
             ]
 
-            for orig_resized, gen in zip(original_images_resized, generated_images):
+            for orig_resized, gen, tokens in zip(original_images_resized, generated_images, numbers):
                 # Convert to numpy arrays for PSNR and SSIM
                 orig_np = np.array(orig_resized)
                 gen_np = np.array(gen)
-
+                if "unitok" in folder_name:
+                    tokens = tokens / 8
+                used_tokens.append(tokens)
                 # PSNR
                 psnr_values.append(psnr(orig_np, gen_np))
                 # SSIM
@@ -121,6 +130,7 @@ def calculate_metrics():
             avg_psnr = np.mean(psnr_values)
             avg_ssim = np.mean(ssim_values)
             avg_lpips = np.mean(lpips_values)
+            avg_tokens = np.mean(used_tokens)
 
             # FID remains unchanged, original and generated images as is
             fid_value = calculate_fid(original_images_resized, generated_images)
@@ -133,6 +143,7 @@ def calculate_metrics():
                 "PSNR": avg_psnr,
                 "SSIM": avg_ssim,
                 "LPIPS": avg_lpips,
+                "#Tokens": avg_tokens,
             })
 
             # Results
@@ -163,6 +174,69 @@ def calculate_metrics():
         plt.tight_layout()
         plt.savefig("lpips_comparison_plot.png", dpi=300)
         print("Saved LPIPS plot to lpips_comparison_plot.png")
+
+        # --- Plot LPIPS vs #Tokens for the top 15 tokenizers (lowest LPIPS) ---
+        top15 = df_sorted.nsmallest(20, "LPIPS")
+
+        plt.figure(figsize=(12, 6))
+        ax = sns.scatterplot(
+            data=top15,
+            x="#Tokens",
+            y="LPIPS",
+            hue="Folder",
+            palette="tab20",
+            s=100
+        )
+
+        plt.title("LPIPS vs #Tokens (Top 20 Tokenizers with Lowest LPIPS)")
+        plt.xlabel("#Tokens")
+        plt.ylabel("LPIPS")
+
+        # Place legend outside plot
+        plt.legend(
+            title="Tokenizer",
+            bbox_to_anchor=(1.05, 1),
+            loc='upper left',
+            borderaxespad=0.,
+            fontsize=8
+        )
+
+        plt.tight_layout(rect=[0, 0, 0.75, 1])  # Leave room on right for legend
+        plt.savefig("lpips_vs_tokens_scatter.png", dpi=300, bbox_inches='tight')
+        print("Saved scatter plot to lpips_vs_tokens_scatter.png")
+
+
+        # --- Plot 15 tokenizers with the lowest (#Tokens * LPIPS) ---
+        df["Composite"] = df["#Tokens"] * df["LPIPS"]
+        top15_composite = df.nsmallest(20, "Composite")
+
+        plt.figure(figsize=(12, 6))
+        ax = sns.scatterplot(
+            data=top15_composite,
+            x="#Tokens",
+            y="LPIPS",
+            hue="Folder",
+            palette="tab20",
+            s=100
+        )
+
+        plt.title("LPIPS vs #Tokens (Top 20 by Lowest #Tokens × LPIPS)")
+        plt.xlabel("#Tokens")
+        plt.ylabel("LPIPS")
+
+        # Place legend outside plot
+        plt.legend(
+            title="Tokenizer",
+            bbox_to_anchor=(1.05, 1),
+            loc='upper left',
+            borderaxespad=0.,
+            fontsize=8
+        )
+
+        plt.tight_layout(rect=[0, 0, 0.75, 1])  # Shrink plot to fit legend on right
+        plt.savefig("lpips_vs_tokens_composite_plot.png", dpi=300, bbox_inches='tight')
+        print("Saved composite LPIPS×Tokens plot to lpips_vs_tokens_composite_plot.png")
+
 
 if __name__ == "__main__":
     calculate_metrics()
