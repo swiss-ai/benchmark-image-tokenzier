@@ -6,20 +6,21 @@ from torchvision import transforms
 import os
 import sys
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(base_dir)
+sys.path.insert(0, os.path.join(base_dir, "UniTok"))
 
-from utils_benchmark import load_all_images
+
 from pathlib import Path
-
 from Tiler import Tiler
 from Tokenizer.base import Tokenizer
 
-os.chdir('/users/nirmiger/UniTok')
-sys.path.append('/users/nirmiger/UniTok')
+# os.chdir('/users/nirmiger/UniTok')
+# sys.path.append('/users/nirmiger/UniTok')
 
-from models.unitok import UniTok
-from utils.config import Args
-from utils.data import normalize_01_into_pm1
+from UniTok.models.unitok import UniTok
+from UniTok.utils.config import Args
+from UniTok.utils.data import normalize_01_into_pm1
 
 TOKENIZER_PATH = '/iopsstor/scratch/cscs/nirmiger/unitok_tokenizer.pth'
 TOKENIZER = 'unitok'
@@ -93,6 +94,8 @@ class UniTokTokenizer(Tokenizer):
     
 
 if __name__ == "__main__":
+    from utils_benchmark import load_all_images
+
     # Example usage
     tokenizer = UniTokTokenizer(ckpt_path=TOKENIZER_PATH, device='cuda', image_size=256)
     tiler = Tiler(tile_size=TILE_SIZE, pad_value=-1.0, tile_resize=IMAGE_SIZE)

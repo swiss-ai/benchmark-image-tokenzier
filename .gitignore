@@ -1,4 +1,5 @@
 /__pycache__
+/Tokenizer/__pycache__
 /cosmos
 /FlowMo
 /OpenMAGViT2_IBQ
@@ -8,4 +9,5 @@
 /1d-tokenizer 
 /LlamaGen
 /FQGAN
-/Tokenizer/__pycache__
+/TokenFlow
+/UniTok

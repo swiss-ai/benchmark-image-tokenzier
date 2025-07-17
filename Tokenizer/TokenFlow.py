@@ -6,18 +6,21 @@ from torchvision import transforms
 import os
 import sys
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(base_dir)
+sys.path.insert(0, os.path.join(base_dir, "TokenFlow"))
 
-from utils_benchmark import load_all_images
+# from utils_benchmark import load_all_images
+from utils import load_all_images
 from pathlib import Path
 
 from Tiler import Tiler
-from base import Tokenizer
+from Tokenizer.base import Tokenizer
 
-os.chdir('/users/nirmiger/TokenFlow')
-sys.path.append('/users/nirmiger/TokenFlow')
+# os.chdir('/users/nirmiger/TokenFlow')
+# sys.path.append('/users/nirmiger/TokenFlow')
 
-from tokenflow.tokenizer.vq_model import VQ_models
+from TokenFlow.tokenflow.tokenizer.vq_model import VQ_models
 
 TOKENIZER = 'tokenflow_384'
 if TOKENIZER == 'tokenflow_384':
