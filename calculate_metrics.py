@@ -222,11 +222,11 @@ def calculate_metrics():
 
         # --- Plot 15 tokenizers with the lowest (#Tokens * LPIPS) ---
         df["Composite"] = df["#Tokens"] * df["LPIPS"]
-        top15_composite = df.nsmallest(20, "Composite")
+        top20_composite = df.nsmallest(20, "Composite")
 
         plt.figure(figsize=(12, 6))
         ax = sns.scatterplot(
-            data=top15_composite,
+            data=top20_composite,
             x="#Tokens",
             y="LPIPS",
             hue="Folder",
