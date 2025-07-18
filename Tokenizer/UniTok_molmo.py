@@ -25,7 +25,7 @@ TOKENIZER_PATH = '/iopsstor/scratch/cscs/nirmiger/unitok_tokenizer.pth'
 TOKENIZER = 'unitok'
 IMAGE_SIZE = 256
 
-RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}_test'
+RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}_molmo'
 
 
 class UniTokTokenizer(Tokenizer):
