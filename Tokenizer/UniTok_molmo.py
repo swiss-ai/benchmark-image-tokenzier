@@ -94,7 +94,7 @@ class UniTokTokenizer(Tokenizer):
 if __name__ == "__main__":
     # Example usage
     tokenizer = UniTokTokenizer(ckpt_path=TOKENIZER_PATH, device='cuda', image_size=IMAGE_SIZE)
-    tiler = MultiModalPreprocessor(pad_value=-1.0)
+    tiler = MultiModalPreprocessor(pad_value=-1.0, max_crops=16)
     images, _, image_paths = load_all_images('/users/nirmiger/benchmark-image-tokenzier/assets/original')
     batch_size = 8  # Adjust based on GPU memory
     os.makedirs(RECONSTRUCTION_PATH, exist_ok=True)
