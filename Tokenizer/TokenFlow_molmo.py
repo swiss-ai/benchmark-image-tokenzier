@@ -11,16 +11,16 @@ sys.path.append(base_dir)
 sys.path.insert(0, os.path.join(base_dir, "TokenFlow"))
 
 # from utils_benchmark import load_all_images
-from utils import load_all_images
+from utils_benchmark import load_all_images
 from pathlib import Path
 
-from Tiler import Tiler
+from molmo_tiler import MultiModalPreprocessor
 from Tokenizer.base import Tokenizer
 
-# os.chdir('/users/nirmiger/TokenFlow')
-# sys.path.append('/users/nirmiger/TokenFlow')
+os.chdir('/users/nirmiger/TokenFlow')
+sys.path.append('/users/nirmiger/TokenFlow')
 
-from TokenFlow.tokenflow.tokenizer.vq_model import VQ_models
+from tokenflow.tokenizer.vq_model import VQ_models
 
 TOKENIZER = 'tokenflow_384'
 if TOKENIZER == 'tokenflow_384':
@@ -34,9 +34,8 @@ if TOKENIZER == 'tokenflow_224':
     IMAGE_SIZE = 224
     ENHANCED_DECODER = True
 
-TILE_SIZE = 384
 
-RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}_ratio_{(IMAGE_SIZE/TILE_SIZE)*(IMAGE_SIZE/TILE_SIZE)}_tests'
+RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}_molmo'
 
 
 class TokenFlowTokenizer(Tokenizer):
@@ -110,20 +109,20 @@ class TokenFlowTokenizer(Tokenizer):
     def decode(self, indices: torch.Tensor, additional_info: dict = None) -> torch.Tensor:
         """Decode discrete tokens back into image tensor"""
         with torch.no_grad():
-            output = self.model.decode_code(indices)
+            output = self.model.decode_code(additional_info)
             if isinstance(output, tuple):
                 output = output[1]
         return output
 
     def get_num_tokens(self, indices: torch.Tensor) -> int:
         """Return number of tokens in flattened index tensor"""
-        return indices.numel()
+        return int(indices.numel()/40)
     
 
 if __name__ == "__main__":
     # Example usage
     tokenizer = TokenFlowTokenizer(ckpt_path=TOKENIZER_PATH, teacher=TEACHER, image_size=IMAGE_SIZE, enhanced_decoder=ENHANCED_DECODER)
-    tiler = Tiler(tile_size=TILE_SIZE, pad_value=-1.0, tile_resize=IMAGE_SIZE)
+    tiler = MultiModalPreprocessor(pad_value=-1.0, overlap_margins=(0, 0), base_image_input_size=(IMAGE_SIZE, IMAGE_SIZE), image_token_length_h=27, image_token_length_w=27, image_patch_size=14, max_crops=16)
     images, _, image_paths = load_all_images('/users/nirmiger/benchmark-image-tokenzier/assets/original')
     batch_size = 8  # Adjust based on GPU memory
     os.makedirs(RECONSTRUCTION_PATH, exist_ok=True)
@@ -135,14 +134,13 @@ if __name__ == "__main__":
         image = Image.open(image_path).convert("RGB")
         image_tensor = tokenizer.preprocess(image).squeeze(0)  # Shape: (3, H, W)
         print(f"Normalized image shape: {image_tensor.shape}")
-
         # Tile the image
-        result = tiler(image_tensor)
-        tiles = result['tiles']  # (N, C, H, W)
-        metadata = result['metadata']
-        print(f"Number of tiles: {tiles.shape[0]} | Tile shape: {tiles.shape[1:]}")
+        image_tensor = image_tensor.permute(1, 2, 0).cpu().numpy()  # Change to (H, W, C) for processing
+        crops, tiling, patch_ordering, masks = tiler.image_to_patches_and_tokens(image_tensor, is_training=True, rng=np.random.default_rng())
+        print(f"Number of tiles: {crops.shape[0]} | Tile shape: {crops.shape[1:]}")
+        crops = crops.permute(0, 3, 1, 2)  # Change to (N, C, H, W) for processing
 
-        total_tiles = tiles.shape[0]
+        total_tiles = crops.shape[0]
         reconstructed_tiles_list = []
         all_indices = []
 
@@ -150,13 +148,13 @@ if __name__ == "__main__":
 
         for i in range(0, total_tiles, batch_size):
             end_idx = min(i + batch_size, total_tiles)
-            batch_tiles = tiles[i:end_idx].to(tokenizer.device)
+            batch_tiles = crops[i:end_idx].to(tokenizer.device)
 
             print(f"Batch {i//batch_size + 1}: tiles {i}-{end_idx - 1}")
 
             with torch.no_grad():
-                vectors, indices = tokenizer.encode(batch_tiles)
-                reconstructed_batch = tokenizer.decode(indices, vectors)
+                indices, additional_info = tokenizer.encode(batch_tiles)
+                reconstructed_batch = tokenizer.decode(indices, additional_info)
 
             reconstructed_tiles_list.append(reconstructed_batch.cpu())
             all_indices.append(indices.cpu())
@@ -169,9 +167,12 @@ if __name__ == "__main__":
         all_indices_tensor = torch.cat(all_indices, dim=0)
 
         # Reconstruct full image
-        reconstructed_full = tiler.full_reconstruct(reconstructed_tiles, metadata)
+        reconstructed_tiles = reconstructed_tiles.permute(0, 2, 3, 1).cpu().numpy()
+
+        reconstructed_full, first_image = tiler.reconstruct(reconstructed_tiles, tiling, patch_ordering, masks)
 
         # Convert to PIL
+        reconstructed_full = torch.tensor(reconstructed_full).permute(2, 0, 1)  # Change to (C, H, W)
         reconstructed_image = tokenizer.postprocess(reconstructed_full.unsqueeze(0))
 
         # Metrics
@@ -186,7 +187,6 @@ if __name__ == "__main__":
             'compression_ratio': compression_ratio,
             'indices_shape': all_indices_tensor.shape,
             'num_tiles': total_tiles,
-            'tile_size': tiler.tile_size
         }
 
         # Log
@@ -195,11 +195,11 @@ if __name__ == "__main__":
         print(f"Original image pixels: {metrics['original_pixels']}")
         print(f"Compression ratio: {metrics['compression_ratio']:.2f}x")
         print(f"Indices shape: {metrics['indices_shape']}")
-        print(f"Number of tiles: {metrics['num_tiles']}")
 
         # Save output
         name_without_ext = Path(name).stem
         output_filename = f"{name_without_ext}_tiled_{metrics['num_tokens']}.png"
         output_path = os.path.join(RECONSTRUCTION_PATH, output_filename)
+
         reconstructed_image.save(output_path)
         print(f"Saved: {output_filename}")
