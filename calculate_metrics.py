@@ -104,16 +104,30 @@ def calculate_metrics():
             lpips_values = []
             used_tokens = []
 
-            # Resize generated images to match original resolution
-            original_images_resized = [
-                orig.resize(gen.size, Image.BICUBIC)
-                for orig, gen in zip(original_images, generated_images)
-            ]
+            original_images_resized = []
+            generated_images_resized = []
 
-            for orig_resized, gen, tokens in zip(original_images_resized, generated_images, numbers):
+            for orig, gen in zip(original_images, generated_images):
+                ow, oh = orig.size
+                gw, gh = gen.size
+
+                # Determine target size
+                target_w = min(ow, gw)
+                target_h = min(oh, gh)
+
+                # Resize whichever image is larger
+                if (ow, oh) != (target_w, target_h):
+                    orig = orig.resize((target_w, target_h), Image.BICUBIC)
+                if (gw, gh) != (target_w, target_h):
+                    gen = gen.resize((target_w, target_h), Image.BICUBIC)
+
+                original_images_resized.append(orig)
+                generated_images_resized.append(gen)
+
+            for orig_resized, gen_resized, tokens in zip(original_images_resized, generated_images_resized, numbers):
                 # Convert to numpy arrays for PSNR and SSIM
                 orig_np = np.array(orig_resized)
-                gen_np = np.array(gen)
+                gen_np = np.array(gen_resized)
                 if "unitok" in folder_name:
                     tokens = tokens / 8
                 used_tokens.append(tokens)
@@ -123,7 +137,7 @@ def calculate_metrics():
                 ssim_values.append(ssim(orig_np, gen_np, channel_axis=-1))
                 # LPIPS
                 orig_tensor = lpips_transform(orig_resized).unsqueeze(0).to(device)
-                gen_tensor = lpips_transform(gen).unsqueeze(0).to(device)
+                gen_tensor = lpips_transform(gen_resized).unsqueeze(0).to(device)
                 lpips_score = lpips_model(orig_tensor, gen_tensor).item()
                 lpips_values.append(lpips_score)
 
@@ -133,7 +147,7 @@ def calculate_metrics():
             avg_tokens = np.mean(used_tokens)
 
             # FID remains unchanged, original and generated images as is
-            fid_value = calculate_fid(original_images_resized, generated_images)
+            fid_value = calculate_fid(original_images_resized, generated_images_resized)
 
             # Round ratio values in folder name for consistent display
             display_folder_name = round_ratio_in_name(folder_name)

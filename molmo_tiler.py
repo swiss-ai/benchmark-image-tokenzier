@@ -503,7 +503,7 @@ if __name__ == "__main__":
     )
 
     # Example usage
-    image = load_image("/users/nirmiger/benchmark-image-tokenzier/assets/original/physics1.png")
+    image = load_image("/users/nirmiger/benchmark-image-tokenzier/assets/original/math_draft1.png")
     crops, tiling, patch_ordering, masks = preprocessor.image_to_patches_and_tokens(image, is_training=True, rng=np.random.default_rng())
     print("Crops shape:", crops.shape)
     print("Tiling:", tiling)
@@ -513,22 +513,53 @@ if __name__ == "__main__":
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
+    import matplotlib.patches as patches
     crops = crops.numpy()
     images_to_plot = crops.astype(np.uint8)
 
-    # Plot
-    fig, axes = plt.subplots(1, len(crops), figsize=(20, 3))
-    for i in range(len(crops)):
-        axes[i].imshow(images_to_plot[i])
-        axes[i].axis('off')
+    patch_size = 16  # Patch size assumed from earlier
+    tiling_rows, tiling_cols = tiling  # e.g., 3, 2
+    crop_count = len(crops)
 
-    plt.tight_layout()
-    plt.savefig('crops_plot.png', dpi=150)
+    # Plot setup: one figure, but we manually position axes
+    fig = plt.figure(figsize=(tiling_cols * 4, (tiling_rows + 1) * 4))  # +1 row for first crop
+
+    # Function to plot a single crop at a given location in the figure
+    def plot_crop(ax, img, patch_mask):
+        ax.imshow(img)
+        ax.axis('off')
+
+        h_patches, w_patches = patch_mask.shape
+        for y in range(h_patches):
+            for x in range(w_patches):
+                if patch_mask[y, x] == -1:
+                    rect = patches.Rectangle(
+                        (x * patch_size, y * patch_size), patch_size, patch_size,
+                        linewidth=0, edgecolor=None, facecolor='black', alpha=0.3
+                    )
+                    ax.add_patch(rect)
+
+    # --- First crop (plotted alone at the top) ---
+    ax_first = fig.add_subplot(tiling_rows + 1, tiling_cols, 1)  # First cell in the top row
+    plot_crop(ax_first, images_to_plot[0], patch_ordering[0])
+    fig.text(0.65, 0.8, "Global overview (left) and corresponding crops (below).\nOverlapping regions are shaded", fontsize=16, ha='center', va='center')
+
+    # --- Rest of the crops (laid out in tiling grid, starting from the second one) ---
+    index = 1  # Start from second image
+    for r in range(tiling_rows):
+        for c in range(tiling_cols):
+            if index >= crop_count:
+                break
+            # Offset by tiling_cols to start from second row in figure grid
+            ax = fig.add_subplot(tiling_rows + 1, tiling_cols, (r + 1) * tiling_cols + c + 1)
+            plot_crop(ax, images_to_plot[index], patch_ordering[index])
+            index += 1
+
+    plt.tight_layout(pad=2.0)  # Add spacing between subplots
+    plt.savefig('rearranged_crops_plot.png', dpi=150)
     plt.close()
 
     full_grid, first_crop = preprocessor.reconstruct(crops, tiling, patch_ordering, masks)
-    first_image = first_crop.clip(0, 255).astype(np.uint8)
-    PIL.Image.fromarray(first_image).save("first_crop_image.png")
     full_image = full_grid.clip(0, 255).astype(np.uint8)
     PIL.Image.fromarray(full_image).save("reconstructed_image.png")
 
