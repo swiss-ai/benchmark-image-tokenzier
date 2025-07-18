@@ -200,6 +200,9 @@ class MultiModalPreprocessor:
                 crop_window_size,
                 max_crops
             )
+            # Correction for non-spatial tokenoizers where the numbers do not fully add up
+            if overlap_margins == (0,0):
+                crop_window_size = crop_size
 
             src, img_mask = self.resize_image(
                 image,
@@ -214,10 +217,6 @@ class MultiModalPreprocessor:
             mask_arr = []
             patch_ordering_arr = []
 
-            # We assume hxw pooling, but can allow padding the right/bottom with extra
-            # patches if the number of patches per side is not divisible by h/w
-            assert (crop_patches + self.image_pooling_h - 1) // self.image_pooling_h == image_token_length_h
-            assert (crop_patches + self.image_pooling_w - 1) // self.image_pooling_w == image_token_length_w
             on = 0
             on_patch = 0
             for i in range(tiling[0]):
@@ -309,7 +308,7 @@ class MultiModalPreprocessor:
                 patch_ordering + tokens_per_image,
                 -1
             )
-            base_ordering = np.arange(tokens_per_image).reshape(16, 16)
+            base_ordering = np.arange(tokens_per_image).reshape(self.image_token_length_h, self.image_token_length_w)
             patch_ordering = np.concatenate([base_ordering[None], patch_ordering], axis=0)
 
             per_row = np.full(
