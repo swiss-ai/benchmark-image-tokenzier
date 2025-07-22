@@ -79,7 +79,6 @@ The main annotation file (`blip_laion_cc_sbu_558k_filtered.json`) is a list of d
       }
     ]
   },
-// ...
 ]
 ```
 
