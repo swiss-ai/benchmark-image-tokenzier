@@ -192,6 +192,10 @@ class MultiModalPreprocessor:
             crop_window_patches = crop_patches - (right_margin + left_margin)  # usable patches
             crop_window_size = crop_window_patches * base_image_input_d
 
+            # Correction for non-spatial tokenizers where the numbers do not fully add up
+            if overlap_margins == (0,0):
+                crop_window_size = crop_size
+
             # Decide how to tile the image, to account for the overlap margins we compute the tiling
             # as if we had an image without the margins and were using a crop size without the margins
             tiling = select_tiling(
@@ -200,9 +204,6 @@ class MultiModalPreprocessor:
                 crop_window_size,
                 max_crops
             )
-            # Correction for non-spatial tokenoizers where the numbers do not fully add up
-            if overlap_margins == (0,0):
-                crop_window_size = crop_size
 
             src, img_mask = self.resize_image(
                 image,
