@@ -2,13 +2,13 @@ import os
 import sys
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(base_dir)
-sys.path.insert(0, os.path.join(base_dir, "OpenMAGViT2_IBQ"))
+sys.path.insert(0, os.path.join(base_dir, "repos", "OpenMAGViT2_IBQ"))
 
 import torch
 import numpy as np
 from typing import Tuple, Dict, Any, Optional
-from OpenMAGViT2_IBQ.src.Open_MAGVIT2.models.lfqgan import VQModel
-from OpenMAGViT2_IBQ.evaluation_image import load_config, load_vqgan_new
+from src.Open_MAGVIT2.models.lfqgan import VQModel
+from evaluation_image import load_config, load_vqgan_new
 from Tokenizer.OpenMAGViT2 import OpenMAGViT2
 
 class IBQ(OpenMAGViT2):

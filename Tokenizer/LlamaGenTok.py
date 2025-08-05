@@ -6,7 +6,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 from PIL import Image
-from LlamaGen.tokenizer.tokenizer_image.vq_model import VQ_models
+from repos.LlamaGen.tokenizer.tokenizer_image.vq_model import VQ_models
 from typing import Tuple, Any
 from Tokenizer.base import Tokenizer
 

@@ -5,14 +5,14 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 # Add base directory (for utils.py, Tiler.py) and FlowMo directory
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(base_dir)
-sys.path.insert(0, os.path.join(base_dir, "FlowMo"))
+sys.path.insert(0, os.path.join(base_dir, "repos", "FlowMo"))
 
 import torch
 import numpy as np
 from PIL import Image
 import torchvision.transforms as T
 from omegaconf import OmegaConf
-from FlowMo.flowmo import train_utils
+from flowmo import train_utils
 from typing import Tuple, Any
 from Tokenizer.base import Tokenizer
 import matplotlib.pyplot as plt

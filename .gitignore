@@ -1,13 +1,79 @@
-/__pycache__
-/Tokenizer/__pycache__
-/cosmos
-/FlowMo
-/OpenMAGViT2_IBQ
-/SelftokTokenizer
-/notebook/src
-/SEED
-/1d-tokenizer 
-/LlamaGen
-/FQGAN
-/TokenFlow
-/UniTok
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# Environment
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE and tools
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.claude/
+
+# Cloned repositories (now in repos/)
+repos/
+
+# Data and output directories
+*.tar
+*.bin
+*.idx
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+
+# Temporary and demo directories
+llava_webdataset_demo/
+llava_tokenized_output/
+webdataset_tutorial_samples/
+indexed_dataset_examples/
+
+# Large data files
+*.h5
+*.hdf5
+*.npz
+*.npy
+
+# Logs
+*.log
+logs/
+wandb/
+
+# Documentation build
+docs/_build/
+*.rst~
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST

@@ -2,7 +2,7 @@ import os
 import sys
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(base_dir)
-sys.path.insert(0, os.path.join(base_dir, "FQGAN"))
+sys.path.insert(0, os.path.join(base_dir, "repos", "FQGAN"))
 
 import torch
 import torch.nn.functional as F
@@ -10,7 +10,7 @@ from PIL import Image
 import numpy as np
 from typing import Tuple, List, Optional, Union, Dict, Any
 import torchvision.transforms as T
-from FQGAN.tokenizer.vq_model_triple import VQ_models
+from tokenizer.vq_model_triple import VQ_models
 from Tokenizer.base import Tokenizer
 
 class FQGAN(Tokenizer):
