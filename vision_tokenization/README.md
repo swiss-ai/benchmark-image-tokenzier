@@ -1,4 +1,4 @@
-# Dataset Tokenization Pipeline
+# Vision Tokenization Pipeline
 
 This directory contains a scalable pipeline for tokenizing large-scale image datasets using vision tokenizers and saving them in Megatron-LM's IndexedDataset format.
 
@@ -13,12 +13,17 @@ The pipeline consists of three main components:
 ## Directory Structure
 
 ```
-dataset_tokenization/
+vision_tokenization/
 ├── configs/              # Dataset-specific configuration files
 │   └── llava_config.yaml
 ├── scripts/              # Utility scripts (future)
 ├── utils/                # Utility modules
-│   └── indexed_dataset.py
+│   └── indexed_dataset_megatron.py
+├── tests/                # Test suite
+│   ├── test_indexed_dataset_format.py
+│   ├── test_indexed_dataset_integrity.py
+│   ├── test_vision_pipeline_integration.py
+│   └── test_utils.py
 ├── tokenize_images.py    # Main tokenization script
 └── README.md
 ```
