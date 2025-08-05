@@ -1,6 +1,6 @@
 import os
 import sys
-LLAMAGEN_DIR = os.path.join(os.path.dirname(__file__), '..', 'LlamaGen')
+LLAMAGEN_DIR = os.path.join(os.path.dirname(__file__), '..', 'repos', 'LlamaGen')
 if os.path.exists(LLAMAGEN_DIR):
     sys.path.insert(0, LLAMAGEN_DIR)
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -10,8 +10,8 @@ import torch.nn.functional as F
 import numpy as np
 from PIL import Image
 from omegaconf import OmegaConf
-from LlamaGen.tokenizer.vqgan.model import VQModel
-from LlamaGen.tokenizer.vqgan.model import VQGAN_FROM_TAMING
+from tokenizer.vqgan.model import VQModel
+from tokenizer.vqgan.model import VQGAN_FROM_TAMING
 from typing import Tuple, Any
 import matplotlib.pyplot as plt
 from Tokenizer.base import Tokenizer

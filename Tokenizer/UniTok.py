@@ -8,7 +8,7 @@ import sys
 
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(base_dir)
-sys.path.insert(0, os.path.join(base_dir, "UniTok"))
+sys.path.insert(0, os.path.join(base_dir, "repos", "UniTok"))
 
 
 from pathlib import Path
@@ -18,9 +18,9 @@ from Tokenizer.base import Tokenizer
 # os.chdir('/users/nirmiger/UniTok')
 # sys.path.append('/users/nirmiger/UniTok')
 
-from UniTok.models.unitok import UniTok
-from UniTok.utils.config import Args
-from UniTok.utils.data import normalize_01_into_pm1
+from models.unitok import UniTok
+from utils.config import Args
+from utils.data import normalize_01_into_pm1
 
 TOKENIZER_PATH = '/iopsstor/scratch/cscs/nirmiger/unitok_tokenizer.pth'
 TOKENIZER = 'unitok'

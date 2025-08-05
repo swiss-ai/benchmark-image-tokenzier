@@ -2,8 +2,8 @@ import os
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from cosmos.cosmos_predict1.tokenizer.inference.image_lib import ImageTokenizer
-from cosmos.cosmos_predict1.tokenizer.inference.utils import (
+from repos.cosmos.cosmos_predict1.tokenizer.inference.image_lib import ImageTokenizer
+from repos.cosmos.cosmos_predict1.tokenizer.inference.utils import (
     tensor2numpy,
     numpy2tensor,
 )

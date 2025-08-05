@@ -3,13 +3,13 @@ import sys
 
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(base_dir)
-sys.path.insert(0, os.path.join(base_dir, "OpenMAGViT2_IBQ"))
+sys.path.insert(0, os.path.join(base_dir, "repos", "OpenMAGViT2_IBQ"))
 
 import torch
 import numpy as np
 from PIL import Image
 from typing import Tuple, Dict, Any, Optional
-from OpenMAGViT2_IBQ.evaluation_image import load_config
+from evaluation_image import load_config
 from Tokenizer.base import Tokenizer
 import matplotlib.pyplot as plt
 

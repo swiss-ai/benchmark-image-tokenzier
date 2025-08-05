@@ -1,11 +1,84 @@
 """
-Megatron-LM Compatible IndexedDataset Implementation
-===================================================
+Megatron-LM Compatible IndexedDataset Implementation for Vision Tokenization
+===========================================================================
 
 This is the exact implementation from /iopsstor/scratch/cscs/xyixuan/PDM/notebooks/create_meg_files.ipynb
 with minor adaptations for our tokenization pipeline.
 
 This format is directly compatible with Megatron-LM's data loaders.
+
+Workflow for Vision Token Datasets
+----------------------------------
+
+1. **Dataset Creation**:
+   ```python
+   # Initialize builder with vocabulary configuration
+   builder = VisionTokenIndexedDatasetBuilder(
+       output_prefix="path/to/dataset",
+       image_vocab_size=131072,  # e.g., Emu3 vocab size
+       text_vocab_size=0          # 0 for pure vision, >0 for multimodal
+   )
+   ```
+
+2. **Processing Images**:
+   ```python
+   # For each image in your dataset:
+   for image_path in image_paths:
+       # Tokenize image using your vision tokenizer (e.g., Emu3)
+       tokens = vision_tokenizer.encode(image)  # Returns token indices
+       
+       # Add to dataset (automatically handles vocab offset if multimodal)
+       builder.add_image_tokens(tokens)
+   ```
+
+3. **Finalization**:
+   ```python
+   # Write the dataset files (.bin and .idx)
+   builder.finalize()
+   ```
+
+4. **Output Files**:
+   - `dataset.bin`: Binary file containing token data
+   - `dataset.idx`: Index file with metadata and offsets
+
+5. **Loading in Megatron-LM**:
+   ```python
+   # In your Megatron training script:
+   from megatron.data.indexed_dataset import IndexedDataset
+   dataset = IndexedDataset("path/to/dataset")
+   ```
+
+Key Features
+------------
+- **Multimodal Support**: Handles vocabulary offset for text+vision tokenizers
+- **Optimal Storage**: Auto-selects uint16 for vocab < 65,500 (saves 50% space)
+- **Document Structure**: Each image is stored as a separate document
+- **Megatron Compatible**: Uses official MMIDIDX header format
+
+Example Usage Scenarios
+----------------------
+1. **Pure Vision Tokenizer** (e.g., standalone Emu3):
+   - Set text_vocab_size=0
+   - Tokens stored as-is [0, vocab_size)
+
+2. **Multimodal Tokenizer** (e.g., SwissGPT + Emu3):
+   - Set text_vocab_size=32000 (text tokenizer size)
+   - Vision tokens automatically offset: token 0 → 32000, token 1 → 32001, etc.
+   - Total vocab = text_vocab + vision_vocab
+
+File Format Details
+------------------
+- Header: MMIDIDX\\x00\\x00 (Megatron memory-mapped format)
+- Index file structure:
+  - Header (9 bytes)
+  - Version (8 bytes)
+  - Dtype code (1 byte)
+  - Sequence count (8 bytes)
+  - Document count (8 bytes)
+  - Sequence lengths array (int32)
+  - Sequence pointers array (int64)
+  - Document indices array (int64)
+  - [Optional] Sequence modes array (int8) - for multimodal datasets
 """
 
 import os
@@ -14,6 +87,14 @@ import numpy as np
 import torch
 from typing import List, Optional, Type, Union
 from enum import Enum
+
+# Import the vocabulary detection utility (optional - for standalone usage only)
+# Note: This is for convenience in single-process scenarios. In distributed
+# settings, detect vocabulary size once on the main process and pass as parameter.
+try:
+    from .detect_vocab_size import detect_text_vocab_size
+except ImportError:
+    detect_text_vocab_size = None
 
 
 # Fixed header for Megatron format
@@ -193,23 +274,33 @@ class VisionTokenIndexedDatasetBuilder:
     - Provides simple API for adding tokenized images
     """
     
-    def __init__(self, output_prefix: str, total_vocab_size: int = 2**17, text_vocab_size: int = 0):
+    def __init__(self, output_prefix: str, image_vocab_size: int, text_vocab_size: int):
         """
         Initialize the builder.
         
         Args:
             output_prefix: Path prefix for output files (without extension)
-            total_vocab_size: Total vocabulary size including text + image tokens
+            image_vocab_size: Image vocabulary size (e.g., 131072 for Emu3)
             text_vocab_size: Size of the text vocabulary (image tokens start after this)
                            If 0, no offset is applied (pure vision tokenizer)
+                           
+        Note for distributed usage:
+            In distributed settings, determine text_vocab_size once before launching workers:
+            
+            # On main process only:
+            from dataset_tokenization.utils.detect_vocab_size import detect_text_vocab_size
+            vocab_info = detect_text_vocab_size("your-tokenizer")
+            text_vocab_size = vocab_info['vocab_size']
+            
+            # Then pass text_vocab_size as argument to all workers
         """
         self.output_prefix = output_prefix
-        self.total_vocab_size = total_vocab_size
         self.text_vocab_size = text_vocab_size
-        self.image_vocab_size = total_vocab_size - text_vocab_size
+        self.image_vocab_size = image_vocab_size
+        self.total_vocab_size = text_vocab_size + image_vocab_size
         
         # Choose optimal dtype based on total vocabulary size
-        self.dtype = DType.optimal_dtype(total_vocab_size)
+        self.dtype = DType.optimal_dtype(self.total_vocab_size)
         
         # Create the builder
         self.builder = IndexedDatasetBuilder(
@@ -226,12 +317,12 @@ class VisionTokenIndexedDatasetBuilder:
             print(f"Multimodal tokenizer configuration:")
             print(f"  - Text vocabulary size: {text_vocab_size:,}")
             print(f"  - Image vocabulary size: {self.image_vocab_size:,}")
-            print(f"  - Total vocabulary size: {total_vocab_size:,}")
+            print(f"  - Total vocabulary size: {self.total_vocab_size:,}")
             print(f"  - Image token offset: {text_vocab_size}")
             print(f"  - Token dtype: {self.dtype.__name__}")
         else:
-            print(f"Pure vision tokenizer configuration:")
-            print(f"  - Vision vocabulary size: {total_vocab_size:,}")
+            print(f"Pure image tokenizer configuration:")
+            print(f"  - Image vocabulary size: {image_vocab_size:,}")
             print(f"  - Token dtype: {self.dtype.__name__}")
         
     def add_image_tokens(self, tokens: Union[torch.Tensor, np.ndarray]):
@@ -349,8 +440,8 @@ if __name__ == "__main__":
         print("Using VisionTokenIndexedDatasetBuilder without text offset.")
         
         builder2 = VisionTokenIndexedDatasetBuilder(
-            output_prefix=f"{temp_dir}/example2_pure_vision",
-            total_vocab_size=2**17  # Only image tokens
+            output_prefix=f"{temp_dir}/example2_pure_image",
+            image_vocab_size=2**17  # Only image tokens
         )
         
         print("\nAdding tokenized images:")
@@ -373,13 +464,13 @@ if __name__ == "__main__":
         
         builder3 = VisionTokenIndexedDatasetBuilder(
             output_prefix=f"{temp_dir}/example3_multimodal",
-            total_vocab_size=total_vocab_size,
+            image_vocab_size=image_vocab_size,
             text_vocab_size=text_vocab_size
         )
         
         print(f"\nVocabulary configuration:")
         print(f"  - Text tokens: [0, {text_vocab_size})")
-        print(f"  - Image tokens: [{text_vocab_size}, {total_vocab_size})")
+        print(f"  - Image tokens: [{text_vocab_size}, {text_vocab_size + image_vocab_size})")
         
         print(f"\nAdding images with vocabulary offset:")
         for i, original_tokens in enumerate(sample_images):
@@ -400,8 +491,8 @@ if __name__ == "__main__":
         
         builder4 = VisionTokenIndexedDatasetBuilder(
             output_prefix=f"{temp_dir}/example4_overflow",
-            total_vocab_size=1000,  # Very small vocabulary
-            text_vocab_size=500     # Half for text, half for images
+            image_vocab_size=500,   # 500 vision tokens
+            text_vocab_size=500      # 500 text tokens
         )
         
         print("Attempting to add tokens that exceed vocabulary size...")
@@ -432,8 +523,8 @@ if __name__ == "__main__":
         print("✅ All examples completed successfully!")
         print(f"📁 Example files created in: {temp_dir}")
         print("\nTo use in your pipeline:")
-        print("1. For pure vision: VisionTokenIndexedDatasetBuilder(prefix, total_vocab_size=131072)")  
-        print("2. For multimodal: VisionTokenIndexedDatasetBuilder(prefix, total_vocab_size=X+Y, text_vocab_size=X)")
+        print("1. For pure vision: VisionTokenIndexedDatasetBuilder(prefix, image_vocab_size=131072)")  
+        print("2. For multimodal: VisionTokenIndexedDatasetBuilder(prefix, image_vocab_size=Y, text_vocab_size=X)")
         print("3. Add images: builder.add_image_tokens(token_array)")
         print("4. Finalize: builder.finalize()")
         
