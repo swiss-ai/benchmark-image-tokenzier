@@ -1,11 +1,24 @@
 #!/usr/bin/env python3
 """
-Unit tests for Megatron IndexedDataset format.
+Test suite for Megatron IndexedDataset format specification.
+
+This module tests the core binary format and file structure of Megatron's IndexedDataset,
+ensuring that files are created and read according to the exact specification.
+
+Focus areas:
+- Binary file format verification (header structure, magic bytes, version)
+- Index file structure validation (sequence lengths, pointers, document indices)
+- Basic I/O operations (create, write, read, finalize)
+- File size calculations and data type handling (int32, uint16)
+- Empty and large dataset edge cases
+
+This is the foundational test suite that ensures IndexedDataset files conform to
+Megatron's expected format. For data integrity and recovery tests, see
+test_indexed_dataset_integrity.py.
 
 Run with:
-    pytest test_megatron_indexed_dataset.py -v
-    or
-    python -m pytest test_megatron_indexed_dataset.py -v
+    pytest test_indexed_dataset_format.py -v
+    python -m pytest test_indexed_dataset_format.py -v
 """
 
 import sys
@@ -16,11 +29,12 @@ import tempfile
 import shutil
 
 # Add parent directory to path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from dataset_tokenization.utils.indexed_dataset_megatron import (
+from vision_tokenization.utils.indexed_dataset_megatron import (
     IndexedDatasetBuilder, VisionTokenIndexedDatasetBuilder
 )
+from test_utils import read_index_header, read_index_file, calculate_expected_pointers
 
 
 class TestIndexedDatasetFormat:
@@ -36,45 +50,7 @@ class TestIndexedDatasetFormat:
         """Clean up temporary directory."""
         shutil.rmtree(cls.temp_dir)
     
-    def read_index_header(self, idx_path):
-        """Helper to read index file header."""
-        with open(idx_path, "rb") as f:
-            magic = f.read(9)
-            version = struct.unpack("<Q", f.read(8))[0]
-            dtype_code = struct.unpack("<B", f.read(1))[0]
-            num_sequences = struct.unpack("<Q", f.read(8))[0]
-            num_documents = struct.unpack("<Q", f.read(8))[0]
-            
-            return {
-                "magic": magic,
-                "version": version,
-                "dtype_code": dtype_code,
-                "num_sequences": num_sequences,
-                "num_documents": num_documents,
-                "header_size": f.tell()
-            }
     
-    def read_index_arrays(self, idx_path):
-        """Helper to read complete index file."""
-        header = self.read_index_header(idx_path)
-        
-        with open(idx_path, "rb") as f:
-            f.seek(header["header_size"])
-            
-            # Read arrays
-            num_seq = header["num_sequences"]
-            num_doc = header["num_documents"]
-            
-            seq_lengths = np.frombuffer(f.read(num_seq * 4), dtype=np.int32)
-            seq_pointers = np.frombuffer(f.read(num_seq * 8), dtype=np.int64)
-            doc_indices = np.frombuffer(f.read((num_doc + 1) * 8), dtype=np.int64)
-            
-            return {
-                **header,
-                "seq_lengths": seq_lengths,
-                "seq_pointers": seq_pointers,
-                "doc_indices": doc_indices,
-            }
     
     def test_header_format(self):
         """Test that header is written correctly."""
@@ -86,7 +62,7 @@ class TestIndexedDatasetFormat:
         builder.finalize(f"{prefix}.idx")
         
         # Verify header
-        header = self.read_index_header(f"{prefix}.idx")
+        header = read_index_header(f"{prefix}.idx")
         
         assert header["magic"] == b"MMIDIDX\x00\x00", "Invalid magic header"
         assert header["version"] == 1, "Invalid version"
@@ -112,9 +88,9 @@ class TestIndexedDatasetFormat:
         builder.finalize(f"{prefix}.idx")
         
         # Read and verify
-        data = self.read_index_arrays(f"{prefix}.idx")
+        data = read_index_file(f"{prefix}.idx")
         
-        expected_pointers = [0, 20, 32]  # Cumulative sum of lengths * 4
+        expected_pointers = calculate_expected_pointers([5, 3, 4], 4)
         assert np.array_equal(data["seq_pointers"], expected_pointers), \
             f"Pointers mismatch: expected {expected_pointers}, got {data['seq_pointers'].tolist()}"
     
@@ -130,7 +106,7 @@ class TestIndexedDatasetFormat:
         builder.finalize(f"{prefix}.idx")
         
         # Verify
-        data = self.read_index_arrays(f"{prefix}.idx")
+        data = read_index_file(f"{prefix}.idx")
         
         # Document indices should be [0, 1, 2, 3]
         expected_doc_indices = [0, 1, 2, 3]
@@ -227,7 +203,7 @@ class TestIndexedDatasetFormat:
         builder.finalize(f"{prefix}.idx")
         
         # Read index and tokens
-        data = self.read_index_arrays(f"{prefix}.idx")
+        data = read_index_file(f"{prefix}.idx")
         all_tokens = np.fromfile(f"{prefix}.bin", dtype=np.int32)
         
         # Extract each sequence
@@ -248,7 +224,7 @@ class TestIndexedDatasetFormat:
         builder.finalize(f"{prefix}.idx")
         
         # Verify
-        header = self.read_index_header(f"{prefix}.idx")
+        header = read_index_header(f"{prefix}.idx")
         assert header["num_sequences"] == 0, "Empty dataset should have 0 sequences"
         assert header["num_documents"] == 0, "Empty dataset should have 0 documents"
         
@@ -267,7 +243,7 @@ class TestIndexedDatasetFormat:
         builder.finalize(f"{prefix}.idx")
         
         # Verify
-        data = self.read_index_arrays(f"{prefix}.idx")
+        data = read_index_file(f"{prefix}.idx")
         assert data["seq_lengths"][0] == 10000, "Large sequence length incorrect"
         
         # Verify tokens
