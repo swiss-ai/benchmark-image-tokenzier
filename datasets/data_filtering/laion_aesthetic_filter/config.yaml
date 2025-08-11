@@ -1,0 +1,47 @@
+# Data Filtering Pipeline Configuration
+
+# Dataset paths
+dataset:
+  input_path: "/capstor/store/cscs/swissai/infra01/vision-datasets/llava_pretrain/LLaVA-Pretrain/webdataset_output"
+  output_path: "/capstor/store/cscs/swissai/infra01/vision-datasets/llava_pretrain/LLaVA-Pretrain/laion_aesthetic/filtered_output"
+  
+# Metadata storage
+metadata:
+  base_path: "/capstor/store/cscs/swissai/infra01/vision-datasets/llava_pretrain/LLaVA-Pretrain/metadata"
+  embeddings_path: "/capstor/store/cscs/swissai/infra01/vision-datasets/llava_pretrain/LLaVA-Pretrain/metadata/embeddings"
+  scores_path: "/capstor/store/cscs/swissai/infra01/vision-datasets/llava_pretrain/LLaVA-Pretrain/metadata/scores"
+  
+# Processing configuration  
+processing:
+  # Single GPU settings (optimal for GH200 based on benchmarks)
+  batch_size: 32  # Optimal batch size per GPU
+  num_workers: 0  # Workers per GPU (0 recommended for webdataset to avoid issues)
+  device: "cuda"
+  save_embeddings_format: "npz"  # npz for compressed numpy arrays
+  
+  # Multi-GPU settings
+  num_gpus: 4  # Number of GPUs to use (4 GH200 GPUs available)
+  score_batch_size: 1024  # Larger batch for aesthetic scoring (lightweight)
+  
+  # Performance optimizations
+  prefetch_factor: 2  # Number of batches to prefetch
+  pin_memory: true  # Pin memory for faster GPU transfer
+  
+# CLIP model configuration
+clip:
+  model_name: "ViT-L-14"
+  pretrained: "openai"
+  
+# Filtering thresholds (can be adjusted)
+filters:
+  aesthetic_score:
+    enabled: true
+    min_score: 4.5
+    max_score: 10.0
+  resolution:
+    enabled: false
+    min_width: 256
+    min_height: 256
+  clip_score:
+    enabled: false
+    min_score: 0.25
