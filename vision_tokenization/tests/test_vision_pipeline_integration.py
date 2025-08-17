@@ -44,7 +44,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from vision_tokenization.utils.indexed_dataset_megatron import VisionTokenIndexedDatasetBuilder
 from Tokenizer.Emu3VisionTokenizer import Emu3VisionTokenizer
-from test_utils import read_index_header, read_index_file, calculate_expected_pointers
+from .test_utils import read_index_header, read_index_file, calculate_expected_pointers
 
 
 class TestVisionTokenizationPipeline:

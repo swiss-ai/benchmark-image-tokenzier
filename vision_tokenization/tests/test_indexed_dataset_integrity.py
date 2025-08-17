@@ -37,7 +37,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from vision_tokenization.utils.indexed_dataset_megatron import (
     IndexedDatasetBuilder, VisionTokenIndexedDatasetBuilder
 )
-from test_utils import read_index_file, calculate_expected_pointers, compare_token_sequences
+from .test_utils import read_index_file, calculate_expected_pointers, compare_token_sequences
 
 
 class TestDatasetVerification:

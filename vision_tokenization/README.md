@@ -95,9 +95,23 @@ output_dir/
 
 The output follows Megatron-LM's IndexedDataset format:
 
-- `.bin`: Raw token data (int32 values)
-- `.idx`: Index file with offsets and sizes
+- `.bin`: Raw token data (int32 or uint16 values, concatenated without separators)
+- `.idx`: Index file with document-level metadata and offsets
 - `.meta.json`: Metadata including statistics
+
+### Index File Structure (.idx)
+
+**Header (34 bytes)**:
+- 9 bytes: Magic string `MMIDIDX\x00\x00`
+- 8 bytes: Version (uint64, always 1)
+- 1 byte: Data type code (4=int32, 8=uint16)
+- 8 bytes: Number of documents
+- 8 bytes: Number of documents (repeated for compatibility)
+
+**Data Arrays**:
+- Document lengths: `#docs × 4 bytes` (uint32 for each document's token count)
+- Document pointers: `#docs × 8 bytes` (uint64 byte offsets into the .bin file)
+- Document indices: `(#docs + 1) × 8 bytes` (indices [0, 1, 2, ..., #docs])
 
 ### Reading the Dataset
 

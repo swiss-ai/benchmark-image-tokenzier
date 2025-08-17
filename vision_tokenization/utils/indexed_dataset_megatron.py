@@ -75,9 +75,9 @@ File Format Details
   - Dtype code (1 byte)
   - Sequence count (8 bytes)
   - Document count (8 bytes)
-  - Sequence lengths array (int32)
-  - Sequence pointers array (int64)
-  - Document indices array (int64)
+  - Document lengths array (int32) - length of each document in tokens
+  - Document pointers array (int64) - byte offset of each document in the .bin file
+  - Document indices array (int64) - for compatibility, contains [0, 1, 2, ..., #docs]
   - [Optional] Sequence modes array (int8) - for multimodal datasets
 """
 
@@ -218,21 +218,23 @@ class IndexedDatasetBuilder:
             idx_writer.write(struct.pack("<B", DType.code_from_dtype(self.dtype)))
             
             # Write counts
+            # Note: For vision tokenization, each image is both a sequence and a document (1:1 mapping)
+            # So sequence_count == document_count
             sequence_count = len(self.sequence_lengths)
             idx_writer.write(struct.pack("<Q", sequence_count))
             document_count = len(self.document_indices) - 1
             idx_writer.write(struct.pack("<Q", document_count))
             
-            # Write sequence lengths
+            # Write document lengths (stored as sequence_lengths for compatibility)
             sequence_lengths = np.array(self.sequence_lengths, dtype=np.int32)
             idx_writer.write(sequence_lengths.tobytes(order="C"))
             
-            # Write sequence pointers (byte offsets)
+            # Write document pointers (byte offsets into .bin file)
             sequence_pointers = self._sequence_pointers(self.sequence_lengths)
             sequence_pointers = np.array(sequence_pointers, dtype=np.int64)
             idx_writer.write(sequence_pointers.tobytes(order="C"))
             
-            # Write document indices
+            # Write document indices (for compatibility, [0, 1, 2, ..., #docs])
             document_indices = np.array(self.document_indices, dtype=np.int64)
             idx_writer.write(document_indices.tobytes(order="C"))
             
