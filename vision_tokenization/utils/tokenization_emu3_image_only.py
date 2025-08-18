@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""
+EMU3 tokenization for image-only data.
+Avoids double tokenization by directly merging image indices with text tokens.
+"""
+
+import torch
+from typing import List, Tuple, Dict
+from transformers import AutoTokenizer
+
+
+class EMU3ImageOnlyTokenizer:
+    """
+    Direct tokenization for EMU3 image-only sequences.
+    Skips text generation step and directly combines tokens.
+    """
+    
+    def __init__(self, text_tokenizer_path: str):
+        """
+        Initialize with text tokenizer that has EMU3 vision tokens.
+        
+        Args:
+            text_tokenizer_path: Path to text tokenizer with EMU3 tokens
+        """
+        self.tokenizer = AutoTokenizer.from_pretrained(text_tokenizer_path)
+        
+        # Cache frequently used token IDs
+        self._cache_special_tokens()
+    
+    def _cache_special_tokens(self):
+        """Cache special token IDs to avoid repeated lookups."""
+        # Structure tokens
+        self.bos_id = self.tokenizer.bos_token_id or 0
+        self.eos_id = self.tokenizer.eos_token_id or 1
+        
+        # EMU3 special tokens
+        self.img_start_id = self.tokenizer.convert_tokens_to_ids("<|img_start|>")
+        self.img_end_id = self.tokenizer.convert_tokens_to_ids("<|img_end|>")
+        self.img_token_start_id = self.tokenizer.convert_tokens_to_ids("<|img_token_start|>")
+        self.eol_id = self.tokenizer.convert_tokens_to_ids("<|img_end_of_row|>")
+        self.eof_id = self.tokenizer.convert_tokens_to_ids("<|img_end_of_frame|>")
+        
+        # Compute the actual offset for vision tokens
+        # Vision tokens are "<|visual token 000000|>" through "<|visual token XXXXXX|>"
+        first_vision_token = self.tokenizer.convert_tokens_to_ids("<|visual token 000000|>")
+        self.vision_token_offset = first_vision_token
+    
+    def tokenize_image_only(
+        self, 
+        image_indices: torch.Tensor, 
+        height: int, 
+        width: int
+    ) -> torch.Tensor:
+        """
+        Directly tokenize image-only data without intermediate text conversion.
+        
+        Args:
+            image_indices: Tensor of image indices from vision tokenizer [H*W]
+            height: Image height in tokens
+            width: Image width in tokens
+            
+        Returns:
+            Token IDs ready for model input
+        """
+        num_tokens_needed = height * width
+        assert image_indices.numel() == num_tokens_needed, \
+            f"Dimension mismatch: {height}x{width} needs {num_tokens_needed} indices, got {image_indices.numel()}"
+        
+        # Pre-allocate output tensor for efficiency
+        # Structure: BOS + img_start + dims(~3) + img_token_start + vision_tokens + EOLs + EOF + img_end + EOS
+        dim_text = f"{height}*{width}"
+        dim_tokens = self.tokenizer.encode(dim_text, add_special_tokens=False)
+        
+        # Calculate total size
+        total_size = (
+            1 +  # BOS
+            1 +  # img_start
+            len(dim_tokens) +  # dimension tokens
+            1 +  # img_token_start
+            num_tokens_needed +  # vision tokens
+            height +  # EOL after each row
+            1 +  # EOF
+            1 +  # img_end
+            1    # EOS
+        )
+        
+        # Pre-allocate the entire output tensor
+        output = torch.empty(total_size, dtype=torch.long)
+        
+        # Fill in the tokens using slicing (no Python list operations)
+        idx = 0
+        
+        # Fixed tokens at the beginning
+        output[idx] = self.bos_id
+        output[idx + 1] = self.img_start_id
+        idx += 2
+        
+        # Dimension tokens
+        output[idx:idx + len(dim_tokens)] = torch.tensor(dim_tokens, dtype=torch.long)
+        idx += len(dim_tokens)
+        
+        output[idx] = self.img_token_start_id
+        idx += 1
+        
+        # Vision tokens with EOL markers - vectorized operations
+        image_indices = image_indices.view(height, width)
+        vision_tokens_with_offset = image_indices + self.vision_token_offset
+        
+        for row in range(height):
+            # Copy entire row at once
+            output[idx:idx + width] = vision_tokens_with_offset[row]
+            idx += width
+            output[idx] = self.eol_id
+            idx += 1
+        
+        # Final tokens
+        output[idx] = self.eof_id
+        output[idx + 1] = self.img_end_id
+        output[idx + 2] = self.eos_id
+        
+        return output
+    
+    def tokenize_batch(
+        self,
+        image_indices_batch: List[torch.Tensor],
+        dimensions: List[Tuple[int, int]]
+    ) -> List[torch.Tensor]:
+        """
+        Tokenize a batch of images for Megatron-LM.
+        
+        Args:
+            image_indices_batch: List of image index tensors
+            dimensions: List of (height, width) tuples
+            
+        Returns:
+            List of tokenized sequences (no padding needed for Megatron)
+        """
+        batch_tokens = []
+        
+        for indices, (h, w) in zip(image_indices_batch, dimensions):
+            tokens = self.tokenize_image_only(indices, h, w)
+            batch_tokens.append(tokens)
+        
+        return batch_tokens
+    
+    def compare_with_original(
+        self,
+        image_indices: torch.Tensor,
+        height: int,
+        width: int
+    ) -> Dict[str, any]:
+        """
+        Compare direct tokenization with text-based two-stage approach.
+        Useful for verification and benchmarking.
+        """
+        import time
+        
+        # Direct tokenization (our method)
+        start = time.time()
+        direct_tokens = self.tokenize_image_only(image_indices, height, width)
+        direct_time = time.time() - start
+        
+        # Text-based approach (reference)
+        start = time.time()
+        # Stage 1: Convert to text representation
+        text = f"<|img_start|>{height}*{width}<|img_token_start|>"
+        for row in range(height):
+            for col in range(width):
+                idx = row * width + col
+                text += f"<|visual token {image_indices[idx]:06d}|>"
+            text += "<|img_end_of_row|>"  # EOL after every row including last
+        text += "<|img_end_of_frame|><|img_end|>"
+        
+        # Stage 2: Tokenize text (adds BOS but not EOS)
+        text_based_tokens = self.tokenizer.encode(text, add_special_tokens=True)
+        text_based_time = time.time() - start
+        
+        # Add EOS to match our direct method which always includes it
+        text_based_tokens.append(self.eos_id)
+        text_based_tensor = torch.tensor(text_based_tokens, dtype=torch.long)
+        
+        return {
+            'direct_tokens': direct_tokens,
+            'direct_time': direct_time,
+            'text_based_tokens': text_based_tokens,
+            'text_based_time': text_based_time,
+            'speedup': text_based_time / direct_time if direct_time > 0 else 0,
+            'tokens_match': torch.equal(direct_tokens, text_based_tensor)
+        }
+
+
+# Example usage
+if __name__ == "__main__":
+    # Initialize EMU3 image-only tokenizer
+    tokenizer = EMU3ImageOnlyTokenizer(
+        text_tokenizer_path="./tokenizer_with_vision"
+    )
+    
+    # Simulate image indices from vision tokenizer
+    height, width = 2, 2
+    image_indices = torch.tensor([0, 100, 200, 300])  # 2x2 image
+    
+    # Tokenize directly
+    tokens = tokenizer.tokenize_image_only(image_indices, height, width)
+    print(f"Tokenized sequence length: {len(tokens)}")
+    print(f"Token IDs: {tokens[:20]}...")  # Show first 20 tokens
+    
+    # Compare with original approach
+    comparison = tokenizer.compare_with_original(image_indices, height, width)
+    print(f"\nSpeedup: {comparison['speedup']:.2f}x")
+    print(f"Tokens match: {comparison['tokens_match']}")
+
