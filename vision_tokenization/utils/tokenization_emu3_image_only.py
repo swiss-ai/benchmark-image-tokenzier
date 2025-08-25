@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 EMU3 tokenization for image-only data.
@@ -7,6 +8,10 @@ Avoids double tokenization by directly merging image indices with text tokens.
 import torch
 from typing import List, Tuple, Dict
 from transformers import AutoTokenizer
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from Tokenizer.Emu3VisionTokenizer import Emu3VisionTokenizer
 
 
 class EMU3ImageOnlyTokenizer:
@@ -15,14 +20,21 @@ class EMU3ImageOnlyTokenizer:
     Skips text generation step and directly combines tokens.
     """
     
-    def __init__(self, text_tokenizer_path: str):
+    def __init__(self, text_tokenizer_path: str, device: str = "cuda"):
         """
-        Initialize with text tokenizer that has EMU3 vision tokens.
+        Initialize with text tokenizer that has EMU3 vision tokens and image tokenizer.
         
         Args:
             text_tokenizer_path: Path to text tokenizer with EMU3 tokens
+            device: Device for image tokenizer (default: "cuda")
         """
-        self.tokenizer = AutoTokenizer.from_pretrained(text_tokenizer_path)
+        
+        # Use local path to avoid downloading from HuggingFace
+        self.text_tokenizer = AutoTokenizer.from_pretrained(text_tokenizer_path, local_files_only=True)
+        self.image_tokenizer = Emu3VisionTokenizer(device=device)
+        
+        # Cache for dimension tokens to avoid repeated encoding
+        self.dim_cache = {}
         
         # Cache frequently used token IDs
         self._cache_special_tokens()
@@ -30,22 +42,72 @@ class EMU3ImageOnlyTokenizer:
     def _cache_special_tokens(self):
         """Cache special token IDs to avoid repeated lookups."""
         # Structure tokens
-        self.bos_id = self.tokenizer.bos_token_id or 0
-        self.eos_id = self.tokenizer.eos_token_id or 1
-        
+        assert self.text_tokenizer.bos_token is not None, "BOS token must be defined"
+        assert self.text_tokenizer.eos_token is not None, "EOS token must be defined"
+
+        self.bos_id = self.text_tokenizer.bos_token_id
+        self.eos_id = self.text_tokenizer.eos_token_id
+
         # EMU3 special tokens
-        self.img_start_id = self.tokenizer.convert_tokens_to_ids("<|img_start|>")
-        self.img_end_id = self.tokenizer.convert_tokens_to_ids("<|img_end|>")
-        self.img_token_start_id = self.tokenizer.convert_tokens_to_ids("<|img_token_start|>")
-        self.eol_id = self.tokenizer.convert_tokens_to_ids("<|img_end_of_row|>")
-        self.eof_id = self.tokenizer.convert_tokens_to_ids("<|img_end_of_frame|>")
-        
+        self.img_start_id = self.text_tokenizer.convert_tokens_to_ids("<|img_start|>")
+        self.img_end_id = self.text_tokenizer.convert_tokens_to_ids("<|img_end|>")
+        self.img_token_start_id = self.text_tokenizer.convert_tokens_to_ids("<|img_token_start|>")
+        self.eol_id = self.text_tokenizer.convert_tokens_to_ids("<|img_end_of_row|>")
+        self.eof_id = self.text_tokenizer.convert_tokens_to_ids("<|img_end_of_frame|>")
+
         # Compute the actual offset for vision tokens
         # Vision tokens are "<|visual token 000000|>" through "<|visual token XXXXXX|>"
-        first_vision_token = self.tokenizer.convert_tokens_to_ids("<|visual token 000000|>")
+        first_vision_token = self.text_tokenizer.convert_tokens_to_ids("<|visual token 000000|>")
         self.vision_token_offset = first_vision_token
-    
-    def tokenize_image_only(
+
+    def _get_dim_tokens(self, height: int, width: int) -> List[int]:
+        """
+        Get dimension tokens with caching to avoid repeated encoding.
+        
+        Args:
+            height: Image height in tokens
+            width: Image width in tokens
+            
+        Returns:
+            List of token IDs for the dimension string
+        """
+        dim_key = f"{height}*{width}"
+        if dim_key not in self.dim_cache:
+            # Encode and cache the dimension tokens
+            self.dim_cache[dim_key] = self.text_tokenizer.encode(
+                dim_key, 
+                add_special_tokens=False
+            )
+        return self.dim_cache[dim_key]
+
+    def tokenize_image(self, image) -> torch.Tensor:
+        """
+        Complete pipeline: PIL image → vision indices → EMU3 encapsulated tokens.
+        
+        Args:
+            image: PIL Image
+            
+        Returns:
+            Token sequence with EMU3 structure tokens (BOS, img_start, dims, EOL, EOS, etc.)
+        """
+        assert self.image_tokenizer is not None, "Image tokenizer required for processing images"
+        
+        # Step 1: Preprocess image (PIL → tensor)
+        img_tensor = self.image_tokenizer.preprocess(image)
+        
+        # Step 2: Encode to vision indices
+        indices, _ = self.image_tokenizer.encode(img_tensor)
+        
+        # Step 3: Get dimensions and flatten
+        # [1, H, W] → [H, W] → [H*W]
+        indices_2d = indices.squeeze(0)
+        height, width = indices_2d.shape
+        image_indices = indices_2d.flatten()
+        
+        # Step 4: Encapsulate with EMU3 structure tokens
+        return self.encapsulate_image(image_indices, height, width)
+
+    def encapsulate_image(
         self, 
         image_indices: torch.Tensor, 
         height: int, 
@@ -68,8 +130,8 @@ class EMU3ImageOnlyTokenizer:
         
         # Pre-allocate output tensor for efficiency
         # Structure: BOS + img_start + dims(~3) + img_token_start + vision_tokens + EOLs + EOF + img_end + EOS
-        dim_text = f"{height}*{width}"
-        dim_tokens = self.tokenizer.encode(dim_text, add_special_tokens=False)
+        # Use cached dimension tokens to avoid repeated encoding
+        dim_tokens = self._get_dim_tokens(height, width)
         
         # Calculate total size
         total_size = (
@@ -120,25 +182,25 @@ class EMU3ImageOnlyTokenizer:
         
         return output
     
-    def tokenize_batch(
+    def encapsulate_batch(
         self,
         image_indices_batch: List[torch.Tensor],
         dimensions: List[Tuple[int, int]]
     ) -> List[torch.Tensor]:
         """
-        Tokenize a batch of images for Megatron-LM.
+        Encapsulate a batch of images with EMU3 structure tokens for Megatron-LM.
         
         Args:
             image_indices_batch: List of image index tensors
             dimensions: List of (height, width) tuples
             
         Returns:
-            List of tokenized sequences (no padding needed for Megatron)
+            List of encapsulated token sequences (no padding needed for Megatron)
         """
         batch_tokens = []
         
         for indices, (h, w) in zip(image_indices_batch, dimensions):
-            tokens = self.tokenize_image_only(indices, h, w)
+            tokens = self.encapsulate_image(indices, h, w)
             batch_tokens.append(tokens)
         
         return batch_tokens
@@ -157,7 +219,7 @@ class EMU3ImageOnlyTokenizer:
         
         # Direct tokenization (our method)
         start = time.time()
-        direct_tokens = self.tokenize_image_only(image_indices, height, width)
+        direct_tokens = self.encapsulate_image(image_indices, height, width)
         direct_time = time.time() - start
         
         # Text-based approach (reference)
@@ -172,7 +234,7 @@ class EMU3ImageOnlyTokenizer:
         text += "<|img_end_of_frame|><|img_end|>"
         
         # Stage 2: Tokenize text (adds BOS but not EOS)
-        text_based_tokens = self.tokenizer.encode(text, add_special_tokens=True)
+        text_based_tokens = self.text_tokenizer.encode(text, add_special_tokens=True)
         text_based_time = time.time() - start
         
         # Add EOS to match our direct method which always includes it
@@ -192,8 +254,10 @@ class EMU3ImageOnlyTokenizer:
 # Example usage
 if __name__ == "__main__":
     # Initialize EMU3 image-only tokenizer
+    # Use the tokenizer with EMU3 special tokens
     tokenizer = EMU3ImageOnlyTokenizer(
-        text_tokenizer_path="./tokenizer_with_vision"
+        text_tokenizer_path="/iopsstor/scratch/cscs/xyixuan/llama3_emu3_tokenizer",
+        device="cuda"
     )
     
     # Simulate image indices from vision tokenizer
@@ -201,7 +265,7 @@ if __name__ == "__main__":
     image_indices = torch.tensor([0, 100, 200, 300])  # 2x2 image
     
     # Tokenize directly
-    tokens = tokenizer.tokenize_image_only(image_indices, height, width)
+    tokens = tokenizer.encapsulate_image(image_indices, height, width)
     print(f"Tokenized sequence length: {len(tokens)}")
     print(f"Token IDs: {tokens[:20]}...")  # Show first 20 tokens
     
