@@ -97,10 +97,15 @@ class EMU3DynamicWorker:
         )
         
         # Initialize builder
-        self.output_path = f"{config['output_prefix']}_worker{worker_id}"
+        # Create output directory if it doesn't exist
+        output_dir = config['output_dir']
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Use rank-based naming inside the directory
+        self.output_path = os.path.join(output_dir, f"rank_{worker_id:03d}")
         self.builder = IndexedDatasetBuilder(
             f"{self.output_path}.bin",
-            dtype=DType.optimal_dtype(config['vocab_size'])
+            dtype=DType.optimal_dtype(self.tokenizer.text_tokenizer.vocab_size)
         )
         
         # Statistics
@@ -306,10 +311,9 @@ def main():
         description="EMU3 tokenization with dynamic Ray scheduling"
     )
     parser.add_argument("--input-pattern", required=True, help="Input shard pattern")
-    parser.add_argument("--output-prefix", required=True, help="Output prefix")
+    parser.add_argument("--output-dir", required=True, help="Output directory for tokenized data")
     parser.add_argument("--tokenizer-path", required=True, help="EMU3 tokenizer path")
     parser.add_argument("--num-gpus", type=int, help="Number of GPUs")
-    parser.add_argument("--vocab-size", type=int, default=161129)
     
     args = parser.parse_args()
     
