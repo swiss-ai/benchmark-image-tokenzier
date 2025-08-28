@@ -20,6 +20,7 @@ class Emu3VisionTokenizer(Tokenizer):
         """Load the Emu3 vision tokenizer model"""
         print(f"Loading {self.name} from {self.model_path}...")
         try:
+            # Uses local cache if available, downloads only if needed
             self.model = AutoModel.from_pretrained(
                 self.model_path, 
                 trust_remote_code=True
