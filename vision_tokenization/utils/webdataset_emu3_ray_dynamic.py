@@ -11,7 +11,6 @@ import logging
 import os
 import sys
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -101,7 +100,7 @@ class EMU3DynamicWorker:
         self.output_path = f"{config['output_prefix']}_worker{worker_id}"
         self.builder = IndexedDatasetBuilder(
             f"{self.output_path}.bin",
-            dtype=DType.optimal_dtype(config.get('vocab_size', 161129))
+            dtype=DType.optimal_dtype(config['vocab_size'])
         )
         
         # Statistics
