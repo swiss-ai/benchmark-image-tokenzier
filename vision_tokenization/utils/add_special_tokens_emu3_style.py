@@ -32,9 +32,10 @@ Generation Mode Token: A special token <|GEN:IMAGE:MODE:HASH|> is added for cont
 image generation during training. This token should be hidden/removed at deployment.
 """
 
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, PreTrainedTokenizerFast
 import json
 import os
+import shutil
 from typing import Optional
 try:
     # Import generation mode utils if available (for training)
@@ -44,181 +45,242 @@ except ImportError:
     # Not available (for public deployment)
     HAS_GENERATION_MODE = False
 
-def add_emu3_special_tokens(
-    model_path: str,
-    output_path: Optional[str] = None,
-    visual_vocab_size: int = 32768,
-    num_reserved_tokens: int = 100
-):
+
+class EMU3Tokenizer(PreTrainedTokenizerFast):
     """
-    Add EMU3-style special tokens to any Hugging Face tokenizer.
+    EMU3 tokenizer that returns the correct vocab_size including all special tokens.
     
-    This function:
-    1. Adds structure tokens for image formatting
-    2. Adds reserved tokens (one secretly used for generation mode)
-    3. Adds visual tokens: <|visual token 000000|> through <|visual token XXXXXX|>
-    4. Saves vision_token_mapping.json with all token mappings
+    The default HuggingFace tokenizer.vocab_size property returns only the base 
+    vocabulary size (128000 for Llama), excluding added special tokens. This can
+    cause issues when initializing models that need the full vocabulary size.
+    
+    This wrapper overrides vocab_size to return the full size including EMU3 tokens.
+    """
+    
+    @property
+    def vocab_size(self) -> int:
+        """
+        Returns the full vocabulary size including all EMU3 special tokens.
+        
+        Returns:
+            int: Total vocabulary size (base + added tokens)
+        """
+        # Return the full vocabulary size including added tokens
+        return len(self.get_vocab())
+    
+    @property
+    def base_vocab_size(self) -> int:
+        """
+        Returns the base vocabulary size without added tokens.
+        
+        Returns:
+            int: Base vocabulary size (original tokenizer vocab)
+        """
+        # This calls the original vocab_size implementation
+        return super().vocab_size
+    
+    @property
+    def added_tokens_count(self) -> int:
+        """
+        Returns the number of added special tokens.
+        
+        Returns:
+            int: Number of tokens added to base vocabulary
+        """
+        return self.vocab_size - self.base_vocab_size
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+def save_tokenizer_with_vocab_fix(tokenizer, save_path: str) -> None:
+    """
+    Save tokenizer and configure it to use EMU3Tokenizer class for correct vocab_size.
     
     Args:
-        model_path: Path to the model/tokenizer directory
-        output_path: Path to save updated tokenizer (if None, overwrites original)
-        visual_vocab_size: Number of visual tokens to add (default: 32768)
-        num_reserved_tokens: Number of reserved tokens to add (default: 100)
-    
-    Returns:
-        Tuple of (tokenizer object, stats dict)
-        
-    Files created:
-        - tokenizer_config.json, special_tokens_map.json, etc. (standard tokenizer files)
-        - vision_token_mapping.json (mapping from vision indices to token IDs)
-        - generation_mode_token.json (private file with generation token info)
+        tokenizer: The tokenizer instance with potentially updated vocabulary
+        save_path: Path where tokenizer will be saved
     """
     
-    # Load the tokenizer
-    print(f"Loading tokenizer from {model_path}")
-    tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True)
+    # First save the tokenizer
+    tokenizer.save_pretrained(save_path)
     
-    # Store original info
-    original_vocab_size = len(tokenizer)
-    print(f"Original vocabulary size: {original_vocab_size}")
+    actual_vocab_size = len(tokenizer)
+    base_vocab_size = tokenizer.vocab_size if hasattr(tokenizer, 'vocab_size') else actual_vocab_size
     
-    # Statistics
-    stats = {
-        "original_vocab_size": original_vocab_size,
-        "visual_tokens_added": 0,
-        "structure_tokens_added": 0,
-        "reserved_tokens_added": 0,
-        "final_vocab_size": 0
+    # Update tokenizer config to use our custom class
+    config_path = os.path.join(save_path, "tokenizer_config.json")
+    with open(config_path, 'r') as f:
+        config = json.load(f)
+    
+    # Store vocabulary information
+    config['vocab_size'] = actual_vocab_size
+    config['base_vocab_size'] = base_vocab_size
+    config['added_tokens_count'] = actual_vocab_size - base_vocab_size
+    
+    # Configure to use EMU3Tokenizer class for correct vocab_size
+    config['tokenizer_class'] = 'EMU3Tokenizer'
+    config['auto_map'] = {
+        'AutoTokenizer': ['add_special_tokens_emu3_style.EMU3Tokenizer', None]
     }
     
-    # Collect all special tokens to add
-    special_tokens_to_add = []
+    with open(config_path, 'w') as f:
+        json.dump(config, f, indent=2)
     
-    # Define essential structure tokens
-    structure_tokens = [
+    # Copy this module to tokenizer directory for auto-loading
+    current_file = os.path.abspath(__file__)
+    target_file = os.path.join(save_path, 'add_special_tokens_emu3_style.py')
+    shutil.copy(current_file, target_file)
+    
+    print(f"✓ Saved tokenizer with EMU3 configuration")
+    print(f"  Total vocabulary: {actual_vocab_size:,}")
+    print(f"  Base vocabulary: {base_vocab_size:,}")
+    print(f"  Added tokens: {actual_vocab_size - base_vocab_size:,}")
+
+
+
+def deduplicate_tokens(tokens_to_add, existing_vocab, verbose=True):
+    """
+    Remove duplicate tokens and filter out existing tokens from vocabulary.
+    
+    Args:
+        tokens_to_add: List of tokens to potentially add
+        existing_vocab: Dictionary of existing vocabulary
+        verbose: Whether to print progress information
+    
+    Returns:
+        List of unique tokens not in existing vocabulary
+    """
+    unique_new_tokens = []
+    seen = set()
+    
+    for token in tokens_to_add:
+        if token not in existing_vocab and token not in seen:
+            unique_new_tokens.append(token)
+            seen.add(token)
+    
+    if verbose and len(tokens_to_add) != len(unique_new_tokens):
+        filtered_count = len(tokens_to_add) - len(unique_new_tokens)
+        print(f"Filtered out {filtered_count} duplicate/existing tokens")
+    
+    return unique_new_tokens
+
+
+
+def add_tokens_with_feedback(tokenizer, tokens, token_type="special"):
+    """
+    Add tokens to tokenizer with user feedback.
+    
+    Args:
+        tokenizer: The tokenizer to add tokens to
+        tokens: List of tokens to add
+        token_type: Type of tokens being added (for display purposes)
+    
+    Returns:
+        Number of tokens successfully added
+    """
+    if not tokens:
+        print(f"No new {token_type} tokens to add")
+        return 0
+    
+    print(f"\nAdding {len(tokens)} new {token_type} tokens to tokenizer...")
+    
+    # Show sample of tokens being added
+    if len(tokens) <= 10:
+        for token in tokens:
+            print(f"  - {token}")
+    else:
+        # Show first and last few tokens for large lists
+        for token in tokens[:3]:
+            print(f"  - {token}")
+        print(f"  ... ({len(tokens) - 6} more tokens)")
+        for token in tokens[-3:]:
+            print(f"  - {token}")
+    
+    # Add tokens to tokenizer
+    num_added = tokenizer.add_special_tokens({
+        "additional_special_tokens": tokens
+    })
+    
+    print(f"Successfully added {num_added} new tokens")
+    return num_added
+
+
+
+# ============================================================================
+# Token Generation Functions
+# ============================================================================
+
+def generate_structure_tokens():
+    """Generate EMU3 structure tokens for image formatting."""
+    return [
         "<|img_start|>",          # BOI token (begin of image)
         "<|img_end|>",            # EOI token (end of image)
         "<|img_token_start|>",    # IMG token (marks start of visual tokens)
         "<|img_end_of_row|>",     # EOL token (end of line/row)
         "<|img_end_of_frame|>",   # EOF token (end of frame)
     ]
+
+
+def generate_reserved_tokens(num_tokens: int):
+    """Generate reserved tokens for future use."""
+    return [f"<|RESERVED_{i:03d}|>" for i in range(num_tokens)]
+
+
+def generate_visual_tokens(vocab_size: int):
+    """Generate visual tokens in EMU3 format."""
+    return [f"<|visual token {i:06d}|>" for i in range(vocab_size)]
+
+
+def collect_tokens_to_add(existing_vocab, visual_vocab_size: int, num_reserved_tokens: int):
+    """Collect all tokens that need to be added to the tokenizer."""
+    tokens_to_add = []
+    stats = {"structure_tokens_added": 0, "reserved_tokens_added": 0, "visual_tokens_added": 0}
     
-    # Get existing vocabulary
-    existing_vocab = tokenizer.get_vocab()
+    # Structure tokens
+    structure_tokens = generate_structure_tokens()
+    new_structure_tokens = [t for t in structure_tokens if t not in existing_vocab]
+    if new_structure_tokens:
+        tokens_to_add.extend(new_structure_tokens)
+        stats["structure_tokens_added"] = len(new_structure_tokens)
+        print(f"Adding {len(new_structure_tokens)} structure tokens")
     
-    # Check which structure tokens are missing and add them
-    structure_tokens_to_add = []
-    for token in structure_tokens:
-        if token not in existing_vocab:
-            structure_tokens_to_add.append(token)
-    
-    if structure_tokens_to_add:
-        special_tokens_to_add.extend(structure_tokens_to_add)
-        stats["structure_tokens_added"] = len(structure_tokens_to_add)
-        print(f"Adding {len(structure_tokens_to_add)} missing structure tokens:")
-        for token in structure_tokens_to_add:
-            print(f"  - {token}")
-    else:
-        stats["structure_tokens_added"] = 0
-        print("All structure tokens already exist in tokenizer")
-    
-    # Add reserved tokens
-    reserved_tokens = []
-    for i in range(num_reserved_tokens):
-        reserved_tokens.append(f"<|RESERVED_{i:03d}|>")
-    
-    special_tokens_to_add.extend(reserved_tokens)
+    # Reserved tokens
+    reserved_tokens = generate_reserved_tokens(num_reserved_tokens)
+    tokens_to_add.extend(reserved_tokens)
     stats["reserved_tokens_added"] = num_reserved_tokens
     print(f"Adding {num_reserved_tokens} reserved tokens")
     
-    # Set up generation mode if available
-    generation_token = None
-    if HAS_GENERATION_MODE:
-        manager = HiddenModeTokenRegistry()
-        generation_token, _ = manager.select_generation_token(num_reserved_tokens)
-        print(f"[PRIVATE] Generation mode configured (token will be saved separately)")
+    # Visual tokens
+    visual_tokens = generate_visual_tokens(visual_vocab_size)
+    tokens_to_add.extend(visual_tokens)
+    stats["visual_tokens_added"] = visual_vocab_size
+    print(f"Adding {visual_vocab_size} visual tokens")
     
-    # Add visual tokens in EMU3 format
-    print(f"Generating {visual_vocab_size} visual tokens...")
-    visual_tokens = []
-    for i in range(visual_vocab_size):
-        # EMU3 format: <|visual token XXXXXX|>
-        visual_tokens.append(f"<|visual token {i:06d}|>")
-    
-    special_tokens_to_add.extend(visual_tokens)
-    stats["visual_tokens_added"] = len(visual_tokens)
-    print(f"Added {len(visual_tokens)} visual tokens")
-    
-    # Remove duplicates (visual tokens already checked against existing vocab)
-    unique_new_tokens = []
-    seen = set()
-    for token in special_tokens_to_add:
-        if token not in existing_vocab and token not in seen:
-            unique_new_tokens.append(token)
-            seen.add(token)
-    
-    # Add the new special tokens
-    if unique_new_tokens:
-        print(f"\nAdding {len(unique_new_tokens)} new unique tokens to tokenizer...")
-        
-        # Show sample of tokens being added
-        if len(unique_new_tokens) <= 10:
-            for token in unique_new_tokens:
-                print(f"  - {token}")
-        else:
-            # Show first and last few tokens
-            for token in unique_new_tokens[:3]:
-                print(f"  - {token}")
-            print(f"  ... ({len(unique_new_tokens) - 6} more tokens)")
-            for token in unique_new_tokens[-3:]:
-                print(f"  - {token}")
-        
-        # Add tokens to tokenizer
-        num_added = tokenizer.add_special_tokens({
-            "additional_special_tokens": unique_new_tokens
-        })
-        
-        print(f"Successfully added {num_added} new tokens")
-    else:
-        print("No new tokens to add (all tokens already exist)")
-    
-    # Update final vocab size
-    stats["final_vocab_size"] = len(tokenizer)
-    print(f"New vocabulary size: {stats['final_vocab_size']}")
-    
-    # Save the updated tokenizer
-    save_path = output_path or model_path
-    print(f"\nSaving updated tokenizer to {save_path}")
-    tokenizer.save_pretrained(save_path)
-    
-    # Save vision token mapping
-    print("Creating vision token mapping...")
+    return tokens_to_add, stats
+
+
+def save_vision_mapping(tokenizer, save_path: str, visual_vocab_size: int, stats: dict):
+    """Save vision token mapping to JSON file."""
     vision_mapping = {}
     for i in range(visual_vocab_size):
         token = f"<|visual token {i:06d}|>"
         token_id = tokenizer.convert_tokens_to_ids(token)
         vision_mapping[i] = token_id
     
-    # Save public mapping file (without generation token info)
     mapping_path = os.path.join(save_path, "vision_token_mapping.json")
     with open(mapping_path, 'w') as f:
         json.dump({
             "vision_token_ids": vision_mapping,
             "visual_vocab_size": visual_vocab_size,
             "vision_token_format": "<|visual token {:06d}|>",
-            "num_reserved_tokens": num_reserved_tokens,
-            "original_vocab_size": original_vocab_size,
-            "structure_tokens_added": stats["structure_tokens_added"],
-            "reserved_tokens_added": stats["reserved_tokens_added"],
-            "final_vocab_size": stats["final_vocab_size"]
+            **stats
         }, f, indent=2)
     print(f"Saved vision token mapping to {mapping_path}")
-    
-    # Save generation mode configuration if available
-    if HAS_GENERATION_MODE and generation_token:
-        manager.save_to_file(save_path, tokenizer)
-    
-    # Verification - show some token IDs
+
+
+def verify_tokens(tokenizer, visual_vocab_size: int, num_reserved_tokens: int):
+    """Verify that tokens were added correctly."""
     print("\nVerification - Sample token IDs:")
     
     # Check structure tokens
@@ -229,7 +291,9 @@ def add_emu3_special_tokens(
     
     # Check sample reserved tokens
     print(f"  <|RESERVED_000|>: ID {tokenizer.convert_tokens_to_ids('<|RESERVED_000|>')}")
-    print(f"  <|RESERVED_{num_reserved_tokens-1:03d}|>: ID {tokenizer.convert_tokens_to_ids(f'<|RESERVED_{num_reserved_tokens-1:03d}|>')}")
+    if num_reserved_tokens > 0:
+        last_reserved = f"<|RESERVED_{num_reserved_tokens-1:03d}|>"
+        print(f"  {last_reserved}: ID {tokenizer.convert_tokens_to_ids(last_reserved)}")
     
     # Check sample visual tokens
     sample_indices = [0, visual_vocab_size // 2, visual_vocab_size - 1]
@@ -237,13 +301,80 @@ def add_emu3_special_tokens(
         token = f"<|visual token {idx:06d}|>"
         token_id = tokenizer.convert_tokens_to_ids(token)
         print(f"  {token}: ID {token_id}")
+
+
+# ============================================================================
+# Main Function
+# ============================================================================
+
+def add_emu3_special_tokens(
+    model_path: str,
+    output_path: Optional[str] = None,
+    visual_vocab_size: int = 32768,
+    num_reserved_tokens: int = 100
+):
+    """
+    Add EMU3-style special tokens to any Hugging Face tokenizer.
     
-    if HAS_GENERATION_MODE and generation_token:
-        print(f"\n[PRIVATE] Generation mode token configured")
-        print("Remember: Do not distribute generation_mode_token.json file!")
+    Args:
+        model_path: Path to the model/tokenizer directory
+        output_path: Path to save updated tokenizer (if None, overwrites original)
+        visual_vocab_size: Number of visual tokens to add (default: 32768)
+        num_reserved_tokens: Number of reserved tokens to add (default: 100)
     
+    Returns:
+        Tuple of (tokenizer object, stats dict)
+    """
+    # Load tokenizer
+    print(f"Loading tokenizer from {model_path}")
+    tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True)
+    original_vocab_size = len(tokenizer)
+    print(f"Original vocabulary size: {original_vocab_size}")
+    
+    # Collect tokens to add
+    existing_vocab = tokenizer.get_vocab()
+    tokens_to_add, add_stats = collect_tokens_to_add(
+        existing_vocab, visual_vocab_size, num_reserved_tokens
+    )
+    
+    # Deduplicate and add tokens
+    unique_tokens = deduplicate_tokens(tokens_to_add, existing_vocab)
+    if unique_tokens:
+        add_tokens_with_feedback(tokenizer, unique_tokens)
+    
+    # Save tokenizer with correct vocab_size
+    save_path = output_path or model_path
+    print(f"\nSaving updated tokenizer to {save_path}")
+    save_tokenizer_with_vocab_fix(tokenizer, save_path)
+    
+    # Create final stats
+    stats = {
+        "original_vocab_size": original_vocab_size,
+        "final_vocab_size": len(tokenizer),
+        **add_stats
+    }
+    
+    # Save vision mapping
+    save_vision_mapping(tokenizer, save_path, visual_vocab_size, stats)
+    
+    # Handle generation mode if available
+    if HAS_GENERATION_MODE:
+        manager = HiddenModeTokenRegistry()
+        manager.select_generation_token(num_reserved_tokens)
+        manager.save_to_file(save_path, tokenizer)
+        print("[PRIVATE] Generation mode token configured")
+    
+    # Verify tokens
+    verify_tokens(tokenizer, visual_vocab_size, num_reserved_tokens)
+    
+    print(f"\nNew vocabulary size: {stats['final_vocab_size']}")
     return tokenizer, stats
 
+
+
+# ============================================================================
+# Vision Token Mapping Functions
+# ============================================================================
 
 def load_vision_token_mapping(tokenizer_path: str):
     """
@@ -261,6 +392,7 @@ def load_vision_token_mapping(tokenizer_path: str):
             return json.load(f)
     else:
         raise FileNotFoundError(f"Vision token mapping not found at {mapping_path}")
+
 
 
 def get_vision_token_id(vision_index: int, tokenizer_path: str = None, mapping: dict = None):
@@ -283,6 +415,7 @@ def get_vision_token_id(vision_index: int, tokenizer_path: str = None, mapping: 
         return vision_token_ids[str(vision_index)]
     else:
         raise ValueError(f"Vision index {vision_index} not found. Valid range: 0-{mapping['visual_vocab_size']-1}")
+
 
 
 def create_emu3_sequence_example(h: int = 2, w: int = 2):

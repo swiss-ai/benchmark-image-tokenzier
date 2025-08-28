@@ -29,8 +29,8 @@ class EMU3ImageOnlyTokenizer:
             device: Device for image tokenizer (default: "cuda")
         """
         
-        # Use local path to avoid downloading from HuggingFace
-        self.text_tokenizer = AutoTokenizer.from_pretrained(text_tokenizer_path, local_files_only=True)
+        # Load tokenizer with trust_remote_code for custom EMU3Tokenizer class
+        self.text_tokenizer = AutoTokenizer.from_pretrained(text_tokenizer_path, trust_remote_code=True)
         self.image_tokenizer = Emu3VisionTokenizer(device=device)
         
         # Cache for dimension tokens to avoid repeated encoding
@@ -79,33 +79,6 @@ class EMU3ImageOnlyTokenizer:
                 add_special_tokens=False
             )
         return self.dim_cache[dim_key]
-
-    def tokenize_image(self, image) -> torch.Tensor:
-        """
-        Complete pipeline: PIL image → vision indices → EMU3 encapsulated tokens.
-        
-        Args:
-            image: PIL Image
-            
-        Returns:
-            Token sequence with EMU3 structure tokens (BOS, img_start, dims, EOL, EOS, etc.)
-        """
-        assert self.image_tokenizer is not None, "Image tokenizer required for processing images"
-        
-        # Step 1: Preprocess image (PIL → tensor)
-        img_tensor = self.image_tokenizer.preprocess(image)
-        
-        # Step 2: Encode to vision indices
-        indices, _ = self.image_tokenizer.encode(img_tensor)
-        
-        # Step 3: Get dimensions and flatten
-        # [1, H, W] → [H, W] → [H*W]
-        indices_2d = indices.squeeze(0)
-        height, width = indices_2d.shape
-        image_indices = indices_2d.flatten()
-        
-        # Step 4: Encapsulate with EMU3 structure tokens
-        return self.encapsulate_image(image_indices, height, width)
 
     def encapsulate_image(
         self, 
@@ -182,28 +155,32 @@ class EMU3ImageOnlyTokenizer:
         
         return output
     
-    def encapsulate_batch(
-        self,
-        image_indices_batch: List[torch.Tensor],
-        dimensions: List[Tuple[int, int]]
-    ) -> List[torch.Tensor]:
+    def tokenize_image(self, image) -> torch.Tensor:
         """
-        Encapsulate a batch of images with EMU3 structure tokens for Megatron-LM.
+        Complete pipeline: PIL image → vision indices → EMU3 encapsulated tokens.
         
         Args:
-            image_indices_batch: List of image index tensors
-            dimensions: List of (height, width) tuples
+            image: PIL Image
             
         Returns:
-            List of encapsulated token sequences (no padding needed for Megatron)
+            Token sequence with EMU3 structure tokens (BOS, img_start, dims, EOL, EOS, etc.)
         """
-        batch_tokens = []
+        assert self.image_tokenizer is not None, "Image tokenizer required for processing images"
         
-        for indices, (h, w) in zip(image_indices_batch, dimensions):
-            tokens = self.encapsulate_image(indices, h, w)
-            batch_tokens.append(tokens)
+        # Step 1: Preprocess image (PIL → tensor)
+        img_tensor = self.image_tokenizer.preprocess(image)
         
-        return batch_tokens
+        # Step 2: Encode to vision indices
+        indices, _ = self.image_tokenizer.encode(img_tensor)
+        
+        # Step 3: Get dimensions and flatten
+        # [1, H, W] → [H, W] → [H*W]
+        indices_2d = indices.squeeze(0)
+        height, width = indices_2d.shape
+        image_indices = indices_2d.flatten()
+        
+        # Step 4: Encapsulate with EMU3 structure tokens
+        return self.encapsulate_image(image_indices, height, width)
     
     def compare_with_original(
         self,

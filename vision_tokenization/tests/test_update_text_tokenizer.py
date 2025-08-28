@@ -236,7 +236,7 @@ class TestGenerationMode:
         output_path, _, _, _ = small_tokenizer
         
         # Load tokenizer and attach generation mode
-        tokenizer = AutoTokenizer.from_pretrained(output_path)
+        tokenizer = AutoTokenizer.from_pretrained(output_path, trust_remote_code=True)
         gen_manager = HiddenModeTokenRegistry(output_path)
         gen_manager.attach_to_tokenizer(tokenizer)
         
@@ -290,7 +290,7 @@ class TestTokenization:
     def test_tokenize_multimodal_sequence(self, small_tokenizer):
         """Test tokenizing a multimodal sequence."""
         output_path, _, _, _ = small_tokenizer
-        tokenizer = AutoTokenizer.from_pretrained(output_path)
+        tokenizer = AutoTokenizer.from_pretrained(output_path, trust_remote_code=True)
         
         # Create a multimodal sequence
         text = "The image <|img_start|>2*2<|img_token_start|>"
@@ -313,7 +313,7 @@ class TestTokenization:
         output_path, _, _, _ = small_tokenizer
         
         # Load tokenizer with generation mode
-        tokenizer = AutoTokenizer.from_pretrained(output_path)
+        tokenizer = AutoTokenizer.from_pretrained(output_path, trust_remote_code=True)
         gen_manager = HiddenModeTokenRegistry(output_path)
         gen_manager.attach_to_tokenizer(tokenizer)
         
