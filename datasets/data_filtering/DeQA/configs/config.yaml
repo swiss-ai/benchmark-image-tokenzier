@@ -1,0 +1,63 @@
+# Optimized Production Configuration for DeQA Scoring
+# Maximum throughput configuration for full dataset
+
+# Model Configuration
+model:
+  name: "zhiyuanyou/DeQA-Score-Mix3"
+  cache_dir: "/iopsstor/scratch/cscs/rqu/huggingface_cache"
+  device_map: "auto"
+  dtype: "float16"
+
+# Dataset Configuration
+dataset:
+  input_dir: "/capstor/store/cscs/swissai/infra01/vision-datasets/llava_pretrain/LLaVA-Pretrain/webdataset_output"
+  output_dir: "/capstor/store/cscs/swissai/infra01/vision-datasets/llava_pretrain/LLaVA-Pretrain/metadata/scores/DeQA_scores"
+  # output_dir: "/iopsstor/scratch/cscs/rqu/benchmark-image-tokenzier/datasets/data_filtering/DeQA/output_3shards"
+  shard_pattern: "*.tar"
+  max_shards: null  # Process all 559 shards
+
+# Processing Configuration - Optimized for speed
+processing:
+  num_gpus: 4  # Use all 4 A100 GPUs
+  batch_size: 64  # Optimized batch size (A100 can handle larger batches)
+  num_workers: 12  # More workers for faster data loading
+  prefetch_factor: 3  # Increased prefetching
+  save_interval: 2000  # Less frequent saves for speed
+  
+# Output Configuration
+output:
+  format: "parquet"
+  compression: "snappy"  # Fast compression
+  partitioning: "shard_idx"
+  include_metadata: true
+  save_distributions: true
+  
+# Statistics Configuration
+statistics:
+  generate: true
+  output_file: "deqa_statistics.json"
+  percentiles: [1, 5, 10, 25, 50, 75, 90, 95, 99]
+  quality_thresholds:
+    excellent: 4.5
+    good: 3.5
+    fair: 2.5
+    poor: 1.5
+    bad: 0.0
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "[%(name)s] %(asctime)s - %(message)s"
+  save_to_file: true
+  log_dir: "/capstor/store/cscs/swissai/infra01/vision-datasets/llava_pretrain/LLaVA-Pretrain/metadata/scores/DeQA_scores/logs"
+  # log_dir: "/iopsstor/scratch/cscs/rqu/benchmark-image-tokenzier/datasets/data_filtering/DeQA/output_3shards/logs"
+
+# Runtime Configuration
+runtime:
+  seed: 42
+  deterministic: false
+  debug_mode: false
+  checkpoint_interval: 50  # Checkpoint every 50 shards
+  resume_from_checkpoint: false
+  checkpoint_dir: "/capstor/store/cscs/swissai/infra01/vision-datasets/llava_pretrain/LLaVA-Pretrain/metadata/scores/DeQA_scores/checkpoints"
+  # checkpoint_dir: "/iopsstor/scratch/cscs/rqu/benchmark-image-tokenzier/datasets/data_filtering/DeQA/output_3shards/checkpoints"

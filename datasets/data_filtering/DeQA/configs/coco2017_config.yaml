@@ -1,0 +1,61 @@
+# Configuration for DeQA Scoring on COCO2017 dataset
+# Testing with a sample of shards first
+
+# Model Configuration
+model:
+  name: "zhiyuanyou/DeQA-Score-Mix3"
+  cache_dir: "/iopsstor/scratch/cscs/rqu/huggingface_cache"
+  device_map: "auto"
+  dtype: "float16"
+
+# Dataset Configuration
+dataset:
+  input_dir: "/capstor/store/cscs/swissai/infra01/vision-datasets/coco2017/webdataset_output"
+  # output_dir: "/iopsstor/scratch/cscs/rqu/benchmark-image-tokenzier/datasets/data_filtering/DeQA/coco2017_scores"
+  output_dir: "/capstor/store/cscs/swissai/infra01/vision-datasets/coco2017/webdataset_permissive/DeQA_scores"
+  shard_pattern: "*.tar"
+  max_shards: null  # Test with just 2 shards first
+
+# Processing Configuration
+processing:
+  num_gpus: 4  # Use single GPU for testing
+  batch_size: 64  # Smaller batch size
+  num_workers: 12  # Data loading workers
+  prefetch_factor: 3  # Prefetching
+  save_interval: 2000  # Save interval
+  
+# Output Configuration
+output:
+  format: "parquet"
+  compression: "snappy"
+  partitioning: "shard_idx"
+  include_metadata: true
+  save_distributions: true
+  
+# Statistics Configuration
+statistics:
+  generate: true
+  output_file: "coco2017_deqa_statistics.json"
+  percentiles: [1, 5, 10, 25, 50, 75, 90, 95, 99]
+  quality_thresholds:
+    excellent: 4.5
+    good: 3.5
+    fair: 2.5
+    poor: 1.5
+    bad: 0.0
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "[%(name)s] %(asctime)s - %(message)s"
+  save_to_file: true
+  log_dir: "/capstor/store/cscs/swissai/infra01/vision-datasets/coco2017/webdataset_permissive/DeQA_scores/logs"
+
+# Runtime Configuration
+runtime:
+  seed: 42
+  deterministic: false
+  debug_mode: false
+  checkpoint_interval: 50
+  resume_from_checkpoint: false
+  checkpoint_dir: "/capstor/store/cscs/swissai/infra01/vision-datasets/coco2017/webdataset_permissive/DeQA_scores/checkpoints"
