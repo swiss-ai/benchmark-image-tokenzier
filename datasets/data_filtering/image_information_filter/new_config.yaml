@@ -1,0 +1,75 @@
+# Optimized configuration for maximum speed with all metrics
+# For use on 128-core server with 500GB+ RAM
+
+dataset:
+  input_path: "/capstor/store/cscs/swissai/infra01/vision-datasets/DenseFusion/DenseFusion-1M"
+  output_path: "/capstor/store/cscs/swissai/infra01/vision-datasets/DenseFusion/4_img_info_filtered_DenseFusion-1M/scores"
+  shard_indices: null  # Process all shards (set to [0, 1, 2] for testing)
+
+processing:
+  # Maximum parallelization for 128-core server
+  num_workers: 42  # Optimal: cores/3 for I/O-bound operations
+  batch_size: 250  # Larger batches for better throughput
+  memory_limit_mb: 12000  # 12GB per worker (total ~504GB)
+  
+  # Performance optimizations
+  prefetch_factor: 2  # Prefetch batches for each worker
+  pin_memory: true    # Pin memory for faster transfers
+  
+metrics:
+  # Resolution-independent evaluation (recommended)
+  reference_size: null  # Evaluate at native resolution
+  resolution_independent: true
+  
+  # All available metrics
+  compute_metrics:
+    - "luminance_entropy"      # Tonal diversity
+    - "spatial_information"     # ITU-T P.910 complexity
+    - "edge_density"           # Edge pixel fraction  
+    - "variance_of_laplacian"  # Laplacian-based sharpness
+    - "brenner_focus"          # Gradient-based sharpness
+  
+  # Metric computation settings
+  edge_detection:
+    low_threshold: 50   # Canny edge detection thresholds
+    high_threshold: 150
+  
+  laplacian:
+    kernel_size: 3  # Laplacian kernel size (3 is optimal)
+  
+  brenner:
+    pixel_step: 2  # Pixel step for Brenner gradient
+
+output:
+  # Optimized output settings
+  compression: "lz4"  # Fast compression (alternatives: snappy, zstd, none)
+  preserve_sharding: true  # Maintain original shard structure
+  parquet_engine: "pyarrow"  # Fast parquet engine
+  
+  # Output control
+  save_raw_metrics: true  # Save raw metric values
+  save_normalized: true   # Save normalized (0-1) values
+  compute_statistics: true  # Compute per-shard statistics
+  
+logging:
+  level: "INFO"  # INFO, DEBUG, WARNING, ERROR
+  log_file: "./processing.log"
+  print_progress: true
+  progress_interval: 1000  # Print progress every N images
+
+# Error handling
+error_handling:
+  skip_corrupted: true  # Skip corrupted images
+  max_retries: 3       # Retry failed images
+  continue_on_error: true  # Don't stop on errors
+  log_errors: true     # Log all errors to file
+
+# Performance monitoring
+monitoring:
+  track_memory: true   # Monitor memory usage
+  track_speed: true    # Track processing speed
+  profile: false       # Enable profiling (slows processing)
+
+# Filtering (disabled for metrics computation)
+filtering:
+  enabled: false  # Don't filter during metrics computation
