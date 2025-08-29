@@ -218,11 +218,16 @@ class IndexedDatasetBuilder:
             idx_writer.write(struct.pack("<B", DType.code_from_dtype(self.dtype)))
             
             # Write counts
-            # Note: For vision tokenization, each image is both a sequence and a document (1:1 mapping)
-            # So sequence_count == document_count
+            # - sequence_count = N
+            # - document_count (in file) = N+1 (length of document_indices array)
+            # - actual documents = N
             sequence_count = len(self.sequence_lengths)
             idx_writer.write(struct.pack("<Q", sequence_count))
-            document_count = len(self.document_indices) - 1
+            
+            # IMPORTANT: Write the length of document_indices array, not the number of documents
+            # Megatron reads exactly this many elements from the array
+            # Megatron then checks: assert sequence_count == document_indices[-1]
+            document_count = len(self.document_indices)
             idx_writer.write(struct.pack("<Q", document_count))
             
             # Write document lengths (stored as sequence_lengths for compatibility)
