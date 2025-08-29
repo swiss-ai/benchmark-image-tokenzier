@@ -1,0 +1,75 @@
+# Configuration for filtering samples by Q-Align scores
+
+# Input/Output paths
+scores_dir: "/iopsstor/scratch/cscs/rqu/benchmark-image-tokenzier/datasets/data_filtering/Q-Align/test_output_config"
+output_dir: "/iopsstor/scratch/cscs/rqu/benchmark-image-tokenzier/datasets/data_filtering/Q-Align/filtered_samples"
+webdataset_dir: "/capstor/store/cscs/swissai/infra01/vision-datasets/llava_pretrain/LLaVA-Pretrain/webdataset_output"
+
+# Whether to extract actual images for samples
+extract_images: true  # Enable image extraction
+extract_sample_images: true
+max_sample_images: 50
+
+# Filter configurations
+filters:
+  # Top 10% highest quality images
+  - name: "top_10_quality"
+    type: "percentile"
+    score_column: "q_align_quality_score"
+    lower_percentile: 90
+    sample_size: 1000
+  
+  # Bottom 10% lowest quality images
+  - name: "bottom_10_quality"
+    type: "percentile"
+    score_column: "q_align_quality_score"
+    upper_percentile: 10
+    sample_size: 1000
+  
+  # Top 10% aesthetic images
+  - name: "top_10_aesthetic"
+    type: "percentile"
+    score_column: "q_align_aesthetic_score"
+    lower_percentile: 90
+    sample_size: 1000
+  
+  # Bottom 10% aesthetic images
+  - name: "bottom_10_aesthetic"
+    type: "percentile"
+    score_column: "q_align_aesthetic_score"
+    upper_percentile: 10
+    sample_size: 1000
+  
+  # High quality images (>0.8)
+  - name: "high_quality"
+    type: "threshold"
+    score_column: "q_align_quality_score"
+    min_score: 0.8
+    sample_size: 2000
+  
+  # Low quality images (<0.5)
+  - name: "low_quality"
+    type: "threshold"
+    score_column: "q_align_quality_score"
+    max_score: 0.5
+    sample_size: 1000
+  
+  # Balanced high quality and aesthetic
+  - name: "high_combined"
+    type: "percentile"
+    score_column: "q_align_combined_score"
+    lower_percentile: 75
+    sample_size: 2000
+  
+  # Top 100 best images overall
+  - name: "top_100_best"
+    type: "top_k"
+    score_column: "q_align_combined_score"
+    k: 100
+    
+  # Bottom 100 worst images overall
+  - name: "bottom_100_worst"
+    type: "top_k"
+    score_column: "q_align_combined_score"
+    k: 100
+    bottom: true

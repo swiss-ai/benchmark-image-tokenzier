@@ -1,0 +1,74 @@
+# Production Configuration for Q-Align Scoring
+# Full dataset processing with optimized settings
+
+# Input/Output paths
+paths:
+  input_dir: "/capstor/store/cscs/swissai/infra01/vision-datasets/llava_pretrain/LLaVA-Pretrain/webdataset_output"
+  output_dir: "/capstor/store/cscs/swissai/infra01/vision-datasets/llava_pretrain/LLaVA-Pretrain/metadata/scores/q_align_scores"
+  cache_dir: "/iopsstor/scratch/cscs/rqu/huggingface_cache"
+  log_dir: "/iopsstor/scratch/cscs/rqu/benchmark-image-tokenzier/datasets/data_filtering/Q-Align/logs"
+
+# Model configuration
+model:
+  pretrained: "q-future/one-align"
+  score_types:
+    - quality      # Q-Align quality assessment
+    - aesthetic    # Q-Align aesthetic assessment
+  compute_combined: true  # Compute average of quality and aesthetic
+
+# Processing configuration
+processing:
+  batch_size: 64  # Larger batch for efficiency
+  num_gpus: 4
+  gpu_ids: [0, 1, 2, 3]  # All 4 GPUs
+  num_workers: 4  # One worker per GPU
+  max_shards: null  # Process all shards
+  shuffle_shards: false
+  
+# Dataset configuration
+dataset:
+  file_pattern: "*.tar"
+  samples_per_shard: 1000
+  
+# Output configuration
+output:
+  save_format: "parquet"  # Parquet for efficiency
+  partition_by: ["shard_idx"]
+  compression: "snappy"
+  save_intermediate: true  # Save progress periodically
+  intermediate_batch_size: 100  # Save every 100 shards
+  
+# Statistics configuration
+statistics:
+  compute_stats: true
+  percentiles: [1, 5, 10, 25, 50, 75, 90, 95, 99]
+  histogram_bins: 20
+  save_distribution_plot: false
+  
+# Runtime configuration
+runtime:
+  timeout_per_shard: 600  # 10 minutes per shard max
+  retry_failed_shards: true
+  max_retries: 2
+  checkpoint_enabled: true  # Enable for resumability
+  checkpoint_interval: 50  # Checkpoint every 50 shards
+  verbose: false  # Less verbose for production
+  debug: false
+
+# Filtering thresholds (for downstream use)
+thresholds:
+  quality:
+    low: 0.4
+    medium: 0.6
+    high: 0.8
+    very_high: 0.9
+  aesthetic:
+    low: 0.3
+    medium: 0.5
+    high: 0.7
+    very_high: 0.85
+  combined:
+    low: 0.4
+    medium: 0.55
+    high: 0.7
+    very_high: 0.85
