@@ -1,0 +1,164 @@
+# SemDeDup Configuration File
+# This configuration controls all aspects of the semantic deduplication pipeline
+
+# Dataset Configuration
+dataset:
+  # Path to WebDataset tar files (required)
+  # Example: "/path/to/webdataset/folder" containing .tar files
+  input_path: "/capstor/store/cscs/swissai/infra01/vision-datasets/coco2017/webdataset_permissive"
+  
+  # Output directory for all results (will be created if doesn't exist)
+  output_path: "./semdedup_output"
+  
+  # Dataset name for metadata and logging
+  name: "coco2017"
+  
+  # Number of samples to process (null for all samples)
+  # Set to a small number (e.g., 1000) for testing
+  max_samples: 1000
+
+# CLIP Model Configuration
+clip:
+  # CLIP model variant - options:
+  # - "ViT-B/32": Base model, fastest, 512-dim embeddings
+  # - "ViT-B/16": Base model with higher resolution
+  # - "ViT-L/14": Large model, 768-dim embeddings, best accuracy
+  # - "ViT-L/14@336px": Large model with 336px resolution
+  # - "RN50": ResNet-50 based model
+  # - "RN101": ResNet-101 based model
+  model: "ViT-L/14"
+  
+  # Batch size for embedding extraction (adjust based on GPU memory)
+  # - ViT-B/32: can use 512+ on A100 80GB
+  # - ViT-L/14: recommended 256 on A100 80GB
+  batch_size: 256
+  
+  # Number of workers for data loading
+  num_workers: 16
+  
+  # Device configuration
+  # - "cuda": Use all available GPUs
+  # - "cuda:0": Use specific GPU
+  # - "cpu": CPU only (not recommended for large datasets)
+  device: "cuda"
+  
+  # Use multiple GPUs for embedding extraction
+  multi_gpu: true
+
+# K-means Clustering Configuration
+clustering:
+  # Number of clusters
+  # Rule of thumb: sqrt(N) where N is number of samples
+  # - 100 clusters for ~10K samples
+  # - 300 clusters for ~100K samples
+  # - 1000 clusters for ~1M samples
+  num_clusters: 100
+  
+  # Maximum iterations for K-means
+  max_iterations: 25
+  
+  # Number of K-means runs (higher = better quality but slower)
+  n_init: 5
+  
+  # Use GPU for clustering (highly recommended)
+  use_gpu: true
+  
+  # Verbose output during clustering
+  verbose: false
+
+# Semantic Deduplication Configuration
+semdedup:
+  # Epsilon thresholds for different deduplication levels
+  # Lower values = more aggressive deduplication
+  # Each epsilon will generate a separate filter
+  epsilon_values:
+    - 0.001   # Very aggressive: removes near-exact duplicates only
+    - 0.005   # Aggressive: removes very similar images
+    - 0.01    # Moderate: balanced deduplication
+    - 0.02    # Conservative: removes only obvious duplicates
+    - 0.05    # Very conservative: minimal deduplication
+  
+  # Similarity metric threshold strategy
+  # - "bottom_k": Keep bottom-k most dissimilar per cluster
+  # - "threshold": Use epsilon as direct cosine similarity threshold
+  strategy: "threshold"
+  
+  # Save intermediate results
+  save_intermediates: true
+
+# Filtering Configuration
+filtering:
+  # Whether to automatically create filtered datasets after deduplication
+  create_filtered_datasets: true
+  
+  # Verify filtered datasets after creation
+  verify: true
+  
+  # Output format for filtered datasets
+  # - "webdataset": Create new WebDataset tar files
+  # - "files": Extract to individual files
+  # - "both": Create both formats
+  output_format: "webdataset"
+  
+  # Compression for WebDataset output
+  compression: null  # Options: null, "gz", "bz2"
+
+# Visualization Configuration
+visualization:
+  # Generate visualization outputs
+  enabled: true
+  
+  # Maximum number of duplicate pairs to visualize
+  max_pairs: 10
+  
+  # Maximum number of duplicate groups to visualize
+  max_groups: 5
+  
+  # Generate HTML report
+  create_html_report: true
+  
+  # Image size for visualizations (pixels)
+  image_size: 256
+  
+  # Save individual duplicate images
+  save_individual_images: false
+
+# Performance Configuration
+performance:
+  # Memory mapping for large embeddings
+  use_memmap: true
+  
+  # Chunk size for processing large datasets
+  chunk_size: 10000
+  
+  # Random seed for reproducibility
+  seed: 42
+  
+  # Logging level: DEBUG, INFO, WARNING, ERROR
+  log_level: "INFO"
+  
+  # Save logs to file
+  save_logs: true
+  
+  # Progress bar display
+  show_progress: true
+
+# Advanced Configuration
+advanced:
+  # L2 normalize embeddings before clustering
+  normalize_embeddings: true
+  
+  # Use fp16 for GPU operations (saves memory)
+  use_fp16: false
+  
+  # Checkpoint interval (save progress every N samples)
+  checkpoint_interval: 5000
+  
+  # Resume from checkpoint if available
+  resume_from_checkpoint: true
+  
+  # Maximum retries for failed operations
+  max_retries: 3
+  
+  # Timeout for operations (seconds)
+  timeout: 3600
