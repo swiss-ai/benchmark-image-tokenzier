@@ -1,0 +1,64 @@
+# MLM Filter Configuration File
+# Configuration for multi-GPU MLM filter pipeline on webdataset format
+
+# Model Configuration
+model:
+  name: "weizhiwang/mlm-filter-qwen2.5-1.5b-gpt4o"  # Qwen2.5-1.5B model with LLaVA architecture
+  # Note: device and gpu_id are handled by multi-GPU script via --num_gpus argument
+  
+# Data Configuration  
+data:
+  input_dir: "/capstor/store/cscs/swissai/infra01/vision-datasets/llava_pretrain/LLaVA-Pretrain/webdataset_output"
+  output_dir: "./mlm_scores_output_test"
+  tar_pattern: "*.tar"  # Pattern for TAR files to process
+  max_tars: 4  # Number of tar files to process (null for all, integer to limit)
+  
+# Sampling Configuration
+sampling:
+  enabled: true  # Set to true for testing with subset of data
+  sample_rate: 0.1  # Fraction of data to sample when enabled (0.05 = 5%)
+  random_seed: 42  # For reproducible sampling
+  
+# Processing Configuration
+processing:
+  batch_size: 64  # Batch size per GPU (64 for GH200, 32 for smaller GPUs)
+  max_len: 2040  # Maximum token length for input prompts
+  # Note: max_new_tokens is automatically set based on model (2 for Qwen)
+  # Note: num_workers handled internally by WebDataset pipeline
+  
+# Score Metrics to Compute (all metrics are always computed)
+# Scores are continuous values from 0-100
+metrics:
+  - image_text_matching      # How well caption matches image content
+  - object_detail_fulfillment # Accuracy of object descriptions
+  - caption_text_quality      # Grammar, fluency, and structure
+  - semantic_understanding    # Semantic depth beyond visual content
+  
+# Analysis Configuration
+analysis:
+  save_samples: true
+  num_high_samples: 20  # Number of high-scoring samples to save per metric
+  num_low_samples: 20   # Number of low-scoring samples to save per metric
+  percentile_thresholds:
+    high: 90  # Samples above 90th percentile
+    low: 10   # Samples below 10th percentile
+  create_visualizations: true
+  
+# Output Configuration
+output:
+  save_intermediate: true  # Save results every N tar files
+  intermediate_frequency: 50  # Save every 20 tar files
+  format: "parquet"  # Output format (parquet or csv)
+  compression: "snappy"  # Compression for parquet files
+  
+# Logging Configuration
+logging:
+  level: "INFO"
+  log_file: "mlm_filter_run.log"
+  verbose: true
+  
+# Performance Configuration
+performance:
+  use_cache: true
+  mixed_precision: true  # Use fp16 for faster inference
+  torch_compile: false  # Use torch.compile for optimization (requires PyTorch 2.0+)
