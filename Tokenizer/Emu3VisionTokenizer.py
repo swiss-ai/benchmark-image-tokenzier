@@ -5,7 +5,8 @@ import os
 import sys
 from typing import Tuple, Any
 from transformers import AutoModel, AutoImageProcessor
-from Tokenizer.base import Tokenizer 
+from Tokenizer.base import Tokenizer
+from Emu3.emu3.tokenizer.image_processing_emu3visionvq import Emu3VisionVQImageProcessor
 
 class Emu3VisionTokenizer(Tokenizer):
     """Emu3 Vision Tokenizer implementation"""
@@ -26,9 +27,9 @@ class Emu3VisionTokenizer(Tokenizer):
                 trust_remote_code=True
             ).eval().to(self.device)
             
-            self.processor = AutoImageProcessor.from_pretrained(
+            self.processor = Emu3VisionVQImageProcessor.from_pretrained(
                 self.model_path, 
-                trust_remote_code=True
+                local_files_only=True
             )
             
             print(f"✓ {self.name} loaded successfully")
@@ -41,7 +42,7 @@ class Emu3VisionTokenizer(Tokenizer):
     def preprocess(self, image: Image.Image) -> torch.Tensor:
         """Preprocess PIL image using the Emu3 processor"""
         # Convert single image to list format expected by processor
-        image_tensor = self.processor([image], return_tensors="pt", do_resize=False)["pixel_values"]
+        image_tensor = self.processor([image], return_tensors="pt")["pixel_values"]
         return image_tensor.to(self.device)
     
     def postprocess(self, tensor: torch.Tensor) -> Image.Image:
@@ -117,7 +118,7 @@ if __name__ == "__main__":
         
         # Setup paths - different naming for ratio 1.0
         if processing_ratio == 1.0:
-            RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/high_aspect_ratio_recon_{tokenizer.name}'
+            RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/high_aspect_ratio_recon_2_{tokenizer.name}'
         else:
             RECONSTRUCTION_PATH = f'/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/{tokenizer.name}_ratio_{processing_ratio**2:.3f}'
         os.makedirs(RECONSTRUCTION_PATH, exist_ok=True)
