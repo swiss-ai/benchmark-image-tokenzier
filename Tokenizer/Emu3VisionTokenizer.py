@@ -41,7 +41,7 @@ class Emu3VisionTokenizer(Tokenizer):
     def preprocess(self, image: Image.Image) -> torch.Tensor:
         """Preprocess PIL image using the Emu3 processor"""
         # Convert single image to list format expected by processor
-        image_tensor = self.processor([image], return_tensors="pt")["pixel_values"]
+        image_tensor = self.processor([image], return_tensors="pt", do_resize=False)["pixel_values"]
         return image_tensor.to(self.device)
     
     def postprocess(self, tensor: torch.Tensor) -> Image.Image:
@@ -86,7 +86,7 @@ if __name__ == "__main__":
 
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-    from utils import load_all_images, resize_by_ratio
+    from utils_benchmark import load_all_images, resize_by_ratio
 
     # Initialize the Emu3 tokenizer
     tokenizer = Emu3VisionTokenizer()
@@ -97,10 +97,10 @@ if __name__ == "__main__":
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
     # Process multiple ratios
-    processing_ratios = [1.0, 0.9, 0.8, 0.7]
+    processing_ratios = [1.0]
     
     # Load images
-    images, image_names, image_paths = load_all_images('/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/original')
+    images, image_names, image_paths = load_all_images('/users/nirmiger/benchmark-image-tokenzier/assets/high_aspect_ratio')
     
     print(f"Found {len(images)} images to process")
     print(f"Processing ratios: {processing_ratios}")
@@ -117,7 +117,7 @@ if __name__ == "__main__":
         
         # Setup paths - different naming for ratio 1.0
         if processing_ratio == 1.0:
-            RECONSTRUCTION_PATH = f'/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/{tokenizer.name}'
+            RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/high_aspect_ratio_recon_{tokenizer.name}'
         else:
             RECONSTRUCTION_PATH = f'/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/{tokenizer.name}_ratio_{processing_ratio**2:.3f}'
         os.makedirs(RECONSTRUCTION_PATH, exist_ok=True)
