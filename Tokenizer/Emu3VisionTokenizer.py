@@ -11,10 +11,16 @@ from Tokenizer.Emu3.emu3.tokenizer.image_processing_emu3visionvq import Emu3Visi
 class Emu3VisionTokenizer(Tokenizer):
     """Emu3 Vision Tokenizer implementation"""
     
-    def __init__(self, model_path: str = "BAAI/Emu3-VisionTokenizer", **kwargs):
+    def __init__(self, 
+                 model_path: str = "BAAI/Emu3-VisionTokenizer", 
+                 min_pixels: int = None,
+                 max_pixels: int = None,
+                 **kwargs):
         self.model_path = model_path
         self.name = "Emu3VisionTokenizer"
         self.processor = None
+        self.min_pixels = min_pixels
+        self.max_pixels = max_pixels
         super().__init__(**kwargs)
     
     def _load_model(self) -> None:
@@ -29,7 +35,9 @@ class Emu3VisionTokenizer(Tokenizer):
             
             self.processor = Emu3VisionVQImageProcessor.from_pretrained(
                 self.model_path, 
-                local_files_only=True
+                local_files_only=True,
+                min_pixels=self.min_pixels,
+                max_pixels=self.max_pixels
             )
             
             print(f"✓ {self.name} loaded successfully")

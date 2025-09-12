@@ -21,18 +21,28 @@ class EMU3ImageOnlyTokenizer:
     Skips text generation step and directly combines tokens.
     """
     
-    def __init__(self, text_tokenizer_path: str, device: str = "cuda"):
+    def __init__(self, 
+                 text_tokenizer_path: str, 
+                 device: str = "cuda",
+                 min_pixels: int = None,
+                 max_pixels: int = None):
         """
         Initialize with text tokenizer that has EMU3 vision tokens and image tokenizer.
         
         Args:
             text_tokenizer_path: Path to text tokenizer with EMU3 tokens
             device: Device for image tokenizer (default: "cuda")
+            min_pixels: Minimum pixels for image preprocessing (default: 512*512)
+            max_pixels: Maximum pixels for image preprocessing (default: 1024*1024)
         """
         
         # Load tokenizer with trust_remote_code for custom EMU3Tokenizer class
         self.text_tokenizer = AutoTokenizer.from_pretrained(text_tokenizer_path, trust_remote_code=True)
-        self.image_tokenizer = Emu3VisionTokenizer(device=device)
+        self.image_tokenizer = Emu3VisionTokenizer(
+            device=device,
+            min_pixels=min_pixels,
+            max_pixels=max_pixels
+        )
         
         # Cache for dimension tokens to avoid repeated encoding
         self.dim_cache = {}
