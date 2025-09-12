@@ -429,5 +429,75 @@ class TestErrorHandling:
         assert isinstance(result[0], torch.Tensor)
 
 
+class TestTranslateImageToText:
+    """Test the translate_image_to_text function."""
+    
+    def test_translate_simple_image(self, image_tokenizer):
+        """Test translating a simple image to text."""
+        # Create a mock PIL image (minimum 8x8 for EMU3)
+        from PIL import Image
+        import numpy as np
+        import re
+        
+        # Create a simple 16x16 RGB image (safe size for EMU3)
+        img_array = np.ones((16, 16, 3), dtype=np.uint8) * 128
+        image = Image.fromarray(img_array)
+        
+        # Translate to text
+        text = image_tokenizer.translate_image_to_text(image)
+        
+        # Check it's a string
+        assert isinstance(text, str)
+        
+        # Check for expected EMU3 tokens
+        assert '<|img_start|>' in text
+        assert '<|img_end|>' in text
+        assert '<|img_token_start|>' in text
+        assert '<|visual token' in text
+        assert '<|img_end_of_row|>' in text
+        assert '<|img_end_of_frame|>' in text
+        
+        # Extract and verify vision token indices are valid
+        vision_tokens = re.findall(r'<\|visual token (\d+)\|>', text)
+        assert len(vision_tokens) > 0, "Should have vision tokens"
+        
+        # All tokens should be valid indices within the vision vocabulary
+        # The vision tokenizer typically has 32768 tokens (2^15)
+        for token_str in vision_tokens:
+            token_id = int(token_str)
+            # Vision tokens should be within the codebook size
+            assert 0 <= token_id < 32768, f"Token {token_id} out of range for vision codebook"
+    
+    def test_translate_matches_expected_text(self, image_tokenizer):
+        """Test that encapsulation produces expected text representation."""
+        # Create known indices for a 2x3 image
+        indices = torch.tensor([0, 10, 20, 100, 200, 300])
+        height, width = 2, 3
+        
+        # Get actual BOS and EOS tokens from tokenizer
+        bos_token = image_tokenizer.text_tokenizer.bos_token
+        eos_token = image_tokenizer.text_tokenizer.eos_token
+        
+        # Build expected text manually using actual tokens
+        expected_text = f"{bos_token}<|img_start|>2*3<|img_token_start|>"
+        # First row
+        expected_text += "<|visual token 000000|><|visual token 000010|><|visual token 000020|>"
+        expected_text += "<|img_end_of_row|>"
+        # Second row  
+        expected_text += "<|visual token 000100|><|visual token 000200|><|visual token 000300|>"
+        expected_text += "<|img_end_of_row|>"
+        # End tokens
+        expected_text += f"<|img_end_of_frame|><|img_end|>{eos_token}"
+        
+        # Get token IDs from our encapsulation
+        token_ids = image_tokenizer.encapsulate_image(indices, height, width)
+        
+        # Decode to text
+        actual_text = image_tokenizer.text_tokenizer.decode(token_ids, skip_special_tokens=False)
+        
+        # Should match exactly
+        assert actual_text == expected_text, f"\nExpected: {expected_text}\nActual: {actual_text}"
+    
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
