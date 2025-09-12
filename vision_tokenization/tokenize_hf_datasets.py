@@ -8,6 +8,8 @@ import argparse
 import json
 import logging
 import os
+import queue
+import threading
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -15,7 +17,7 @@ from typing import Dict, List, Optional, Any
 import numpy as np
 import ray
 import torch
-from datasets import load_dataset, get_dataset_config_info
+from datasets import load_dataset
 from tqdm import tqdm
 
 # Add paths for imports
@@ -24,8 +26,8 @@ base_dir = Path(__file__).parent.parent
 sys.path.append(str(base_dir))
 sys.path.append(str(base_dir / 'Tokenizer'))
 
-from utils.indexed_dataset_megatron import DType, IndexedDatasetBuilder
-from utils.tokenization_emu3_image_only import EMU3ImageOnlyTokenizer
+from src.utils.indexed_dataset_megatron import DType, IndexedDatasetBuilder
+from src.utils.tokenization_emu3_image_only import EMU3ImageOnlyTokenizer
 
 
 @ray.remote
@@ -84,7 +86,8 @@ class WorkQueue:
 class DynamicTokenizerWorker:
     """GPU worker that pulls work dynamically from queue."""
     
-    def __init__(self, tokenizer_path: str, output_dir: str, worker_id: int):
+    def __init__(self, tokenizer_path: str, output_dir: str, worker_id: int, 
+                 min_pixels: int = None, max_pixels: int = None):
         self.worker_id = worker_id
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
@@ -92,10 +95,12 @@ class DynamicTokenizerWorker:
         self.logger = logging.getLogger(f"Worker{worker_id:02d}")
         self.logger.setLevel(logging.INFO)
         
-        # Initialize tokenizer
+        # Initialize tokenizer with custom pixel limits if provided
         self.tokenizer = EMU3ImageOnlyTokenizer(
             text_tokenizer_path=tokenizer_path,
-            device=self.device
+            device=self.device,
+            min_pixels=min_pixels,
+            max_pixels=max_pixels
         )
         
         # Setup output
@@ -105,6 +110,9 @@ class DynamicTokenizerWorker:
             f"{self.output_path}.bin",
             dtype=DType.optimal_dtype(self.tokenizer.text_tokenizer.vocab_size)
         )
+        
+        # Initialize prefetch queue for async loading
+        self.image_queue = queue.Queue(maxsize=32)
         
         self.stats = {
             'batches_processed': 0,
@@ -116,79 +124,103 @@ class DynamicTokenizerWorker:
         
         self.logger.info(f"Worker {worker_id} initialized on {self.device}")
     
+    def _extract_image(self, sample: Dict):
+        """Extract image from sample, handling various formats."""
+        for key in ['image', 'img', 'images']:
+            if key not in sample:
+                continue
+            value = sample[key]
+            # Handle single image in list
+            return value[0] if isinstance(value, list) and len(value) == 1 else value
+        return None
+    
+    def _load_images_async(self, indices, dataset_info):
+        """Background thread to load images into queue."""
+        try:
+            # Load dataset slice
+            samples = load_dataset(
+                dataset_info['name'],
+                name=dataset_info['config'],
+                split=f"{dataset_info['split']}[{indices[0]}:{indices[-1]+1}]",
+                cache_dir=dataset_info.get('cache_dir')
+            )
+            
+            # Queue images for processing
+            for sample in samples:
+                if image := self._extract_image(sample):
+                    self.image_queue.put(image)
+        except Exception as e:
+            self.logger.error(f"Loader thread error: {e}")
+        finally:
+            self.image_queue.put(None)  # Sentinel
+    
+    def _process_image_stream(self):
+        """Process images from queue as GPU becomes available."""
+        stats = {'samples': 0, 'tokens': 0, 'errors': 0}
+        
+        while True:
+            image = self.image_queue.get()
+            if image is None:  # Done
+                break
+            
+            try:
+                # GPU processes immediately - image already loaded
+                tokens = self.tokenizer.tokenize_image(image)
+                tokens_np = tokens.cpu().numpy() if torch.is_tensor(tokens) else tokens
+                
+                # Save results
+                self.builder.add_document(tokens_np, [len(tokens_np)])
+                
+                stats['samples'] += 1
+                stats['tokens'] += len(tokens_np)
+            except Exception as e:
+                self.logger.warning(f"Processing error: {e}")
+                stats['errors'] += 1
+        
+        return stats
+    
     def process_batch(self, batch_info: Dict, dataset_info: Dict) -> Dict:
-        """Process a batch of samples from the dataset."""
+        """Process batch with async prefetching for optimal GPU utilization."""
         batch_id = batch_info['batch_id']
         indices = batch_info['indices']
         
         self.logger.info(f"Processing {batch_id} ({len(indices)} samples)")
-        
-        batch_tokens = 0
-        batch_samples = 0
-        batch_errors = 0
         start_time = time.time()
         
-        # Load only the needed samples using HF's partial loading
-        from datasets import load_dataset
-        
-        # Load specific indices directly - HF will use cached parquet files
-        start_idx = indices[0]
-        end_idx = indices[-1] + 1
-        samples = load_dataset(
-            dataset_info['name'],
-            name=dataset_info['config'],
-            split=f"{dataset_info['split']}[{start_idx}:{end_idx}]",
-            cache_dir=dataset_info['cache_dir']
+        # Start async loading
+        loader = threading.Thread(
+            target=self._load_images_async,
+            args=(indices, dataset_info),
+            daemon=True
         )
+        loader.start()
         
-        for sample in samples:
-            try:
-                # Get image from sample (handle different key names)
-                image = None
-                for key in ['image', 'img', 'images']:
-                    if key in sample:
-                        value = sample[key]
-                        # Handle single image in a list (common in some datasets)
-                        if isinstance(value, list) and len(value) == 1:
-                            image = value[0]
-                        else:
-                            image = value
-                        break
-                
-                if image is None:
-                    self.logger.warning(f"No image found in sample")
-                    batch_errors += 1
-                    continue
-                
-                # Tokenize image
-                img_tokens = self.tokenizer.tokenize_image(image)
-                tokens_np = img_tokens.cpu().numpy() if torch.is_tensor(img_tokens) else img_tokens
-                
-                # Add to indexed dataset
-                self.builder.add_document(tokens_np, [len(tokens_np)])
-                
-                batch_samples += 1
-                batch_tokens += len(tokens_np)
-                
-            except Exception as e:
-                self.logger.warning(f"Error processing sample: {e}")
-                batch_errors += 1
+        # Process images as they arrive
+        stats = self._process_image_stream()
         
-        # Update stats
+        # Ensure loader completes
+        loader.join()
+        
+        # Update global stats
         self.stats['batches_processed'] += 1
-        self.stats['samples_processed'] += batch_samples
-        self.stats['tokens_generated'] += batch_tokens
-        self.stats['errors'] += batch_errors
+        self.stats['samples_processed'] += stats['samples']
+        self.stats['tokens_generated'] += stats['tokens']
+        self.stats['errors'] += stats['errors']
         
+        # Log completion with average tokens per image for this work batch
         elapsed = time.time() - start_time
-        self.logger.info(f"Completed {batch_id}: {batch_samples} samples, {batch_tokens} tokens in {elapsed:.1f}s")
+        avg_tokens = stats['tokens'] / stats['samples'] if stats['samples'] > 0 else 0
+        throughput = stats['samples'] / elapsed if elapsed > 0 else 0
+        self.logger.info(
+            f"Completed {batch_id}: {stats['samples']} samples, "
+            f"{stats['tokens']} tokens ({avg_tokens:.1f} avg/image), "
+            f"{throughput:.1f} img/s"
+        )
         
         return {
             'batch_id': batch_id,
-            'samples': batch_samples,
-            'tokens': batch_tokens,
-            'errors': batch_errors,
-            'time': elapsed
+            'time': elapsed,
+            **stats
         }
     
     def run(self, work_queue, dataset_info) -> Dict:
@@ -278,13 +310,15 @@ def process_dataset_distributed(args):
     # Create work queue
     work_queue = WorkQueue.remote(total_samples, args.batch_size)
     
-    # Create workers
+    # Create workers with custom pixel limits if provided
     workers = []
     for i in range(num_gpus):
         worker = DynamicTokenizerWorker.remote(
             tokenizer_path=args.tokenizer_path,
             output_dir=output_dir,  # Use the auto-created output directory
-            worker_id=i
+            worker_id=i,
+            min_pixels=args.min_pixels,
+            max_pixels=args.max_pixels
         )
         workers.append(worker)
     
@@ -325,14 +359,17 @@ def process_dataset_distributed(args):
     total_tokens = sum(r['tokens_generated'] for r in results)
     total_errors = sum(r['errors'] for r in results)
     max_time = max(r['elapsed_time'] for r in results)
+    avg_tokens_per_image = total_tokens / total_samples_processed if total_samples_processed > 0 else 0
     
     for i, r in enumerate(results):
+        worker_avg = r['tokens_generated'] / r['samples_processed'] if r['samples_processed'] > 0 else 0
         print(f"Worker {i}: {r['samples_processed']} samples, "
-              f"{r['tokens_generated']} tokens, "
+              f"{r['tokens_generated']} tokens ({worker_avg:.1f} avg/img), "
               f"{r['throughput']:.0f} tok/s")
     
     print("-"*60)
     print(f"Total: {total_samples_processed} samples, {total_tokens} tokens")
+    print(f"Average tokens per image: {avg_tokens_per_image:.1f}")
     print(f"Errors: {total_errors}")
     print(f"Time: {max_time:.1f}s")
     print(f"Overall throughput: {total_tokens/max_time:.0f} tokens/sec")
@@ -388,6 +425,12 @@ def main():
                        help="Maximum samples to process (for testing)")
     parser.add_argument("--cache-dir", type=str,
                        help="Cache directory for downloaded datasets")
+    
+    # Vision tokenizer parameters
+    parser.add_argument("--min-pixels", type=int, default=None,
+                       help="Minimum pixels for image preprocessing (default: 512*512)")
+    parser.add_argument("--max-pixels", type=int, default=None,
+                       help="Maximum pixels for image preprocessing (default: 1024*1024)")
     
     args = parser.parse_args()
     
