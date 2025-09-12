@@ -18,9 +18,11 @@ import torch
 from datasets import load_dataset, get_dataset_config_info
 from tqdm import tqdm
 
-# Add vision tokenization to path
+# Add paths for imports
 import sys
-sys.path.append(str(Path(__file__).parent.parent))
+base_dir = Path(__file__).parent.parent
+sys.path.append(str(base_dir))
+sys.path.append(str(base_dir / 'Tokenizer'))
 
 from utils.indexed_dataset_megatron import DType, IndexedDatasetBuilder
 from utils.tokenization_emu3_image_only import EMU3ImageOnlyTokenizer
@@ -243,13 +245,18 @@ def process_dataset_distributed(args):
     
     logging.info(f"Starting dynamic distributed processing with {num_gpus} GPUs")
     
+    # Auto-create output directory with config name
+    output_dir = os.path.join(args.output_dir, args.config_name)
+    logging.info(f"Output directory: {output_dir}")
+    
     # Load dataset (non-streaming for better performance)
     logging.info(f"Loading dataset {args.dataset_name}/{args.config_name}...")
     dataset = load_dataset(
         args.dataset_name,
         name=args.config_name,
         split=args.split,
-        cache_dir=args.cache_dir  # Optional cache directory
+        cache_dir=args.cache_dir,  # Optional cache directory
+        num_proc=128  
     )
     total_samples = len(dataset)
     
@@ -276,7 +283,7 @@ def process_dataset_distributed(args):
     for i in range(num_gpus):
         worker = DynamicTokenizerWorker.remote(
             tokenizer_path=args.tokenizer_path,
-            output_dir=args.output_dir,
+            output_dir=output_dir,  # Use the auto-created output directory
             worker_id=i
         )
         workers.append(worker)
@@ -332,7 +339,7 @@ def process_dataset_distributed(args):
     print("="*60)
     
     # Save metadata
-    metadata_path = os.path.join(args.output_dir, "dataset_info.json")
+    metadata_path = os.path.join(output_dir, "dataset_info.json")
     metadata = {
         'dataset_name': args.dataset_name,
         'config_name': args.config_name,
@@ -351,121 +358,6 @@ def process_dataset_distributed(args):
     logging.info(f"Saved metadata to {metadata_path}")
     
     ray.shutdown()
-
-
-def process_dataset_single(args):
-    """Single GPU processing (no Ray)."""
-    
-    logging.info("Starting single GPU processing")
-    
-    # Load dataset (non-streaming)
-    logging.info(f"Loading dataset {args.dataset_name}/{args.config_name}...")
-    dataset = load_dataset(
-        args.dataset_name,
-        name=args.config_name,
-        split=args.split,
-        cache_dir=args.cache_dir
-    )
-    total_samples = len(dataset)
-    
-    if args.max_samples:
-        total_samples = min(total_samples, args.max_samples)
-        dataset = dataset.select(range(total_samples))
-    
-    logging.info(f"Dataset loaded: {total_samples} samples")
-    
-    # Initialize tokenizer
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    tokenizer = EMU3ImageOnlyTokenizer(
-        text_tokenizer_path=args.tokenizer_path,
-        device=device
-    )
-    
-    # Setup output
-    os.makedirs(args.output_dir, exist_ok=True)
-    output_path = os.path.join(args.output_dir, "rank_000")
-    builder = IndexedDatasetBuilder(
-        f"{output_path}.bin",
-        dtype=DType.optimal_dtype(tokenizer.text_tokenizer.vocab_size)
-    )
-    
-    # Process samples
-    samples_processed = 0
-    tokens_generated = 0
-    errors = 0
-    start_time = time.time()
-    
-    pbar = tqdm(dataset, total=total_samples, desc="Processing samples")
-    
-    for sample in pbar:
-        if samples_processed >= total_samples:
-            break
-        
-        try:
-            # Get image
-            image = None
-            for key in ['image', 'img', 'images']:
-                if key in sample:
-                    image = sample[key]
-                    break
-            
-            if image is None:
-                errors += 1
-                continue
-            
-            # Tokenize
-            img_tokens = tokenizer.tokenize_image(image)
-            tokens_np = img_tokens.cpu().numpy() if torch.is_tensor(img_tokens) else img_tokens
-            
-            # Add to dataset
-            builder.add_document(tokens_np, [len(tokens_np)])
-            
-            samples_processed += 1
-            tokens_generated += len(tokens_np)
-            
-            if samples_processed % 100 == 0:
-                pbar.set_postfix({
-                    'tokens': tokens_generated,
-                    'errors': errors
-                })
-            
-        except Exception as e:
-            logging.warning(f"Error processing sample: {e}")
-            errors += 1
-    
-    pbar.close()
-    
-    # Finalize
-    builder.finalize(f"{output_path}.idx")
-    
-    elapsed = time.time() - start_time
-    
-    # Print summary
-    print("\n" + "="*60)
-    print("PROCESSING COMPLETE")
-    print("="*60)
-    print(f"Samples processed: {samples_processed}")
-    print(f"Tokens generated: {tokens_generated}")
-    print(f"Errors: {errors}")
-    print(f"Time: {elapsed:.1f}s")
-    print(f"Throughput: {tokens_generated/elapsed:.0f} tokens/sec")
-    print("="*60)
-    
-    # Save metadata
-    metadata_path = os.path.join(args.output_dir, "dataset_info.json")
-    metadata = {
-        'dataset_name': args.dataset_name,
-        'config_name': args.config_name,
-        'split': args.split,
-        'total_samples': samples_processed,
-        'total_tokens': tokens_generated,
-        'processing_time': elapsed,
-        'errors': errors,
-        'tokenizer_path': args.tokenizer_path
-    }
-    
-    with open(metadata_path, 'w') as f:
-        json.dump(metadata, f, indent=2)
 
 
 def main():
@@ -490,7 +382,7 @@ def main():
     # Processing arguments
     parser.add_argument("--num-gpus", type=int,
                        help="Number of GPUs for distributed processing (0 for single GPU)")
-    parser.add_argument("--batch-size", type=int, default=100,
+    parser.add_argument("--batch-size", type=int, default=1000,
                        help="Samples per batch for distributed processing")
     parser.add_argument("--max-samples", type=int,
                        help="Maximum samples to process (for testing)")
@@ -505,11 +397,8 @@ def main():
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
     
-    # Choose processing mode
-    if args.num_gpus and args.num_gpus > 1:
-        process_dataset_distributed(args)
-    else:
-        process_dataset_single(args)
+    # Always use distributed mode
+    process_dataset_distributed(args)
 
 
 if __name__ == "__main__":

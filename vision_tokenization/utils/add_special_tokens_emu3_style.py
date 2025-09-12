@@ -32,7 +32,7 @@ Generation Mode Token: A special token <|GEN:IMAGE:MODE:HASH|> is added for cont
 image generation during training. This token should be hidden/removed at deployment.
 """
 
-from transformers import AutoTokenizer, PreTrainedTokenizerFast
+from transformers import AutoTokenizer
 import json
 import os
 from typing import Optional
@@ -45,93 +45,35 @@ except ImportError:
     HAS_GENERATION_MODE = False
 
 
-class EMU3Tokenizer(PreTrainedTokenizerFast):
-    """
-    EMU3 tokenizer that returns the correct vocab_size including all special tokens.
-    
-    The default HuggingFace tokenizer.vocab_size property returns only the base 
-    vocabulary size (128000 for Llama), excluding added special tokens. This can
-    cause issues when initializing models that need the full vocabulary size.
-    
-    This wrapper overrides vocab_size to return the full size including EMU3 tokens.
-    """
-    
-    @property
-    def vocab_size(self) -> int:
-        """
-        Returns the full vocabulary size including all EMU3 special tokens.
-        
-        Returns:
-            int: Total vocabulary size (base + added tokens)
-        """
-        # Return the full vocabulary size including added tokens
-        return len(self.get_vocab())
-    
-    @property
-    def base_vocab_size(self) -> int:
-        """
-        Returns the base vocabulary size without added tokens.
-        
-        Returns:
-            int: Base vocabulary size (original tokenizer vocab)
-        """
-        # This calls the original vocab_size implementation
-        return super().vocab_size
-    
-    @property
-    def added_tokens_count(self) -> int:
-        """
-        Returns the number of added special tokens.
-        
-        Returns:
-            int: Number of tokens added to base vocabulary
-        """
-        return self.vocab_size - self.base_vocab_size
+# Note: Custom tokenizer class removed - config.vocab_size is now set correctly for model initialization
+# Runtime operations should use len(tokenizer) for the actual vocabulary size
 
-def update_tokenizer_vocab_size(tokenizer, save_path: str, use_custom_class: bool = True) -> None:
+def save_tokenizer_with_correct_vocab_size(tokenizer, save_path: str, original_vocab_size: int) -> None:
     """
-    Save tokenizer with correct vocab_size configuration.
-    
-    This function saves the tokenizer and configures it to use the EMU3Tokenizer
-    class which returns the correct vocab_size including all special tokens.
+    Save tokenizer with correct vocab_size in config for model initialization.
     
     Args:
         tokenizer: The tokenizer instance with potentially updated vocabulary
         save_path: Path where tokenizer will be saved
-        use_custom_class: Whether to configure the tokenizer to use EMU3Tokenizer class
+        original_vocab_size: The original vocab size before adding tokens
     """
     import json
-    import shutil
     
     # First save the tokenizer
     tokenizer.save_pretrained(save_path)
     
     actual_vocab_size = len(tokenizer)
-    base_vocab_size = tokenizer.vocab_size if hasattr(tokenizer, 'vocab_size') else actual_vocab_size
+    base_vocab_size = original_vocab_size  # Use the original size captured before adding tokens
     
-    # Update tokenizer_config.json
+    # Update tokenizer_config.json with correct vocab_size
     config_path = os.path.join(save_path, "tokenizer_config.json")
     with open(config_path, 'r') as f:
         config = json.load(f)
     
-    # Store both vocab sizes for clarity
+    # Set vocab_size to actual size for model.resize_token_embeddings() etc.
     config['vocab_size'] = actual_vocab_size
     config['base_vocab_size'] = base_vocab_size
     config['added_tokens_count'] = actual_vocab_size - base_vocab_size
-    
-    if use_custom_class:
-        # Configure to use EMU3Tokenizer class
-        config['tokenizer_class'] = 'EMU3Tokenizer'
-        # Add auto_map so AutoTokenizer can find our custom class
-        config['auto_map'] = {
-            'AutoTokenizer': ['add_special_tokens_emu3_style.EMU3Tokenizer', None]
-        }
-        
-        # Copy this module to the tokenizer directory for auto-loading
-        current_file = os.path.abspath(__file__)
-        target_file = os.path.join(save_path, 'add_special_tokens_emu3_style.py')
-        shutil.copy(current_file, target_file)
-        print(f"✓ Configured tokenizer to use EMU3Tokenizer class (returns correct vocab_size)")
     
     with open(config_path, 'w') as f:
         json.dump(config, f, indent=2)
@@ -242,8 +184,8 @@ def add_emu3_special_tokens(
     print(f"Loading tokenizer from {model_path}")
     tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True)
     
-    # Store original info
-    original_vocab_size = len(tokenizer)
+    # Store original info - capture base vocab BEFORE any modifications
+    original_vocab_size = len(tokenizer.get_vocab())
     print(f"Original vocabulary size: {original_vocab_size}")
     
     # Statistics
@@ -326,7 +268,7 @@ def add_emu3_special_tokens(
     # Save the updated tokenizer and update vocab_size in config
     save_path = output_path or model_path
     print(f"\nSaving updated tokenizer to {save_path}")
-    update_tokenizer_vocab_size(tokenizer, save_path)
+    save_tokenizer_with_correct_vocab_size(tokenizer, save_path, original_vocab_size)
     
     # Save vision token mapping
     print("Creating vision token mapping...")

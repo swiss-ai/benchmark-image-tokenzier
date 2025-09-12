@@ -11,6 +11,7 @@ from transformers import AutoTokenizer
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'Tokenizer'))
 from Tokenizer.Emu3VisionTokenizer import Emu3VisionTokenizer
 
 
@@ -137,16 +138,18 @@ class EMU3ImageOnlyTokenizer:
         output[idx] = self.img_token_start_id
         idx += 1
         
-        # Vision tokens with EOL markers - vectorized operations
+        # Vision tokens with EOL markers - fully vectorized
         image_indices = image_indices.view(height, width)
         vision_tokens_with_offset = image_indices + self.vision_token_offset
         
-        for row in range(height):
-            # Copy entire row at once
-            output[idx:idx + width] = vision_tokens_with_offset[row]
-            idx += width
-            output[idx] = self.eol_id
-            idx += 1
+        # Create vision part with EOL tokens in one operation
+        vision_part = torch.empty((height, width + 1), dtype=torch.long)
+        vision_part[:, :width] = vision_tokens_with_offset
+        vision_part[:, -1] = self.eol_id
+        
+        # Copy all rows at once
+        output[idx:idx + height*(width+1)] = vision_part.flatten()
+        idx += height * (width + 1)
         
         # Final tokens
         output[idx] = self.eof_id
@@ -181,6 +184,25 @@ class EMU3ImageOnlyTokenizer:
         
         # Step 4: Encapsulate with EMU3 structure tokens
         return self.encapsulate_image(image_indices, height, width)
+
+    def translate_image_to_text(self, image) -> str:
+        """
+        Translate a PIL image to EMU3 text representation with special tokens.
+        
+        Args:
+            image: PIL Image
+            
+        Returns:
+            Text string with EMU3 special tokens like:
+            '<|img_start|>32*32<|img_token_start|><|visual token 000000|>...<|img_end|>'
+        """
+        # First tokenize the image to get token IDs
+        token_ids = self.tokenize_image(image)
+        
+        # Decode to text using the text tokenizer
+        text = self.text_tokenizer.decode(token_ids, skip_special_tokens=False)
+
+        return text
     
     def compare_with_original(
         self,
