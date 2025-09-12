@@ -198,9 +198,9 @@ class EMU3ImageOnlyTokenizer:
         """
         # First tokenize the image to get token IDs
         token_ids = self.tokenize_image(image)
-        
+        token_ids_no_eos_bos = token_ids[1:-1]  # Remove BOS and EOS for text conversion
         # Decode to text using the text tokenizer
-        text = self.text_tokenizer.decode(token_ids, skip_special_tokens=False)
+        text = self.text_tokenizer.decode(token_ids_no_eos_bos, skip_special_tokens=False)
 
         return text
     
