@@ -134,7 +134,7 @@ class EMU3DynamicWorker:
                 wds.WebDataset(shard_path, shardshuffle=False)
                 .decode("pil")
                 .to_tuple("jpg;png;jpeg;webp", "json", "__key__")
-                .batched(8)  # Load 8 at a time for better I/O
+                .batched(64)  # Load 64 at a time for better I/O
             )
             
             for batch in dataset:
