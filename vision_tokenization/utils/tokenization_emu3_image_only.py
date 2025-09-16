@@ -21,30 +21,40 @@ class EMU3ImageOnlyTokenizer:
     Skips text generation step and directly combines tokens.
     """
     
-    def __init__(self, 
-                 text_tokenizer_path: str, 
+    def __init__(self,
+                 text_tokenizer_path: str,
                  device: str = "cuda",
                  min_pixels: int = None,
                  max_pixels: int = None):
         """
         Initialize with text tokenizer that has EMU3 vision tokens and image tokenizer.
-        
+
         Args:
             text_tokenizer_path: Path to text tokenizer with EMU3 tokens
             device: Device for image tokenizer (default: "cuda")
             min_pixels: Minimum pixels for image preprocessing (default: 512*512)
             max_pixels: Maximum pixels for image preprocessing (default: 1024*1024)
         """
-        
+
+        # Store device
+        self.device = device
+
         # Load tokenizer with trust_remote_code for custom EMU3Tokenizer class
         self.text_tokenizer = AutoTokenizer.from_pretrained(text_tokenizer_path, trust_remote_code=True)
+
+        # Set default values for pixels if not provided
+        if min_pixels is None:
+            min_pixels = 512 * 512
+        if max_pixels is None:
+            max_pixels = 1024 * 1024
+
         self.image_tokenizer = Emu3VisionTokenizer(
-            device=device,
+            device=self.device,
             min_pixels=min_pixels,
             max_pixels=max_pixels
         )
         
-        # Cache for dimension tokens to avoid repeated encoding
+        # Cache for dimension tokens to avoid repeated encodingYOI
         self.dim_cache = {}
         
         # Cache frequently used token IDs
@@ -167,7 +177,8 @@ class EMU3ImageOnlyTokenizer:
         output[idx + 2] = self.eos_id
         
         return output
-    
+
+    @torch.inference_mode()
     def tokenize_image(self, image) -> torch.Tensor:
         """
         Complete pipeline: PIL image → vision indices → EMU3 encapsulated tokens.
@@ -258,6 +269,101 @@ class EMU3ImageOnlyTokenizer:
             'speedup': text_based_time / direct_time if direct_time > 0 else 0,
             'tokens_match': torch.equal(direct_tokens, text_based_tensor)
         }
+
+
+
+class EMU3ImageTextPairTokenizer(EMU3ImageOnlyTokenizer):
+    """
+    Extended tokenizer for image-text pairs with parallel GPU/CPU processing.
+    Image tokenization happens on GPU while text tokenization happens on CPU in parallel.
+    """
+
+    def __init__(self, *args, **kwargs):
+        """Initialize with same parameters as parent class."""
+        super().__init__(*args, **kwargs)
+        from concurrent.futures import ThreadPoolExecutor
+        self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="TokenizerPool")
+
+    def tokenize_image_text_pair(
+        self,
+        image,
+        text: str,
+    ) -> torch.Tensor:
+        """
+        Tokenize an image-text pair with parallel processing using ThreadPoolExecutor.
+        Image is processed on GPU while text is processed on CPU simultaneously.
+
+        Args:
+            image: PIL Image to tokenize
+            text: Text string to append after image
+
+        Returns:
+            Combined tokens: [BOS] + [image tokens without EOS] + [text tokens] + [EOS]
+        """
+        def tokenize_text_cpu():
+            """CPU thread for text tokenization."""
+            # Force text tokenization to CPU
+            with torch.cuda.device(-1):  # Use CPU
+                text_tokens_dict = self.text_tokenizer(
+                    text,
+                    truncation=False,
+                    add_special_tokens=False,
+                    return_tensors="pt"
+                )
+                return text_tokens_dict['input_ids'].squeeze(0)
+
+        # Submit both tasks to executor
+        # Image on GPU (usually the bottleneck)
+        image_future = self.executor.submit(self.tokenize_image, image)
+
+        # Text on CPU (fast, runs in parallel)
+        text_future = self.executor.submit(tokenize_text_cpu)
+
+        # Wait for both and get results
+        image_tokens = image_future.result()
+        text_tokens = text_future.result()
+
+        # Move text tokens to same device as image tokens for concatenation
+        text_tokens = text_tokens.to(image_tokens.device)
+
+        # Combine using cat (can't pre-allocate without knowing text length)
+        combined_tokens = torch.cat([
+            image_tokens[:-1],  # Image tokens without EOS
+            text_tokens,        # Text tokens
+            image_tokens[-1:]   # EOS token
+        ])
+
+        return combined_tokens
+
+    def tokenize_image_text_pair_sequential(
+        self,
+        image,
+        text: str,
+    ) -> torch.Tensor:
+        """
+        Sequential version for comparison/debugging.
+        Same as parent but kept for benchmarking.
+        """
+        # Get image tokens using parent's tokenize_image method
+        image_tokens = self.tokenize_image(image)
+
+        # Tokenize text without special tokens (no BOS/EOS)
+        text_tokens_dict = self.text_tokenizer(
+            text,
+            truncation=False,
+            add_special_tokens=False,
+            return_tensors="pt"
+        )
+        text_tokens = text_tokens_dict['input_ids'].squeeze(0)
+
+        # Combine
+        combined_tokens = torch.cat([
+            image_tokens[:-1],
+            text_tokens,
+            image_tokens[-1:]
+        ])
+
+        return combined_tokens
 
 
 # Example usage
