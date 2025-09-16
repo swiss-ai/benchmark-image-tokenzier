@@ -12,7 +12,7 @@ import queue
 import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional
 
 import numpy as np
 import ray
@@ -26,8 +26,28 @@ base_dir = Path(__file__).parent.parent
 sys.path.append(str(base_dir))
 sys.path.append(str(base_dir / 'Tokenizer'))
 
-from src.utils.indexed_dataset_megatron import DType, IndexedDatasetBuilder
-from src.utils.tokenization_emu3_image_only import EMU3ImageOnlyTokenizer
+from utils.indexed_dataset_megatron import DType, IndexedDatasetBuilder
+from utils.tokenization_emu3_image_only import EMU3ImageOnlyTokenizer
+
+
+@ray.remote
+class ProgressActor:
+    """Lightweight actor for collecting progress updates without polling."""
+    
+    def __init__(self, total_samples: int):
+        self.total_samples = total_samples
+        self.processed = 0
+        self.pbar = tqdm(total=total_samples, desc="Samples processed")
+    
+    def update(self, samples: int):
+        """Update progress bar with completed samples."""
+        self.processed += samples
+        self.pbar.update(samples)
+    
+    def close(self):
+        """Close the progress bar."""
+        self.pbar.close()
+        return self.processed
 
 
 @ray.remote
@@ -41,6 +61,7 @@ class WorkQueue:
         self.in_progress = {}  # batch_id -> (worker_id, start_time)
         self.completed = []
         self.failed = []
+        self.progress_events = []  # Store progress updates for event-driven monitoring
     
     def get_next_batch(self, worker_id: int) -> Optional[Dict]:
         """Get next batch for a worker (work-stealing)."""
@@ -112,7 +133,7 @@ class DynamicTokenizerWorker:
         )
         
         # Initialize prefetch queue for async loading
-        self.image_queue = queue.Queue(maxsize=32)
+        self.image_queue = queue.Queue(maxsize=64)
         
         self.stats = {
             'batches_processed': 0,
@@ -223,7 +244,7 @@ class DynamicTokenizerWorker:
             **stats
         }
     
-    def run(self, work_queue, dataset_info) -> Dict:
+    def run(self, work_queue, dataset_info, progress_actor=None) -> Dict:
         """Main loop: pull and process batches until done."""
         self.logger.info("Starting work loop")
         
@@ -239,6 +260,11 @@ class DynamicTokenizerWorker:
             try:
                 result = self.process_batch(batch_info, dataset_info)
                 ray.get(work_queue.mark_completed.remote(batch_info['batch_id'], result))
+                
+                # Report progress if actor provided
+                if progress_actor:
+                    progress_actor.update.remote(result['samples'])
+                    
             except Exception as e:
                 self.logger.error(f"Failed to process batch: {e}")
                 ray.get(work_queue.mark_failed.remote(batch_info['batch_id'], str(e)))
@@ -322,33 +348,20 @@ def process_dataset_distributed(args):
         )
         workers.append(worker)
     
-    # Start all workers (they'll pull work dynamically)
-    futures = [worker.run.remote(work_queue, dataset_info) for worker in workers]
+    # Create progress actor for efficient progress tracking
+    progress_actor = ProgressActor.remote(total_samples)
     
-    # Monitor progress
-    pbar = tqdm(total=total_samples, desc="Samples processed")
-    last_processed = 0
+    # Start all workers with progress actor
+    futures = [worker.run.remote(work_queue, dataset_info, progress_actor) 
+               for worker in workers]
     
-    while True:
-        # Check queue status
-        status = ray.get(work_queue.get_status.remote())
-        
-        # Update progress bar
-        processed = status['processed']
-        if processed > last_processed:
-            pbar.update(processed - last_processed)
-            last_processed = processed
-        
-        # Check if done
-        if status['processed'] >= total_samples and status['in_progress'] == 0:
-            break
-        
-        time.sleep(1)  # Check every second
+    logging.info(f"Processing {total_samples} samples with {num_gpus} workers...")
     
-    pbar.close()
-    
-    # Get results from all workers
+    # Wait for all workers to complete - no polling, workers push updates
     results = ray.get(futures)
+    
+    # Close progress bar
+    ray.get(progress_actor.close.remote())
     
     # Print summary
     print("\n" + "="*60)
