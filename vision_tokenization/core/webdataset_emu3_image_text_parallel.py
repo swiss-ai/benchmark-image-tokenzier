@@ -1,176 +1,190 @@
 #!/usr/bin/env python3
 """
-Ray-based EMU3 image-text tokenization using tokenize_image_text_pair.
-Uses ThreadPoolExecutor-based parallel tokenization (simpler than pipelined).
+Ray-based EMU3 image-text tokenization using parallel CPU-GPU processing.
+Each Ray worker gets 1 GPU and uses ThreadPoolExecutor for efficient tokenization.
 """
 
 import argparse
+import json
 import logging
 import os
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import ray
 import torch
 import webdataset as wds
+from tqdm import tqdm
 
-# Add parent directory to path
+# Setup paths
 sys.path.append(str(Path(__file__).parent.parent))
 sys.path.append(str(Path(__file__).parent.parent / "utils"))
 
-# Import existing components
+# Import shared components
 from webdataset_emu3_ray_dynamic import ShardQueue
 
 
 # ============================================================================
-# GPU Worker with Image-Text Pair Tokenization
+# GPU Worker for Image-Text Tokenization
 # ============================================================================
 
 @ray.remote(num_gpus=1)
 class EMU3ImageTextWorker:
-    """Worker that processes image-text pairs using tokenize_image_text_pair."""
+    """Worker that processes image-text pairs using parallel tokenization."""
 
     def __init__(self, config: Dict, worker_id: int):
-        # Fix imports for Ray workers
-        import sys
-        from pathlib import Path
-        sys.path.append(str(Path(__file__).parent.parent))
-        sys.path.append(str(Path(__file__).parent.parent / "utils"))
+        """Initialize worker with tokenizer and output builder."""
+        # Setup imports for Ray worker
+        self._setup_imports()
 
-        # Now import after path is set
-        from utils.tokenization_emu3_image_only import EMU3ImageTextPairTokenizer
-        from indexed_dataset_megatron import DType, IndexedDatasetBuilder
-
+        # Initialize components
         self.config = config
         self.worker_id = worker_id
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
         # Setup logging
-        self.logger = logging.getLogger(f"Worker{worker_id:02d}")
+        self._setup_logging()
+
+        # Initialize tokenizer and builder
+        self._initialize_tokenizer()
+        self._initialize_builder()
+
+        # Initialize statistics
+        self._reset_stats()
+
+        self.logger.info(f"Worker {worker_id} initialized on {self.device}")
+
+    def _setup_imports(self):
+        """Setup Python paths and imports for Ray worker."""
+        import sys
+        from pathlib import Path
+
+        # Add paths for local imports
+        sys.path.append(str(Path(__file__).parent.parent))
+        sys.path.append(str(Path(__file__).parent.parent / "utils"))
+
+    def _setup_logging(self):
+        """Configure logging for this worker."""
+        self.logger = logging.getLogger(f"Worker{self.worker_id:02d}")
         self.logger.setLevel(logging.INFO)
 
-        # Initialize tokenizer with ThreadPoolExecutor for parallel processing
+    def _initialize_tokenizer(self):
+        """Initialize the EMU3 tokenizer."""
+        # Import here after paths are set
+        from utils.tokenization_emu3_image_only import EMU3ImageTextPairTokenizer
+
         self.tokenizer = EMU3ImageTextPairTokenizer(
-            text_tokenizer_path=config['tokenizer_path'],
+            text_tokenizer_path=self.config['tokenizer_path'],
             device=self.device
         )
 
-        # Initialize builder
-        output_dir = config['output_dir']
-        os.makedirs(output_dir, exist_ok=True)
+        # Cache frequently used token IDs
+        self.img_end_id = self.tokenizer.text_tokenizer.convert_tokens_to_ids("<|img_end|>")
 
-        self.output_path = os.path.join(output_dir, f"rank_{worker_id:03d}")
-        self.builder = IndexedDatasetBuilder(
-            f"{self.output_path}.bin",
-            dtype=DType.optimal_dtype(self.tokenizer.text_tokenizer.vocab_size)
-        )
+    def _initialize_builder(self):
+        """Initialize builder setup - actual builders created per shard."""
+        # Import here after paths are set
+        from indexed_dataset_megatron import DType, IndexedDatasetBuilder
 
-        # Statistics
+        # Store imports for later use
+        self.DType = DType
+        self.IndexedDatasetBuilder = IndexedDatasetBuilder
+
+        # Create output directory
+        self.output_dir = self.config['output_dir']
+        os.makedirs(self.output_dir, exist_ok=True)
+
+        # Store dtype for builders
+        self.dtype = DType.optimal_dtype(self.tokenizer.text_tokenizer.vocab_size)
+
+    def _reset_stats(self):
+        """Reset statistics counters."""
         self.stats = {
             'shards_processed': 0,
             'samples_processed': 0,
+            'samples_skipped': 0,
+            'total_tokens': 0,
             'image_tokens': 0,
             'text_tokens': 0,
-            'total_tokens': 0,
             'errors': 0,
             'start_time': time.time()
         }
 
-        self.logger.info(f"Worker {worker_id} initialized on {self.device}")
-        self.logger.info(f"Using tokenize_image_text_pair with ThreadPoolExecutor")
-
     def process_shard(self, shard_path: str) -> Dict[str, Any]:
-        """Process a single shard using tokenize_image_text_pair."""
-        shard_name = Path(shard_path).name
-        self.logger.info(f"Starting {shard_name}")
+        """
+        Process a single shard file.
 
-        start_time = time.time()
-        samples = 0
-        total_tokens = 0
-        skipped = 0
+        Args:
+            shard_path: Path to the tar shard
+
+        Returns:
+            Processing results and statistics
+        """
+        shard_name = Path(shard_path).name
+        if self.worker_id == 0:
+            self.logger.info(f"Processing {shard_name}")
+
+        # Track shard-level metrics
+        shard_start = time.time()
+        shard_samples = 0
+        shard_tokens = 0
+        shard_image_tokens = 0
+        shard_text_tokens = 0
+        shard_skipped = 0
+
+        # Create builder for this specific shard
+        shard_base = shard_name.replace('.tar', '')
+        shard_output_path = os.path.join(self.output_dir, shard_base)
+        builder = self.IndexedDatasetBuilder(
+            f"{shard_output_path}.bin",
+            dtype=self.dtype
+        )
 
         try:
-            # Create dataset for the shard
-            dataset = (
-                wds.WebDataset(shard_path, shardshuffle=False)
-                .decode("pil")
-                .to_tuple("jpg;png;jpeg;webp", "txt", "__key__")
-                .batched(64)  # Pre-batch data
-            )
+            # Create WebDataset pipeline
+            dataset = self._create_dataset(shard_path)
 
-            # Process each sample
-            for img, text_data, key in dataset:
-                # Text comes as string from .txt files
-                text = text_data.strip() if text_data else ""
-
+            # Process samples
+            for img, text, key in dataset:
                 if not text:
-                    self.logger.debug(f"Skipping {key}: no text found")
-                    skipped += 1
+                    self.logger.debug(f"Skipping {key}: empty text")
+                    shard_skipped += 1
                     continue
 
-                try:
-                    # Tokenize image-text pair
-                    tokens = self.tokenizer.tokenize_image_text_pair(img, text)
-                    total_token_count = len(tokens)
+                # Process sample
+                success = self._process_sample(img, text, key, builder)
+                if success:
+                    shard_samples += 1
+                    shard_tokens += success['total_tokens']
+                    shard_image_tokens += success['image_tokens']
+                    shard_text_tokens += success['text_tokens']
 
-                    # Estimate token counts based on structure
-                    # We know the structure: [BOS] [img_start] [dims] [img_token_start] [vision_tokens+EOLs] [EOF] [img_end] [text] [EOS]
-                    # Find img_end token position to separate image from text
-                    tokens_list = tokens.tolist() if torch.is_tensor(tokens) else list(tokens)
-                    img_end_id = self.tokenizer.text_tokenizer.convert_tokens_to_ids("<|img_end|>")
+                # Log progress periodically (only on rank 0)
+                if self.worker_id == 0 and shard_samples % 100 == 0 and shard_samples > 0:
+                    self._log_progress(shard_name, shard_samples, shard_start)
 
-                    if img_end_id in tokens_list:
-                        img_end_idx = tokens_list.index(img_end_id)
-                        # Image tokens: from BOS to img_end (inclusive)
-                        image_token_count = img_end_idx + 1
-                        # Text tokens: from img_end+1 to EOS
-                        text_token_count = total_token_count - image_token_count
-                    else:
-                        # Fallback: estimate based on typical sizes
-                        image_token_count = total_token_count // 2  # rough estimate
-                        text_token_count = total_token_count - image_token_count
+            # Finalize the builder for this shard
+            builder.finalize(f"{shard_output_path}.idx")
 
-                    # Convert to numpy and add to dataset
-                    tokens_np = tokens.cpu().numpy() if torch.is_tensor(tokens) else tokens
-                    self.builder.add_document(tokens_np, [len(tokens_np)])
+            # Update global stats
+            self._update_stats(shard_samples, shard_tokens, shard_image_tokens, shard_text_tokens, shard_skipped)
 
-                    samples += 1
-                    total_tokens += total_token_count
-                    self.stats['image_tokens'] += image_token_count
-                    self.stats['text_tokens'] += text_token_count
-
-                    # Log progress every 100 samples
-                    if samples % 100 == 0:
-                        elapsed = time.time() - start_time
-                        self.logger.info(
-                            f"  {shard_name}: {samples} samples processed, "
-                            f"{samples/elapsed:.1f} samples/s"
-                        )
-
-                except Exception as e:
-                    self.logger.error(f"Error processing {key}: {e}")
-                    self.stats['errors'] += 1
-                    continue
-
-            # Update stats
-            self.stats['shards_processed'] += 1
-            self.stats['samples_processed'] += samples
-            self.stats['total_tokens'] += total_tokens
-
-            elapsed = time.time() - start_time
-            self.logger.info(
-                f"Completed {shard_name}: {samples} samples, {total_tokens} tokens in {elapsed:.1f}s "
-                f"({skipped} skipped)"
-            )
+            # Report completion (only on rank 0)
+            elapsed = time.time() - shard_start
+            if self.worker_id == 0:
+                self.logger.info(
+                    f"Completed {shard_name}: {shard_samples} samples, "
+                    f"{shard_tokens} tokens in {elapsed:.1f}s -> {shard_base}.bin/idx"
+                )
 
             return {
                 'success': True,
                 'shard': shard_name,
-                'samples': samples,
-                'tokens': total_tokens,
-                'skipped': skipped,
+                'samples': shard_samples,
+                'tokens': shard_tokens,
+                'skipped': shard_skipped,
                 'time': elapsed
             }
 
@@ -183,130 +197,239 @@ class EMU3ImageTextWorker:
                 'error': str(e)
             }
 
-    def _extract_text(self, metadata: Dict) -> str:
-        """Extract text from metadata, checking common keys."""
-        # Try common text keys in order of preference
-        for key in ['caption', 'text', 'description', 'alt_text', 'title']:
-            if key in metadata and metadata[key]:
-                return str(metadata[key])
-        return ""
+    def _create_dataset(self, shard_path: str):
+        """Create WebDataset pipeline with optimized I/O."""
+        return (
+            wds.WebDataset(shard_path, shardshuffle=False)
+            .decode("pil")
+            .to_tuple("jpg;png;jpeg;webp", "txt", "__key__")
+            .batched(64)   # Batch for I/O efficiency
+            .unbatched()   # Unbatch for clean iteration
+        )
+
+    def _process_sample(self, image, text: str, key: str, builder) -> Optional[Dict]:
+        """
+        Process a single image-text pair.
+
+        Args:
+            image: PIL Image
+            text: Text string
+            key: Sample key
+            builder: IndexedDatasetBuilder for this shard
+
+        Returns:
+            Dict with token counts if successful, None otherwise
+        """
+        try:
+            # Clean text
+            text = text.strip() if text else ""
+            if not text:
+                return None
+
+            # Tokenize image-text pair
+            tokens = self.tokenizer.tokenize_image_text_pair(image, text)
+            total_tokens = len(tokens)
+
+            # Separate image and text token counts
+            image_tokens, text_tokens = self._count_tokens(tokens)
+
+            # Save to dataset
+            tokens_np = tokens.cpu().numpy() if torch.is_tensor(tokens) else tokens
+            builder.add_document(tokens_np, [len(tokens_np)])
+
+            # Don't update global stats here - will be done in _update_stats
+            # Just return the counts
+
+            return {
+                'total_tokens': total_tokens,
+                'image_tokens': image_tokens,
+                'text_tokens': text_tokens
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error processing {key}: {e}")
+            self.stats['errors'] += 1
+            return None
+
+    def _count_tokens(self, tokens) -> tuple:
+        """
+        Count image and text tokens separately.
+
+        Returns:
+            (image_token_count, text_token_count)
+        """
+        tokens_list = tokens.tolist() if torch.is_tensor(tokens) else list(tokens)
+
+        # Find boundary between image and text
+        assert self.img_end_id in tokens_list, f"img_end token {self.img_end_id} must be present in tokenized sequence"
+
+        img_end_idx = tokens_list.index(self.img_end_id)
+        image_count = img_end_idx + 1  # Include img_end token
+        text_count = len(tokens_list) - image_count
+
+        return image_count, text_count
+
+    def _update_stats(self, samples: int, tokens: int, image_tokens: int, text_tokens: int, skipped: int):
+        """Update global statistics."""
+        self.stats['shards_processed'] += 1
+        self.stats['samples_processed'] += samples
+        self.stats['total_tokens'] += tokens
+        self.stats['image_tokens'] += image_tokens
+        self.stats['text_tokens'] += text_tokens
+        self.stats['samples_skipped'] += skipped
+
+    def _log_progress(self, shard_name: str, samples: int, start_time: float):
+        """Log processing progress."""
+        elapsed = time.time() - start_time
+        rate = samples / elapsed if elapsed > 0 else 0
+        self.logger.info(f"  {shard_name}: {samples} samples, {rate:.1f} samples/s")
 
     def run(self, shard_queue) -> Dict[str, Any]:
-        """Main loop: pull and process shards until done."""
-        self.logger.info("Starting work loop")
+        """Main processing loop."""
+        if self.worker_id == 0:
+            self.logger.info("Starting processing loop")
 
         while True:
-            # Get next shard from queue
+            # Get next shard
             shard_path = ray.get(shard_queue.get_next_shard.remote(self.worker_id))
 
             if shard_path is None:
-                self.logger.info("No more shards, finishing")
+                if self.worker_id == 0:
+                    self.logger.info("No more shards to process")
                 break
 
-            # Process the shard
+            # Process shard
             result = self.process_shard(shard_path)
 
-            # Report result back to queue
+            # Report result
             if result['success']:
                 ray.get(shard_queue.mark_completed.remote(shard_path))
             else:
                 ray.get(shard_queue.mark_failed.remote(
                     shard_path,
-                    result.get('error', 'Unknown')
+                    result.get('error', 'Unknown error')
                 ))
 
-        # No pipeline to stop with tokenize_image_text_pair
-
-        # Finalize dataset
-        self.builder.finalize(f"{self.output_path}.idx")
-
-        # Return final statistics
+        # Calculate final metrics
         elapsed = time.time() - self.stats['start_time']
         self.stats['elapsed_time'] = elapsed
-        self.stats['throughput'] = self.stats['total_tokens'] / elapsed if elapsed > 0 else 0
+        self.stats['throughput'] = (
+            self.stats['total_tokens'] / elapsed if elapsed > 0 else 0
+        )
 
         return self.stats
 
 
 # ============================================================================
-# Modified Main Pipeline
+# Main Processing Pipeline
 # ============================================================================
 
 def process_image_text_pairs(config: Dict):
-    """Process image-text pairs using tokenize_image_text_pair (ThreadPoolExecutor parallel)."""
+    """
+    Main processing pipeline with Ray distributed workers.
 
+    Args:
+        config: Configuration dictionary
+    """
     # Initialize Ray
     ray.init(ignore_reinit_error=True)
     resources = ray.available_resources()
     num_gpus = config.get('num_gpus') or int(resources.get('GPU', 1))
 
     logging.info(f"Starting with {num_gpus} GPU workers")
-    logging.info(f"Each worker uses ThreadPoolExecutor for CPU-GPU parallel processing")
 
-    # Get list of shards
-    import glob
-    input_files = sorted(glob.glob(config['input_pattern']))
+    # Get input files
+    input_files = get_input_files(config)
     if not input_files:
-        logging.error(f"No files found: {config['input_pattern']}")
         return
+
+    # Create work queue
+    shard_queue = ShardQueue.remote(input_files)
+
+    # Launch workers
+    workers = [
+        EMU3ImageTextWorker.remote(config, i)
+        for i in range(num_gpus)
+    ]
+
+    # Start processing
+    futures = [worker.run.remote(shard_queue) for worker in workers]
+
+    # Monitor progress
+    monitor_progress(shard_queue, len(input_files))
+
+    # Collect results
+    results = ray.get(futures)
+
+    # Print summary and save dataset info
+    print_summary(results, shard_queue, config, input_files)
+
+    # Shutdown
+    ray.shutdown()
+
+
+def get_input_files(config: Dict) -> list:
+    """Get list of input files with optional range filtering."""
+    import glob
+
+    # Get all matching files
+    all_files = sorted(glob.glob(config['input_pattern']))
+
+    if not all_files:
+        logging.error(f"No files found: {config['input_pattern']}")
+        return []
 
     # Apply range filter if specified
     if config.get('range'):
-        range_str = config['range']
-        try:
-            if ':' in range_str:
-                parts = range_str.split(':')
-                start = int(parts[0]) if parts[0] else 0
-                end = int(parts[1]) if parts[1] else len(input_files)
-            else:
-                # Single number means process only that index
-                start = int(range_str)
-                end = start + 1
+        all_files = apply_range_filter(all_files, config['range'])
 
-            # Validate multiples of 4
-            assert (end - start) % 4 == 0, f"Range size {end - start} must be a multiple of 4"
+    if not all_files:
+        return []
 
-            # Apply range
-            original_count = len(input_files)
-            input_files = input_files[start:end]
-            logging.info(f"Range filter '{range_str}': selected {len(input_files)} out of {original_count} shards")
+    logging.info(f"Processing {len(all_files)} shards")
+    return all_files
 
-            if not input_files:
-                logging.error(f"Range '{range_str}' resulted in no files to process")
-                return
 
-            logging.info(f"Processing shards from index {start} to {min(end, original_count)-1}")
-            logging.info(f"  First shard: {Path(input_files[0]).name}")
-            logging.info(f"  Last shard: {Path(input_files[-1]).name}")
+def apply_range_filter(files: list, range_str: str) -> list:
+    """Apply range filter to file list."""
+    try:
+        # Parse range
+        if ':' in range_str:
+            parts = range_str.split(':')
+            start = int(parts[0]) if parts[0] else 0
+            end = int(parts[1]) if parts[1] else len(files)
+        else:
+            start = int(range_str)
+            end = start + 1
 
-        except (ValueError, IndexError) as e:
-            logging.error(f"Invalid range format '{range_str}'. Use format like '0:4' or '8:16' or '100:'")
-            return
-    else:
-        logging.info(f"Found {len(input_files)} shards to process")
+        # Validate range
+        assert (end - start) % 4 == 0, f"Range size must be multiple of 4"
 
-    # Create shard queue (reuse from original)
-    shard_queue = ShardQueue.remote(input_files)
+        # Apply range
+        filtered = files[start:end]
 
-    # Create workers with parallel tokenizer
-    workers = []
-    for i in range(num_gpus):
-        worker = EMU3ImageTextWorker.remote(config, i)
-        workers.append(worker)
+        if filtered:
+            logging.info(f"Range {range_str}: {len(filtered)} files")
+            logging.info(f"  First: {Path(filtered[0]).name}")
+            logging.info(f"  Last: {Path(filtered[-1]).name}")
 
-    # Start all workers
-    futures = [worker.run.remote(shard_queue) for worker in workers]
+        return filtered
 
-    # Monitor progress (reuse monitoring logic)
-    from tqdm import tqdm
-    pbar = tqdm(total=len(input_files), desc="Shards processed")
+    except Exception as e:
+        logging.error(f"Invalid range '{range_str}': {e}")
+        return []
+
+
+def monitor_progress(shard_queue, total_shards: int):
+    """Monitor processing progress with progress bar."""
+    pbar = tqdm(total=total_shards, desc="Shards processed")
     last_completed = 0
 
     while True:
-        # Check queue status
+        # Check status
         status = ray.get(shard_queue.get_status.remote())
 
-        # Update progress bar
+        # Update progress
         completed = status['completed']
         if completed > last_completed:
             pbar.update(completed - last_completed)
@@ -316,93 +439,210 @@ def process_image_text_pairs(config: Dict):
         if status['pending'] == 0 and status['in_progress'] == 0:
             break
 
-        time.sleep(0.1)  # Check every 100ms for more responsive updates
+        time.sleep(0.1)
 
     pbar.close()
 
-    # Get final results
-    results = ray.get(futures)
 
-    # Print summary
-    print("\n" + "="*70)
-    print("IMAGE-TEXT PARALLEL TOKENIZATION COMPLETE")
-    print("="*70)
+def print_summary(results: list, shard_queue, config: Dict, input_files: list):
+    """Print processing summary and save dataset info."""
+    # Header
+    print("\n" + "=" * 70)
+    print("IMAGE-TEXT TOKENIZATION COMPLETE")
+    print("=" * 70)
 
-    total_shards = sum(r['shards_processed'] for r in results)
-    total_samples = sum(r['samples_processed'] for r in results)
-    total_tokens = sum(r['total_tokens'] for r in results)
-    total_image_tokens = sum(r['image_tokens'] for r in results)
-    total_text_tokens = sum(r['text_tokens'] for r in results)
-    total_errors = sum(r['errors'] for r in results)
-    max_time = max(r['elapsed_time'] for r in results)
+    # Calculate totals
+    totals = calculate_totals(results)
 
     # Per-worker stats
     print("\nPer-Worker Statistics:")
-    print("-"*70)
+    print("-" * 70)
+
     for i, r in enumerate(results):
-        print(f"Worker {i:2d}: {r['shards_processed']:3d} shards | "
-              f"{r['samples_processed']:6d} samples | "
-              f"{r['throughput']/1000:6.1f}K tok/s")
+        print(
+            f"Worker {i:2d}: {r['shards_processed']:3d} shards | "
+            f"{r['samples_processed']:6d} samples | "
+            f"{r['throughput']/1000:6.1f}K tok/s"
+        )
 
-    # Summary stats
-    print("\n" + "="*70)
+    # Summary
+    print_totals(totals)
+
+    # Check for failures
+    check_failures(shard_queue)
+
+    # Save dataset info JSON
+    save_dataset_info(results, totals, config, input_files)
+
+
+def calculate_totals(results: list) -> Dict:
+    """Calculate total statistics from worker results."""
+    return {
+        'shards': sum(r['shards_processed'] for r in results),
+        'samples': sum(r['samples_processed'] for r in results),
+        'skipped': sum(r.get('samples_skipped', 0) for r in results),
+        'tokens': sum(r['total_tokens'] for r in results),
+        'image_tokens': sum(r['image_tokens'] for r in results),
+        'text_tokens': sum(r['text_tokens'] for r in results),
+        'errors': sum(r['errors'] for r in results),
+        'time': max(r['elapsed_time'] for r in results)
+    }
+
+
+def print_totals(totals: Dict):
+    """Print summary totals."""
+    print("\n" + "=" * 70)
     print("SUMMARY")
-    print("="*70)
+    print("=" * 70)
 
-    print(f"Shards:     {total_shards:8d}")
-    print(f"Samples:    {total_samples:8d}")
-    print(f"Tokens:     {total_tokens:8,d}")
+    # Basic stats
+    print(f"Shards:     {totals['shards']:8d}")
+    print(f"Samples:    {totals['samples']:8d}")
 
-    if total_samples > 0:
-        avg_total_tokens = total_tokens / total_samples
-        avg_image_tokens = total_image_tokens / total_samples
-        avg_text_tokens = total_text_tokens / total_samples
+    if totals['skipped'] > 0:
+        print(f"Skipped:    {totals['skipped']:8d}")
 
+    print(f"Tokens:     {totals['tokens']:8,d}")
+
+    # Token distribution
+    if totals['samples'] > 0:
         print(f"\nToken Distribution:")
-        print(f"  Image:    {total_image_tokens:12,d} ({total_image_tokens/total_tokens*100:5.1f}%)")
-        print(f"  Text:     {total_text_tokens:12,d} ({total_text_tokens/total_tokens*100:5.1f}%)")
+        print(f"  Image:    {totals['image_tokens']:12,d} "
+              f"({totals['image_tokens']/totals['tokens']*100:5.1f}%)")
+        print(f"  Text:     {totals['text_tokens']:12,d} "
+              f"({totals['text_tokens']/totals['tokens']*100:5.1f}%)")
 
-        print(f"\nAverage Tokens per Sequence:")
-        print(f"  Total:    {avg_total_tokens:8.1f}")
-        print(f"  Image:    {avg_image_tokens:8.1f}")
-        print(f"  Text:     {avg_text_tokens:8.1f}")
+        # Averages
+        print(f"\nAverage per Sequence:")
+        print(f"  Total:    {totals['tokens']/totals['samples']:8.1f}")
+        print(f"  Image:    {totals['image_tokens']/totals['samples']:8.1f}")
+        print(f"  Text:     {totals['text_tokens']/totals['samples']:8.1f}")
 
+    # Performance
     print(f"\nPerformance:")
-    print(f"  Time:     {max_time:8.1f}s")
-    print(f"  Samples:  {total_samples/max_time:8.1f} samples/sec")
-    print(f"  Tokens:   {total_tokens/max_time/1000:8.1f}K tokens/sec")
+    print(f"  Time:     {totals['time']:8.1f}s")
 
-    if total_errors > 0:
-        print(f"\n⚠ Errors:   {total_errors}")
-    print("="*70)
+    if totals['time'] > 0:
+        print(f"  Samples:  {totals['samples']/totals['time']:8.1f} samples/sec")
+        print(f"  Tokens:   {totals['tokens']/totals['time']/1000:8.1f}K tokens/sec")
 
-    # Check for failed shards
-    final_status = ray.get(shard_queue.get_status.remote())
-    if final_status['failed'] > 0:
-        print(f"\nWarning: {final_status['failed']} shards failed processing")
+    # Errors
+    if totals['errors'] > 0:
+        print(f"\n⚠ Errors:   {totals['errors']}")
 
-    ray.shutdown()
+    print("=" * 70)
 
+
+def check_failures(shard_queue):
+    """Check for failed shards."""
+    status = ray.get(shard_queue.get_status.remote())
+    if status['failed'] > 0:
+        print(f"\n⚠ Warning: {status['failed']} shards failed processing")
+
+
+def save_dataset_info(results: list, totals: Dict, config: Dict, input_files: list):
+    """Save dataset information to JSON file."""
+    import datetime
+
+    # Prepare dataset info
+    dataset_info = {
+        'timestamp': datetime.datetime.now().isoformat(),
+        'configuration': {
+            'input_pattern': config['input_pattern'],
+            'output_dir': config['output_dir'],
+            'tokenizer_path': config['tokenizer_path'],
+            'num_gpus': len(results),
+            'range': config.get('range', 'all'),
+            'num_shards': len(input_files)
+        },
+        'statistics': {
+            'total_shards': totals['shards'],
+            'total_samples': totals['samples'],
+            'samples_skipped': totals['skipped'],
+            'total_tokens': totals['tokens'],
+            'image_tokens': totals['image_tokens'],
+            'text_tokens': totals['text_tokens'],
+            'errors': totals['errors'],
+            'processing_time_seconds': totals['time']
+        },
+        'averages': {
+            'tokens_per_sequence': totals['tokens'] / totals['samples'] if totals['samples'] > 0 else 0,
+            'image_tokens_per_sequence': totals['image_tokens'] / totals['samples'] if totals['samples'] > 0 else 0,
+            'text_tokens_per_sequence': totals['text_tokens'] / totals['samples'] if totals['samples'] > 0 else 0
+        },
+        'performance': {
+            'samples_per_second': totals['samples'] / totals['time'] if totals['time'] > 0 else 0,
+            'tokens_per_second_k': totals['tokens'] / totals['time'] / 1000 if totals['time'] > 0 else 0
+        },
+        'worker_details': []
+    }
+
+    # Add per-worker details
+    for i, r in enumerate(results):
+        worker_info = {
+            'worker_id': i,
+            'shards_processed': r['shards_processed'],
+            'samples_processed': r['samples_processed'],
+            'total_tokens': r['total_tokens'],
+            'image_tokens': r['image_tokens'],
+            'text_tokens': r['text_tokens'],
+            'errors': r['errors'],
+            'elapsed_time': r['elapsed_time'],
+            'throughput': r['throughput']
+        }
+        dataset_info['worker_details'].append(worker_info)
+
+    # Add shard list
+    dataset_info['shards_processed'] = [Path(f).name for f in input_files]
+
+    # Save to JSON file
+    output_path = Path(config['output_dir']) / 'dataset_info.json'
+    try:
+        with open(output_path, 'w') as f:
+            json.dump(dataset_info, f, indent=2)
+    except Exception as e:
+        logging.error(f"Failed to save dataset info: {e}")
+
+
+# ============================================================================
+# Command Line Interface
+# ============================================================================
 
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="EMU3 image-text tokenization with parallel architecture (ThreadPoolExecutor)"
+        description="EMU3 image-text tokenization with Ray distributed processing"
     )
 
     # Required arguments
-    parser.add_argument("--input-pattern", required=True,
-                       help="Input shard pattern (e.g., '/path/*.tar')")
-    parser.add_argument("--output-dir", required=True,
-                       help="Output directory for tokenized data")
-    parser.add_argument("--tokenizer-path", required=True,
-                       help="Path to EMU3 tokenizer")
+    parser.add_argument(
+        "--input-pattern",
+        required=True,
+        help="Input file pattern (e.g., '/path/*.tar')"
+    )
+    parser.add_argument(
+        "--output-dir",
+        required=True,
+        help="Output directory for tokenized data"
+    )
+    parser.add_argument(
+        "--tokenizer-path",
+        required=True,
+        help="Path to EMU3 tokenizer"
+    )
 
     # Optional arguments
-    parser.add_argument("--num-gpus", type=int,
-                       help="Number of GPU workers (default: all available)")
-    parser.add_argument("--range", type=str,
-                       help="Process specific range of tar files. Must be multiples of 4. E.g., '0:4' (files 0-3), '8:16' (files 8-15), '100:104' (files 100-103)")
+    parser.add_argument(
+        "--num-gpus",
+        type=int,
+        help="Number of GPU workers (default: all available)"
+    )
+    parser.add_argument(
+        "--range",
+        type=str,
+        help="Process specific range (must be multiple of 4). "
+             "E.g., '0:4', '8:16', '100:104'"
+    )
 
     args = parser.parse_args()
 
@@ -413,6 +653,7 @@ def main():
         datefmt='%H:%M:%S'
     )
 
+    # Process
     config = vars(args)
     process_image_text_pairs(config)
 
