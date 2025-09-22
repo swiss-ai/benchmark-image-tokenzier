@@ -23,8 +23,9 @@ from tqdm import tqdm
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from indexed_dataset_megatron import DType, IndexedDatasetBuilder
-from tokenization_emu3_image_only import EMU3ImageOnlyTokenizer
+from utils.indexed_dataset_megatron import DType, IndexedDatasetBuilder
+from utils.tokenization_emu3_image_only import EMU3ImageOnlyTokenizer
+from utils.parse_utils import add_emu3_tokenization_args
 
 
 # ============================================================================
@@ -80,33 +81,27 @@ class ShardQueue:
 @ray.remote(num_gpus=1)
 class EMU3DynamicWorker:
     """Worker that pulls shards dynamically from queue."""
-    
+
     def __init__(self, config: Dict, worker_id: int):
+        # Setup imports for Ray worker
+        self._setup_imports()
+
         self.config = config
         self.worker_id = worker_id
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        
+
         # Setup logging
         self.logger = logging.getLogger(f"Worker{worker_id:02d}")
         self.logger.setLevel(logging.INFO)
-        
+
+        # Set number of decode workers
+        self.num_decode_workers = min(os.cpu_count(), 32)
+
         # Initialize tokenizer
-        self.tokenizer = EMU3ImageOnlyTokenizer(
-            text_tokenizer_path=config['tokenizer_path'],
-            device=self.device
-        )
-        
+        self._initialize_tokenizer()
+
         # Initialize builder
-        # Create output directory if it doesn't exist
-        output_dir = config['output_dir']
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # Use rank-based naming inside the directory
-        self.output_path = os.path.join(output_dir, f"rank_{worker_id:03d}")
-        self.builder = IndexedDatasetBuilder(
-            f"{self.output_path}.bin",
-            dtype=DType.optimal_dtype(self.tokenizer.text_tokenizer.vocab_size)
-        )
+        self._initialize_builder()
         
         # Statistics
         self.stats = {
@@ -118,9 +113,69 @@ class EMU3DynamicWorker:
         }
         
         self.logger.info(f"Worker {worker_id} initialized on {self.device}")
-    
+
+    def _setup_imports(self):
+        """Setup Python paths and imports for Ray worker."""
+        import sys
+        from pathlib import Path
+
+        # Add paths for local imports
+        sys.path.append(str(Path(__file__).parent.parent))
+        sys.path.append(str(Path(__file__).parent.parent / "utils"))
+
+    def _initialize_tokenizer(self):
+        """Initialize the EMU3 tokenizer."""
+        # Import here after paths are set
+        from tokenization_emu3_image_only import EMU3ImageOnlyTokenizer
+
+        self.tokenizer = EMU3ImageOnlyTokenizer(
+            text_tokenizer_path=self.config['tokenizer_path'],
+            device=self.device,
+            min_pixels=self.config.get('min_resolution')
+        )
+
+    def _initialize_builder(self):
+        """Initialize the indexed dataset builder."""
+        import os
+
+        # Import here after paths are set
+        from indexed_dataset_megatron import DType, IndexedDatasetBuilder
+
+        # Store imports for later use
+        self.DType = DType
+        self.IndexedDatasetBuilder = IndexedDatasetBuilder
+
+        # Create output directory if it doesn't exist
+        output_dir = self.config['output_dir']
+
+        # Add range info to output directory name if specified
+        if self.config.get('range'):
+            output_dir = f"{output_dir}_range_{self.config['range'].replace(':', '-')}"
+
+        # Add resolution info to output directory name if filtering is enabled
+        if self.config.get('min_resolution') or self.config.get('max_resolution'):
+            min_res = self.config.get('min_resolution', 0)
+            max_res = self.config.get('max_resolution', 'inf')
+            output_dir = f"{output_dir}_res_{min_res}_{max_res}"
+
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Use rank-based naming inside the directory
+        self.output_path = os.path.join(output_dir, f"rank_{self.worker_id:03d}")
+        self.builder = IndexedDatasetBuilder(
+            f"{self.output_path}.bin",
+            dtype=DType.optimal_dtype(self.tokenizer.text_tokenizer.vocab_size)
+        )
+
     def process_shard(self, shard_path: str) -> Dict[str, Any]:
         """Process a single shard."""
+        from pathlib import Path
+        import time
+        import torch
+        import webdataset as wds
+        from PIL import Image
+        import io
+
         shard_name = Path(shard_path).name
         self.logger.info(f"Starting {shard_name}")
         
@@ -135,27 +190,36 @@ class EMU3DynamicWorker:
                 .decode("pil")
                 .to_tuple("jpg;png;jpeg;webp", "json", "__key__")
                 .batched(64)  # Load 64 at a time for better I/O
+                .unbatched()  # Back to individual samples for simpler iteration
             )
-            
-            for batch in dataset:
-                images, _, keys = batch
-                
-                # Process each image
-                for img, key in zip(images, keys):
-                    try:
-                        # Tokenize
-                        img_tokens = self.tokenizer.tokenize_image(img)
-                        tokens_np = img_tokens.cpu().numpy() if torch.is_tensor(img_tokens) else img_tokens
-                        
-                        # Add to dataset
-                        self.builder.add_document(tokens_np, [len(tokens_np)])
-                        
-                        samples += 1
-                        tokens += len(tokens_np)
-                        
-                    except Exception as e:
-                        self.logger.warning(f"Error processing {key}: {e}")
-                        self.stats['errors'] += 1
+
+            for img, json_data, key in dataset:
+                # Apply filtering only if metadata has width/height
+                if 'width' in json_data and 'height' in json_data:
+                    w, h = json_data['width'], json_data['height']
+                    resolution = w * h
+
+                    # Skip images that don't meet resolution criteria
+                    if self.config.get('min_resolution') and resolution < self.config['min_resolution']:
+                        continue
+                    if self.config.get('max_resolution') and resolution > self.config['max_resolution']:
+                        continue
+                # If no width/height metadata, process without filtering
+
+                try:
+                    # Tokenize
+                    img_tokens = self.tokenizer.tokenize_image(img)
+                    tokens_np = img_tokens.cpu().numpy() if torch.is_tensor(img_tokens) else img_tokens
+
+                    # Add to dataset
+                    self.builder.add_document(tokens_np, [len(tokens_np)])
+
+                    samples += 1
+                    tokens += len(tokens_np)
+
+                except Exception as e:
+                    self.logger.warning(f"Error processing {key}: {e}")
+                    self.stats['errors'] += 1
             
             # Update stats
             self.stats['shards_processed'] += 1
@@ -234,7 +298,17 @@ def process_with_dynamic_scheduling(config: Dict):
     if not input_files:
         logging.error(f"No files found: {config['input_pattern']}")
         return
-    
+
+    # Apply range filter if specified
+    if config.get('range'):
+        try:
+            start, end = map(int, config['range'].split(':'))
+            input_files = input_files[start:end]
+            logging.info(f"Processing range {start}:{end} of shards")
+        except (ValueError, IndexError) as e:
+            logging.error(f"Invalid range format: {config['range']}. Use format 'start:end'")
+            return
+
     logging.info(f"Found {len(input_files)} shards to process")
     
     # Create shard queue
@@ -307,14 +381,9 @@ def process_with_dynamic_scheduling(config: Dict):
 
 def main():
     """Main entry point."""
-    parser = argparse.ArgumentParser(
+    parser = add_emu3_tokenization_args(
         description="EMU3 tokenization with dynamic Ray scheduling"
     )
-    parser.add_argument("--input-pattern", required=True, help="Input shard pattern")
-    parser.add_argument("--output-dir", required=True, help="Output directory for tokenized data")
-    parser.add_argument("--tokenizer-path", required=True, help="EMU3 tokenizer path")
-    parser.add_argument("--num-gpus", type=int, help="Number of GPUs")
-    
     args = parser.parse_args()
     
     # Setup logging

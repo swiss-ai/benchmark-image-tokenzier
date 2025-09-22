@@ -2,14 +2,15 @@
 #SBATCH --account=a-infra01
 #SBATCH --job-name=emu3-img-txt
 #SBATCH --environment=emu3
-#SBATCH --nodes=15
+#SBATCH --nodes=5
 #SBATCH --exclusive
 #SBATCH --partition=normal
 #SBATCH --ntasks-per-node=4
 #SBATCH --cpus-per-task=72
-#SBATCH --time=05:00:00
+#SBATCH --time=12:00:00
 #SBATCH --output=/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/vision_tokenization/logs/emu3_img_txt_%j.out
 #SBATCH --error=/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/vision_tokenization/logs/emu3_img_txt_%j.err
+#SBATCH --exclude=nid[006569,006601,006609,006622-006623,006628-006629,006632,006638,006651,006653-006655,006658-006662,006664-006665,006669-006671,006674-006677]
 
 ###################### EMU3 Image-Text Pair Tokenization on Multiple Nodes ######################
 # Monitor GPU usage: srun --jobid=<jobid> --overlap -w nid<node number> --pty nvidia-smi
@@ -23,14 +24,31 @@ export INPUT_PATTERN="/capstor/store/cscs/swissai/infra01/vision-datasets/concep
 export TOKENIZER_PATH="/capstor/store/cscs/swissai/infra01/MLLM/llama3_emu3_tokenizer"
 
 # Optional: Range parameter (must be multiple of 4)
-export RANGE="0:360" 
+export RANGE="720:1100"
 
-# Extract start and end from range
-RANGE_START=$(echo ${RANGE} | cut -d':' -f1)
-RANGE_END=$(echo ${RANGE} | cut -d':' -f2)
-# Calculate actual end index (exclusive to inclusive)
-RANGE_END_INCLUSIVE=$((RANGE_END - 1))
-export OUTPUT_DIR="/capstor/store/cscs/swissai/infra01/vision-datasets/conceptual-12m/tokenized/cc12m_${RANGE_START}-${RANGE_END_INCLUSIVE}"
+# Resolution filtering (optional - comment out if not needed)
+export MIN_RESOLUTION="256*256"
+export MAX_RESOLUTION="720*720"
+
+# Build output directory name with range and resolution info
+OUTPUT_BASE="/capstor/store/cscs/swissai/infra01/vision-datasets/conceptual-12m/tokenized/cc12m"
+
+# Add range info if specified
+if [[ -n "${RANGE}" ]]; then
+    RANGE_START=$(echo ${RANGE} | cut -d':' -f1)
+    RANGE_END=$(echo ${RANGE} | cut -d':' -f2)
+    RANGE_END_INCLUSIVE=$((RANGE_END - 1))
+    OUTPUT_BASE="${OUTPUT_BASE}_${RANGE_START}-${RANGE_END_INCLUSIVE}"
+fi
+
+# Add resolution info if specified
+if [[ -n "${MIN_RESOLUTION}" ]] || [[ -n "${MAX_RESOLUTION}" ]]; then
+    MIN_RES_STR=${MIN_RESOLUTION:-0}
+    MAX_RES_STR=${MAX_RESOLUTION:-inf}
+    OUTPUT_BASE="${OUTPUT_BASE}_res_${MIN_RES_STR}_${MAX_RES_STR}"
+fi
+
+export OUTPUT_DIR="${OUTPUT_BASE}"
 
 
 # Ray minimal config
@@ -50,6 +68,9 @@ echo "Output: ${OUTPUT_DIR}"
 echo "Master Node: ${MASTER_NODE} (${MASTER_NODE_IP})"
 if [[ -n "${RANGE}" ]]; then
     echo "Range: ${RANGE}"
+fi
+if [[ -n "${MIN_RESOLUTION}" ]] || [[ -n "${MAX_RESOLUTION}" ]]; then
+    echo "Resolution filter: min=${MIN_RESOLUTION:-none}, max=${MAX_RESOLUTION:-none}"
 fi
 echo "=================================================================================="
 
@@ -87,7 +108,7 @@ srun -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=1 -u bash -c '
         ray status
         echo "=================================================================================="
 
-        # Build command with optional range parameter
+        # Build command with optional parameters
         CMD="python /iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/vision_tokenization/core/webdataset_emu3_image_text_parallel.py \
             --input-pattern \"${INPUT_PATTERN}\" \
             --output-dir \"${OUTPUT_DIR}\" \
@@ -97,6 +118,14 @@ srun -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=1 -u bash -c '
         # Add range parameter if specified
         if [[ -n "${RANGE}" ]]; then
             CMD="${CMD} --range \"${RANGE}\""
+        fi
+
+        # Add resolution filtering if specified
+        if [[ -n "${MIN_RESOLUTION}" ]]; then
+            CMD="${CMD} --min-resolution \"${MIN_RESOLUTION}\""
+        fi
+        if [[ -n "${MAX_RESOLUTION}" ]]; then
+            CMD="${CMD} --max-resolution \"${MAX_RESOLUTION}\""
         fi
 
         # Launch tokenization job
