@@ -44,7 +44,7 @@ class EMU3ImageOnlyTokenizer:
 
         # Set default values for pixels if not provided
         if min_pixels is None:
-            min_pixels = 512 * 512
+            min_pixels = 384 * 384
         if max_pixels is None:
             max_pixels = 1024 * 1024
 

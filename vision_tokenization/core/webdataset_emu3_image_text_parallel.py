@@ -23,7 +23,8 @@ sys.path.append(str(Path(__file__).parent.parent))
 sys.path.append(str(Path(__file__).parent.parent / "utils"))
 
 # Import shared components
-from webdataset_emu3_ray_dynamic import ShardQueue
+from webdataset_emu3_ray_dynamic_clean import ShardQueue
+from utils.parse_utils import add_emu3_tokenization_args
 
 
 # ============================================================================
@@ -147,7 +148,19 @@ class EMU3ImageTextWorker:
             dataset = self._create_dataset(shard_path)
 
             # Process samples
-            for img, text, key in dataset:
+            has_filtering = self.config.get('min_resolution') or self.config.get('max_resolution')
+
+            for sample in dataset:
+                # Unpack based on whether we have JSON metadata
+                if has_filtering:
+                    img, text, json_data, key = sample
+                    # Apply resolution filtering if enabled
+                    if not self._should_process_sample(json_data):
+                        shard_skipped += 1
+                        continue
+                else:
+                    img, text, key = sample
+
                 if not text:
                     self.logger.debug(f"Skipping {key}: empty text")
                     shard_skipped += 1
@@ -199,13 +212,50 @@ class EMU3ImageTextWorker:
 
     def _create_dataset(self, shard_path: str):
         """Create WebDataset pipeline with optimized I/O."""
-        return (
-            wds.WebDataset(shard_path, shardshuffle=False)
-            .decode("pil")
-            .to_tuple("jpg;png;jpeg;webp", "txt", "__key__")
-            .batched(64)   # Batch for I/O efficiency
-            .unbatched()   # Unbatch for clean iteration
-        )
+        # Check if we have JSON metadata for filtering
+        has_json = self.config.get('min_resolution') or self.config.get('max_resolution')
+
+        if has_json:
+            # Include JSON metadata for filtering
+            return (
+                wds.WebDataset(shard_path, shardshuffle=False)
+                .decode("pil")
+                .to_tuple("jpg;png;jpeg;webp", "txt", "json", "__key__")
+                .batched(64)   # Batch for I/O efficiency
+                .unbatched()   # Unbatch for clean iteration
+            )
+        else:
+            # Original pipeline without JSON
+            return (
+                wds.WebDataset(shard_path, shardshuffle=False)
+                .decode("pil")
+                .to_tuple("jpg;png;jpeg;webp", "txt", "__key__")
+                .batched(64)   # Batch for I/O efficiency
+                .unbatched()   # Unbatch for clean iteration
+            )
+
+    def _should_process_sample(self, json_data: Dict) -> bool:
+        """Check if sample meets filtering criteria."""
+        min_res = self.config.get('min_resolution')
+        max_res = self.config.get('max_resolution')
+
+        # If no filtering configured, process everything
+        if not min_res and not max_res:
+            return True
+
+        # Check if metadata has dimensions
+        if 'width' not in json_data or 'height' not in json_data:
+            return True  # Process if no metadata available
+
+        # Apply resolution filtering
+        resolution = json_data['width'] * json_data['height']
+
+        if min_res and resolution < min_res:
+            return False
+        if max_res and resolution > max_res:
+            return False
+
+        return True
 
     def _process_sample(self, image, text: str, key: str, builder) -> Optional[Dict]:
         """
@@ -610,38 +660,9 @@ def save_dataset_info(results: list, totals: Dict, config: Dict, input_files: li
 
 def main():
     """Main entry point."""
-    parser = argparse.ArgumentParser(
+    # Use shared parser with filtering and range
+    parser = add_emu3_tokenization_args(
         description="EMU3 image-text tokenization with Ray distributed processing"
-    )
-
-    # Required arguments
-    parser.add_argument(
-        "--input-pattern",
-        required=True,
-        help="Input file pattern (e.g., '/path/*.tar')"
-    )
-    parser.add_argument(
-        "--output-dir",
-        required=True,
-        help="Output directory for tokenized data"
-    )
-    parser.add_argument(
-        "--tokenizer-path",
-        required=True,
-        help="Path to EMU3 tokenizer"
-    )
-
-    # Optional arguments
-    parser.add_argument(
-        "--num-gpus",
-        type=int,
-        help="Number of GPU workers (default: all available)"
-    )
-    parser.add_argument(
-        "--range",
-        type=str,
-        help="Process specific range (must be multiple of 4). "
-             "E.g., '0:4', '8:16', '100:104'"
     )
 
     args = parser.parse_args()

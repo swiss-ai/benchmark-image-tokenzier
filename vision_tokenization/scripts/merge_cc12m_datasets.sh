@@ -18,12 +18,51 @@ CC12M_BASE="/capstor/store/cscs/swissai/infra01/vision-datasets/conceptual-12m"
 TOKENIZED_DIR="${CC12M_BASE}/tokenized"
 MERGED_DIR="${CC12M_BASE}/merged"
 
-# Specify which ranges to merge (customize via environment variable)
-# Format: "0-119 120-239 240-359" etc
-RANGES="${RANGES:-360-479 480-599 600-719}"
+# Specify which directories to merge (customize via environment variable)
+# Can be simple ranges or include resolution suffixes
+# Examples: "0-359" or "0-359_res_256*256_720*720"
+CC12M_DIRS="${CC12M_DIRS:-0-359_res_256*256_720*720 720-1099_res_256*256_720*720}"
 
-# Output name for combined dataset
-COMBINED_NAME="${COMBINED_NAME:-cc12m_merged}"
+# Output name for combined dataset - default includes the directories being merged
+if [ -z "${COMBINED_NAME}" ]; then
+    # Extract just the ranges and check if all have same resolution
+    ranges=""
+    has_res=false
+    same_res=true
+    first_res=""
+
+    for dir in ${CC12M_DIRS}; do
+        # Get range part (before _res if present)
+        range=$(echo "$dir" | sed 's/_res_.*//')
+        ranges="${ranges}_${range}"
+
+        # Check resolution
+        if [[ "$dir" == *"_res_"* ]]; then
+            has_res=true
+            res=$(echo "$dir" | sed 's/.*_res_//')
+            if [ -z "$first_res" ]; then
+                first_res="$res"
+            elif [ "$first_res" != "$res" ]; then
+                same_res=false
+            fi
+        fi
+    done
+
+    # Build name
+    if [ "$has_res" = true ]; then
+        if [ "$same_res" = true ]; then
+            # All have same resolution
+            safe_res=$(echo "$first_res" | sed 's/\*/x/g')
+            COMBINED_NAME="cc12m${ranges}_res_${safe_res}_merged"
+        else
+            # Mixed resolutions
+            COMBINED_NAME="cc12m${ranges}_mixed_res_merged"
+        fi
+    else
+        # No resolution specified
+        COMBINED_NAME="cc12m${ranges}_merged"
+    fi
+fi
 
 # Set Python path
 export PYTHONPATH="${MEGATRON_PATH}:${PYTHONPATH}"
@@ -36,25 +75,25 @@ echo "CC12M Dataset Merging"
 echo "=================================================================================="
 echo "Tokenized Directory: ${TOKENIZED_DIR}"
 echo "Merged Directory: ${MERGED_DIR}"
-echo "Ranges to merge: ${RANGES}"
+echo "Directories to merge: ${CC12M_DIRS}"
 echo "Combined Output: ${COMBINED_NAME}"
 echo "=================================================================================="
 
-# Function to merge a single range directory
+# Function to merge a single directory
 merge_range() {
-    local range=$1
-    local input="${TOKENIZED_DIR}/cc12m_${range}"
-    local output="${MERGED_DIR}/cc12m_${range}"
+    local dir_name=$1
+    local input="${TOKENIZED_DIR}/cc12m_${dir_name}"
+    local output="${MERGED_DIR}/cc12m_${dir_name}"
 
     # Check if input exists
     if [ ! -d "${input}" ]; then
-        echo "  ✗ cc12m_${range}: Directory not found"
+        echo "  ✗ cc12m_${dir_name}: Directory not found"
         return 1
     fi
 
     # Check if already merged
     if [ -f "${output}.bin" ] && [ -f "${output}.idx" ]; then
-        echo "  ✓ cc12m_${range}: Already merged"
+        echo "  ✓ cc12m_${dir_name}: Already merged"
         return 0
     fi
 
@@ -62,14 +101,15 @@ merge_range() {
     num_bin_files=$(ls "${input}"/*.bin 2>/dev/null | wc -l)
 
     if [ ${num_bin_files} -eq 0 ]; then
-        echo "  ✗ cc12m_${range}: No shard files found"
+        echo "  ✗ cc12m_${dir_name}: No shard files found"
         return 1
     fi
 
-    echo "  ⚙ cc12m_${range}: Merging ${num_bin_files} shard files..."
+    echo "  ⚙ cc12m_${dir_name}: Merging ${num_bin_files} shard files..."
 
-    # Create temp directory with symlinks (like in merge_finevision_datasets.sh)
-    temp_dir="/tmp/merge_cc12m_${range}_$$"
+    # Create temp directory with symlinks - sanitize dir_name for temp dir
+    safe_name=$(echo "${dir_name}" | sed 's/[*\/]/_/g')
+    temp_dir="/tmp/merge_cc12m_${safe_name}_$$"
     mkdir -p "${temp_dir}"
 
     # Symlink all .bin and .idx files
@@ -99,13 +139,13 @@ with open('${input}/dataset_info.json') as f:
     stats = info.get('statistics', {})
     print(f\"samples={stats.get('total_samples', 0):,}, tokens={stats.get('total_tokens', 0):,}\")
 " 2>/dev/null || echo "")
-            echo "  ✓ cc12m_${range}: Merged successfully (${size}, ${stats})"
+            echo "  ✓ cc12m_${dir_name}: Merged successfully (${size}, ${stats})"
         else
-            echo "  ✓ cc12m_${range}: Merged successfully (${size})"
+            echo "  ✓ cc12m_${dir_name}: Merged successfully (${size})"
         fi
         return 0
     else
-        echo "  ✗ cc12m_${range}: Merge failed"
+        echo "  ✗ cc12m_${dir_name}: Merge failed"
         return 1
     fi
 }
@@ -118,17 +158,17 @@ echo "---------------------------------------------"
 success_count=0
 failed_ranges=""
 
-for range in ${RANGES}; do
-    merge_range "${range}"
+for dir in ${CC12M_DIRS}; do
+    merge_range "${dir}"
     if [ $? -eq 0 ]; then
         ((success_count++))
     else
-        failed_ranges="${failed_ranges} ${range}"
+        failed_ranges="${failed_ranges} ${dir}"
     fi
 done
 
 echo ""
-echo "Merged ${success_count} out of $(echo ${RANGES} | wc -w) range directories"
+echo "Merged ${success_count} out of $(echo ${CC12M_DIRS} | wc -w) directories"
 
 if [ -n "${failed_ranges}" ]; then
     echo "Failed ranges:${failed_ranges}"
@@ -153,17 +193,45 @@ if [ -f "${output_path}.bin" ] && [ -f "${output_path}.idx" ]; then
 else
     echo "Merging all ranges into ${COMBINED_NAME}..."
 
-    # Check if merged directory has files
-    num_merged=$(ls "${MERGED_DIR}"/cc12m_*.bin 2>/dev/null | wc -l)
+    # Create temp directory with symlinks to only the SPECIFIC cc12m files we want
+    temp_merge_dir="/tmp/cc12m_final_merge_$$"
+    mkdir -p "${temp_merge_dir}"
+
+    # Symlink only the specific directories we're merging (from CC12M_DIRS)
+    for dir in ${CC12M_DIRS}; do
+        bin_file="${MERGED_DIR}/cc12m_${dir}.bin"
+        idx_file="${MERGED_DIR}/cc12m_${dir}.idx"
+
+        if [ -f "$bin_file" ] && [ -f "$idx_file" ]; then
+            ln -s "$bin_file" "${temp_merge_dir}/$(basename $bin_file)"
+            ln -s "$idx_file" "${temp_merge_dir}/$(basename $idx_file)"
+        else
+            echo "Warning: Missing files for cc12m_${dir}"
+        fi
+    done
+
+    # Check if we have files to merge
+    num_merged=$(ls "${temp_merge_dir}"/cc12m_*.bin 2>/dev/null | wc -l)
 
     if [ ${num_merged} -eq 0 ]; then
         echo "No merged range files found in ${MERGED_DIR}"
+        rm -rf "${temp_merge_dir}"
         exit 1
     fi
 
     python "${MEGATRON_PATH}/scripts/merge_datasets/merge_datasets.py" \
-        --input "${MERGED_DIR}" \
+        --input "${temp_merge_dir}" \
         --output-prefix "${output_path}"
+
+    merge_status=$?
+
+    # Clean up temp directory
+    rm -rf "${temp_merge_dir}"
+
+    if [ ${merge_status} -ne 0 ]; then
+        echo "Final merge failed"
+        exit ${merge_status}
+    fi
 
     if [ $? -eq 0 ]; then
         size=$(ls -lh "${output_path}.bin" | awk '{print $5}')
@@ -173,10 +241,10 @@ else
 import json
 total_samples = 0
 total_tokens = 0
-ranges = '${RANGES}'.split()
-for r in ranges:
+dirs = '${CC12M_DIRS}'.split()
+for d in dirs:
     try:
-        with open('${TOKENIZED_DIR}/cc12m_' + r + '/dataset_info.json') as f:
+        with open('${TOKENIZED_DIR}/cc12m_' + d + '/dataset_info.json') as f:
             info = json.load(f)
             stats = info.get('statistics', {})
             total_samples += stats.get('total_samples', 0)

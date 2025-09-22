@@ -2,7 +2,7 @@
 #SBATCH --account=a-infra01
 #SBATCH --job-name=emu3-tok
 #SBATCH --environment=emu3
-#SBATCH --nodes=4
+#SBATCH --nodes=11
 #SBATCH --exclusive
 #SBATCH --partition=normal
 #SBATCH --ntasks-per-node=4
@@ -10,6 +10,7 @@
 #SBATCH --time=12:00:00
 #SBATCH --output=/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/vision_tokenization/logs/emu3_tok%j.out
 #SBATCH --error=/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/vision_tokenization/logs/emu3_tok%j.err
+#SBATCH --exclude=nid[006569,006601,006609,006622-006623,006628-006629,006632,006638,006651,006653-006655,006658-006662,006664-006665,006669-006671,006674-006677]
 
 ###################### EMU3 Vision Tokenization on Multiple Nodes ######################
 # Monitor GPU usage: srun --jobid=<jobid> --overlap -w nid<node number> --pty nvidia-smi
@@ -19,11 +20,18 @@ export SLURM_JOB_NUM_NODES="${SLURM_JOB_NUM_NODES:-${SLURM_NNODES:-1}}"
 export GPUS_PER_NODE=4
 
 # Input/Output paths
-export INPUT_PATTERN="/capstor/store/cscs/swissai/infra01/vision-datasets/DenseFusion/img_info_Filtered_DenseFusion-1M/[0-9]*.tar"
-export OUTPUT_DIR="/capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/DenseFusion_multinode"
-export TOKENIZER_PATH="/iopsstor/scratch/cscs/xyixuan/llama3_emu3_tokenizer"
+export INPUT_PATTERN="/capstor/store/cscs/swissai/infra01/vision-datasets/imagenet-w21-wds/*.tar"
+export OUTPUT_DIR="/capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/imagenet-w21"
+export TOKENIZER_PATH="/capstor/store/cscs/swissai/infra01/MLLM/llama3_emu3_tokenizer"
 
-# Ray minimal config  
+# Resolution filtering (optional - comment out if not needed)
+export MIN_RESOLUTION="256*256"
+export MAX_RESOLUTION="1024*1024"
+
+# Range processing (optional - comment out to process all shards)
+export RANGE="200:2048"  # Process first 100 shards
+
+# Ray minimal config  /capstor/store/cscs/swissai/infra01/MLLM/llama3_emu3_tokenizer
 export MASTER_NODE=$(hostname)
 export MASTER_NODE_IP=$(hostname -i)
 export RAY_PORT=6379
@@ -76,11 +84,23 @@ srun -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=1 -u bash -c '
         
         # Launch tokenization job
         echo "[Master] Starting EMU3 tokenization..."
-        python /iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/vision_tokenization/utils/webdataset_emu3_ray_dynamic.py \
-            --input-pattern "${INPUT_PATTERN}" \
-            --output-dir "${OUTPUT_DIR}" \
-            --tokenizer-path "${TOKENIZER_PATH}" \
-            --num-gpus $((SLURM_JOB_NUM_NODES * 4))
+
+        # Build command with optional parameters
+        CMD="python /iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/vision_tokenization/core/webdataset_emu3_ray_dynamic_clean.py"
+        CMD="${CMD} --input-pattern \"${INPUT_PATTERN}\""
+        CMD="${CMD} --output-dir \"${OUTPUT_DIR}\""
+        CMD="${CMD} --tokenizer-path \"${TOKENIZER_PATH}\""
+        CMD="${CMD} --num-gpus $((SLURM_JOB_NUM_NODES * 4))"
+
+        # Add resolution filtering if specified
+        [ -n "${MIN_RESOLUTION}" ] && CMD="${CMD} --min-resolution \"${MIN_RESOLUTION}\""
+        [ -n "${MAX_RESOLUTION}" ] && CMD="${CMD} --max-resolution \"${MAX_RESOLUTION}\""
+
+        # Add range if specified
+        [ -n "${RANGE}" ] && CMD="${CMD} --range \"${RANGE}\""
+
+        echo "Running command: ${CMD}"
+        eval ${CMD}
         
         EXITCODE=$?
         

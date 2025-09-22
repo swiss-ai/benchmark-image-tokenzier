@@ -95,6 +95,7 @@ class EMU3Inferencer:
         self,
         prompt: Union[str, List[int]],
         max_tokens: int = 500,
+        min_tokens: int = 10,
         temperature: float = 0.3,
         top_p: float = 0.95,
         stop_token_ids: Optional[List[int]] = None,
@@ -128,6 +129,7 @@ class EMU3Inferencer:
             temperature=temperature,
             top_p=top_p,
             max_tokens=max_tokens,
+            min_tokens=min_tokens,
             stop_token_ids=stop_token_ids,
             skip_special_tokens=False
         )
