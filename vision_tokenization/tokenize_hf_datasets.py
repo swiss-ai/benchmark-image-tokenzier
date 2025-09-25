@@ -122,7 +122,7 @@ class DynamicTokenizerWorker:
             device=self.device,
             min_pixels=min_pixels,
             max_pixels=max_pixels
-        )
+        ) 
         
         # Setup output
         os.makedirs(output_dir, exist_ok=True)
