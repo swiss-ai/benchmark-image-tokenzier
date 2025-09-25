@@ -178,78 +178,103 @@ def calculate_metrics():
         with open("metrics_results.md", "w") as f:
             f.write(df_sorted.to_markdown(index=False))
             
-        # --- Plot LPIPS Scores with rounded ratio names ---
-        plt.figure(figsize=(16, 6))  # Made slightly wider to accommodate labels
-        sns.barplot(data=df_sorted, x="Folder", y="LPIPS", palette="viridis")
-        plt.title("LPIPS Scores per Tokenizer (Lower is Better)")
-        plt.ylabel("LPIPS")
-        plt.xlabel("Tokenizer")
-        plt.xticks(rotation=45, ha="right", fontsize=8)
-        plt.tight_layout()
-        plt.savefig("lpips_comparison_plot.png", dpi=300)
-        print("Saved LPIPS plot to lpips_comparison_plot.png")
+        sns.set_theme(style="whitegrid", font_scale=1.1)
 
-        # --- Plot LPIPS vs #Tokens for the top 15 tokenizers (lowest LPIPS) ---
-        top15 = df_sorted.nsmallest(20, "LPIPS")
+        # Use a larger, more diverse color palette (tab20 has 20 colors, extend if needed)
+        unique_folders = list(df["Folder"].unique())
+        palette = sns.color_palette("tab20", n_colors=len(unique_folders))
+        palette_dict = dict(zip(unique_folders, palette))
 
-        plt.figure(figsize=(12, 6))
-        ax = sns.scatterplot(
-            data=top15,
-            x="#Tokens",
-            y="LPIPS",
-            hue="Folder",
-            palette="tab20",
-            s=100
+
+        # --- Sorted LPIPS barplot ---
+        plt.figure(figsize=(14, 6))
+        sorted_df = df.sort_values(by="LPIPS", ascending=True)
+
+        ax = sns.barplot(
+            data=sorted_df,
+            x="Folder", y="LPIPS",
+            palette=[palette_dict[f] for f in sorted_df["Folder"]]
         )
+        ax.set_title("LPIPS Scores per Tokenizer\n(Lower is Better)", fontsize=16, weight='bold')
+        ax.set_xlabel("Tokenizer", fontsize=12)
+        ax.set_ylabel("LPIPS", fontsize=12)
+        plt.xticks(rotation=40, ha="right", fontsize=9)
 
-        plt.title("LPIPS vs #Tokens (Top 20 Tokenizers with Lowest LPIPS)")
-        plt.xlabel("#Tokens")
-        plt.ylabel("LPIPS")
+        # Annotate LPIPS values on bars
+        for p in ax.patches:
+            ax.annotate(f"{p.get_height():.3f}",
+                        (p.get_x() + p.get_width() / 2., p.get_height()),
+                        ha='center', va='bottom', fontsize=8, color='black', xytext=(0, 3),
+                        textcoords='offset points')
 
-        # Place legend outside plot
-        plt.legend(
+        plt.tight_layout()
+        plt.savefig("lpips_comparison_plot.png", dpi=300, bbox_inches="tight")
+        plt.close()
+
+
+        # --- LPIPS vs #Tokens (lowest LPIPS) ---
+        top20 = df.nsmallest(20, "LPIPS")
+
+        plt.figure(figsize=(14, 6))
+        ax = sns.scatterplot(
+            data=top20,
+            x="#Tokens", y="LPIPS",
+            hue="Folder", palette=palette_dict,
+            s=120, edgecolor="black", linewidth=0.5
+        )
+        ax.set_title("LPIPS vs Average #Tokens", fontsize=16, weight='bold')
+        ax.set_xlabel("#Tokens", fontsize=12)
+        ax.set_ylabel("LPIPS", fontsize=12)
+
+        leg = ax.legend(
             title="Tokenizer",
             bbox_to_anchor=(1.05, 1),
             loc='upper left',
             borderaxespad=0.,
-            fontsize=8
+            fontsize=8,
+            markerscale=1.2,
+            labelspacing=1.25
         )
+        if leg is not None:
+            leg.get_frame().set_alpha(0.95)
 
-        plt.tight_layout(rect=[0, 0, 0.75, 1])  # Leave room on right for legend
+        ax.grid(True, linestyle='--', linewidth=0.5, alpha=0.5)
+        plt.tight_layout(rect=[0, 0, 0.75, 1])
         plt.savefig("lpips_vs_tokens_scatter.png", dpi=300, bbox_inches='tight')
-        print("Saved scatter plot to lpips_vs_tokens_scatter.png")
+        plt.close()
 
 
-        # --- Plot 15 tokenizers with the lowest (#Tokens * LPIPS) ---
+        # --- LPIPS vs #Tokens (lowest Tokens × LPIPS) ---
         df["Composite"] = df["#Tokens"] * df["LPIPS"]
         top20_composite = df.nsmallest(20, "Composite")
 
-        plt.figure(figsize=(12, 6))
+        plt.figure(figsize=(14, 6))
         ax = sns.scatterplot(
             data=top20_composite,
-            x="#Tokens",
-            y="LPIPS",
-            hue="Folder",
-            palette="tab20",
-            s=100
+            x="#Tokens", y="LPIPS",
+            hue="Folder", palette=palette_dict,
+            s=120, edgecolor="black", linewidth=0.5
         )
+        ax.set_title("LPIPS vs Average #Tokens/Image", fontsize=16, weight='bold')
+        ax.set_xlabel("#Tokens", fontsize=12)
+        ax.set_ylabel("LPIPS", fontsize=12)
 
-        plt.title("LPIPS vs #Tokens (Top 20 by Lowest #Tokens × LPIPS)")
-        plt.xlabel("#Tokens")
-        plt.ylabel("LPIPS")
-
-        # Place legend outside plot
-        plt.legend(
+        leg = ax.legend(
             title="Tokenizer",
             bbox_to_anchor=(1.05, 1),
             loc='upper left',
             borderaxespad=0.,
-            fontsize=8
+            fontsize=8,
+            markerscale=1.2,
+            labelspacing=1.1
         )
+        if leg is not None:
+            leg.get_frame().set_alpha(0.95)
 
-        plt.tight_layout(rect=[0, 0, 0.75, 1])  # Shrink plot to fit legend on right
+        ax.grid(True, linestyle='--', linewidth=0.5, alpha=0.5)
+        plt.tight_layout(rect=[0, 0, 0.75, 1])
         plt.savefig("lpips_vs_tokens_composite_plot.png", dpi=300, bbox_inches='tight')
-        print("Saved composite LPIPS×Tokens plot to lpips_vs_tokens_composite_plot.png")
+        plt.close()
 
 
 if __name__ == "__main__":
