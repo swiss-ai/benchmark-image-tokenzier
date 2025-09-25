@@ -6,7 +6,7 @@ Avoids double tokenization by directly merging image indices with text tokens.
 """
 
 import torch
-from typing import List, Tuple, Dict
+from typing import List, Dict, Any
 from transformers import AutoTokenizer
 import sys
 import os
@@ -40,7 +40,12 @@ class EMU3ImageOnlyTokenizer:
         self.device = device
 
         # Load tokenizer with trust_remote_code for custom EMU3Tokenizer class
-        self.text_tokenizer = AutoTokenizer.from_pretrained(text_tokenizer_path, trust_remote_code=True)
+        # Use fast tokenizer for better performance
+        self.text_tokenizer = AutoTokenizer.from_pretrained(
+            text_tokenizer_path,
+            trust_remote_code=True,
+            use_fast=True
+        )
 
         # Set default values for pixels if not provided
         if min_pixels is None:
@@ -364,6 +369,184 @@ class EMU3ImageTextPairTokenizer(EMU3ImageOnlyTokenizer):
         ])
 
         return combined_tokens
+
+
+class EMU3ImageSftDataTokenizer(EMU3ImageTextPairTokenizer):
+    """
+    Tokenizer for SFT (Supervised Fine-Tuning) data with a single image and text.
+    Optimized for single image per conversation (most common case).
+    Replaces <|image|> placeholder with actual Emu3 vision tokens.
+
+    Designed for SFT/pretraining with FineVision-style data where conversations
+    already include assistant responses.
+    """
+
+    def __init__(self, *args, **kwargs):
+        """Initialize with same parameters as parent class."""
+        super().__init__(*args, **kwargs)
+
+        # Cache the image token ID for faster lookup
+        self.image_token_id = self.text_tokenizer.convert_tokens_to_ids("<|image|>")
+
+    @torch.inference_mode()
+    def tokenize_conversation(
+        self,
+        messages: List[Dict[str, Any]],
+        image: Any = None
+    ) -> torch.Tensor:
+        """
+        Tokenize a conversation with a single image and text.
+        Uses parallel processing: text on CPU, image on GPU.
+
+        Args:
+            messages: List of message dicts with role and content
+                     Content can be string or list of dicts with type="image" or type="text"
+            image: Single PIL image corresponding to <|image|> placeholder
+
+        Returns:
+            Token tensor with <|image|> placeholder replaced by Emu3 vision tokens
+        """
+        def tokenize_text_cpu():
+            """CPU thread for text tokenization."""
+            # Force text operations to CPU
+            with torch.cuda.device(-1):  # Use CPU
+                # Step 1: Apply chat template
+                chat_text = self.text_tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=False
+                )
+
+                # Step 2: Tokenize the text
+                text_tokens = self.text_tokenizer.encode(
+                    chat_text,
+                    add_special_tokens=True,
+                    return_tensors="pt"
+                ).squeeze(0).cpu()  # Ensure CPU tensor
+
+                # Step 3: Find image position
+                image_mask = (text_tokens == self.image_token_id)
+                num_images = image_mask.sum().item()
+
+                if num_images == 1:
+                    image_position = image_mask.nonzero(as_tuple=True)[0][0].item()
+                else:
+                    image_position = None
+
+                return text_tokens, num_images, image_position
+
+        # Check if image exists before starting parallel processing
+        if image is None:
+            return torch.tensor([], dtype=torch.long)
+
+        # Submit both tasks in parallel
+        text_future = self.executor.submit(tokenize_text_cpu)
+        image_future = self.executor.submit(lambda: self.tokenize_image(image)[1:-1])  # GPU thread
+
+        # Wait for both results
+        text_tokens, num_images, image_position = text_future.result()
+
+        if num_images != 1:
+            # Only single image samples are supported
+            print(f"Warning: Found {num_images} image placeholders, expected 1. Skipping sample.")
+            return torch.tensor([], dtype=torch.long)
+
+        image_tokens = image_future.result()
+
+        # Move text tokens to same device as image tokens for final assembly
+        text_tokens = text_tokens.to(image_tokens.device)
+
+        # Replace <|image|> placeholder with actual vision tokens
+        final_tokens = self._replace_single_image(
+            text_tokens,
+            image_position,
+            image_tokens
+        )
+
+        return final_tokens
+
+    def _replace_single_image(
+        self,
+        text_tokens: torch.Tensor,
+        image_position: int,
+        image_tokens: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Replace single <|image|> placeholder with vision tokens.
+
+        Args:
+            text_tokens: Original tokens with <|image|> placeholder
+            image_position: Position of <|image|> token
+            image_tokens: Tokenized image (without BOS/EOS)
+
+        Returns:
+            Final token tensor with image inserted
+        """
+        # Calculate total size
+        total_size = len(text_tokens) - 1 + len(image_tokens)
+
+        # Pre-allocate output tensor
+        output = torch.empty(total_size, dtype=text_tokens.dtype, device=text_tokens.device)
+
+        # Copy text before image
+        if image_position > 0:
+            output[:image_position] = text_tokens[:image_position]
+
+        # Insert image tokens
+        img_end = image_position + len(image_tokens)
+        output[image_position:img_end] = image_tokens
+
+        # Copy text after image placeholder
+        if image_position + 1 < len(text_tokens):
+            output[img_end:] = text_tokens[image_position + 1:]
+
+        return output
+
+    def process_finevision_sample(
+        self,
+        texts: List[Dict[str, str]],
+        image: Any
+    ) -> torch.Tensor:
+        """
+        Process FineVision-style texts with a single image.
+        Designed for Ray pipeline where image and texts are loaded separately.
+
+        Args:
+            texts: List of {"user": str, "assistant": str} dicts
+            image: Single PIL image
+
+        Returns:
+            Tokenized tensor ready for model input
+        """
+        # Convert FineVision format to standard message format
+        messages = []
+
+        # Add image placeholder to the first user message
+        for i, conv in enumerate(texts):
+            # Add user message
+            if i == 0:
+                # First message gets the image placeholder
+                messages.append({
+                    "role": "user",
+                    "content": [
+                        {"type": "image"},
+                        {"type": "text", "text": conv['user']}
+                    ]
+                })
+            else:
+                messages.append({
+                    "role": "user",
+                    "content": conv['user']
+                })
+
+            # Add assistant message
+            messages.append({
+                "role": "assistant",
+                "content": conv['assistant']
+            })
+
+        # Tokenize with single image
+        return self.tokenize_conversation(messages, image)
 
 
 # Example usage
