@@ -290,9 +290,6 @@ class DynamicTokenizerWorker:
         return self.stats
 
 
-# DatasetManager removed - loading dataset directly for better performance
-
-
 def process_dataset_distributed(args):
     """Main distributed processing with dynamic work-stealing."""
     

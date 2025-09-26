@@ -371,7 +371,7 @@ class EMU3ImageTextPairTokenizer(EMU3ImageOnlyTokenizer):
         return combined_tokens
 
 
-class EMU3ImageSftDataTokenizer(EMU3ImageTextPairTokenizer):
+class EMU3ImageSftDataTokenizer(EMU3ImageOnlyTokenizer):
     """
     Tokenizer for SFT (Supervised Fine-Tuning) data with a single image and text.
     Optimized for single image per conversation (most common case).
@@ -384,6 +384,10 @@ class EMU3ImageSftDataTokenizer(EMU3ImageTextPairTokenizer):
     def __init__(self, *args, **kwargs):
         """Initialize with same parameters as parent class."""
         super().__init__(*args, **kwargs)
+
+        # Initialize ThreadPoolExecutor for parallel processing
+        from concurrent.futures import ThreadPoolExecutor
+        self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="TokenizerPool")
 
         # Cache the image token ID for faster lookup
         self.image_token_id = self.text_tokenizer.convert_tokens_to_ids("<|image|>")
@@ -410,33 +414,59 @@ class EMU3ImageSftDataTokenizer(EMU3ImageTextPairTokenizer):
             """CPU thread for text tokenization."""
             # Force text operations to CPU
             with torch.cuda.device(-1):  # Use CPU
-                # Step 1: Apply chat template
-                chat_text = self.text_tokenizer.apply_chat_template(
-                    messages,
-                    tokenize=False,
-                    add_generation_prompt=False
-                )
+                try:
+                    # Step 1: Apply chat template
+                    chat_text = self.text_tokenizer.apply_chat_template(
+                        messages,
+                        tokenize=False,
+                        add_generation_prompt=False
+                    )
 
-                # Step 2: Tokenize the text
-                text_tokens = self.text_tokenizer.encode(
-                    chat_text,
-                    add_special_tokens=True,
-                    return_tensors="pt"
-                ).squeeze(0).cpu()  # Ensure CPU tensor
+                    # Check if chat_text is valid
+                    if not chat_text or not isinstance(chat_text, str):
+                        return torch.tensor([], dtype=torch.long), 0, None
 
-                # Step 3: Find image position
-                image_mask = (text_tokens == self.image_token_id)
-                num_images = image_mask.sum().item()
+                    # Step 2: Tokenize the text
+                    text_tokens = self.text_tokenizer.encode(
+                        chat_text,
+                        add_special_tokens=True,
+                        return_tensors="pt"
+                    )
+                    # Safely squeeze - keep at least 1D
+                    if text_tokens.ndim > 1:
+                        text_tokens = text_tokens.squeeze(0)
+                    text_tokens = text_tokens.cpu()  # Ensure CPU tensor
 
-                if num_images == 1:
-                    image_position = image_mask.nonzero(as_tuple=True)[0][0].item()
-                else:
-                    image_position = None
+                    # Step 3: Find image position
+                    if len(text_tokens) == 0:
+                        print(f"Warning: Empty text tokens after encoding chat_text")
+                        return text_tokens, 0, None
 
-                return text_tokens, num_images, image_position
+                    image_mask = (text_tokens == self.image_token_id)
+
+                    # Check if image_mask is a tensor (should always be true)
+                    if not torch.is_tensor(image_mask):
+                        print(f"ERROR: image_mask is not a tensor: {type(image_mask)}")
+                        return text_tokens, 0, None
+
+                    num_images = image_mask.sum().item() if image_mask.numel() > 0 else 0
+
+                    if num_images == 1:
+                        image_position = image_mask.nonzero(as_tuple=True)[0][0].item()
+                    else:
+                        image_position = None
+
+                    return text_tokens, num_images, image_position
+
+                except Exception as e:
+                    print(f"Error in tokenize_text_cpu: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    return torch.tensor([], dtype=torch.long), 0, None
 
         # Check if image exists before starting parallel processing
         if image is None:
+            print("Warning: No image provided to tokenize_conversation")
             return torch.tensor([], dtype=torch.long)
 
         # Submit both tasks in parallel
@@ -473,6 +503,7 @@ class EMU3ImageSftDataTokenizer(EMU3ImageTextPairTokenizer):
     ) -> torch.Tensor:
         """
         Replace single <|image|> placeholder with vision tokens.
+        Optimized using torch.cat for better memory efficiency.
 
         Args:
             text_tokens: Original tokens with <|image|> placeholder
@@ -482,25 +513,21 @@ class EMU3ImageSftDataTokenizer(EMU3ImageTextPairTokenizer):
         Returns:
             Final token tensor with image inserted
         """
-        # Calculate total size
-        total_size = len(text_tokens) - 1 + len(image_tokens)
+        # Use torch.cat which is optimized at C++ level
+        parts = []
 
-        # Pre-allocate output tensor
-        output = torch.empty(total_size, dtype=text_tokens.dtype, device=text_tokens.device)
-
-        # Copy text before image
+        # Text before image
         if image_position > 0:
-            output[:image_position] = text_tokens[:image_position]
+            parts.append(text_tokens[:image_position])
 
-        # Insert image tokens
-        img_end = image_position + len(image_tokens)
-        output[image_position:img_end] = image_tokens
+        # Image tokens
+        parts.append(image_tokens)
 
-        # Copy text after image placeholder
+        # Text after image placeholder
         if image_position + 1 < len(text_tokens):
-            output[img_end:] = text_tokens[image_position + 1:]
+            parts.append(text_tokens[image_position + 1:])
 
-        return output
+        return torch.cat(parts, dim=0)
 
     def process_finevision_sample(
         self,
@@ -518,11 +545,24 @@ class EMU3ImageSftDataTokenizer(EMU3ImageTextPairTokenizer):
         Returns:
             Tokenized tensor ready for model input
         """
+        # Check input
+        if not texts or not isinstance(texts, list):
+            print(f"Warning: Invalid texts input: type={type(texts)}, len={len(texts) if texts else 0}")
+            return torch.tensor([], dtype=torch.long)
+
+        if not image:
+            print(f"Warning: No image provided to process_finevision_sample")
+            return torch.tensor([], dtype=torch.long)
+
         # Convert FineVision format to standard message format
         messages = []
 
         # Add image placeholder to the first user message
         for i, conv in enumerate(texts):
+            if not isinstance(conv, dict) or 'user' not in conv or 'assistant' not in conv:
+                print(f"Warning: Invalid conversation format at index {i}: {conv}")
+                continue
+
             # Add user message
             if i == 0:
                 # First message gets the image placeholder
@@ -544,6 +584,12 @@ class EMU3ImageSftDataTokenizer(EMU3ImageTextPairTokenizer):
                 "role": "assistant",
                 "content": conv['assistant']
             })
+
+        if not messages:
+            print("Warning: No valid messages created from texts")
+            return torch.tensor([], dtype=torch.long)
+
+        # Process messages without debug output
 
         # Tokenize with single image
         return self.tokenize_conversation(messages, image)
