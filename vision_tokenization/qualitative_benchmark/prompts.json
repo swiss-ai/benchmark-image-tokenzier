@@ -1,0 +1,22 @@
+[
+        {
+            "text": "Describe the data shown in this chart in detail.",
+            "tags": ["chart", "statistics"]
+        },
+        {
+            "text": "What trends can you identify in this visualization?",
+            "tags": ["chart", "statistics"]
+        },
+        {
+            "text": "Describe the scene in this image.",
+            "tags": ["natural_image", "outdoor"]
+        },
+        {
+            "text": "What is the main subject of this photograph?",
+            "tags": ["natural_image"]
+        },
+        {
+            "text": "Extract and transcribe the text from this document.",
+            "tags": ["document", "text", "ocr"]
+        }
+    ]
