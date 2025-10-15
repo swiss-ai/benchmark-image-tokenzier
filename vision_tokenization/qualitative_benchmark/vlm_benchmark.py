@@ -8,8 +8,9 @@ import argparse
 import json
 import re
 import time
+import os
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Tuple
 
 import numpy as np
 import torch
@@ -17,7 +18,7 @@ from PIL import Image
 
 # Add paths for imports
 import sys
-base_dir = Path(__file__).parent.parent
+base_dir = Path(__file__).parent.parent.parent
 sys.path.append(str(base_dir))
 sys.path.append(str(base_dir / 'Tokenizer'))
 
@@ -25,6 +26,13 @@ import json
 from datetime import datetime
 from typing import List, Dict, Any
 from pathlib import Path
+from tqdm import tqdm
+
+
+# Set environment variables to prevent OOM and process issues
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+os.environ['VLLM_WORKER_MULTIPROC_METHOD'] = 'spawn'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'  # Use only GPU 0 for the LLM
 
 
 class InferenceArgs:
@@ -47,11 +55,17 @@ class VLM(object):
         self.tokenizer_path = tokenizer_path
         self.inf_args = inf_args
 
+        print("Initializing EMU3 Vision Tokenizer...")
         from Tokenizer.Emu3VisionTokenizer import Emu3VisionTokenizer
         self.emu3_tokenizer = Emu3VisionTokenizer(
             min_pixels=self.inf_args.min_emu_aspect_ratio,
             max_pixels=self.inf_args.max_emu_aspect_ratio
         )
+        if torch.cuda.is_available():
+            self.emu3_tokenizer.model = self.emu3_tokenizer.model.to("cuda:1")
+            self.emu3_tokenizer.device = "cuda:1"
+
+        print("Initializing EMU3 Inferencer...")
         from emu3_vllm_inferencer import EMU3Inferencer
         self.inferencer = EMU3Inferencer(
             model_path=self.model_path,
@@ -59,12 +73,8 @@ class VLM(object):
             tensor_parallel_size=1,  # 3B model fits on 1 GPU
             max_model_len=8192
         )
-        if torch.cuda.is_available():
-            self.emu3_tokenizer.model = self.emu3_tokenizer.model.to("cuda:0")
-            self.emu3_tokenizer.device = "cuda:0"
 
-        self.inf_args.stop_token_ids = [self.inferencer.special_token_ids["end_of_turn"],
-                                        self.inferencer.special_token_ids["end_of_document"]]
+        self.inf_args.stop_token_ids = [self.inferencer.special_token_ids["end_of_turn"]]
 
     def _load_image(self, image_path: str, resize: Tuple[int, int] = None):
         """Load image from path."""
@@ -167,15 +177,30 @@ class VLMBenchmark:
         self.prompts = self._load_json(prompts_config_path)
         self.results_dir = Path(results_dir)
         self.vlm = vlm
+        print(f"Loaded {len(self.images)} images and {len(self.prompts)} prompts.")
 
     def _load_json(self, path: str) -> List[Dict[str, Any]]:
         """Load JSON configuration file."""
         with open(path, 'r') as f:
             return json.load(f)
 
-    def _tags_match(self, image_tags: List[str], prompt_tags: List[str]) -> bool:
-        """Check if there's any overlap between image and prompt tags."""
-        return bool(set(image_tags) & set(prompt_tags))
+    def _tags_match(self, image_tags: List[str], prompt_tags: List[str], require_all: bool = False) -> bool:
+        """
+        Check if image and prompt tags match.
+        
+        Args:
+            image_tags: Tags from the image
+            prompt_tags: Tags from the prompt
+            require_all: If True, all prompt tags must be in image tags.
+                        If False, at least one overlap is sufficient.
+        
+        Returns:
+            True if tags match according to the requirement
+        """
+        if require_all:
+            return set(prompt_tags).issubset(set(image_tags))
+        else:
+            return bool(set(image_tags) & set(prompt_tags))
 
     def run_benchmark(self, output_filename: str = None) -> Dict[str, Any]:
         """
@@ -194,12 +219,13 @@ class VLMBenchmark:
         }
 
         # Match images with prompts based on tags
-        for image in self.images:
+        for image in tqdm(self.images, desc="Processing images"):
             for prompt in self.prompts:
-                if self._tags_match(image.get("tags", []), prompt.get("tags", [])):
+                require_all = prompt.get("require_all_tags", False)
+                if self._tags_match(image.get("tags", []), prompt.get("tags", []), require_all):
                     # Run VLM generation
-                    prompt = self.vlm.preprocess(image["path"], prompt["text"])
-                    output = self.vlm.generate(prompt)
+                    final_prompt = self.vlm.preprocess(image["path"], prompt["text"])
+                    output = self.vlm.generate(final_prompt)
 
                     # Store result
                     result_entry = {
@@ -261,11 +287,16 @@ def setup_vlm_inferencer(args):
 
 
 if __name__ == "__main__":
+    """
+    Example usage:
+    python vlm_benchmark.py --tokenizer_path /path/to/tokenizer --model_path /path/to/model --experiment_name my_experiment
+    """
     args = parse_args()
+    exp_dir = Path(args.results_folder) / args.experiment_name
+    exp_dir.mkdir(exist_ok=True, parents=True)
+
     vlm = setup_vlm_inferencer(args)
 
-    exp_dir = Path(args.results_folder) / args.experiment_name
-    exp_dir.mkdir(exist_ok=True)
 
     benchmark = VLMBenchmark(
         images_config_path=args.image_list,
