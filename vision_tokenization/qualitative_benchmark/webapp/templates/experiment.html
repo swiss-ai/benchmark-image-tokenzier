@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}{{ experiment_name }} - VLM Benchmark Viewer{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="header-content">
+        <h1>{{ experiment_name }}</h1>
+        <a href="/" class="btn btn-secondary">Back to Experiments</a>
+    </div>
+    <div class="experiment-meta">
+        <p><strong>Timestamp:</strong> {{ results.timestamp }}</p>
+        <p><strong>Total runs:</strong> {{ results.total_runs }}</p>
+        <p><strong>Filtered runs:</strong> {{ filtered_runs|length }}</p>
+    </div>
+    {% if results.model_path or results.tokenizer_path %}
+    <div class="model-info">
+        <h3>Model Configuration</h3>
+        {% if results.model_path %}
+        <p><strong>Model:</strong> <code>{{ results.model_path }}</code></p>
+        {% endif %}
+        {% if results.tokenizer_path %}
+        <p><strong>Tokenizer:</strong> <code>{{ results.tokenizer_path }}</code></p>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+<div class="filters-section">
+    <h2>Filters</h2>
+    <form method="get" class="filters-form">
+        <div class="filter-group">
+            <label for="image_tag">Image Tag:</label>
+            <select name="image_tag" id="image_tag" onchange="this.form.submit()">
+                <option value="">All</option>
+                {% for tag in all_tags.image_tags %}
+                <option value="{{ tag }}" {% if current_image_tag == tag %}selected{% endif %}>{{ tag }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label for="prompt_tag">Prompt Tag:</label>
+            <select name="prompt_tag" id="prompt_tag" onchange="this.form.submit()">
+                <option value="">All</option>
+                {% for tag in all_tags.prompt_tags %}
+                <option value="{{ tag }}" {% if current_prompt_tag == tag %}selected{% endif %}>{{ tag }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Apply Filters</button>
+        <a href="/experiment/{{ experiment_name }}" class="btn btn-secondary">Clear Filters</a>
+    </form>
+</div>
+
+<div class="results-section">
+    <h2>Results</h2>
+
+    {% if filtered_runs %}
+    <div class="results-list">
+        {% for run in filtered_runs %}
+        <div class="result-card">
+            <div class="result-header">
+                <h3>Result #{{ loop.index }}</h3>
+            </div>
+
+            <div class="result-content">
+                <div class="result-image">
+                    <h4>Image</h4>
+                    <img src="/{{ run.image.path }}" alt="Input image" loading="lazy">
+                    <div class="tags">
+                        {% for tag in run.image.tags %}
+                        <span class="tag tag-image">{{ tag }}</span>
+                        {% endfor %}
+                    </div>
+                    <p class="image-path">{{ run.image.path }}</p>
+                </div>
+
+                <div class="result-prompt">
+                    <h4>Prompt</h4>
+                    <p class="prompt-text">{{ run.prompt.text }}</p>
+                    <div class="tags">
+                        {% for tag in run.prompt.tags %}
+                        <span class="tag tag-prompt">{{ tag }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="result-output">
+                    <h4>Model Output</h4>
+                    <div class="output-text">{{ run.output }}</div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p>No results match the current filters.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}Experiments - VLM Benchmark Viewer{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>VLM Benchmark Experiments</h1>
+    <p class="subtitle">Select an experiment to view results</p>
+</div>
+
+{% if experiments %}
+<div class="experiments-grid">
+    {% for experiment in experiments %}
+    <div class="experiment-card">
+        <h2>{{ experiment.name }}</h2>
+        <p class="experiment-info">
+            <strong>Result file:</strong> <span class="file-badge">{{ experiment.file }}</span>
+        </p>
+        <a href="/experiment/{{ experiment.name }}" class="btn btn-primary">View Results</a>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <h2>No experiments found</h2>
+    <p>Run the VLM benchmark script to generate results:</p>
+    <pre><code>python vision_tokenization/qualitative_benchmark/vlm_benchmark.py \
+    --tokenizer_path /path/to/tokenizer \
+    --model_path /path/to/model \
+    --experiment_name my_experiment \
+    --image_list images.json \
+    --prompt_list prompts.json \
+    --results_folder results/</code></pre>
+</div>
+{% endif %}
+{% endblock %}
