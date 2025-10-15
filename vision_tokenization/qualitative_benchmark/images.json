@@ -1,30 +1,66 @@
 [
-        {
-            "path": "assets/original/logo1.png",
-            "tags": ["general"]
-        },
-        {
-            "path": "assets/original/line_chart.png",
-            "tags": ["general", "chart", "ocr"]
-        },
-        {
-            "path": "assets/original/math_draft1.png",
-            "tags": ["general", "math", "ocr"]
-        },
-        {
-            "path": "assets/original/building.jpg",
-            "tags": ["general"]
-        },
-        {
-            "path": "assets/original/checkerboard_pattern.png",
-            "tags": ["general"]
-        },
-        {
-            "path": "assets/original/cute_dog.jpg",
-            "tags": ["general", "animals"]
-        },
-        {
-            "path": "assets/original/3objects.png",
-            "tags": ["general", "objects", "colors"]
-        }
+    {
+        "path": "assets/3objects.png",
+        "tags": ["objects", "general", "colors"]
+    },
+    {
+        "path": "assets/building.jpg",
+        "tags": ["general", "natural_image", "outdoor", "objects"]
+    },
+    {
+        "path": "assets/checkerboard_pattern.png",
+        "tags": ["general", "pattern", "general"]
+    },
+    {
+        "path": "assets/csyn400chart_1.jpg",
+        "tags": ["general", "chart", "statistics"]
+    },
+    {
+        "path": "assets/csyn400chart_2.jpg",
+        "tags": ["general", "chart", "statistics"]
+    },
+    {
+        "path": "assets/cute_dog.jpg",
+        "tags": ["general", "natural_image", "objects"]
+    },
+    {
+        "path": "assets/line_chart.png",
+        "tags": ["general", "chart", "statistics", "ocr"]
+    },
+    {
+        "path": "assets/logo1.png",
+        "tags": ["general", "colors"]
+    },
+    {
+        "path": "assets/math_draft1.png",
+        "tags": ["math", "ocr", "document"]
+    },
+    {
+        "path": "assets/mri_human_brain.png",
+        "tags": ["general", "ocr"]
+    },
+    {
+        "path": "assets/olmOcrDocuments_1.jpg",
+        "tags": ["document", "ocr"]
+    },
+    {
+        "path": "assets/physics2.png",
+        "tags": ["math", "ocr", "document"]
+    },
+    {
+        "path": "assets/renderedtext_1.jpg",
+        "tags": ["general", "ocr", "document"]
+    },
+    {
+        "path": "assets/renderedtext_2.jpg",
+        "tags": ["general", "ocr", "document"]
+    },
+    {
+        "path": "assets/spark_1.jpg",
+        "tags": ["general", "natural_image", "objects"]
+    },
+    {
+        "path": "assets/spark_2.jpg",
+        "tags": ["general", "natural_image", "objects"]
+    }
 ]
