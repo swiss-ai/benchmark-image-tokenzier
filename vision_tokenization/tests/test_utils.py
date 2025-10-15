@@ -225,7 +225,7 @@ def create_test_indexed_dataset(prefix: str, sequences: List[List[int]],
     sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     
     if multimodal:
-        from vision_tokenization.utils.indexed_dataset_megatron import VisionTokenIndexedDatasetBuilder
+        from vision_tokenization.pipelines.indexed_dataset_megatron import VisionTokenIndexedDatasetBuilder
         builder = VisionTokenIndexedDatasetBuilder(
             output_prefix=prefix,
             image_vocab_size=32768,
@@ -234,7 +234,7 @@ def create_test_indexed_dataset(prefix: str, sequences: List[List[int]],
         for seq in sequences:
             builder.add_image_tokens(np.array(seq, dtype=np.int32))
     else:
-        from vision_tokenization.utils.indexed_dataset_megatron import IndexedDatasetBuilder
+        from vision_tokenization.pipelines.indexed_dataset_megatron import IndexedDatasetBuilder
         builder = IndexedDatasetBuilder(f"{prefix}.bin", dtype=np.int32)
         for seq in sequences:
             builder.add_document(seq, lengths=[len(seq)])
@@ -243,3 +243,104 @@ def create_test_indexed_dataset(prefix: str, sequences: List[List[int]],
         builder.finalize()  # VisionTokenIndexedDatasetBuilder handles paths internally
     else:
         builder.finalize(f"{prefix}.idx")  # IndexedDatasetBuilder needs explicit idx path
+
+
+def compare_with_original(
+    tokenizer,
+    image_indices: np.ndarray,
+    height: int,
+    width: int
+) -> Dict:
+    """
+    Compare direct tokenization with text-based two-stage approach.
+    Useful for verification and benchmarking.
+
+    Args:
+        tokenizer: EMU3ImageOnlyTokenizer instance
+        image_indices: Array of image indices from vision tokenizer [H*W]
+        height: Image height in tokens
+        width: Image width in tokens
+
+    Returns:
+        Dictionary with comparison results including speedup and token matching
+    """
+    import torch
+    import time
+
+    # Convert numpy array to torch tensor if needed
+    if isinstance(image_indices, np.ndarray):
+        image_indices = torch.tensor(image_indices, dtype=torch.long)
+
+    # Direct tokenization (optimized method)
+    start = time.time()
+    direct_tokens = tokenizer.encapsulate_image(image_indices, height, width)
+    direct_time = time.time() - start
+
+    # Text-based approach (reference implementation)
+    start = time.time()
+    # Stage 1: Convert to text representation
+    text = f"<|img_start|>{height}*{width}<|img_token_start|>"
+    for row in range(height):
+        for col in range(width):
+            idx = row * width + col
+            text += f"<|visual token {image_indices[idx]:06d}|>"
+        text += "<|img_end_of_row|>"  # EOL after every row including last
+    text += "<|img_end_of_frame|><|img_end|>"
+
+    # Stage 2: Tokenize text (adds BOS but not EOS)
+    text_based_tokens = tokenizer.text_tokenizer.encode(text, add_special_tokens=True)
+    text_based_time = time.time() - start
+
+    # Add EOS to match our direct method which always includes it
+    text_based_tokens.append(tokenizer.eos_id)
+    text_based_tensor = torch.tensor(text_based_tokens, dtype=torch.long)
+
+    return {
+        'direct_tokens': direct_tokens,
+        'direct_time': direct_time,
+        'text_based_tokens': text_based_tensor,
+        'text_based_time': text_based_time,
+        'speedup': text_based_time / direct_time if direct_time > 0 else 0,
+        'tokens_match': torch.equal(direct_tokens, text_based_tensor)
+    }
+
+
+def tokenize_image_text_pair_sequential(
+    tokenizer,
+    image,
+    text: str,
+):
+    """
+    Sequential version of image-text pair tokenization for benchmarking.
+    Used to compare against the parallel implementation.
+
+    Args:
+        tokenizer: EMU3ImageTextPairTokenizer instance
+        image: PIL Image to tokenize
+        text: Text string to append after image
+
+    Returns:
+        Combined tokens: [BOS] + [image tokens without EOS] + [text tokens] + [EOS]
+    """
+    import torch
+
+    # Get image tokens using the tokenizer's tokenize_image method
+    image_tokens = tokenizer.tokenize_image(image)
+
+    # Tokenize text without special tokens (no BOS/EOS)
+    text_tokens_dict = tokenizer.text_tokenizer(
+        text,
+        truncation=False,
+        add_special_tokens=False,
+        return_tensors="pt"
+    )
+    text_tokens = text_tokens_dict['input_ids'].squeeze(0)
+
+    # Combine
+    combined_tokens = torch.cat([
+        image_tokens[:-1],
+        text_tokens,
+        image_tokens[-1:]
+    ])
+
+    return combined_tokens

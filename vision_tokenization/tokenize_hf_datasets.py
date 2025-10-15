@@ -26,8 +26,8 @@ base_dir = Path(__file__).parent.parent
 sys.path.append(str(base_dir))
 sys.path.append(str(base_dir / 'Tokenizer'))
 
-from utils.indexed_dataset_megatron import DType, IndexedDatasetBuilder
-from utils.tokenization_emu3_image_only import EMU3ImageOnlyTokenizer
+from pipelines.indexed_dataset_megatron import DType, IndexedDatasetBuilder
+from vokenizers.emu3 import EMU3ImageOnlyTokenizer
 
 
 @ray.remote

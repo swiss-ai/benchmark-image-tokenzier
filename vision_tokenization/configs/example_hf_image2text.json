@@ -1,0 +1,18 @@
+{
+  "tokenizer_path": "/capstor/store/cscs/swissai/infra01/MLLM/llama3_vision_instruct_emu3_tokenizer",
+  "output_dir": "/capstor/store/cscs/swissai/infra01/vision-datasets/long-context/DOCCI/tokenized",
+  "dataset_name": "google/docci",
+  "dataset_split": "train",
+  "mode": "image2text",
+  "num_gpus": 4,
+  "device": "cuda",
+  "batch_size": 500,
+  "num_proc": 32,
+  "cache_dir": "/capstor/store/cscs/swissai/infra01/vision-datasets/cache",
+  "min_tokenizer_pixels": "256*256",
+  "max_tokenizer_pixels": "2048*2048",
+  "min_image_pixels": "256*256",
+  "max_image_pixels": "2048*2048",
+  "image_field": "image",
+  "text_field": "description"
+}

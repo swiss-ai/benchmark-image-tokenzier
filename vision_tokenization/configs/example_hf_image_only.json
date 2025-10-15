@@ -1,0 +1,15 @@
+{
+  "tokenizer_path": "/capstor/store/cscs/swissai/infra01/MLLM/llama3_emu3_tokenizer",
+  "output_dir": "./output/hf_image_only",
+  "dataset_name": "ILSVRC/imagenet-1k",
+  "dataset_split": "train",
+  "mode": "image_only",
+  "num_workers": 8,
+  "device": "cuda",
+  "min_tokenizer_pixels": "384*384",
+  "max_tokenizer_pixels": "1024*1024",
+  "min_image_pixels": null,
+  "max_image_pixels": null,
+  "max_samples": 1000,
+  "image_field": "image"
+}

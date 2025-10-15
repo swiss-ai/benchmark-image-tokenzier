@@ -33,9 +33,9 @@ sys.path.append(str(base_dir / 'Tokenizer'))
 
 # Import shared components
 from tokenize_hf_datasets import ProgressActor, WorkQueue
-from utils.indexed_dataset_megatron import DType, IndexedDatasetBuilder
+from pipelines.indexed_dataset_megatron import DType, IndexedDatasetBuilder
 from utils.parse_utils import parse_resolution
-from utils.tokenization_emu3_image_only import EMU3ImageSftDataTokenizer
+from vokenizers.emu3 import EMU3SftTokenizer
 
 
 @ray.remote(num_gpus=1)
@@ -59,7 +59,7 @@ class DynamicSFTTokenizerWorker:
 
         # Initialize tokenizer with custom pixel limits
         # Use tokenizer resolution settings for the tokenizer itself
-        self.tokenizer = EMU3ImageSftDataTokenizer(
+        self.tokenizer = EMU3SftTokenizer(
             text_tokenizer_path=tokenizer_path,
             device=self.device,
             min_pixels=min_tokenizer_res,

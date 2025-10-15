@@ -8,15 +8,16 @@ import argparse
 
 
 def parse_resolution(value):
-    """Parse resolution like '256*256' or '65536'."""
-    # Match pattern: number*number or just number
-    match = re.match(r'^(\d+)(?:\*(\d+))?$', value.strip())
-    if not match:
-        raise argparse.ArgumentTypeError(f"Invalid resolution: {value}")
-
-    a = int(match.group(1))
-    b = int(match.group(2)) if match.group(2) else 1
-    return a * b
+    """
+    Parse resolution like '256*256' or '65536'.
+    Returns dict with 'pixels' (int) and 'dims' (tuple or None).
+    """
+    if '*' in value:
+        parts = value.split('*')
+        w, h = int(parts[0]), int(parts[1])
+        return {'pixels': w * h, 'dims': (w, h)}
+    else:
+        return {'pixels': int(value), 'dims': None}
 
 
 def add_emu3_tokenization_args(parser=None, description="EMU3 tokenization"):
