@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+
+{% block title %}Compare Experiments - VLM Benchmark Viewer{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Compare Experiments</h1>
+    <p class="subtitle">Select experiments to compare side-by-side</p>
+</div>
+
+<!-- Experiment Selection Form -->
+<div class="compare-selection">
+    <h2>Select Experiments to Compare</h2>
+    <form method="get" action="/compare">
+        <div class="checkbox-grid">
+            {% for experiment in experiments %}
+            <label class="checkbox-item">
+                <input type="checkbox" name="experiments" value="{{ experiment.name }}"
+                    {% if experiment.name in selected_experiments %}checked{% endif %}>
+                <span>{{ experiment.name }}</span>
+            </label>
+            {% endfor %}
+        </div>
+
+        <div class="compare-actions">
+            <button type="submit" class="btn btn-primary">Compare Selected</button>
+            <a href="/compare" class="btn btn-secondary">Clear Selection</a>
+        </div>
+    </form>
+</div>
+
+<!-- Error Message -->
+{% if error %}
+<div class="error-message">
+    <p>{{ error }}</p>
+</div>
+{% endif %}
+
+<!-- Comparison Results -->
+{% if comparison_data %}
+<div class="comparison-section">
+    <div class="comparison-header">
+        <h2>Comparison Results</h2>
+        <p><strong>Experiments:</strong>
+            {% for exp_name in selected_experiments %}
+            <span class="experiment-badge">{{ exp_name }}</span>
+            {% endfor %}
+        </p>
+        <p><strong>Common image-prompt combinations:</strong> {{ comparison_data|length }}</p>
+
+        <!-- Show model info for selected experiments -->
+        <div class="experiments-info">
+            {% for exp_name in selected_experiments %}
+            {% if exp_name in experiment_results %}
+            <div class="experiment-info-card">
+                <h3>{{ exp_name }}</h3>
+                {% if experiment_results[exp_name].model_path %}
+                <p><strong>Model:</strong> <code>{{ experiment_results[exp_name].model_path }}</code></p>
+                {% endif %}
+                {% if experiment_results[exp_name].tokenizer_path %}
+                <p><strong>Tokenizer:</strong> <code>{{ experiment_results[exp_name].tokenizer_path }}</code></p>
+                {% endif %}
+                {% if experiment_results[exp_name].inference_args %}
+                <p><strong>Temperature:</strong> {{ experiment_results[exp_name].inference_args.temperature }}</p>
+                <p><strong>Top-p:</strong> {{ experiment_results[exp_name].inference_args.top_p }}</p>
+                <p><strong>Max tokens:</strong> {{ experiment_results[exp_name].inference_args.max_new_tokens }}</p>
+                {% endif %}
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+
+    {% if comparison_data|length == 0 %}
+    <div class="empty-state">
+        <p>No common image-prompt combinations found across all selected experiments.</p>
+        <p>Make sure the selected experiments were run with overlapping images and prompts.</p>
+    </div>
+    {% else %}
+    <div class="comparison-list">
+        {% for item in comparison_data %}
+        <div class="comparison-card">
+            <div class="comparison-card-header">
+                <h3>Comparison #{{ loop.index }}</h3>
+            </div>
+
+            <div class="comparison-content">
+                <!-- Image Column -->
+                <div class="comparison-image-section">
+                    <h4>Image</h4>
+                    <img src="/{{ item.image_path }}" alt="Input image" loading="lazy">
+                    <div class="tags">
+                        {% for tag in item.image_tags %}
+                        <span class="tag tag-image">{{ tag }}</span>
+                        {% endfor %}
+                    </div>
+                    <p class="image-path">{{ item.image_path }}</p>
+                </div>
+
+                <!-- Prompt Column -->
+                <div class="comparison-prompt-section">
+                    <h4>Prompt</h4>
+                    <p class="prompt-text">{{ item.prompt_text }}</p>
+                    <div class="tags">
+                        {% for tag in item.prompt_tags %}
+                        <span class="tag tag-prompt">{{ tag }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- Outputs Column -->
+                <div class="comparison-outputs-section">
+                    <h4>Outputs</h4>
+                    <div class="outputs-grid">
+                        {% for exp_name in selected_experiments %}
+                        <div class="output-item">
+                            <h5>{{ exp_name }}</h5>
+                            <div class="output-text">{{ item.outputs[exp_name] }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% elif selected_experiments|length >= 2 %}
+<div class="info-message">
+    <p>Click "Compare Selected" to view the comparison.</p>
+</div>
+{% elif selected_experiments|length == 1 %}
+<div class="info-message">
+    <p>Please select at least 2 experiments to compare.</p>
+</div>
+{% endif %}
+{% endblock %}
