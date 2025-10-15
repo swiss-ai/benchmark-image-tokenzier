@@ -24,6 +24,20 @@
         {% endif %}
     </div>
     {% endif %}
+    {% if results.inference_args %}
+    <div class="model-info">
+        <h3>Inference Configuration</h3>
+        <p><strong>Apply chat template:</strong> {{ results.inference_args.apply_chat_template }}</p>
+        <p><strong>Temperature:</strong> {{ results.inference_args.temperature }}</p>
+        <p><strong>Top-p:</strong> {{ results.inference_args.top_p }}</p>
+        <p><strong>Max new tokens:</strong> {{ results.inference_args.max_new_tokens }}</p>
+        <p><strong>Min EMU aspect ratio:</strong> {{ results.inference_args.min_emu_aspect_ratio }}</p>
+        <p><strong>Max EMU aspect ratio:</strong> {{ results.inference_args.max_emu_aspect_ratio }}</p>
+        {% if results.inference_args.stop_token_ids %}
+        <p><strong>Stop token IDs:</strong> {{ results.inference_args.stop_token_ids|join(', ') }}</p>
+        {% endif %}
+    </div>
+    {% endif %}
 </div>
 
 <div class="filters-section">
