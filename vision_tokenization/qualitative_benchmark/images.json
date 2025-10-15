@@ -1,0 +1,30 @@
+[
+        {
+            "path": "assets/original/logo1.png",
+            "tags": ["general"]
+        },
+        {
+            "path": "assets/original/line_chart.png",
+            "tags": ["general", "chart", "ocr"]
+        },
+        {
+            "path": "assets/original/math_draft1.png",
+            "tags": ["general", "math", "ocr"]
+        },
+        {
+            "path": "assets/original/building.jpg",
+            "tags": ["general"]
+        },
+        {
+            "path": "assets/original/checkerboard_pattern.png",
+            "tags": ["general"]
+        },
+        {
+            "path": "assets/original/cute_dog.jpg",
+            "tags": ["general", "animals"]
+        },
+        {
+            "path": "assets/original/3objects.png",
+            "tags": ["general", "objects", "colors"]
+        }
+]
