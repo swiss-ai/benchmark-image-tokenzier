@@ -293,12 +293,12 @@ class VisionTokenIndexedDatasetBuilder:
                            
         Note for distributed usage:
             In distributed settings, determine text_vocab_size once before launching workers:
-            
+
             # On main process only:
-            from dataset_tokenization.utils.detect_vocab_size import detect_text_vocab_size
-            vocab_info = detect_text_vocab_size("your-tokenizer")
-            text_vocab_size = vocab_info['vocab_size']
-            
+            from transformers import AutoTokenizer
+            tokenizer = AutoTokenizer.from_pretrained("your-tokenizer")
+            text_vocab_size = len(tokenizer)  # or tokenizer.vocab_size
+
             # Then pass text_vocab_size as argument to all workers
         """
         self.output_prefix = output_prefix

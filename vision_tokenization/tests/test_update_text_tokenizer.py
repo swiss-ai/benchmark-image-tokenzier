@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent / 'utils'))
 
 from transformers import AutoTokenizer
-from add_special_tokens_emu3_style import (
+from add_emu3_tokens_llama3_base import (
     add_emu3_special_tokens,
     get_vision_token_id,
     load_vision_token_mapping

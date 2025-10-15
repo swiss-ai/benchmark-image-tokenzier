@@ -20,7 +20,7 @@ import io
 sys.path.append(str(Path(__file__).parent.parent / 'utils'))
 
 from tokenization_emu3_image_only import EMU3ImageOnlyTokenizer
-from add_special_tokens_emu3_style import add_emu3_special_tokens
+from add_emu3_tokens_llama3_base import add_emu3_special_tokens
 
 
 def create_dummy_vision_tokenizer():

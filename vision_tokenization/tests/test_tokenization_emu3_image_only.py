@@ -10,11 +10,12 @@ import pytest
 import tempfile
 from pathlib import Path
 
-# Add utils directory to path
-sys.path.append(str(Path(__file__).parent.parent / 'utils'))
+# Add parent directory to path for imports
+sys.path.append(str(Path(__file__).parent.parent))
 
-from tokenization_emu3_image_only import EMU3ImageOnlyTokenizer
-from add_special_tokens_emu3_style import add_emu3_special_tokens
+from vokenizers.emu3 import EMU3ImageOnlyTokenizer
+from utils.add_emu3_tokens_llama3_base import add_emu3_special_tokens
+from test_utils import compare_with_original
 
 
 @pytest.fixture
@@ -35,7 +36,9 @@ def temp_tokenizer():
 def image_tokenizer(temp_tokenizer):
     """Create EMU3 image-only tokenizer instance."""
     return EMU3ImageOnlyTokenizer(
-        text_tokenizer_path=temp_tokenizer
+        text_tokenizer_path=temp_tokenizer,
+        min_pixels=384 * 384,
+        max_pixels=1024 * 1024
     )
 
 
@@ -304,8 +307,8 @@ class TestEMU3ImageOnlyTokenizer:
         ]
         
         for height, width, image_indices in test_cases:
-            comparison = image_tokenizer.compare_with_original(
-                image_indices, height, width
+            comparison = compare_with_original(
+                image_tokenizer, image_indices, height, width
             )
             
             # Verify all fields are present
@@ -348,7 +351,9 @@ class TestIntegration:
                 )
                 
                 image_tokenizer = EMU3ImageOnlyTokenizer(
-                    text_tokenizer_path=temp_dir
+                    text_tokenizer_path=temp_dir,
+                    min_pixels=384 * 384,
+                    max_pixels=1024 * 1024
                 )
                 
                 # Test basic tokenization
@@ -375,7 +380,9 @@ class TestIntegration:
                 )
                 
                 image_tokenizer = EMU3ImageOnlyTokenizer(
-                    text_tokenizer_path=temp_dir
+                    text_tokenizer_path=temp_dir,
+                    min_pixels=384 * 384,
+                    max_pixels=1024 * 1024
                 )
                 
                 # Test batch processing

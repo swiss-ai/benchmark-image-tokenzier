@@ -18,10 +18,10 @@ import io
 
 # Add paths
 sys.path.append(str(Path(__file__).parent.parent))
-sys.path.append(str(Path(__file__).parent.parent / "utils"))
 
 from utils.tokenization_emu3_pipelined import EMU3PipelinedTokenizer
-from utils.tokenization_emu3_image_only import EMU3ImageOnlyTokenizer, EMU3ImageTextPairTokenizer
+from vokenizers.emu3 import EMU3ImageOnlyTokenizer, EMU3ImageTextPairTokenizer
+from test_utils import tokenize_image_text_pair_sequential
 
 # Default tokenizer path
 TOKENIZER_PATH = "/capstor/store/cscs/swissai/infra01/MLLM/llama3_emu3_tokenizer"
@@ -174,6 +174,8 @@ def test_text_consistency_all_tokenizers():
 
         sequential = EMU3ImageTextPairTokenizer(
             text_tokenizer_path=TOKENIZER_PATH,
+            min_pixels=384 * 384,
+            max_pixels=1024 * 1024,
             device="cuda" if torch.cuda.is_available() else "cpu"
         )
 
@@ -187,7 +189,7 @@ def test_text_consistency_all_tokenizers():
         pipelined.stop_pipeline()
 
         sequential_tokens = sequential.tokenize_image_text_pair(img, text)
-        sequential_tokens_seq = sequential.tokenize_image_text_pair_sequential(img, text)
+        sequential_tokens_seq = tokenize_image_text_pair_sequential(sequential, img, text)
 
         # Find img_end position in each
         img_end_id = sequential.text_tokenizer.convert_tokens_to_ids("<|img_end|>")
@@ -254,6 +256,8 @@ def test_correctness_vs_sequential():
 
         sequential = EMU3ImageTextPairTokenizer(
             text_tokenizer_path=TOKENIZER_PATH,
+            min_pixels=384 * 384,
+            max_pixels=1024 * 1024,
             device="cuda" if torch.cuda.is_available() else "cpu"
         )
 
@@ -391,6 +395,8 @@ def test_timing_comparison():
         print("\n2. Image-Text Sequential:")
         sequential = EMU3ImageTextPairTokenizer(
             text_tokenizer_path=TOKENIZER_PATH,
+            min_pixels=384 * 384,
+            max_pixels=1024 * 1024,
             device="cuda" if torch.cuda.is_available() else "cpu"
         )
 
@@ -399,7 +405,7 @@ def test_timing_comparison():
             torch.cuda.synchronize() if torch.cuda.is_available() else None
             start = time.time()
             for img, txt in zip(images, texts):
-                _ = sequential.tokenize_image_text_pair_sequential(img, txt)
+                _ = tokenize_image_text_pair_sequential(sequential, img, txt)
             torch.cuda.synchronize() if torch.cuda.is_available() else None
             times.append(time.time() - start)
         sequential_time = sum(times) / len(times)
@@ -477,13 +483,15 @@ def test_performance():
         # Test sequential
         sequential = EMU3ImageTextPairTokenizer(
             text_tokenizer_path=TOKENIZER_PATH,
+            min_pixels=384 * 384,
+            max_pixels=1024 * 1024,
             device="cuda" if torch.cuda.is_available() else "cpu"
         )
 
         start = time.time()
         sequential_results = []
         for img, txt in zip(images, texts):
-            result = sequential.tokenize_image_text_pair_sequential(img, txt)
+            result = tokenize_image_text_pair_sequential(sequential, img, txt)
             sequential_results.append(result)
         sequential_time = time.time() - start
 

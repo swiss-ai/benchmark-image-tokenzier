@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test suite for EMU3ImageSftDataTokenizer.
+Test suite for EMU3SftTokenizer.
 Tests single-image SFT data tokenization with FineVision format.
 """
 
@@ -11,19 +11,21 @@ import numpy as np
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from vision_tokenization.utils.tokenization_emu3_image_only import EMU3ImageSftDataTokenizer
+from vision_tokenization.tokenizers.emu3 import EMU3SftTokenizer
 
 
 class TestEMU3SftTokenizer:
-    """Test cases for EMU3ImageSftDataTokenizer."""
+    """Test cases for EMU3SftTokenizer."""
 
     @pytest.fixture
     def tokenizer(self):
         """Initialize tokenizer for tests."""
         # Use the tokenizer with EMU3 special tokens
         tokenizer_path = "/capstor/store/cscs/swissai/infra01/MLLM/llama3_vision_instruct_emu3_tokenizer"
-        return EMU3ImageSftDataTokenizer(
+        return EMU3SftTokenizer(
             text_tokenizer_path=tokenizer_path,
+            min_pixels=384 * 384,
+            max_pixels=1024 * 1024,
             device="cuda" if torch.cuda.is_available() else "cpu"
         )
 
@@ -310,7 +312,7 @@ class TestEMU3SftTokenizer:
 
 def main():
     """Run tests manually."""
-    print("🧪 Testing EMU3ImageSftDataTokenizer\n")
+    print("🧪 Testing EMU3SftTokenizer\n")
 
     # Create test instance
     test = TestEMU3SftTokenizer()

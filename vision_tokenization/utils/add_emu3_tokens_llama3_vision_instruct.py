@@ -1,14 +1,32 @@
 #!/usr/bin/env python3
 """
-Ensure Llama3-Emu3 tokenizer compatibility with Llama 3.2 Vision chat template.
+Ensure Llama3-Emu3 tokenizer compatibility and add SFT sequences.
 
 This script:
 1. Loads an existing Llama3-Emu3 tokenizer
 2. Verifies ALL Emu3 tokens remain at their EXACT original positions
 3. Ensures the tokenizer maintains EXACT same vocabulary size as loaded
-4. Checks for Llama 3.2 Vision chat template compatibility
-5. Dynamically retrieves all token IDs from the tokenizer (NO HARDCODING)
-6. Preserves compatibility with millions of already-tokenized images
+4. Dynamically retrieves all token IDs from the tokenizer (NO HARDCODING)
+5. Preserves compatibility with millions of already-tokenized images
+6. Adds pre-tokenized SFT sequences for Megatron-LM SFT dataset
+
+Usage:
+    # Process an Emu3 tokenizer to add Llama 3.2 Vision compatibility
+    python add_emu3_tokens_llama3_vision_instruct.py \
+        --tokenizer-path /capstor/store/cscs/swissai/infra01/MLLM/llama3_emu3_tokenizer \
+        --output-path /capstor/store/cscs/swissai/infra01/MLLM/llama3_vision_instruct_emu3_tokenizer
+
+The output tokenizer will include:
+- Llama 3.2 Vision chat template
+- Pre-tokenized SFT sequences in tokenizer_config.json:
+  * sft_user_begin_sequence
+  * sft_assistant_begin_sequence
+  * sft_eot_token
+  * img_begin_token
+  * img_end_token
+
+These sequences can be accessed in Megatron-LM via:
+    self.tokenizer._tokenizer.sft_user_begin_sequence
 
 Reference: https://huggingface.co/meta-llama/Llama-3.2-11B-Vision
 
@@ -265,10 +283,52 @@ class Llama32VisionEmu3Adapter:
 
             config = replace_in_dict(config)
 
-            # Add the Vision-Instruct chat template if we have it
+            # Load the Llama 3.2 Vision Instruct chat template and fix it
             if hasattr(self, 'chat_template') and self.chat_template:
-                config['chat_template'] = self.chat_template
-                print(f"  ✅ Added Llama-3.2-Vision-Instruct chat template")
+                # Simple fix: Only show system prompt if user explicitly provides one
+                # This removes the automatic system prompt with dates
+                fixed_template = self.chat_template.replace(
+                    '{%- if user_supplied_system_message or not image_ns.has_images %}',
+                    '{%- if user_supplied_system_message %}'
+                )
+                config['chat_template'] = fixed_template
+                print(f"  ✅ Added Llama 3.2 Vision chat template")
+                print(f"     Fixed: System prompt only appears when explicitly provided by user")
+            else:
+                print(f"  ⚠️  No chat template to add")
+
+            # Add pre-tokenized SFT sequences as tokenizer attributes
+            # These will be accessible in Megatron via: self.tokenizer._tokenizer.sft_user_begin_sequence
+            print("  Adding SFT sequences for Megatron-LM...")
+
+            # Tokenize the sequences
+            config['sft_user_begin_sequence'] = self.tokenizer.encode(
+                '<|start_header_id|>user<|end_header_id|>',
+                add_special_tokens=False
+            )
+            config['sft_assistant_begin_sequence'] = self.tokenizer.encode(
+                '<|start_header_id|>assistant<|end_header_id|>',
+                add_special_tokens=False
+            )
+            config['sft_eot_token'] = self.tokenizer.encode(
+                '<|eot_id|>',
+                add_special_tokens=False
+            )
+            config['img_begin_token'] = self.tokenizer.encode(
+                '<|img_start|>',
+                add_special_tokens=False
+            )
+            config['img_end_token'] = self.tokenizer.encode(
+                '<|img_end|>',
+                add_special_tokens=False
+            )
+
+            print(f"  ✅ Added SFT sequences:")
+            print(f"     - sft_user_begin_sequence: {config['sft_user_begin_sequence']}")
+            print(f"     - sft_assistant_begin_sequence: {config['sft_assistant_begin_sequence']}")
+            print(f"     - sft_eot_token: {config['sft_eot_token']}")
+            print(f"     - img_begin_token: {config['img_begin_token']}")
+            print(f"     - img_end_token: {config['img_end_token']}")
 
             with open(config_path, 'w', encoding='utf-8') as f:
                 json.dump(config, f, indent=2)

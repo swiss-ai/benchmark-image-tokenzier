@@ -392,6 +392,42 @@ class EMU3ImageSftDataTokenizer(EMU3ImageOnlyTokenizer):
         # Cache the image token ID for faster lookup
         self.image_token_id = self.text_tokenizer.convert_tokens_to_ids("<|image|>")
 
+    def _add_special_tokens(self, tokens: torch.Tensor) -> torch.Tensor:
+        """
+        Add BOS and EOS tokens if missing.
+
+        This is necessary because:
+        - Some chat templates hardcode BOS/EOS in the template (e.g., {{- bos_token }})
+        - The add_special_tokens parameter in apply_chat_template is often ignored
+        - Different templates have different behavior (some add BOS, some don't)
+        - We need to verify and add only if missing to avoid double BOS/EOS tokens
+
+        Uses efficient torch.cat approach (17% faster than F.pad).
+
+        Args:
+            tokens: 1D tensor of token IDs (non-empty from apply_chat_template)
+
+        Returns:
+            Token tensor with BOS at start and EOS at end
+        """
+        # Check what's missing (bos_id and eos_id guaranteed non-None by assertions)
+        needs_bos = tokens[0] != self.bos_id
+        needs_eos = tokens[-1] != self.eos_id
+
+        # Fast path: nothing to do
+        if not needs_bos and not needs_eos:
+            return tokens
+
+        # Build result with torch.cat
+        parts = []
+        if needs_bos:
+            parts.append(torch.tensor([self.bos_id], dtype=tokens.dtype, device=tokens.device))
+        parts.append(tokens)
+        if needs_eos:
+            parts.append(torch.tensor([self.eos_id], dtype=tokens.dtype, device=tokens.device))
+
+        return torch.cat(parts)
+
     @torch.inference_mode()
     def tokenize_conversation(
         self,
@@ -415,27 +451,22 @@ class EMU3ImageSftDataTokenizer(EMU3ImageOnlyTokenizer):
             # Force text operations to CPU
             with torch.cuda.device(-1):  # Use CPU
                 try:
-                    # Step 1: Apply chat template
-                    chat_text = self.text_tokenizer.apply_chat_template(
+                    # Apply chat template and tokenize directly
+                    # Note: This does NOT add BOS/EOS tokens automatically
+                    text_tokens = self.text_tokenizer.apply_chat_template(
                         messages,
-                        tokenize=False,
-                        add_generation_prompt=False
-                    )
-
-                    # Check if chat_text is valid
-                    if not chat_text or not isinstance(chat_text, str):
-                        return torch.tensor([], dtype=torch.long), 0, None
-
-                    # Step 2: Tokenize the text
-                    text_tokens = self.text_tokenizer.encode(
-                        chat_text,
-                        add_special_tokens=True,
+                        tokenize=True,  # Get tokens directly
+                        add_generation_prompt=False,
                         return_tensors="pt"
                     )
+
                     # Safely squeeze - keep at least 1D
                     if text_tokens.ndim > 1:
                         text_tokens = text_tokens.squeeze(0)
                     text_tokens = text_tokens.cpu()  # Ensure CPU tensor
+
+                    # Add BOS/EOS tokens if missing (handles different chat templates)
+                    text_tokens = self._add_special_tokens(text_tokens)
 
                     # Step 3: Find image position
                     if len(text_tokens) == 0:
@@ -593,28 +624,3 @@ class EMU3ImageSftDataTokenizer(EMU3ImageOnlyTokenizer):
 
         # Tokenize with single image
         return self.tokenize_conversation(messages, image)
-
-
-# Example usage
-if __name__ == "__main__":
-    # Initialize EMU3 image-only tokenizer
-    # Use the tokenizer with EMU3 special tokens
-    tokenizer = EMU3ImageOnlyTokenizer(
-        text_tokenizer_path="/iopsstor/scratch/cscs/xyixuan/llama3_emu3_tokenizer",
-        device="cuda"
-    )
-    
-    # Simulate image indices from vision tokenizer
-    height, width = 2, 2
-    image_indices = torch.tensor([0, 100, 200, 300])  # 2x2 image
-    
-    # Tokenize directly
-    tokens = tokenizer.encapsulate_image(image_indices, height, width)
-    print(f"Tokenized sequence length: {len(tokens)}")
-    print(f"Token IDs: {tokens[:20]}...")  # Show first 20 tokens
-    
-    # Compare with original approach
-    comparison = tokenizer.compare_with_original(image_indices, height, width)
-    print(f"\nSpeedup: {comparison['speedup']:.2f}x")
-    print(f"Tokens match: {comparison['tokens_match']}")
-

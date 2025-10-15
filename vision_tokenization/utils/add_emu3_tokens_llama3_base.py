@@ -12,12 +12,12 @@ Workflow:
 
 Usage:
     # Step 1: Modify tokenizer
-    python add_special_tokens_emu3_style.py --model-path meta-llama/Llama-3-8B \\
+    python add_emu3_tokens_llama3_base.py --model-path meta-llama/Llama-3-8B \\
         --output-path ./llama3_emu3 --visual-vocab-size 32768
     
     # Step 2: Use in code
     from transformers import AutoTokenizer
-    from add_special_tokens_emu3_style import get_vision_token_id
+    from add_emu3_tokens_llama3_base import get_vision_token_id
     
     tokenizer = AutoTokenizer.from_pretrained("./llama3_emu3")
     
