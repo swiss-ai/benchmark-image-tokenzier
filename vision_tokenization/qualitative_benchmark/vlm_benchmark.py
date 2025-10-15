@@ -214,6 +214,8 @@ class VLMBenchmark:
         """
         results = {
             "timestamp": datetime.now().isoformat(),
+            "model_path": self.vlm.model_path,
+            "tokenizer_path": self.vlm.tokenizer_path,
             "total_runs": 0,
             "runs": []
         }
@@ -265,6 +267,7 @@ def parse_args():
     parser.add_argument("--experiment_name", type=str, required=True, help="Name of experiment, used for saving results")
     parser.add_argument("--image_list", type=str, default="images.json", help="Path to image list")
     parser.add_argument("--prompt_list", type=str, default="prompts.json", help="Path to prompt list")
+    parser.add_argument("--overwrite", action="store_true", help="Overwrite existing results file if it exists")
     return parser.parse_args()
 
 
@@ -292,17 +295,28 @@ if __name__ == "__main__":
     python vlm_benchmark.py --tokenizer_path /path/to/tokenizer --model_path /path/to/model --experiment_name my_experiment
     """
     args = parse_args()
-    exp_dir = Path(args.results_folder) / args.experiment_name
-    exp_dir.mkdir(exist_ok=True, parents=True)
+
+    # Setup results directory and output file path
+    results_dir = Path(args.results_folder)
+    results_dir.mkdir(exist_ok=True, parents=True)
+    output_file = results_dir / f"{args.experiment_name}.json"
+
+    # Check if results file already exists
+    if output_file.exists() and not args.overwrite:
+        print(f"ERROR: Results file already exists: {output_file}")
+        print(f"Use --overwrite to overwrite existing results, or choose a different experiment name.")
+        sys.exit(1)
+
+    if output_file.exists() and args.overwrite:
+        print(f"WARNING: Overwriting existing results file: {output_file}")
 
     vlm = setup_vlm_inferencer(args)
-
 
     benchmark = VLMBenchmark(
         images_config_path=args.image_list,
         prompts_config_path=args.prompt_list,
         vlm=vlm,
-        results_dir=str(exp_dir)
+        results_dir=str(results_dir)
     )
     results = benchmark.run_benchmark(output_filename=f"{args.experiment_name}.json")
     print("Done!")
