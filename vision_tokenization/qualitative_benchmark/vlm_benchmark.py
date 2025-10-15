@@ -212,10 +212,22 @@ class VLMBenchmark:
         Returns:
             Dictionary containing all benchmark results
         """
+        # Serialize inference args to dict
+        inference_args_dict = {
+            "apply_chat_template": self.vlm.inf_args.apply_chat_template,
+            "temperature": self.vlm.inf_args.temperature,
+            "top_p": self.vlm.inf_args.top_p,
+            "max_new_tokens": self.vlm.inf_args.max_new_tokens,
+            "max_emu_aspect_ratio": self.vlm.inf_args.max_emu_aspect_ratio,
+            "min_emu_aspect_ratio": self.vlm.inf_args.min_emu_aspect_ratio,
+            "stop_token_ids": self.vlm.inf_args.stop_token_ids
+        }
+
         results = {
             "timestamp": datetime.now().isoformat(),
             "model_path": self.vlm.model_path,
             "tokenizer_path": self.vlm.tokenizer_path,
+            "inference_args": inference_args_dict,
             "total_runs": 0,
             "runs": []
         }

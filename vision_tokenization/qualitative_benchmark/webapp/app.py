@@ -105,6 +105,97 @@ def view_experiment(experiment_name):
     )
 
 
+@app.route('/compare')
+def compare_experiments():
+    """Compare multiple experiments side-by-side."""
+    all_experiments = get_experiments()
+
+    # Get selected experiments from query parameters
+    selected_experiments = request.args.getlist('experiments')
+
+    if not selected_experiments or len(selected_experiments) < 2:
+        # Show experiment selection page
+        return render_template('compare.html',
+                             experiments=all_experiments,
+                             selected_experiments=selected_experiments,
+                             comparison_data=None)
+
+    # Load results for all selected experiments
+    experiment_results = {}
+    for exp_name in selected_experiments:
+        results = load_experiment_results(exp_name)
+        if results:
+            experiment_results[exp_name] = results
+
+    if len(experiment_results) < 2:
+        return render_template('compare.html',
+                             experiments=all_experiments,
+                             selected_experiments=selected_experiments,
+                             comparison_data=None,
+                             error="Could not load results for selected experiments")
+
+    # Find common image-prompt combinations
+    comparison_data = find_common_runs(experiment_results)
+
+    return render_template('compare.html',
+                         experiments=all_experiments,
+                         selected_experiments=selected_experiments,
+                         experiment_results=experiment_results,
+                         comparison_data=comparison_data)
+
+
+def find_common_runs(experiment_results):
+    """
+    Find image-prompt combinations that exist in all experiments.
+
+    Returns a list of dicts with structure:
+    {
+        'image_path': 'assets/image.jpg',
+        'prompt_text': 'Describe this image',
+        'outputs': {
+            'experiment1': 'output text 1',
+            'experiment2': 'output text 2',
+            ...
+        }
+    }
+    """
+    if not experiment_results:
+        return []
+
+    # Get all experiment names
+    exp_names = list(experiment_results.keys())
+
+    # Build a mapping of (image_path, prompt_text) -> experiment outputs
+    combinations = {}
+
+    for exp_name, results in experiment_results.items():
+        for run in results.get("runs", []):
+            key = (run["image"]["path"], run["prompt"]["text"])
+
+            if key not in combinations:
+                combinations[key] = {
+                    "image": run["image"],
+                    "prompt": run["prompt"],
+                    "outputs": {}
+                }
+
+            combinations[key]["outputs"][exp_name] = run["output"]
+
+    # Filter to only include combinations present in ALL experiments
+    common_runs = []
+    for key, data in combinations.items():
+        if len(data["outputs"]) == len(exp_names):
+            common_runs.append({
+                "image_path": data["image"]["path"],
+                "image_tags": data["image"].get("tags", []),
+                "prompt_text": data["prompt"]["text"],
+                "prompt_tags": data["prompt"].get("tags", []),
+                "outputs": data["outputs"]
+            })
+
+    return common_runs
+
+
 @app.route('/api/experiments')
 def api_experiments():
     """API endpoint to get list of experiments."""
