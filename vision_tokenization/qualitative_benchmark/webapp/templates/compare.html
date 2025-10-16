@@ -61,9 +61,15 @@
                 <p><strong>Tokenizer:</strong> <code>{{ experiment_results[exp_name].tokenizer_path }}</code></p>
                 {% endif %}
                 {% if experiment_results[exp_name].inference_args %}
+                <p><strong>Apply chat template:</strong> {{ experiment_results[exp_name].inference_args.apply_chat_template }}</p>
                 <p><strong>Temperature:</strong> {{ experiment_results[exp_name].inference_args.temperature }}</p>
                 <p><strong>Top-p:</strong> {{ experiment_results[exp_name].inference_args.top_p }}</p>
                 <p><strong>Max tokens:</strong> {{ experiment_results[exp_name].inference_args.max_new_tokens }}</p>
+                <p><strong>Min EMU aspect ratio:</strong> {{ experiment_results[exp_name].inference_args.min_emu_aspect_ratio }}</p>
+                <p><strong>Max EMU aspect ratio:</strong> {{ experiment_results[exp_name].inference_args.max_emu_aspect_ratio }}</p>
+                {% if experiment_results[exp_name].inference_args.stop_token_ids %}
+                <p><strong>Stop token IDs:</strong> {{ experiment_results[exp_name].inference_args.stop_token_ids|join(', ') }}</p>
+                {% endif %}
                 {% endif %}
             </div>
             {% endif %}
