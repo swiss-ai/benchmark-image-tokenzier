@@ -280,18 +280,28 @@ def parse_args():
     parser.add_argument("--image_list", type=str, default="images.json", help="Path to image list")
     parser.add_argument("--prompt_list", type=str, default="prompts.json", help="Path to prompt list")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing results file if it exists")
+
+    # Inference arguments group
+    inference_group = parser.add_argument_group('inference arguments', 'Arguments controlling model inference behavior')
+    inference_group.add_argument("--no_chat_template", action="store_true", help="Do not apply chat template to prompts")
+    inference_group.add_argument("--temperature", type=float, default=0.3, help="Sampling temperature (default: 0.3)")
+    inference_group.add_argument("--top_p", type=float, default=0.9, help="Top-p sampling parameter (default: 0.9)")
+    inference_group.add_argument("--max_new_tokens", type=int, default=300, help="Maximum number of tokens to generate (default: 300)")
+    inference_group.add_argument("--min_emu_aspect_ratio", type=int, default=256*256, help="Minimum aspect ratio for EMU3 tokenizer (default: 65536)")
+    inference_group.add_argument("--max_emu_aspect_ratio", type=int, default=512*512, help="Maximum aspect ratio for EMU3 tokenizer (default: 262144)")
+
     return parser.parse_args()
 
 
 def setup_vlm_inferencer(args):
     inference_args = InferenceArgs(
-        apply_chat_template=True,
-        temperature=0.3,
-        top_p=0.9,
-        stop_token_ids=[],
-        max_new_tokens=300,
-        max_emu_aspect_ratio=512*512,
-        min_emu_aspect_ratio=256*256
+        apply_chat_template=not args.no_chat_template,
+        temperature=args.temperature,
+        top_p=args.top_p,
+        stop_token_ids=[],  # Will be set after model initialization
+        max_new_tokens=args.max_new_tokens,
+        max_emu_aspect_ratio=args.max_emu_aspect_ratio,
+        min_emu_aspect_ratio=args.min_emu_aspect_ratio
     )
     vlm = VLM(
         model_path=args.model_path,
