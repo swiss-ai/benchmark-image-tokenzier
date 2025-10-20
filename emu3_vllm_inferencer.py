@@ -62,7 +62,26 @@ class EMU3Inferencer:
         )
         
         print("EMU3 Inferencer ready!")
-    
+
+    def _prepare_prompt(self, conversation, image_token_string):
+        """
+        Prepare tokens based on a conversation in the LLaMa Instruct style and an optional image. Finds the dummy image token and replaces it with the actual image tokens.
+        Assumes the conversation does not have generation prompt.
+        Args:
+            conversation: List of (role, text) tuples
+            image_tokens: List of visual token indices
+        """
+        chat_text = self.tokenizer.inferencer.tokenizer.apply_chat_template(
+                                                                            conversation,
+                                                                            tokenize=False,
+                                                                            add_generation_prompt=True
+                                                                        )
+        # Replace dummy image token with actual image tokens
+        if image_token_string:
+            chat_text = re.sub(r"<\|image\|>", image_token_string, chat_text)
+
+        return self.tokenizer.tokenize(chat_text)
+
     def _load_vision_mapping(self) -> Dict[int, int]:
         """Load vision token mapping (visual_index -> token_id)."""
         mapping_path = os.path.join(self.tokenizer_path, "vision_token_mapping.json")
@@ -81,7 +100,8 @@ class EMU3Inferencer:
             "img_end": "<|img_end|>",
             "img_token_start": "<|img_token_start|>",
             "img_end_of_row": "<|img_end_of_row|>",
-            "img_end_of_frame": "<|img_end_of_frame|>"
+            "img_end_of_frame": "<|img_end_of_frame|>",
+            "end_of_turn": "<|eot_id|>"
         }
         
         for name, token in token_names.items():
