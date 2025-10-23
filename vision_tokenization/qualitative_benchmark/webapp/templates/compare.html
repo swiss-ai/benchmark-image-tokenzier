@@ -91,30 +91,33 @@
             </div>
 
             <div class="comparison-content">
-                <!-- Image Column -->
-                <div class="comparison-image-section">
-                    <h4>Image</h4>
-                    <img src="/{{ item.image_path }}" alt="Input image" loading="lazy">
-                    <div class="tags">
-                        {% for tag in item.image_tags %}
-                        <span class="tag tag-image">{{ tag }}</span>
-                        {% endfor %}
+                <!-- Left Column: Image and Prompt -->
+                <div class="left-column">
+                    <!-- Image Section -->
+                    <div class="comparison-image-section">
+                        <h4>Image</h4>
+                        <img src="/{{ item.image_path }}" alt="Input image" loading="lazy">
+                        <div class="tags">
+                            {% for tag in item.image_tags %}
+                            <span class="tag tag-image">{{ tag }}</span>
+                            {% endfor %}
+                        </div>
+                        <p class="image-path">{{ item.image_path }}</p>
                     </div>
-                    <p class="image-path">{{ item.image_path }}</p>
+
+                    <!-- Prompt Section -->
+                    <div class="comparison-prompt-section">
+                        <h4>Prompt</h4>
+                        <p class="prompt-text">{{ item.prompt_text }}</p>
+                        <div class="tags">
+                            {% for tag in item.prompt_tags %}
+                            <span class="tag tag-prompt">{{ tag }}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
                 </div>
 
-                <!-- Prompt Column -->
-                <div class="comparison-prompt-section">
-                    <h4>Prompt</h4>
-                    <p class="prompt-text">{{ item.prompt_text }}</p>
-                    <div class="tags">
-                        {% for tag in item.prompt_tags %}
-                        <span class="tag tag-prompt">{{ tag }}</span>
-                        {% endfor %}
-                    </div>
-                </div>
-
-                <!-- Outputs Column -->
+                <!-- Right Column: Outputs -->
                 <div class="comparison-outputs-section">
                     <h4>Outputs</h4>
                     <div class="outputs-grid">

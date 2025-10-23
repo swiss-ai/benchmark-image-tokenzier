@@ -80,27 +80,31 @@
             </div>
 
             <div class="result-content">
-                <div class="result-image">
-                    <h4>Image</h4>
-                    <img src="/{{ run.image.path }}" alt="Input image" loading="lazy">
-                    <div class="tags">
-                        {% for tag in run.image.tags %}
-                        <span class="tag tag-image">{{ tag }}</span>
-                        {% endfor %}
+                <!-- Left Column: Image and Prompt -->
+                <div class="left-column">
+                    <div class="result-image">
+                        <h4>Image</h4>
+                        <img src="/{{ run.image.path }}" alt="Input image" loading="lazy">
+                        <div class="tags">
+                            {% for tag in run.image.tags %}
+                            <span class="tag tag-image">{{ tag }}</span>
+                            {% endfor %}
+                        </div>
+                        <p class="image-path">{{ run.image.path }}</p>
                     </div>
-                    <p class="image-path">{{ run.image.path }}</p>
+
+                    <div class="result-prompt">
+                        <h4>Prompt</h4>
+                        <p class="prompt-text">{{ run.prompt.text }}</p>
+                        <div class="tags">
+                            {% for tag in run.prompt.tags %}
+                            <span class="tag tag-prompt">{{ tag }}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
                 </div>
 
-                <div class="result-prompt">
-                    <h4>Prompt</h4>
-                    <p class="prompt-text">{{ run.prompt.text }}</p>
-                    <div class="tags">
-                        {% for tag in run.prompt.tags %}
-                        <span class="tag tag-prompt">{{ tag }}</span>
-                        {% endfor %}
-                    </div>
-                </div>
-
+                <!-- Right Column: Output -->
                 <div class="result-output">
                     <h4>Model Output</h4>
                     <div class="output-text">{{ run.output }}</div>

@@ -282,7 +282,7 @@ main {
 
 .result-content {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: 1fr 1.5fr;
     gap: 1.5rem;
     padding: 1.5rem;
 }
@@ -300,6 +300,12 @@ main {
     padding: 1rem;
     border-radius: 4px;
     border: 1px solid #e0e0e0;
+}
+
+.left-column {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
 }
 
 .result-image h4,
@@ -548,7 +554,7 @@ main {
 .comparison-content {
     padding: 1.5rem;
     display: grid;
-    grid-template-columns: 300px 1fr 2fr;
+    grid-template-columns: 1fr 1.5fr;
     gap: 1.5rem;
 }
 
