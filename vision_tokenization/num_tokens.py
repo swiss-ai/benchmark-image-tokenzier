@@ -57,13 +57,13 @@ def human_tokens(n: int) -> str:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Sum token statistics from dataset_info.json files. Given a root directory, recursively searches for all dataset_info.json files, reads their statistics, and sums them up.",
+        description="Sum token statistics from dataset_info.json files. Given a root directory, recursively searches for all dataset_info.json files, reads their statistics, and sums them up. Can also read a single JSON file directly.",
     )
     parser.add_argument(
         "--path",
         type=str,
         default="/capstor/store/cscs/swissai/infra01/vision-datasets/FineVision/tokenized_sft,/capstor/store/cscs/swissai/infra01/vision-datasets/LLaVA-OneVision-1.5-Instruct-Data/tokenized_sft",
-        help="Root directory to search for dataset_info.json files. Can be a comma separated list as well",
+        help="Root directory to search for dataset_info.json files, or path to a single JSON file. Can be a comma separated list as well",
     )
 
     args = parser.parse_args()
@@ -71,11 +71,20 @@ def main():
     overall_info_paths = []
     for root in paths:
         root = Path(root).expanduser().resolve()
-        if not root.is_dir():
-            print("Invalid directory: ", root)
+        if root.is_file():
+            # If it's a file, add it directly
+            if root.suffix == ".json":
+                print(f"Reading single JSON file: {root}")
+                overall_info_paths.append(root)
+            else:
+                print(f"Warning: {root} is not a JSON file, skipping")
+        elif root.is_dir():
+            # If it's a directory, recursively search for dataset_info.json files
+            print(f"Scanning directory: {root}")
+            overall_info_paths += list(find_dataset_info_files(root))
+        else:
+            print(f"Invalid path (not a file or directory): {root}")
             continue
-        print("Scanning directory: ", root)
-        overall_info_paths += list(find_dataset_info_files(root))
 
     total_sum = 0
     image_sum = 0
