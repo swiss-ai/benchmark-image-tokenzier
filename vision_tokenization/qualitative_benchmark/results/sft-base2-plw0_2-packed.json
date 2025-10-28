@@ -1,0 +1,1304 @@
+{
+  "timestamp": "2025-10-28T15:08:25.048073",
+  "model_path": "/users/rkreft/megatron-repo/logs/Meg-Runs/image-extension/llama3-3b-SFT-15n-8192sl-240gbsz-1.0i-0.0t-stage2-base-ST-MASKED-PLW0.2-PACKED/HF",
+  "tokenizer_path": "/capstor/store/cscs/swissai/infra01/MLLM/llama3_vision_instruct_emu3_tokenizer",
+  "inference_args": {
+    "apply_chat_template": true,
+    "temperature": 0.3,
+    "top_p": 0.9,
+    "max_new_tokens": 300,
+    "max_emu_aspect_ratio": 262144,
+    "min_emu_aspect_ratio": 65536,
+    "stop_token_ids": [
+      128009
+    ]
+  },
+  "total_runs": 74,
+  "runs": [
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image displays a collection of fruits, including apples, oranges, and bananas, all placed on a white background. The fruits are arranged in a visually appealing manner, with the apples and oranges positioned towards the left side, while the banana is placed towards the right side. The fruits are vibrant and colorful, making the image aesthetically pleasing.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image depicts a red apple with a green stem, placed on a white surface. The apple is cut in half, revealing its inner flesh. The apple is positioned in the center of the image, with the stem extending outward from the top of the apple. The overall scene conveys a sense of freshness and natural beauty.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "What objects or subjects can you identify in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, I can identify a banana and a red apple.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Count the objects in the image. List each type of object with its count.",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "There are 5 apples and 1 banana in the image.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "What are the main colors present in the image?",
+        "tags": [
+          "colors"
+        ]
+      },
+      "output": "The main colors present in the image are red, yellow, and green.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the color of each object in the image?",
+        "tags": [
+          "colors",
+          "objects"
+        ]
+      },
+      "output": "Each object in the image is colored differently to represent different types of fruits.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the position of each object in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, there are two objects. The first object is a red apple, and the second object is a green banana. The apple is positioned on the left side of the image, while the banana is on the right side.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image shows a large city skyline with a tall building in the background. The building appears to be a modern skyscraper, and it is situated in the middle of the city. The city skyline is also filled with many skyscrapers, creating a busy and vibrant urban environment.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image features a large building with a modern architectural design, situated in a city. The building is surrounded by a large number of windows, giving it a large and imposing appearance. The building is located near a river, with a bridge visible in the background. \n\nIn the foreground, there is a parking lot filled with numerous cars, including a mix of small and large vehicles. The cars are parked in various positions, some closer to the building and others further away. The scene captures the hustle and bustle of a city with a mix of architectural styles and transportation options.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What objects or subjects can you identify in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, I can identify a large building, a city skyline, and a large city square with a clock tower.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Count the objects in the image. List each type of object with its count.",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, there are several objects. There are 12 benches, 8 trees, 8 buildings, 8 cars, 8 people, 8 birds, and 8 lampposts.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the position of each object in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, there are two large buildings, one on the left and one on the right side of the frame. The left building is a modern skyscraper, and the right building is a tall, older structure. Both buildings are situated in a city, and they are surrounded by a large open area.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the scene in this image.",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The image features a large city skyline with a tall building in the background. The building is a skyscraper, and the city is surrounded by a large field of grass. In the foreground, there is a parking lot with several cars parked, and a parking meter is visible in the scene. The parking lot is located near the tall building, and the grassy field provides a serene and picturesque backdrop for the urban landscape.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What is the main subject of this photograph?",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The main subject of this photograph is a large building with a clock tower, which is situated in a city.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/checkerboard_pattern.png",
+        "tags": [
+          "general",
+          "pattern",
+          "general"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image displays a collection of five identical squares arranged in a grid pattern. The squares are of equal size and are positioned in a way that they form a uniform and symmetrical pattern. The grid pattern is likely used for various purposes, such as in graphic design, data visualization, or even in the context of a game or puzzle.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/checkerboard_pattern.png",
+        "tags": [
+          "general",
+          "pattern",
+          "general"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image displays a grid of squares arranged in a pattern. The squares are of varying sizes and are placed in a way that creates a visually appealing and organized layout. The grid is likely used for creating a specific design or pattern, such as a maze or a grid-based game. The arrangement of the squares creates a sense of depth and structure, making it an attractive and engaging composition.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_1.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The pie chart shows the percentage of people who have an account on the website Acodeclub.com. The largest percentage of people, 100%, are from the United States, followed by 100% from Canada and 100% from Australia. This suggests that the website is mainly targeted at people from the United States, with a small presence in Canada and Australia.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_1.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image depicts a pie chart that represents the percentage of people who use the word \"accretion\" in a given context. The largest portion of the pie chart, 60%, is attributed to the word \"accretion\", followed by 40% for \"long-term\". This suggests that the majority of people who use the word \"accretion\" are likely to be using it for long-term purposes. The chart is likely used to inform decisions related to the use of the word \"accretion\" in a given context.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_1.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the data shown in this chart in detail.",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": "The pie chart shows the percentage of people who are interested in the topic of \"Aerobic exercise\" on the website Aerobics.com. The majority of people are interested in aerobic exercise, accounting for 100% of the total, while 0% of people are interested in other types of exercise. This suggests that the majority of people are interested in aerobic exercise, while the remaining people are interested in other types of exercise.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_1.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "What trends can you identify in this visualization?",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": "The pie chart shows the percentage of people who are interested in the topic of \"Aerobics\" on the website Aerobics.com. The majority of people are interested in the topic of \"Aerobics\", accounting for 100% of the total, while 0% of people are interested in the topic of \"Lose Weight\". This suggests that the majority of people are interested in the topic of \"Aerobics\", while the remaining people are not interested in it.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_2.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The chart displays the percentage of people who have used the internet in the last 3 months in the United States. The data shows that the percentage of internet users has been steadily increasing over the years, with a significant jump between 2007 and 2008. In 2007, only 8% of the population was using the internet, but this number increased to 11% in 2008. The trend continues to rise, with the percentage of internet users reaching 27% in 2010. The data suggests that the internet has become an increasingly important part of daily life for many Americans.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_2.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The chart displays the percentage of adults in the United States who have used various forms of social media as of April 2018. The data is presented in a bar graph format, with the x-axis representing the different social media platforms and the y-axis representing the percentage of adults who have used each platform. The chart shows that Facebook is the most popular social media platform with 46% of adults using it, followed by Instagram with 41%, and Twitter with 36%. The other platforms listed on the chart include LinkedIn, Snapchat, Pinterest, Reddit, and WhatsApp. The chart indicates that Facebook and Instagram are the most popular social media platforms among adults in the United States, while Twitter and WhatsApp are the least popular.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_2.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the data shown in this chart in detail.",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": "The chart displays the percentage of adults in the United States who are married or living with a partner who is not their spouse, broken down by age group. The data shows that the percentage of adults who are married or living with a partner who is not their spouse increases with age, with the highest percentage of 57% among those aged 65 and above. The lowest percentage is among those aged 18-29, with only 12% of adults in this age group being married or living with a partner who is not their spouse. The data suggests that marriage is becoming less common among older adults in the United States.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_2.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "What trends can you identify in this visualization?",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": "The bar chart shows the percentage of people who use the internet in the United States from 2000 to 2010. The data shows that the percentage of people using the internet increased from 7.3% in 2000 to 11.1% in 2005, before decreasing to 11.0% in 2006 and 11.0% in 2007. The percentage of people using the internet then decreased to 10.0% in 2008, before increasing to 10.0% in 2009 and 10.0% in 2010. Overall, the data suggests that the percentage of people using the internet in the United States has been increasing over the past decade, with a slight decrease in 2010.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image features a white dog with a pink nose, standing on a lush green grass-covered field. The dog appears to be enjoying its time outdoors, possibly playing or exploring the area.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image features a small white puppy sitting on the grass, wearing a pink collar. The puppy appears to be a young dog, and it is positioned in the center of the scene. The grassy field provides a natural and comfortable environment for the puppy, and the pink collar adds a touch of color to the scene.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What objects or subjects can you identify in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, I can identify a white dog and a green ball.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Count the objects in the image. List each type of object with its count.",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, there is one dog and one frisbee.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the position of each object in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, there is a white puppy sitting on the grass, a white teddy bear, and a white dog. The puppy is sitting on the grass, the teddy bear is sitting on the grass, and the white dog is sitting on the grass as well.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the scene in this image.",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The image features a white and black puppy, possibly a poodle, sitting on a lush green grass-covered field. The puppy appears to be enjoying the outdoors, and it is looking directly at the camera. The grassy area is surrounded by a forest, creating a serene and peaceful atmosphere.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What is the main subject of this photograph?",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The main subject of this photograph is a white puppy sitting on a grassy field.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/line_chart.png",
+        "tags": [
+          "general",
+          "chart",
+          "statistics",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The chart displays the percentage of people who believe that the United States is the world's leading economic power, with a clear majority of 70% of respondents agreeing with this statement. The chart also shows that the majority of respondents believe that China is the world's leading economic power, with 55% agreeing with this statement. The chart also highlights the significant difference between the two countries, with only 18% of respondents believing that the U.S. is the world's leading economic power, and 32% believing that China is the leading economic power. This data suggests that there is a clear divide between the two countries in terms of their perceived economic power, with the U.S. being seen as the leading economic power by a majority of respondents.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/line_chart.png",
+        "tags": [
+          "general",
+          "chart",
+          "statistics",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The chart shows the percentage of people who believe that the United States is the world's leading economic power, with a significant drop in the percentage of people who believe this in 2012. The chart also displays the percentage of people who believe that China is the world's leading economic power, with a sharp increase in the percentage of people who believe this in 2012. The chart also shows the percentage of people who believe that the U.S. is the world's leading economic power, with a slight decrease in the percentage of people who believe this in 2012. Overall, the chart suggests a shift in the perception of the United States as the world's leading economic power, with China emerging as a rising economic power.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/line_chart.png",
+        "tags": [
+          "general",
+          "chart",
+          "statistics",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the data shown in this chart in detail.",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": "The chart shows the number of reported cases of child abuse in the United States from 1990 to 2017. The data is broken down by race and ethnicity, with the number of cases reported by Hispanic or Latino individuals being the highest at 1,200 cases in 2017. The number of cases reported by Black individuals was the second highest at 1,200 cases in 2017, followed by White individuals at 1,200 cases. The number of cases reported by American Indian or Alaska Native individuals was the lowest at 1,200 cases in 2017. The chart highlights the need for continued efforts to address child abuse and ensure that all racial and ethnic groups have access to support and resources to prevent and address child abuse.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/line_chart.png",
+        "tags": [
+          "general",
+          "chart",
+          "statistics",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "What trends can you identify in this visualization?",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": "The line chart shows the percentage of unemployed individuals in the United States from 1995 to 2017, categorized by race and gender. The unemployment rate for all racial groups decreased from 1995 to 2017, with the highest rate being 62.7% in 2017. The unemployment rate for males was consistently higher than that of females throughout the period. The unemployment rate for non-Hispanic whites decreased from 1995 to 2017, while the rate for non-Hispanic blacks increased. The unemployment rate for Hispanics decreased from 1995 to 2017, while the rate for non-Hispanic whites decreased. Overall, the chart shows a decrease in the unemployment rate for all racial groups from 1995 to 2017, with the highest rate being 62.7% in 2017.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/line_chart.png",
+        "tags": [
+          "general",
+          "chart",
+          "statistics",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "OBAMA 2005-2011 2012-2013 2013-2014 2014-2015 2015-2016 2016-2017 2017-2018 2018-2019 2019-2020<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/logo1.png",
+        "tags": [
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image features a large, colorful, and intricate design of a clock. The clock is displayed on a black background, making it stand out as the main focus of the image. The design includes various elements such as a face, hands, and numbers, creating a visually appealing and artistic representation of a clock. The clock is positioned in the center of the image, drawing attention to its intricate details and design.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/logo1.png",
+        "tags": [
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image features a large, colorful, and intricately designed clock with a red background. The clock has a white face with black numbers and hands, making it easy to read the time. The clock is placed on a black surface, possibly a table or a stand, and is surrounded by a red border. The overall design of the clock is visually appealing and adds a sense of elegance to the scene.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/logo1.png",
+        "tags": [
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "What are the main colors present in the image?",
+        "tags": [
+          "colors"
+        ]
+      },
+      "output": "The main colors present in the image are red, white, and blue.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/math_draft1.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "The 4th of July is a day of celebration for many people in the United States. The 4th of July is a day when people gather to celebrate the 4th of July, the day of the United States' independence. The 4th of July is a day when people gather to celebrate the 4th of July, the day of the United States' independence. The 4th of July is a day when people gather to celebrate the 4th of July, the day of the United States' independence. The 4th of July is a day when people gather to celebrate the 4th of July, the day of the United States' independence.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/math_draft1.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What is the title of the document shown in the image?",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "Excerpts from the 2013-2014 Federal Budget Bill<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/math_draft1.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What mathematical expressions or equations are present in the image?",
+        "tags": [
+          "math",
+          "ocr"
+        ]
+      },
+      "output": "The image contains mathematical expressions or equations that include the following elements:\n\n1. **Variable Values**: The image displays a table with various values for different variables, such as \\( x \\) and \\( y \\), which are likely to be coefficients or parameters in a mathematical model.\n\n2. **Function Form**: The expressions in the image appear to be part of a function, possibly a polynomial or a linear equation, given the presence of multiple terms and coefficients.\n\n3. **Variable Interactions**: The expressions suggest that there are interactions between different variables, which could be part of a system or a complex mathematical model.\n\n4. **Variable Relationships**: The expressions might be illustrating relationships between variables, such as correlations, dependencies, or dependencies.\n\n5. **Contextual Information**: The image provides contextual information about the variables and their interactions, which could be essential for understanding the underlying mathematical model.\n\n6. **Conclusion**: The image likely represents a mathematical model or a system, and the expressions provide a detailed description of the relationships and interactions between variables.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/math_draft1.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Solve the mathematical problem shown in the image.",
+        "tags": [
+          "math",
+          "ocr"
+        ]
+      },
+      "output": "The image shows a table with various mathematical expressions and equations. The table contains the following information:\n\n|  | 1/2 | 2/2 | 3/2 | 4/2 | 5/2 | 6/2 | 7/2 | 8/2 | 9/2 | 10/2 | 11/2 | 12/2 | 13/2 | 14/2 | 15/2 | 16/2 | 17/2 | 18/2 | 19/2 | 20/2 | 21/2 | 22/2 | 23/2 | 24/2 | 25/2 | 26/2 | 27/2 | 28/2 | 29/2 | 30/2 | 31/2 | 32/2 | 33/2 | 34/2 | 35/2 | 36/2 | 37/2 | 38/2 | 39/2 | 40/2 | 41/2 | 42/2 | 43/2 | 44/2 | 45/2 | 46/2 | 47/2 | 48/2 | 49/2 | 50/2 | 51/2 | 52/2 | 53/2 | 54/2 | 55/2 | 56/"
+    },
+    {
+      "image": {
+        "path": "assets/mri_human_brain.png",
+        "tags": [
+          "general",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image features a pair of skull and crossbones masks, which are designed to resemble the faces of a human head and a cross. The masks are placed on a black background, creating a striking contrast between the two shapes. The masks are positioned in a way that they appear to be \"posing\" for a photo, with the human head and the cross in the center of the image. The masks are likely used for artistic or decorative purposes, or as part of a themed display.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/mri_human_brain.png",
+        "tags": [
+          "general",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image features a collection of three different skull images, each with a unique design and style. The first skull is a simple, black and white drawing, while the second one is a more detailed and artistic representation, featuring a black and white skull with a bone structure and a bone-like texture. The third skull is a more abstract and artistic rendition, with a black and white skull design that resembles a bone structure, and a bone-like texture that adds a sense of depth and dimension to the image.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/mri_human_brain.png",
+        "tags": [
+          "general",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas adidas"
+    },
+    {
+      "image": {
+        "path": "assets/olmOcrDocuments_1.jpg",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "The New York Times, The Wall Street Journal, The Washington Post, The New York Post, The Wall Street Journal, The New York Times, The Wall Street Journal, The New York Times, The Wall Street Journal, The New York Times, The Wall Street Journal, The New York Times, The Wall Street Journal, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The New York Times, The"
+    },
+    {
+      "image": {
+        "path": "assets/olmOcrDocuments_1.jpg",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "What is the title of the document shown in the image?",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "The title of the document shown in the image is \"Caring for the Sick and the Dead: The Complete Book of Rituals, Ceremonies, and Ceremonies for the Dead.\"<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/physics2.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "The 1st 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2 1/2"
+    },
+    {
+      "image": {
+        "path": "assets/physics2.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What is the title of the document shown in the image?",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "The New York Times, The Wall Street Journal, The Washington Post, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The Wall Street Journal, The New York Post, The"
+    },
+    {
+      "image": {
+        "path": "assets/physics2.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What mathematical expressions or equations are present in the image?",
+        "tags": [
+          "math",
+          "ocr"
+        ]
+      },
+      "output": "The image shows a simple circuit consisting of two resistors, labeled as R1 and R2, connected in parallel. The circuit is powered by a voltage source, indicated by the voltage source symbol at the top of the image. The resistors are connected in a way that the total resistance of the circuit is the sum of the individual resistances. The total resistance is given by the formula R_total = R1 + R2. The voltage source is the sum of the voltage sources, which is the sum of the voltage sources in the circuit. The voltage source is indicated by the voltage source symbol at the top of the image.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/physics2.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Solve the mathematical problem shown in the image.",
+        "tags": [
+          "math",
+          "ocr"
+        ]
+      },
+      "output": "\\begin{align*}\\mathbb{I}_{N}^{I_{E_{1}}}\\mathbb{I}_{N_{0}}\\mathbb{I}_{N_{0}}\\mathbb{I}_{-3\\cdot2\\times1-\\mathbb{I}_{0}}\\mathbb{I}_{-1\\cdot2\\times0\\cdot\\mathbb{I}_{0}}\\mathbb{I}_{e}\\mathbb{I}_{e\\cdot2\\times1}\\mathbb{I}_{-1\\cdot2\\times1}\\mathbb{I}_{-1\\cdot2\\times1}\\mathbb{I}_{-1\\cdot2\\times1}\\mathbb{I}_{-1\\cdot2\\times1}\\mathbb{I}_{-1\\cdot2\\times1}\\mathbb{I}_{-1\\cdot2\\times1}\\mathbb{I}_{-1\\cdot2\\times1}\\mathbb{I}_{-1\\cdot2\\times1}\\mathbb{I}_{-1\\cdot2\\times1}\\mathbb{I}_{-1\\cdot2\\times1}\\mathbb{I}_{-1\\cdot2\\times1}\\mathbb{I}_{-1\\cdot2\\times1}\\mathbb{I}_{-1\\cdot2\\times1}\\mathbb{I}_{-1\\cdot2\\t"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_1.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image is a black and white photo of a person lying on a bed. The person appears to be a woman, and she is wearing a white dress. She is resting her head on her hands, and her eyes are closed. The bed is covered with a white sheet, and there is a small white object, possibly a piece of paper or a card, near the woman's head.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_1.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image features a large piece of paper with the words \"A to Z\" written on it. The paper is placed on a bed, and the words are written in a cursive style. The paper is quite large, covering a significant portion of the bed.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_1.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "The New York Times<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_1.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What is the title of the document shown in the image?",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "The title of the document shown in the image is \"The Art of the Letter.\"<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_2.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image features a black and white sign with the words \"Our Place\" written on it. The sign is placed on a concrete slab, and there is a tree nearby. The sign is mounted on a pole, and the background appears to be a dark, possibly nighttime setting.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_2.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image features a black and white photo of a street corner with a sign that reads \"Our Family Tree.\" The sign is placed on a wooden post, and there is a tree visible in the background. The sign is positioned on a sidewalk, and the street corner is located near a wall. The overall scene gives a sense of a quiet, peaceful neighborhood.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_2.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "COURT ONLY<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_2.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What is the title of the document shown in the image?",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "Our World: The United Nations.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image depicts a spacious, well-furnished living room with a large window that allows natural light to fill the room. The living room features a dining table with a few chairs around it, creating a comfortable space for dining or socializing. \n\nIn addition to the dining area, the living room is furnished with a couch, a TV, and a potted plant. The couch is placed against the wall, providing a cozy seating area for relaxation or entertainment. The TV is located on the left side of the room, and the potted plant is placed on the right side, adding a touch of greenery to the space.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image depicts a spacious and well-lit living room with a large window that allows natural light to fill the space. The room features a dining table with chairs surrounding it, and a couch placed against the wall. A television is mounted on the wall, providing entertainment for the occupants.\n\nVarious decorative elements are present in the room, including a potted plant, a vase, and a book. The potted plant is located near the couch, adding a touch of greenery to the space. The vase is placed on a surface, possibly a table or a shelf, and the book is situated on the dining table. The overall atmosphere of the room is inviting and comfortable, with a warm and welcoming ambiance.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What objects or subjects can you identify in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, I can identify a kitchen, a dining table, chairs, a refrigerator, a microwave, and a window. There is also a person standing in the kitchen, possibly preparing food.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Count the objects in the image. List each type of object with its count.",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, there are several objects present. There are three chairs, two vases, two lamps, two books, and two bowls. The count of each object is as follows: chair 1, chair 2, vase 1, vase 2, lamp 1, lamp 2, bowl 1, bowl 2, and lamp 3.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the position of each object in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, there is a dining table with chairs around it. On the table, there are two vases, one on the left side and the other on the right side. There are also two bowls placed on the table, one near the left vase and the other near the right vase. Additionally, there are two chairs surrounding the table, one on the left and one on the right.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the scene in this image.",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The image depicts a spacious and well-lit living room with a large window, a dining table, and a kitchen area. The dining table is surrounded by chairs, and there is a television mounted on the wall. The room also features a fireplace, which adds warmth and coziness to the space. \n\nIn addition to the main furniture, there are several decorative items in the room, such as vases, a potted plant, and a clock. The room is well-decorated and inviting, creating a comfortable atmosphere for relaxation and socializing.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What is the main subject of this photograph?",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The main subject of this photograph is a living room with a dining table and chairs, as well as a kitchen area with a refrigerator.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image features a group of elephants standing in a muddy area, possibly a river or a watering hole. There are at least four elephants visible in the scene, with one of them being a baby elephant. The elephants are gathered together, with some of them standing close to each other, while others are positioned further apart. The environment appears to be a natural habitat, with the elephants interacting with each other in a social manner.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image features a group of elephants standing together in a muddy area, possibly a river or a muddy field. There are three elephants in the scene, with one large elephant in the foreground and two smaller elephants positioned behind it. The elephants appear to be interacting with each other, with one of the smaller elephants touching the larger one's trunk. The environment suggests a natural habitat where these animals are gathered.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What objects or subjects can you identify in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, I can identify two elephants and a person. The elephants are standing near a body of water, and the person is standing next to them.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Count the objects in the image. List each type of object with its count.",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, there are two elephants and two people. There are two elephants, one large and one small, and two people, one large and one small.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the position of each object in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, there are three elephants. One elephant is standing in the foreground, while the other two elephants are in the background. The elephants are positioned in such a way that they are facing each other, creating an interesting interaction between them.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the scene in this image.",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The image features a group of elephants standing together in a field, with one of them having its trunk raised. The elephants are close to each other, and the scene appears to be set in a natural environment, possibly a zoo or a wildlife park.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What is the main subject of this photograph?",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The main subject of this photograph is a group of elephants, with one of them being a baby elephant.<|eot_id|>"
+    }
+  ]
+}

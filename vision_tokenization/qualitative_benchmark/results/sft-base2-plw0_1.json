@@ -1,0 +1,1304 @@
+{
+  "timestamp": "2025-10-20T12:06:12.768125",
+  "model_path": "/capstor/store/cscs/swissai/infra01/MLLM/rkreft/Meg-Runs/image-extension/llama3-3b-SFT-15n-8192sl-240gbsz-1.0i-0.0t-stage2-base-ST-MASKED-PLW0.1/HF",
+  "tokenizer_path": "/capstor/store/cscs/swissai/infra01/MLLM/llama3_vision_instruct_emu3_tokenizer",
+  "inference_args": {
+    "apply_chat_template": true,
+    "temperature": 0.3,
+    "top_p": 0.9,
+    "max_new_tokens": 300,
+    "max_emu_aspect_ratio": 262144,
+    "min_emu_aspect_ratio": 65536,
+    "stop_token_ids": [
+      128009
+    ]
+  },
+  "total_runs": 74,
+  "runs": [
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "\\frac{1}{2}\\pi<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "In the image, there are three different types of fruits: an orange, a banana, and a pear. The orange is placed on the left side of the image, the banana is in the center, and the pear is on the right side. The fruits are arranged in a way that they form a smiley face, with the orange on the left, the banana in the center, and the pear on the right.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "What objects or subjects can you identify in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, I can identify a large orange, a small orange, and a green apple.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Count the objects in the image. List each type of object with its count.",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "1. A carrot, 2. A banana, 3. An orange<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "What are the main colors present in the image?",
+        "tags": [
+          "colors"
+        ]
+      },
+      "output": "The main colors present in the image are yellow, red, and green.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the color of each object in the image?",
+        "tags": [
+          "colors",
+          "objects"
+        ]
+      },
+      "output": "Lemon<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the position of each object in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, there are three objects. On the left, there is a small yellow rubber duck. In the middle, there is a large red ball. On the right, there is a small green ball.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image features a large city skyline with a tall building in the background. In the foreground, there is a large field with a white fence surrounding it. The field is located near a river, and the cityscape can be seen in the distance.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image features a large city skyline with a prominent skyscraper, which appears to be a tall building, located in the middle of the scene. The city is surrounded by a park, where a train is traveling through, passing by the building. The train is on a track that runs parallel to the city skyline, creating a sense of connection between the urban environment and the cityscape.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What objects or subjects can you identify in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, I can identify a large building, a city skyline, a city park, and a city street.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Count the objects in the image. List each type of object with its count.",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "The image features a city skyline with numerous buildings, including skyscrapers and a large building with a clock tower. There are also several trees scattered throughout the scene. The count of objects in the image is as follows:\n\n1. Buildings: There are 11 buildings in the image.\n2. Skyscrapers: There are 3 skyscrapers.\n3. Trees: There are 2 trees in the image.\n4. Clock Tower: There is 1 clock tower in the image.\n\nNow, I will generate new <instruction, response> pairs that elevate the concept to expert-level discussions:<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the position of each object in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, there are several objects positioned in various locations. There is a tall building in the background, which is located towards the right side of the image. A large swimming pool is situated in the middle of the scene, surrounded by a fence. A bench is placed on the right side of the pool, providing a place for people to sit and relax. Additionally, there is a tall building on the left side of the image, which is also part of the background.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the scene in this image.",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The image depicts a city skyline with tall buildings and skyscrapers, creating a skyline of skyscrapers. The city is located near a river, and the skyline is visible in the distance. There is a large field in the foreground, which is surrounded by a fence. The field appears to be a park, and there are trees in the area. The sky is clear, suggesting a bright day.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What is the main subject of this photograph?",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The main subject of this photograph is a city skyline featuring a large building with a clock tower.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/checkerboard_pattern.png",
+        "tags": [
+          "general",
+          "pattern",
+          "general"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "\\bullet<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/checkerboard_pattern.png",
+        "tags": [
+          "general",
+          "pattern",
+          "general"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image displays a pattern of black and white squares arranged in a grid. The grid consists of a total of 9 columns and 9 rows, creating a structured and organized appearance. The pattern consists of alternating black and white squares, which create a visually striking contrast against the background.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_1.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The pie chart shows the distribution of Access to Ireland and Non-Irelandland Land. The majority of Access is concentrated in Irelandland, accounting for 80% of the total, while 20% is concentrated in Non-Irelandland. This suggests that the majority of Access is concentrated in Irelandland, while the remaining 20% is concentrated in Non-Irelandland.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_1.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The diagram shows a circular cross-section of a reservoir dam. The reservoir is represented by a green circle, and the water level is indicated by a line inside the circle. The water level is marked at the top of the reservoir, which is labeled as \"Level 1\". The reservoir is surrounded by a land area, which is labeled as \"Land\". The diagram also includes a horizontal line labeled as \"Land\", which represents the top of the reservoir.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_1.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the data shown in this chart in detail.",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": "The pie chart shows the distribution of Access to Irrigated v.s. Non-registered Land in 2020, divided into three categories: land owned by the government, land owned by non-profit organizations, and land owned by private landowners. The largest portion of the land is owned by private landowners, accounting for 60% of the total, followed by non-profit organizations at 30%, and the government at 10%. This chart indicates that the majority of the land is owned by private landowners, while the remaining land is owned by non-profit organizations and the government.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_1.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "What trends can you identify in this visualization?",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": "The pie chart shows the distribution of Access to Ireland's non-registered land in 2020. The majority of the land is owned by the local municipality, accounting for 75% of the total, followed by the national government at 25%. This suggests that the majority of the land in Ireland is owned by the local municipality, while the remaining land is owned by the national government.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_2.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "0.37 | 0.3 | 0.36 | 0.38 | 0.47 | 0.59 | 0.76 | 0.83 | 0.78 | 0.64 | 0.54 | 0.49 | 0.44 | 0.4 | 0.35 | 0.32 | 0.3 | 0.27 | 0.26 | 0.24 | 0.22<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_2.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The chart displays the percentage of people who have a favorable view of various countries. The data is divided into regions, with the United States having the highest percentage at 33%, followed by Japan at 26%, and the United Kingdom at 19%. The chart also shows that the percentage of people who have a favorable view of countries varies greatly, with some countries having a much higher percentage than others.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_2.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the data shown in this chart in detail.",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": "The chart displays the percentage of households with a microwave oven for each of the 10 largest metropolitan areas in the United States. The microwave is a common household appliance and is used for heating and cooking food. The chart shows that the percentage of households with a microwave oven varies significantly across different areas. For instance, in New York City, the percentage is 25%, while in Los Angeles, it is 30%. The highest percentage is found in Houston, at 50%. The chart suggests that there is a correlation between the percentage of households with a microwave oven and the population density of the area.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_2.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "What trends can you identify in this visualization?",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": "The bar chart shows the percentage of households with broadband access in different regions of the United States. The data suggests that there is a significant variation in broadband access across different regions. The highest percentage of households with broadband access is in the West, with 21.2%, followed by the South with 18.6%. The Northeast and Midwest have 12.6% and 15.2%, respectively, while the East and East Coast have 13.2% and 10.4%, respectively. The data suggests that there is a significant variation in broadband access across different regions of the United States.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image features a white, fluffy, and fluffy dog sitting on a grassy field. The dog appears to be a small, adorable puppy, and it is looking directly at the camera. The field is lush and green, providing a pleasant and natural setting for the dog to enjoy.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image features a white and black puppy, likely a little Pomeranian, sitting on a grassy field. The puppy appears to be looking up at the camera, possibly intrigued by the photographer. The puppy occupies a significant portion of the image, from the left to almost the right edge, and from the top to the bottom. The puppy is sitting on a patch of green grass, giving the impression of a peaceful and natural outdoor setting.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What objects or subjects can you identify in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, I can identify a white puppy and a small white ball.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Count the objects in the image. List each type of object with its count.",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "1. Pug<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the position of each object in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, there is a white teddy bear sitting on the grass. The teddy bear is positioned in the center of the image, occupying a significant portion of the space.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the scene in this image.",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The image features a white puppy, likely a little puppy, sitting on a lush green grass-covered field. The puppy is looking directly at the camera, giving the impression that it is aware of being photographed. The puppy appears to be enjoying the outdoor setting, likely in a park or a field.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What is the main subject of this photograph?",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The main subject of this photograph is a white puppy, which is sitting on the grass.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/line_chart.png",
+        "tags": [
+          "general",
+          "chart",
+          "statistics",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The chart displays the average annual rainfall in millimeters in the United States from 1800 to 2010. The data shows a significant increase in rainfall over time, with a peak of 75 millimeters in 2000. The chart also indicates that the highest rainfall was recorded in 2005, with a total of 75 millimeters. The lowest rainfall was recorded in 2013, with a total of 55 millimeters. The chart suggests that the United States experienced a significant increase in rainfall over the past century, with a notable spike in 2005.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/line_chart.png",
+        "tags": [
+          "general",
+          "chart",
+          "statistics",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The chart shows the percentage of people who are following the oil price jump very closely and the impact of the oil price on the job market from January 2000 to July 2013. The data is divided into two categories, \"Jan 2000-2005\" and \"Apr 2006-2013\". The chart indicates that the percentage of people who are following the oil price jump very closely has been relatively stable, with a peak of 75% in January 2005 and a low of 65% in July 2013. The chart also shows that the percentage of people who are following the impact of the oil price on the job market has fluctuated over time, with a peak of 70% in January 2005 and a low of 60% in July 2013. Overall, the chart suggests that the oil price jump has had a significant impact on the job market over the past two decades.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/line_chart.png",
+        "tags": [
+          "general",
+          "chart",
+          "statistics",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the data shown in this chart in detail.",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": "The chart displays the number of people in millions who have a job, are unemployed, and are not in the labor force from 1980 to 2015. The number of people in millions who are unemployed has fluctuated over the years, with a peak in 2005 at 55 million and a low in 2009 at 50 million. The number of people not in the labor force has also fluctuated, with a peak in 2012 at 65 million and a low in 2015 at 55 million. Overall, the chart shows that the number of people in the labor force has been relatively stable over the years, with a slight increase in 2015.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/line_chart.png",
+        "tags": [
+          "general",
+          "chart",
+          "statistics",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "What trends can you identify in this visualization?",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": "The line graph shows the oil prices of Japan and the US from January 2000 to June 2013. Japan's oil prices were relatively stable, ranging from $50 to $60, while the US's oil prices were more volatile, ranging from $55 to $65. The US price peaks in February 2012 at $65, while Japan's price peaks in June 2012 at $60. The chart shows that the US price was generally higher than Japan's price throughout the period.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/line_chart.png",
+        "tags": [
+          "general",
+          "chart",
+          "statistics",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "75 JAN 2025 JUN 60 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75"
+    },
+    {
+      "image": {
+        "path": "assets/logo1.png",
+        "tags": [
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image features a large, ornate clock with a red background, white and black details, and a gold trim. The clock is placed on a black stand, which is positioned on a white pedestal. The clock is surrounded by a red border, adding a touch of color to the scene. The clock is located in a corner of a room, creating an elegant and visually appealing display.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/logo1.png",
+        "tags": [
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image features a large, round clock with a red background and white and black details. The clock is placed on a blue surface, which could be a table or a bed. The clock is surrounded by a few red flowers, adding a touch of color to the scene. The combination of the clock and flowers creates an elegant and inviting atmosphere.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/logo1.png",
+        "tags": [
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "What are the main colors present in the image?",
+        "tags": [
+          "colors"
+        ]
+      },
+      "output": "The main colors present in the image are red, white, and blue.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/math_draft1.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "Eveggen 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 118 118 120 121 123 125 127 128 129 130 131 132 134 135 137 138 139 140 141 143 145 146 147 148 149 150 151 152 153 155 156 157 159"
+    },
+    {
+      "image": {
+        "path": "assets/math_draft1.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What is the title of the document shown in the image?",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "The title of the document shown in the image is \"E-commerce in a Nutshell\".<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/math_draft1.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What mathematical expressions or equations are present in the image?",
+        "tags": [
+          "math",
+          "ocr"
+        ]
+      },
+      "output": "The image contains mathematical expressions and equations, including the equation \\(5x\\cdot x + 5x^2 - 2x + 2\\), which represents the polynomial expression \\(5x\\cdot x + 5x^2 - 2x + 2\\).<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/math_draft1.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Solve the mathematical problem shown in the image.",
+        "tags": [
+          "math",
+          "ocr"
+        ]
+      },
+      "output": "Solve the mathematical problem shown in the image.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/mri_human_brain.png",
+        "tags": [
+          "general",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image shows a series of endoscopic images of a patient's lungs, taken over a period of time. The images are displayed in a sequence, with each one representing a different time point in the patient's recovery process. The images are likely from a medical study or a patient's progress report, as indicated by the caption.\n\nThe patient's lungs appear to be in various stages of healing, with some areas showing signs of growth and expansion, while others may be showing signs of consolidation or atelectasis. The images capture the progression of the patient's condition, with the endoscopic images providing a detailed look at the lungs' anatomy and function.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/mri_human_brain.png",
+        "tags": [
+          "general",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image shows a series of endoscopic images of a patient's lungs, with each image representing a different stage of the procedure. The first image is a 25-year-old male with a normal chest X-ray, and the subsequent images show the progression of the endoscopic process. The second image is a 45-year-old male with a normal chest X-ray, and the third image shows the endoscopic images after 12 hours of the procedure. The last image is a 50-year-old male with a normal chest X-ray, and the last image shows the endoscopic images after 30 hours of the procedure. The images demonstrate the improvement in the patient's lungs over time, with the endoscopic images becoming clearer and more detailed.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/mri_human_brain.png",
+        "tags": [
+          "general",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 "
+    },
+    {
+      "image": {
+        "path": "assets/olmOcrDocuments_1.jpg",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "CALLEA BEYOND VALLI SILVER<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/olmOcrDocuments_1.jpg",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "What is the title of the document shown in the image?",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "Code of regulations of the Federal Aviation Administration (FAA)/U.S. Air Traffic Control (CTC)<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/physics2.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "N (E)<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/physics2.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What is the title of the document shown in the image?",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "N(I)<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/physics2.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What mathematical expressions or equations are present in the image?",
+        "tags": [
+          "math",
+          "ocr"
+        ]
+      },
+      "output": "The image contains two mathematical expressions or equations. The first equation is \\( N(E) = \\sum_{i=1,2}^{\\lfloor 5\\rfloor} \\int_{-3}^{0} \\int_{-3}^{1} (n^2 (c m^3 e V))^{-1} \\). The second equation is \\( n = 1.23 \\).<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/physics2.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Solve the mathematical problem shown in the image.",
+        "tags": [
+          "math",
+          "ocr"
+        ]
+      },
+      "output": "\\mathbb{E}^{-1/2}<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_1.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image depicts a sign that reads \"Be care, the death of a child is a sadness\" and is placed on a bed. The bed has a white sheet and is covered with a blanket. The sign is written in a foreign language, and the word \"Bun\" is also visible on the sign. The bed appears to be in a room, and the overall setting suggests a somber mood.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_1.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image depicts a white sheet with a handwritten letter \"A\" written on it, placed on a bed. The letter appears to be in a stylized form, and the bed has a wooden headboard. The bed occupies the majority of the image, stretching from the left side to the right side.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_1.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "Beau e la Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du Rue du"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_1.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What is the title of the document shown in the image?",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "The title of the document shown in the image is \"A reader in the field of medicine\".<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_2.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image shows a sign with the word \"Our Cursing Is Still Coming To\" written on it. The sign is placed on a wall, and there is a shadow of the sign on the wall. The sign appears to be a warning sign, possibly for a nearby construction site or an area with ongoing construction.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_2.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image features a sign with the word \"Our Cursing\" written on it, which is placed on a brick wall. The sign is in black and white, and the word \"Our\" is written in white capital letters. The sign appears to be a political statement, likely related to a controversial topic or event.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_2.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "OUR CURE IS NOT STAIRLESS TOGETHER<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_2.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What is the title of the document shown in the image?",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "The title of the document shown in the image is \"Our Current Status Is Strong\".<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image features a spacious living room with a dining table and a kitchen area. The dining table is surrounded by chairs, and there are several chairs placed around the table. The kitchen area has a refrigerator, a microwave, and a sink. A dining table is also present in the room, and there is a potted plant in the corner, adding a touch of greenery to the space.\n\nA woman is standing near the dining table, possibly preparing to eat or engage in a conversation. The room is well-lit, creating a welcoming atmosphere for the occupants.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image depicts a spacious and well-lit living room with a dining table and a couch. The dining table is positioned near the center of the room, and there are chairs placed around it. The couch is located on the right side of the room, providing a comfortable seating area for relaxation.\n\nIn the room, there are several potted plants placed throughout, adding a touch of greenery to the space. A clock is mounted on the wall, and a vase can be seen on a surface, possibly a table or a shelf. Additionally, there are two wine glasses placed on a surface, suggesting that the room may be used for entertaining guests or enjoying a meal.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What objects or subjects can you identify in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, I can identify a woman standing in a kitchen, a dining table with chairs, a refrigerator, a dining table, and a kitchen area. The woman appears to be in the process of preparing a meal.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Count the objects in the image. List each type of object with its count.",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "The image displays a room with various objects. There are three chairs, two dining tables, two vases, two lamps, two books, and a clock. The objects are as follows:\n\n1. Chairs: There are three chairs in the room.\n2. Dining tables: There are two dining tables.\n3. Vases: There are two vases in the room.\n4. Lamps: There are two lamps in the room.\n5. Books: There are two books in the room.\n6. Clock: There is one clock in the room.\n7. Vase with flowers: There is one vase with flowers in the room.\n8. Other: There is one other object in the room, which is a clock.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the position of each object in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, there is a woman standing in the center of a living room, holding a remote control. She is positioned near a dining table with chairs around it. There are two dining tables in the room, one in the center and another on the right side. A potted plant is located on the left side of the room, and a vase is placed on a surface near the center of the room. A clock is also visible on the wall.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the scene in this image.",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The image depicts a spacious, well-lit living room with a large, open floor plan. There is a dining table in the room, surrounded by chairs. A television is placed in the corner of the room, and a fireplace is located in the background. The room also features a bookcase filled with books, adding to the room's ambiance.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What is the main subject of this photograph?",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The main subject of this photograph is a woman standing in a kitchen, holding a plate with a bunch of bananas.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image features a group of elephants standing next to each other in a muddy area. There are at least three elephants in the scene, with one of them being the largest and most prominent, taking up most of the frame. The other two elephants are smaller and positioned closer to the front, with one of them being partially obscured by the other. The elephants appear to be interacting with each other, possibly playing or bonding in the muddy environment.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image features a group of elephants standing in a muddy field, with some of them gathered around a muddy water hole. The elephants are of varying sizes, and they appear to be enjoying the water and each other's company. The scene conveys a sense of camaraderie and bonding among the elephants.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What objects or subjects can you identify in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, I can identify two elephants and a person.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Count the objects in the image. List each type of object with its count.",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "1. The image contains a baby elephant. The baby elephant has 1 baby and 1 adult.\n2. The image contains a cow. The cow has 1 adult and 1 baby.\n3. The image contains a cow. The cow has 1 adult and 1 baby.\n4. The image contains a cow. The cow has 1 adult and 1 baby.\n5. The image contains a cow. The cow has 1 adult and 1 baby.\n6. The image contains a cow. The cow has 1 adult and 1 baby.\n7. The image contains a cow. The cow has 1 adult and 1 baby.\n8. The image contains a cow. The cow has 1 adult and 1 baby.\n9. The image contains a cow. The cow has 1 adult and 1 baby.\n10. The image contains a cow. The cow has 1 adult and 1 baby.\n11. The image contains a cow. The cow has 1 adult and 1 baby.\n12. The image contains a cow. The cow has 1 adult and 1 baby.\n13. The image contains a cow. The cow has 1 adult and 1 baby.\n14. The image contains a cow. The cow has 1 adult and 1 baby.\n15. The image contains a cow. The cow has 1 adult and 1 baby.\n16. The image contains a cow. The cow has 1"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the position of each object in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "In the image, there are two elephants standing in a muddy area. One of the elephants is closer to the front, while the other is slightly behind it. There are also two people in the scene, with one person standing near the front elephant and the other person standing behind the second elephant. The people are observing the elephants from a distance.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the scene in this image.",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The image depicts a group of elephants standing together in a muddy field. The elephants are of different sizes and are positioned close to each other, forming a herd. The field appears to be muddy, and the elephants are interacting with one another, possibly engaging in social activities or playing.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What is the main subject of this photograph?",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The main subject of this photograph is a large elephant.<|eot_id|>"
+    }
+  ]
+}
