@@ -1,0 +1,1304 @@
+{
+  "timestamp": "2025-10-16T09:25:10.759661",
+  "model_path": "/iopsstor/scratch/cscs/rkreft/Megatron-LM/logs/Meg-Runs/image-extension/llama3-3b-SFT-15n-8192sl-240gbsz-1.0i-0.0t-stage2-base-ST-MASKED-USR-MASKED-NOTIMG-FIXES-RPAD/HF",
+  "tokenizer_path": "/capstor/store/cscs/swissai/infra01/MLLM/llama3_vision_instruct_emu3_tokenizer",
+  "inference_args": {
+    "apply_chat_template": true,
+    "temperature": 0.3,
+    "top_p": 0.9,
+    "max_new_tokens": 300,
+    "max_emu_aspect_ratio": 262144,
+    "min_emu_aspect_ratio": 65536,
+    "stop_token_ids": [
+      128009
+    ]
+  },
+  "total_runs": 74,
+  "runs": [
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image shows a yellow circle.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image shows a yellow circle.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "What objects or subjects can you identify in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "The objects in the image are named in the image.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Count the objects in the image. List each type of object with its count.",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "0.5 | 0.6 | 0.6 | 0.6<|img_end_of_row|><|visual token 008186|><|visual token 012390|><|visual token 016257|><|visual token 005303|><|visual token 002951|><|visual token 012326|><|visual token 002951|><|visual token 012326|><|visual token 002951|><|visual token 012326|><|visual token 002951|><|visual token 012326|><|visual token 002951|><|visual token 012326|><|visual token 002951|><|visual token 012326|><|visual token 002951|><|visual token 012326|><|visual token 002951|><|visual token 012326|><|visual token 002951|><|visual token 012326|><|visual token 002951|><|visual token 012326|><|visual token 002951|><|visual token 012326|><|visual token 002951|><|visual token 012326|><|visual token 002951|><|visual token 012326|><|visual token 002951|><|visual token 012326|><|visual token 002951|><|visual token 012326|><|visual token 002951|><|visual token 012326|><|visual token 002951|><|visual token 012326|><|visual token 002951|><|visual token 012326|><|visual token 002951|><|visual token 012326|><|visual token 002951|><|visual token 012326|><|visual token 002951|><|visual token 012326|><|visual token 002951|><|visual token 012326|><|visual token 002951|><|img_end_of_row|><|visual token 000817|><|visual token 011813|><|visual token 005007|><|visual token 000025|><|visual token 004550|><|visual token 015423|><|visual token 005449|><|visual token 007800|><|visual token 005449|><|visual token 009636|><|visual token 005449|><|visual token 009636|><|visual token 005449|><|visual token 009636|><|visual token 005449|><|visual token 009636|><|visual token 005449|><|visual token 009636|><|visual token 005449|><|visual token 009636|><|visual token 005449|><|visual token 009636|><|visual token 005449|><|visual token 009636|><|visual token 005449|><|visual token 009636|><|visual token 005449|><|visual token 009636|><|visual token 005449|><|visual token 009636|><|visual token 005449|><|visual token 009636|><|visual token 005449|><|visual token 009636|><|visual token 005449|><|visual token 009636|><|visual token 005449|><|visual token 009636|><|visual token 005449|><|visual token 009636|><|visual token 005449|><|visual token 009636|><|visual token 005449|><|visual token 009636|><|visual token 005449|><|visual token 009636|><|visual token 005449|><|visual token 009636|><|visual token 016243|><|img_end_of_row|><|visual token 000310|><|visual token 002834|><|visual token 007500|><|visual token 005521|><|visual token 008709|><|visual token 009327|><|visual token 016050|><|visual token 009197|><|visual token 016050|><|visual token 009327|><|visual token 016050|><|visual token 009327|><|visual token 016050|><|visual token 009327|><|visual token 016050|><|visual token 009327|><|visual token 016050|><|visual token 009327|><|visual token 016050|><|visual token 009327|><|visual token 016050|><|visual token 009327|><|visual token 016050|><|visual token 009327|><|visual token 016050|><|visual token 009327|><|visual token 016050|><|visual token 009327|><|visual token 016050|><|visual token 009327|><|visual token 016050|><|visual token 009327|><|visual token 016050|><|visual token 009327|><|visual token 016050|><|visual token 009327|><|visual token 016050|><|visual token 009327|><|visual token 016050|><|visual token 009327|><|visual token 016050|><|visual token 009327|><|visual token 016050|><|visual token 009327|><|visual token 016050|><|visual token 002922|><|visual token 009966|><|visual token 002922|><|visual token 005686|><|img_end_of_row|><|visual token 013739|><|visual token 011045|><|visual token 005036|><|visual token 010955|><|visual token 002988|><|visual token 005671|><|visual token 011604|><|visual token 002922|><|visual token 011604|><|visual token 002922|><|visual token 011604|><|visual token 002922|><|visual token 011604|><|visual token 002922|><|visual token 011604|><|visual token 002922|><|visual token 011604|><|visual token 002922|><|visual token 011604|><|visual token 002922|><|visual token 011604|><|visual token 002922|><|visual token 011604|><|visual token 002922|><|visual token 011604|><|visual token 002922|><|visual token 011604|><|visual token 002922|><|visual token 011604|><|visual token 002922|><|visual token 011604|><|visual token 002922|><|visual token 011604|><|visual token 002922|><|visual token 011604|><|visual token 002922|><|visual token 011604|><|visual token 002922|><|visual token 011604|><|visual token 002922|><|visual token 011604|><|visual token 002922|><|visual token 011604|><|visual token 002922|><|visual token 011604|><|visual token 002922|><|visual token 011604|><|visual token 014219|><|visual token 005972|><|img_end_of_row|><|visual token 005963|><|visual token 004961|><|visual token 012020|><|visual token 006842|><|visual token 013765|><|visual token 006830|><|visual token 013765|><|visual token 006830|><|visual token 013765|><|visual token 006830|><|visual token 000352|><|visual token 006830|><|visual token 000352|><|visual token 006830|><|visual token 000352|><|visual token 006830|><|visual token 000352|><|visual token 006830|><|visual token 000352|><|visual token 006830|><|visual token 000352|><|visual token 006830|><|visual token 000352|><|visual token 006830|><|visual token 000352|><|visual token 006830|><|visual token 000352|><|visual token 006830|><|visual token 000352|><|visual token 006830|><|visual token 000352|><|visual token 006830|><|visual token 000352|><|visual token 006830|><|visual token 000352|><|visual token 006830|><|visual token 000352|><|visual token 006830|><|visual token 000352|><|visual token 006830|><|visual token 000352|><|visual token 006830|><|visual token 000352|><|visual token 006830|><|visual token 000352|><|visual token 006830|><|visual token 000352|><|visual token 008184|><|visual token 004553|><|img_end_of_row|><|visual token 015325|><|visual token 006242|><|visual token 008184|><|visual token 013765|><|visual token 006842|><|visual token 013765|><|visual token 006830|><|visual token 013765|><|visual token 006830|><|visual token 013765|><|visual token 006830|><|visual token 013765|><|visual token 006830|><|visual token 013765|><|visual token 006830|><|visual token 013765|><|visual token 006830|><|visual token 013765|><|visual token 006830|><|visual token 013765|><|visual token 006830|><|visual token 013765|><|visual token 006830|><|visual token 013765|><|visual token 006830|><|visual token 013765|><|visual token 006830|><|visual token 013765|><|visual token 006830|><|visual token 013765|><|visual token 006830|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "What are the main colors present in the image?",
+        "tags": [
+          "colors"
+        ]
+      },
+      "output": "The primary color of the image is red.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the color of each object in the image?",
+        "tags": [
+          "colors",
+          "objects"
+        ]
+      },
+      "output": "The primary color of the object is red.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the position of each object in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "The image shows the position of each object in the image.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image shows two men sitting on a train. One of the men's feet are flat on the train's surface. The train is also flat on the train's surface.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "In the diagram, the train is a black and red train. The train is a black and red train. The train is a black and red train.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What objects or subjects can you identify in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "The image shows a number of objects.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Count the objects in the image. List each type of object with its count.",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "The objects in the image are: 2. 3. 7. 7. 8. 9. 11. 13. 15. 7. 12. 13. 15. 14. 15. 15. 9. 13. 13. 13. 13. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256. 256<|visual token 005671|><|visual token 009197|><|visual token 005671|><|visual token 000534|><|visual token 009197|><|visual token 013765|><|visual token 008191|><|visual token 008191|><|visual token 008191|><|visual token 008191|><|visual token 008191|><|visual token 008191|><|visual token 008191|><|visual token 008191|><|visual token 008191|><|visual token 008191|><|visual token 008191|><|visual token 008191|><|visual token 008191|><|visual token 008191|><|visual token 008191|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the position of each object in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "The position of each object in the image is as shown in the figure.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the scene in this image.",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The diagram shows the atmosphere on the surface of the Earth.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What is the main subject of this photograph?",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The main subject of this photograph is the train's train car.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/checkerboard_pattern.png",
+        "tags": [
+          "general",
+          "pattern",
+          "general"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image shows a completely black square.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/checkerboard_pattern.png",
+        "tags": [
+          "general",
+          "pattern",
+          "general"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image shows a black square in a black boxplot.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_1.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image shows a yellow and red square.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_1.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image shows a yellow and red square.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_1.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the data shown in this chart in detail.",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": "0.82 | 0.82 | 0.82 | 0.82 | 0.82 | 0.82 | 0.82 | 0.82 | 0.82 | 0.82 | 0.82 | 0.82 | 0.82 | 0.82 | 0.82<|img_end_of_row|><|visual token 001395|><|visual token 010444|><|visual token 014966|><|visual token 010108|><|visual token 010108|><|visual token 001404|><|visual token 010108|><|visual token 000989|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 014966|><|img_end_of_row|><|visual token 013039|><|visual token 012359|><|visual token 010704|><|visual token 010108|><|visual token 010108|><|visual token 006386|><|visual token 010108|><|visual token 000989|><|visual token 010108|><|visual token 000989|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 014966|><|img_end_of_row|><|visual token 006741|><|visual token 012359|><|visual token 014966|><|visual token 000576|><|visual token 010108|><|visual token 001404|><|visual token 010108|><|visual token 000989|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 014966|><|img_end_of_row|><|visual token 013039|><|visual token 012359|><|visual token 014966|><|visual token 010108|><|visual token 010108|><|visual token 006386|><|visual token 010108|><|visual token 000989|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_1.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "What trends can you identify in this visualization?",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": "The trend in the data from 0 to 0.8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0<|img_end_of_row|><|visual token 015555|><|visual token 001510|><|visual token 006921|><|visual token 000576|><|visual token 014966|><|visual token 003089|><|visual token 014966|><|visual token 000989|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|img_end_of_row|><|visual token 012831|><|visual token 006396|><|visual token 015678|><|visual token 015144|><|visual token 000576|><|visual token 010108|><|visual token 010108|><|visual token 000989|><|visual token 010108|><|visual token 000989|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 014966|><|img_end_of_row|><|visual token 012478|><|visual token 007036|><|visual token 009826|><|visual token 010423|><|visual token 014966|><|visual token 003089|><|visual token 014966|><|visual token 000989|><|visual token 010108|><|visual token 000989|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 015144|><|visual token 014966|><|img_end_of_row|><|visual token 005327|><|visual token 006396|><|visual token 009826|><|visual token 000576|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 000989|><|visual token 010108|><|visual token 000989|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|><|visual token 010108|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_2.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The diagram shows a horizontal force F pushes a 20 kg box to a position of 3.6 cm.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_2.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image shows a horizontal force F pushes a force L pushes a force L pushes a force L pushes a force L pushes a force L pushes a force L pushes a force L pushes a force L pushes a force L pushes<|visual token 007179|><|visual token 008401|><|img_end_of_row|><|visual token 006502|><|visual token 006797|><|visual token 014487|><|visual token 008191|><|visual token 001510|><|visual token 000816|><|visual token 001510|><|visual token 000816|><|visual token 014487|><|visual token 000816|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 008653|><|img_end_of_row|><|visual token 012452|><|visual token 011531|><|visual token 008191|><|visual token 009327|><|visual token 005775|><|visual token 001510|><|visual token 005775|><|visual token 014487|><|visual token 005775|><|visual token 001510|><|visual token 000816|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 001510|><|visual token 008653|><|img_end_of_row|><|visual token 005216|><|visual token 005467|><|visual token 015319|><|visual token 000352|><|visual token 001510|><|visual token 005775|><|visual token 014487|><|visual token 005775|><|visual token 014487|><|visual token 005775|><|visual token 001510|><|visual token 000816|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 008653|><|img_end_of_row|><|visual token 003078|><|visual token 000889|><|visual token 009197|><|visual token 005671|><|visual token 005775|><|visual token 001510|><|visual token 005775|><|visual token 009327|><|visual token 005775|><|visual token 014487|><|visual token 005775|><|visual token 001510|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 001510|><|visual token 008653|><|img_end_of_row|><|visual token 008817|><|visual token 002222|><|visual token 015319|><|visual token 013765|><|visual token 001510|><|visual token 005775|><|visual token 009197|><|visual token 002018|><|visual token 009327|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_2.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the data shown in this chart in detail.",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": "0.03 | 0.03 | 0.03 | 0.03 | 0.03 | 0.03 | 0.03 | 0.103<|img_end_of_row|><|visual token 009117|><|visual token 013143|><|visual token 000620|><|visual token 009327|><|visual token 000816|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 008653|><|img_end_of_row|><|visual token 014968|><|visual token 005138|><|visual token 004128|><|visual token 000816|><|visual token 014487|><|visual token 000816|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 001510|><|visual token 008653|><|img_end_of_row|><|visual token 008471|><|visual token 001786|><|visual token 010520|><|visual token 002922|><|visual token 005775|><|visual token 014487|><|visual token 000816|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 001510|><|visual token 008653|><|img_end_of_row|><|visual token 014352|><|visual token 013861|><|visual token 009327|><|visual token 000352|><|visual token 002922|><|visual token 005775|><|visual token 001510|><|visual token 000816|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 001510|><|visual token 008653|><|img_end_of_row|><|visual token 015401|><|visual token 000023|><|visual token 005775|><|visual token 009327|><|visual token 005775|><|visual token 001510|><|visual token 005775|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_2.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "What trends can you identify in this visualization?",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": "The trend in the data points is increasing.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image shows a completely black canvas. There is a green rectangle in the middle of the image.<|end_of_text|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image shows a green fence with a yellow sign in the middle.<|end_of_text|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What objects or subjects can you identify in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "The objects in the image are named by their scientific name.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Count the objects in the image. List each type of object with its count.",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "The objects in the picture are made up of a number of objects.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the position of each object in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "The position of each object in the image is as shown in the figure.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the scene in this image.",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The bear in the middle of the image is a long, green line.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What is the main subject of this photograph?",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The main subject of this photograph is the bear.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/line_chart.png",
+        "tags": [
+          "general",
+          "chart",
+          "statistics",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The diagram shows a force F pushes a 10 kg box to move it up a smooth inclined inclined surface.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/line_chart.png",
+        "tags": [
+          "general",
+          "chart",
+          "statistics",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The diagram shows a completely black image.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/line_chart.png",
+        "tags": [
+          "general",
+          "chart",
+          "statistics",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the data shown in this chart in detail.",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": "The diagram shows the data points for the second quarter.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/line_chart.png",
+        "tags": [
+          "general",
+          "chart",
+          "statistics",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "What trends can you identify in this visualization?",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": "The trend in the number of visits for each clinic increases from 0.03 to 0.03.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/line_chart.png",
+        "tags": [
+          "general",
+          "chart",
+          "statistics",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "\\begin{align*}\\mathbf{P}^{\\pm} & = \\left\\{\\begin{array}{ll} \\frac{1}{\\frac{1}{2}}\\left( \\frac{1}{\\frac 2}}\\right} \\frac{1}{\\frac 2}}\\right} \\frac{1}{\\frac 2}}\\left[ \\frac 2}{\\frac 2}}\\right} \\frac 2}{\\frac 2}}\\left[ \\frac 2}{\\frac 2}}\\left[ \\frac 2}{\\frac 2}}\\left[ \\frac 2}{\\frac 2}}\\left[ \\frac 2}{\\frac 2}}\\left[ \\frac 2 ^\\frac 2}&\\left[ 4.0^2\\left} 4.0^2\\left[ 4.0^2.3.3.3.3.3.3.3.3.3.3.3.3.3.3.3.3.3.3.3.3.3.3.3.3.<|visual token 015325|><|visual token 013073|><|visual token 015464|><|visual token 000662|><|visual token 010005|><|visual token 006017|><|visual token 004581|><|visual token 010005|><|visual token 004745|><|visual token 010005|><|visual token 004745|><|visual token 010005|><|visual token 004745|><|visual token 010005|><|visual token 004745|><|visual token 010005|><|visual token 004745|><|visual token 010005|><|visual token 004745|><|visual token 010005|><|visual token 004745|><|visual token 010005|><|visual token 004745|><|visual token 010005|><|visual token 004745|><|visual token 010005|><|visual token 004745|><|visual token 010005|><|visual token 004745|><|visual token 010005|><|visual token 004745|><|visual token 010005|><|visual token 004745|><|visual token 002140|><|visual token 004745|><|visual token 002140|><|visual token 004745|><|visual token 002140|><|visual token 004745|><|visual token 002140|><|visual token 004745|><|visual token 002140|><|visual token 004745|><|visual token 002140|><|visual token 007745|><|visual token 002140|><|visual token 007745|><|visual token 002140|><|visual token 007745|><|visual token 002140|><|visual token 007745|><|visual token 002140|><|visual token 013447|><|visual token 002140|><|visual token 013447|>"
+    },
+    {
+      "image": {
+        "path": "assets/logo1.png",
+        "tags": [
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image shows a completely black square.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/logo1.png",
+        "tags": [
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "In the image, there is a red circle with a black and white circle. The red circle is the circle's center of the image.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/logo1.png",
+        "tags": [
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "What are the main colors present in the image?",
+        "tags": [
+          "colors"
+        ]
+      },
+      "output": "The square in the image is in red.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/math_draft1.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "0.03 | 0.03 | 0.03 | 0.03 | 0.03 | 0.03 | 0.103 | 0.103 | 0.103<|img_end_of_row|><|visual token 004097|><|visual token 011130|><|visual token 008401|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 009327|><|visual token 014487|><|visual token 015319|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 015319|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 015319|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 015319|><|visual token 001510|><|visual token 014487|><|visual token 015319|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 015319|><|visual token 001510|><|visual token 014487|><|visual token 015319|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 002922|><|visual token 014487|><|visual token 015319|><|visual token 014487|><|visual token 002922|><|visual token 001510|><|visual token 009089|><|img_end_of_row|><|visual token 011200|><|visual token 004125|><|visual token 008998|><|visual token 009327|><|visual token 015319|><|visual token 006921|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 006921|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 006921|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 006921|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 015319|><|visual token 008401|><|img_end_of_row|><|visual token 015953|><|visual token 011094|><|visual token 006659|><|visual token 002922|><|visual token 006921|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 015319|><|visual token 014987|><|img_end_of_row|><|visual token 002082|><|visual token 010464|><|visual token 009327|><|visual token 006921|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 008401|><|img_end_of_row|><|visual token 001013|><|visual token 011837|><|visual token 015319|><|visual token 009327|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|>"
+    },
+    {
+      "image": {
+        "path": "assets/math_draft1.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What is the title of the document shown in the image?",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "The title of the paper in the image is \"A B C D B D B<|visual token 015561|><|visual token 008653|><|visual token 005026|><|visual token 006921|><|visual token 009197|><|visual token 014487|><|visual token 009327|><|visual token 014487|><|visual token 009197|><|visual token 006399|><|visual token 005026|><|visual token 009327|><|visual token 014487|><|visual token 014487|><|visual token 009197|><|visual token 014487|><|visual token 014487|><|visual token 009197|><|visual token 014487|><|visual token 014487|><|visual token 009197|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 014487|><|visual token 008401|><|img_end_of_row|><|visual token 003355|><|visual token 013340|><|visual token 002922|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 007657|><|visual token 014487|><|visual token 002922|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 007657|><|visual token 009327|><|visual token 007657|><|visual token 009327|><|visual token 007657|><|visual token 009327|><|visual token 007657|><|visual token 009327|><|visual token 009327|><|visual token 007657|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 007657|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 007657|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 007657|><|visual token 009327|><|visual token 009327|><|visual token 007657|><|visual token 009327|><|visual token 009327|><|visual token 007657|><|visual token 009327|><|visual token 009327|><|visual token 007657|><|visual token 009327|><|visual token 009327|><|visual token 007657|><|visual token 009327|><|visual token 007657|><|visual token 009089|><|img_end_of_row|><|visual token 003811|><|visual token 010579|><|visual token 002740|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 002593|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 002593|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 009094|><|visual token 002740|><|visual token 002988|><|img_end_of_row|><|visual token 015216|><|visual token 015643|><|visual token 009335|><|visual token 003228|><|visual token 002248|><|visual token 010132|><|visual token 010257|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 000067|><|visual token 010257|><|visual token 002680|><|visual token 016151|><|img_end_of_row|><|visual token 016069|><|visual token 009743|><|visual token 010381|><|visual token 004226|><|visual token 008937|><|visual token 010381|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008937|><|visual token 008545|><|visual token 003304|><|visual token 008937|><|visual token 016119|><|img_end_of_row|><|visual token 003701|><|visual token 015120|><|visual token 008360|><|visual token 009094|><|visual token 008360|><|visual token 008360|><|visual token 008360|><|visual token 008360|>"
+    },
+    {
+      "image": {
+        "path": "assets/math_draft1.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What mathematical expressions or equations are present in the image?",
+        "tags": [
+          "math",
+          "ocr"
+        ]
+      },
+      "output": "The mathematical expression for the function \\( f(x) \\) is shown in the image.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/math_draft1.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Solve the mathematical problem shown in the image.",
+        "tags": [
+          "math",
+          "ocr"
+        ]
+      },
+      "output": "The function \\( f(x) \\) is shown in the graph.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/mri_human_brain.png",
+        "tags": [
+          "general",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image shows a completely black image.<|end_of_text|>"
+    },
+    {
+      "image": {
+        "path": "assets/mri_human_brain.png",
+        "tags": [
+          "general",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image shows a completely black image.<|end_of_text|>"
+    },
+    {
+      "image": {
+        "path": "assets/mri_human_brain.png",
+        "tags": [
+          "general",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "0.84 | 0.80 | 0.80 | 0.80 | 0.80 | 0.80 | 0.80 | 0.80 | 0.80 | 0.80 | 0.80 | 0.80<|img_end_of_row|><|visual token 013550|><|visual token 001840|><|visual token 016279|><|visual token 010277|><|visual token 003078|><|visual token 010277|><|visual token 009525|><|visual token 004112|><|visual token 000001|><|visual token 011843|><|visual token 007424|><|visual token 010348|><|visual token 009569|><|visual token 013568|><|visual token 004147|><|visual token 005284|><|visual token 011547|><|visual token 011909|><|visual token 003864|><|visual token 001261|><|visual token 016297|><|visual token 007158|><|visual token 012076|><|visual token 007868|><|visual token 009200|><|visual token 009200|><|visual token 009200|><|visual token 010754|><|visual token 009200|><|visual token 016350|><|visual token 007868|><|visual token 016350|><|visual token 005624|><|visual token 007868|><|visual token 010187|><|visual token 010187|><|visual token 007868|><|visual token 010187|><|visual token 007868|><|visual token 010187|><|visual token 010187|><|visual token 010187|><|visual token 010187|><|visual token 010187|><|visual token 005245|><|visual token 013526|><|visual token 013517|><|visual token 013526|><|visual token 000073|><|visual token 001544|><|visual token 011446|><|visual token 001544|><|visual token 001367|><|visual token 001544|><|visual token 011446|><|visual token 011446|><|visual token 013326|><|visual token 011446|><|visual token 013326|><|visual token 001544|><|visual token 013640|><|img_end_of_row|><|visual token 004484|><|visual token 002082|><|visual token 000825|><|visual token 000403|><|visual token 009080|><|visual token 013048|><|visual token 014245|><|visual token 008838|><|visual token 008628|><|visual token 009532|><|visual token 006358|><|visual token 006130|><|visual token 008747|><|visual token 010277|><|visual token 011939|><|visual token 009532|><|visual token 013754|><|visual token 009532|><|visual token 006868|><|visual token 005472|><|visual token 012135|><|visual token 013754|><|visual token 008251|><|visual token 006868|><|visual token 008251|><|visual token 012135|><|visual token 002277|><|visual token 008251|><|visual token 009238|><|visual token 000186|><|visual token 002680|><|visual token 009762|><|visual token 002248|><|visual token 002412|><|visual token 002412|><|visual token 002412|><|visual token 003889|><|visual token 002412|><|visual token 003889|><|visual token 003889|><|visual token 003889|><|visual token 002646|><|visual token 002646|><|visual token 002646|><|visual token 002646|><|visual token 002646|><|visual token 010482|><|visual token 005915|><|visual token 010482|><|visual token 000784|><|visual token 015455|><|visual token 015455|><|visual token 000784|><|visual token 015455|><|visual token 015455|><|visual token 010482|><|visual token 015455|><|visual token 010482|><|visual token 000784|><|visual token 013626|><|visual token 003911|><|img_end_of_row|><|visual token 012404|><|visual token 010667|><|visual token 014195|><|visual token 011569|><|visual token 000722|><|visual token 007112|><|visual token 010688|><|visual token 006868|><|visual token 010688|><|visual token 011374|><|visual token 011374|><|visual token 006118|><|visual token 003683|><|visual token 006118|><|visual token 014350|><|visual token 016287|><|visual token 008010|><|visual token 012533|><|visual token 002680|><|visual token 006886|><|visual token 010257|><|visual token 014443|><|visual token 016151|><|visual token 003408|><|visual token 008937|><|visual token 006874|><|visual token 000989|><|visual token 007580|><|visual token 004849|><|visual token 004226|><|visual token 012631|><|visual token 016050|><|visual token 006399|><|visual token 003234|><|visual token 001211|><|visual token 013063|><|visual token 001211|><|visual token 012020|><|visual token 004037|><|visual token 012020|><|visual token 004037|><|visual token 004037|><|visual token 004037|><|visual token 004037|><|visual token 004037|><|visual token 004037|><|visual token 004037|><|visual token 004037|><|visual token 004037|><|visual token 004037|><|visual token 004037|><|visual token 004037|><|visual token 004037|><|visual token 004037|><|visual token 004037|><|visual token 004037|><|visual token 004037|><|visual token 004037|><|visual token 004037|><|visual token 004037|><|visual token 015561|><|img_end_of_row|><|visual token 011624|><|visual token 014687|><|visual token 014195|><|visual token 012876|><|visual token 003049|><|visual token 012876|><|visual token 012140|><|visual token 009532|><|visual token 003049|><|visual token 004221|><|visual token 009532|><|visual token 004221|><|visual token 000722|><|visual token 012876|><|visual token 005472|><|visual token 011788|><|visual token 002949|><|visual token 002949|><|visual token 013754|><|visual token 014764|><|visual token 001895|><|visual token 001895|><|visual token 011313|><|visual token 000057|><|visual token 000057|><|visual token 002152|><|visual token 000186|><|visual token 000186|><|visual token 003228|><|visual token 009762|><|visual token 009762|><|visual token 006626|><|visual token 002412|><|visual token 002412|><|visual token 008545|><|visual token 003889|><|visual token 015940|><|visual token 008545|><|visual token 012385|><|visual token 015940|><|visual token 012385|><|visual token 012385|><|visual token 012385|><|visual token 012385|><|visual token 012385|><|visual token 012385|><|visual token 012385|><|visual token 012385|><|visual token 012385|><|visual token 012385|><|visual token 012385|><|visual token 012385|><|visual token 012385|><|visual token 012385|><|visual token 012385|>"
+    },
+    {
+      "image": {
+        "path": "assets/olmOcrDocuments_1.jpg",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "0.256<|img_token_start|><|visual token 002567|><|visual token 012711|><|visual token 006659|><|visual token 003911|><|visual token 007657|><|visual token 003911|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|><|visual token 009327|>"
+    },
+    {
+      "image": {
+        "path": "assets/olmOcrDocuments_1.jpg",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "What is the title of the document shown in the image?",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "The title of the document shows how many pages are listed.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/physics2.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "\\begin{align*}\\sqrt{1}{\\sqrt{1}}=\\sqrt{1}{\\sqrt{1}}\\sqrt{1}{\\sqrt{1}}\\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt\\sqrt\\sqrt\\sqrt\\sqrt\\sqrt\\sqrt\\sqrt\\sqrt\\sqrt\\sqrt\\sqrt\\sqrt\\sqrt\\sqrt\\sqrt\\sqrt\\sqrt\\sqrt\\sqrt\\sqrt\\sqrt\\sqrt\\sqrt\\sqrt\\<|visual token 009758|><|visual token 009966|><|visual token 012243|><|visual token 001510|><|visual token 002922|><|visual token 005775|><|visual token 009197|><|visual token 000816|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 000816|><|visual token 009197|>"
+    },
+    {
+      "image": {
+        "path": "assets/physics2.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What is the title of the document shown in the image?",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "\\sqrt{4}<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/physics2.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What mathematical expressions or equations are present in the image?",
+        "tags": [
+          "math",
+          "ocr"
+        ]
+      },
+      "output": "\\begin{align*}\\left\\{\\begin{array}{ll} \\int_{\\infty} \\frac{1}{2} \\sqrt{2}\\int_{\\infty} \\frac{1}{2} \\sqrt{2}\\sqrt{3}\\int_{\\infty} \\sqrt{2} \\sqrt{3}\\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt{3} \\sqrt 2\\sum \\int\\sqrt 2\\sum\\int\\infty 2\\sum\\int\\infty 2\\sum\\int\\in<|visual token 015961|><|visual token 014332|><|visual token 009677|><|visual token 013703|><|visual token 001368|><|visual token 011519|><|visual token 004128|><|visual token 012709|><|visual token 014563|><|visual token 009327|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 009197|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|><|visual token 009197|><|visual token 000816|>"
+    },
+    {
+      "image": {
+        "path": "assets/physics2.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Solve the mathematical problem shown in the image.",
+        "tags": [
+          "math",
+          "ocr"
+        ]
+      },
+      "output": "The figure shows a force F pushes a 200 lb. of clay to move it up a smooth inclined surface.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_1.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image shows a black canvas with a yellow background.<|end_of_text|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_1.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "In the image, there is a yellow rectangle with a black dot in the middle.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_1.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "\\begin{align*} \\begin{matrix} \\begin{matrix} \\int_{0}^{\\infty} \\frac{1}{2}\\sqrt{4}\\int_{0}^{\\infty} \\sqrt{4} \\int_{0}^{\\infty} \\sqrt{4} \\sqrt{4} \\int_{0}^{\\infty} \\sqrt{4} \\sqrt{4} \\sqrt{4} \\int_{0}^{\\infty} \\begin{align*} 1 \\int_{0} \\begin{aligned} 1 \\sqrt{4} 4 \\sqrt{4} 4 \\sqrt 4 4 \\sqrt 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3<|visual token 005671|><|visual token 009197|><|visual token 002940|><|visual token 007544|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|><|visual token 000534|><|visual token 012866|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_1.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What is the title of the document shown in the image?",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "The title of the document in the image.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_2.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image shows a black canvas with a yellow rectangle in the middle.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_2.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image displays a completely black canvas.<|end_of_text|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_2.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "\\begin{align*} \\sqrt{1}{\\sqrt{1}} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\sqrt{1} \\<|visual token 015258|><|img_end_of_row|><|visual token 011286|><|visual token 004581|><|visual token 008628|><|visual token 005093|><|visual token 001652|><|visual token 004282|><|visual token 011801|><|visual token 005772|><|visual token 004455|><|visual token 009596|><|visual token 002517|><|visual token 002727|><|visual token 000211|><|visual token 004519|><|visual token 000211|><|visual token 004519|><|visual token 004519|><|visual token 002727|><|visual token 013568|><|visual token 002183|><|visual token 003078|><|visual token 010348|><|visual token 003078|><|visual token 010348|><|visual token 004519|><|visual token 009080|><|visual token 010348|><|visual token 000507|><|visual token 010348|><|visual token 009080|><|visual token 000507|><|visual token 009080|><|visual token 009080|><|visual token 009080|><|visual token 009080|><|visual token 009080|><|visual token 003864|><|visual token 009080|><|visual token 003864|><|visual token 009080|><|visual token 003864|><|visual token 009080|><|visual token 003864|><|visual token 009080|><|visual token 003864|><|visual token 009080|><|visual token 003864|><|visual token 009080|><|visual token 003864|><|visual token 009080|><|visual token 003864|><|visual token 009080|><|visual token 011547|><|visual token 009080|><|visual token 003864|><|visual token 009080|><|visual token 003864|><|visual token 009080|><|visual token 003864|><|visual token 009080|><|visual token 003864|><|visual token 009080|><|visual token 003864|><|visual token 009080|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|><|visual token 003864|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_2.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What is the title of the document shown in the image?",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": "The document shows the details of a book.\nShort answer required.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image shows a yellow and orange banner with a yellow and orange banner.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image shows a yellow and blue box on a yellow and red background.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What objects or subjects can you identify in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "The objects in the image are identified by the number on the left of the image.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Count the objects in the image. List each type of object with its count.",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "The objects in the image are made of a material.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the position of each object in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "The position of each object in the image is as shown in the image.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the scene in this image.",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The picture shows a yellow and red sign with a yellow and red sign in the middle of the picture.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What is the main subject of this photograph?",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The main subject of this photograph is the bus.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image shows a completely black canvas.<|end_of_text|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": "The image shows a red and a yellow bear.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What objects or subjects can you identify in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "The objects in the image are named in the corner of the image.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Count the objects in the image. List each type of object with its count.",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "The objects in the image are made of a material.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the position of each object in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": "The position of the objects in the image is as shown in the figure.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the scene in this image.",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The picture shows a yellow bear's head.<|eot_id|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What is the main subject of this photograph?",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": "The main subject of this photograph is the bear.<|eot_id|>"
+    }
+  ]
+}
