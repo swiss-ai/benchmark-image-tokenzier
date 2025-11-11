@@ -54,21 +54,6 @@ if [ -z "$NUM_PROC" ]; then
     fi
 fi
 
-# Validate SUBSET_NAME for datasets that require it
-if [[ -z "$SUBSET_NAME" && "$DATASET_NAME" == "HuggingFaceM4/FineVision" ]]; then
-    echo "=========================================="
-    echo "ERROR: SUBSET_NAME required for FineVision!"
-    echo "=========================================="
-    echo "Usage: sbatch $0 <subset_name>"
-    echo ""
-    echo "Available subsets: laion_gpt4v, lvis_instruct4v, ocrvqa, etc."
-    echo "Example: sbatch $0 laion_gpt4v"
-    echo ""
-    echo "For datasets without subsets (e.g., google/docci):"
-    echo "  DATASET_NAME=\"google/docci\" sbatch $0 \"\""
-    exit 1
-fi
-
 # Create log directory
 mkdir -p /iopsstor/scratch/cscs/$USER/benchmark-image-tokenzier/download_dataset/logs
 
@@ -98,6 +83,18 @@ echo "=========================================="
 
 # Create cache directory
 mkdir -p "$CACHE_DIR"
+
+# Clean up stale lock files from previous interrupted downloads
+echo ""
+echo "Cleaning up stale lock files..."
+LOCK_COUNT=$(find "$CACHE_DIR" -name "*.lock" 2>/dev/null | wc -l)
+if [ "$LOCK_COUNT" -gt 0 ]; then
+    echo "Found $LOCK_COUNT lock file(s) - removing..."
+    find "$CACHE_DIR" -name "*.lock" -delete 2>/dev/null
+    echo "Lock files cleaned up"
+else
+    echo "No stale lock files found"
+fi
 
 # Install datasets library if needed
 echo ""
