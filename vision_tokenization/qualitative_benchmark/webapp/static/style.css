@@ -349,6 +349,8 @@ main {
     padding: 1rem;
     border-radius: 4px;
     border-left: 4px solid #27ae60;
+    max-height: 600px;
+    overflow-y: auto;
 }
 
 /* Tags */
@@ -617,6 +619,8 @@ main {
     font-size: 0.95rem;
     line-height: 1.7;
     white-space: pre-wrap;
+    max-height: 450px;
+    overflow-y: auto;
 }
 
 /* Messages */
@@ -649,4 +653,100 @@ footer {
 
 footer p {
     margin: 0;
+}
+
+/* Print Styles */
+@media print {
+    /* Remove scrolling and height restrictions from output text */
+    .output-text,
+    .output-item .output-text {
+        max-height: none !important;
+        overflow: visible !important;
+        page-break-inside: avoid;
+    }
+
+    /* Hide UI elements that aren't needed in print */
+    .navbar,
+    .nav-brand,
+    .nav-links,
+    .filters-section,
+    .btn,
+    .btn-primary,
+    .btn-secondary,
+    .compare-actions,
+    .compare-selection,
+    footer {
+        display: none !important;
+    }
+
+    /* Force single column layout for better page flow */
+    .result-content,
+    .comparison-content {
+        grid-template-columns: 1fr !important;
+        page-break-inside: avoid;
+    }
+
+    /* Remove shadows and backgrounds to save ink */
+    .result-card,
+    .comparison-card,
+    .experiment-card,
+    .page-header,
+    .results-section,
+    .comparison-section {
+        box-shadow: none !important;
+        border: 1px solid #ccc;
+    }
+
+    /* Simplify backgrounds */
+    .output-text,
+    .output-item,
+    .model-info,
+    .experiment-info-card {
+        background: white !important;
+        border-left-color: #333 !important;
+    }
+
+    /* Ensure images print well */
+    .result-image img,
+    .comparison-image-section img {
+        max-width: 100%;
+        page-break-inside: avoid;
+    }
+
+    /* Add page breaks between major sections */
+    .result-card,
+    .comparison-card {
+        page-break-after: always;
+    }
+
+    /* Remove last page break to avoid blank page at end */
+    .result-card:last-child,
+    .comparison-card:last-child {
+        page-break-after: auto;
+    }
+
+    /* Ensure proper text rendering */
+    body {
+        background: white;
+        color: black;
+    }
+
+    /* Make headers more prominent in print */
+    .result-header,
+    .comparison-card-header {
+        background: white !important;
+        color: black !important;
+        border-bottom: 2px solid #333;
+    }
+
+    /* Adjust padding for print */
+    main {
+        padding: 0;
+        min-height: auto;
+    }
+
+    .container {
+        max-width: 100%;
+        padding: 0;
+    }
 }
