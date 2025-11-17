@@ -38,11 +38,13 @@
 # ========================================
 
 # Dataset configuration (overridable via environment variables)
-DATASET_NAME="${DATASET_NAME:-HuggingFaceM4/FineVision}"
+DATASET_NAME="${DATASET_NAME:-mvp-lab/LLaVA-OneVision-1.5-Mid-Training-85M}"
 SUBSET_NAME="${SUBSET_NAME:-$1}"  # Use first argument if SUBSET_NAME not set
 SPLIT="${SPLIT:-train}"
 CACHE_DIR="${CACHE_DIR:-/capstor/store/cscs/swissai/infra01/vision-datasets/hf_cache}"
 FORCE_REDOWNLOAD="${FORCE_REDOWNLOAD:-false}"
+
+NUM_PROC=12
 
 # Auto-detect number of processes if not set
 if [ -z "$NUM_PROC" ]; then
@@ -57,8 +59,8 @@ fi
 # Create log directory
 mkdir -p /iopsstor/scratch/cscs/$USER/benchmark-image-tokenzier/download_dataset/logs
 
-# Set environment variables
-export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+# Set threading
+export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 
 # ========================================
 # Display Configuration
@@ -69,7 +71,7 @@ echo "HuggingFace Dataset Download Job"
 echo "=========================================="
 echo "Job ID: $SLURM_JOB_ID"
 echo "Node: $SLURM_NODELIST"
-echo "CPUs: $SLURM_CPUS_PER_TASK"
+echo "CPUs: $NUM_PROC"
 echo "Start time: $(date)"
 echo ""
 echo "Configuration:"
@@ -84,7 +86,7 @@ echo "=========================================="
 # Create cache directory
 mkdir -p "$CACHE_DIR"
 
-# Clean up stale lock files from previous interrupted downloads
+# Clean stale lock files (only within this dataset)
 echo ""
 echo "Cleaning up stale lock files..."
 LOCK_COUNT=$(find "$CACHE_DIR" -name "*.lock" 2>/dev/null | wc -l)
@@ -96,101 +98,95 @@ else
     echo "No stale lock files found"
 fi
 
-# Install datasets library if needed
+# ========================================
+# Python Environment Setup
+# ========================================
+
 echo ""
 echo "Setting up Python environment..."
 pip install -q datasets hf_transfer
 export HF_HUB_ENABLE_HF_TRANSFER=1
 
 # ========================================
-# Download Dataset using Python
+# Download Dataset using Builder
 # ========================================
 
 echo ""
-echo "Starting dataset download..."
+echo "Starting dataset download (builder mode)..."
 echo ""
 
-# Determine download mode
-if [ "$FORCE_REDOWNLOAD" = "true" ]; then
-    DOWNLOAD_MODE="force_redownload"
-    echo "Mode: Force re-download (will ignore cache)"
-else
-    DOWNLOAD_MODE="reuse_cache_if_exists"
-    echo "Mode: Reuse cache if exists"
-fi
-
-# Create Python download script
 python3 << EOF
 import sys
-from datasets import load_dataset
+from datasets import load_dataset_builder, DownloadMode, VerificationMode
 
 print("=" * 80)
-print("Loading dataset via HuggingFace datasets library")
+print("Downloading dataset via HuggingFace DatasetBuilder")
 print("=" * 80)
 
-# Configuration
-dataset_name = "$DATASET_NAME"
-subset_name = "$SUBSET_NAME" if "$SUBSET_NAME" else None
-split = "$SPLIT"
-cache_dir = "$CACHE_DIR"
-download_mode = "$DOWNLOAD_MODE"
-num_proc = int("$NUM_PROC")
+dataset_name = "${DATASET_NAME}"
+subset_name = "${SUBSET_NAME}"
+cache_dir = "${CACHE_DIR}"
+num_proc = int("${NUM_PROC}")
+force_redownload = "${FORCE_REDOWNLOAD}".lower() == "true"
 
-print(f"Dataset:      {dataset_name}")
-print(f"Subset:       {subset_name}")
-print(f"Split:        {split}")
-print(f"Cache dir:    {cache_dir}")
+# datasets lib will always delete .incomplete folder of split gen on crash and start over with split generation 
+download_mode = (
+    DownloadMode.FORCE_REDOWNLOAD
+    if force_redownload
+    else DownloadMode.REUSE_CACHE_IF_EXISTS
+)
+
+# All checks only useful to test deterioation over time (hf hub files have hash as filename so coule run check directly on it manually) 
+verification_mode = VerificationMode.BASIC_CHECKS
+
+print(f"Dataset:       {dataset_name}")
+print(f"Subset:        {subset_name or '<none>'}")
+print(f"Cache dir:     {cache_dir}")
 print(f"Num processes: {num_proc}")
 print(f"Download mode: {download_mode}")
 print("")
 
 try:
-    # Load dataset (this will download and cache it)
-    print("Downloading and caching dataset...")
-    dataset = load_dataset(
-        dataset_name,
-        name=subset_name,
-        split=split,
-        cache_dir=cache_dir,
+    # Initialize dataset builder
+    builder = load_dataset_builder(dataset_name, name=subset_name or None, cache_dir=cache_dir)
+    print(f"Builder loaded: {builder.info.builder_name}")
+
+    # Download and prepare dataset (resumable and cached)
+    builder.download_and_prepare(
         download_mode=download_mode,
-        num_proc=num_proc
+        num_proc=num_proc,
+        verification_mode=verification_mode,
     )
 
     print("")
     print("=" * 80)
-    print("DOWNLOAD SUCCESSFUL!")
+    print("✅ DOWNLOAD SUCCESSFUL!")
     print("=" * 80)
     print(f"Dataset: {dataset_name}")
     if subset_name:
         print(f"Subset: {subset_name}")
-    print(f"Split: {split}")
-    print(f"Number of samples: {len(dataset):,}")
     print(f"Cached in: {cache_dir}")
-
-    # Show dataset features
-    print("")
-    print("Dataset features:")
-    for feature_name, feature_type in dataset.features.items():
-        print(f"  - {feature_name}: {feature_type}")
-
-    print("")
+    print(f"Splits: {builder.info.splits.keys()}")
+    print(f"Features: {builder.info.features}")
     print("=" * 80)
 
 except Exception as e:
     print("")
     print("=" * 80)
-    print("DOWNLOAD FAILED!")
+    print("❌ DOWNLOAD FAILED!")
     print("=" * 80)
     print(f"Error: {e}")
-    print("")
     import traceback
     traceback.print_exc()
     sys.exit(1)
 
 EOF
 
-# Check exit status
 EXIT_CODE=$?
+
+# ========================================
+# Job Summary
+# ========================================
 
 echo ""
 echo "=========================================="
@@ -205,14 +201,13 @@ if [ $EXIT_CODE -eq 0 ]; then
     echo "Cache location: $CACHE_DIR"
     echo "Cache size: $(du -sh "$CACHE_DIR" 2>/dev/null | cut -f1 || echo 'unknown')"
     echo ""
-    echo "To use with tokenization, add:"
+    echo "Use with tokenization via:"
     echo "  --cache-dir $CACHE_DIR"
     echo ""
-    echo "See download_dataset/README.md for usage examples."
 else
     echo ""
     echo "ERROR: Download failed with exit code: $EXIT_CODE"
-    echo "Check the error messages above for details."
+    echo "Check error logs for details."
     echo ""
 fi
 
