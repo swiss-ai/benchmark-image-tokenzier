@@ -104,83 +104,48 @@ fi
 
 echo ""
 echo "Setting up Python environment..."
-pip install -q datasets hf_transfer
+
+# Check if required packages are installed, install with pinned versions if missing
+python3 -c "import datasets, hf_transfer, huggingface_hub" 2>/dev/null || {
+    echo "Installing required packages with pinned versions..."
+    pip install -q \
+        datasets==3.2.0 \
+        hf_transfer==0.1.8 \
+        huggingface_hub==0.26.2
+    echo "Packages installed successfully"
+}
+
+# Enable fast transfers via hf_transfer
 export HF_HUB_ENABLE_HF_TRANSFER=1
 
 # ========================================
 # Download Dataset using Builder
 # ========================================
-
 echo ""
 echo "Starting dataset download (builder mode)..."
 echo ""
 
-python3 << EOF
-import sys
-from datasets import load_dataset_builder, DownloadMode, VerificationMode
+# Get the directory where the script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-print("=" * 80)
-print("Downloading dataset via HuggingFace DatasetBuilder")
-print("=" * 80)
+# Build the Python command with arguments
+PYTHON_CMD="python3 ${SCRIPT_DIR}/download_hf_dataset.py \
+    --dataset-name \"${DATASET_NAME}\" \
+    --cache-dir \"${CACHE_DIR}\" \
+    --num-proc ${NUM_PROC}"
 
-dataset_name = "${DATASET_NAME}"
-subset_name = "${SUBSET_NAME}"
-cache_dir = "${CACHE_DIR}"
-num_proc = int("${NUM_PROC}")
-force_redownload = "${FORCE_REDOWNLOAD}".lower() == "true"
+# Add optional subset name if provided
+if [ -n "$SUBSET_NAME" ]; then
+    PYTHON_CMD="${PYTHON_CMD} --subset-name \"${SUBSET_NAME}\""
+fi
 
-# datasets lib will always delete .incomplete folder of split gen on crash and start over with split generation 
-download_mode = (
-    DownloadMode.FORCE_REDOWNLOAD
-    if force_redownload
-    else DownloadMode.REUSE_CACHE_IF_EXISTS
-)
+# Add force redownload flag if enabled
+if [ "$FORCE_REDOWNLOAD" = "true" ]; then
+    PYTHON_CMD="${PYTHON_CMD} --force-redownload"
+fi
 
-# All checks only useful to test deterioation over time (hf hub files have hash as filename so coule run check directly on it manually) 
-verification_mode = VerificationMode.BASIC_CHECKS
-
-print(f"Dataset:       {dataset_name}")
-print(f"Subset:        {subset_name or '<none>'}")
-print(f"Cache dir:     {cache_dir}")
-print(f"Num processes: {num_proc}")
-print(f"Download mode: {download_mode}")
-print("")
-
-try:
-    # Initialize dataset builder
-    builder = load_dataset_builder(dataset_name, name=subset_name or None, cache_dir=cache_dir)
-    print(f"Builder loaded: {builder.info.builder_name}")
-
-    # Download and prepare dataset (resumable and cached)
-    builder.download_and_prepare(
-        download_mode=download_mode,
-        num_proc=num_proc,
-        verification_mode=verification_mode,
-    )
-
-    print("")
-    print("=" * 80)
-    print("✅ DOWNLOAD SUCCESSFUL!")
-    print("=" * 80)
-    print(f"Dataset: {dataset_name}")
-    if subset_name:
-        print(f"Subset: {subset_name}")
-    print(f"Cached in: {cache_dir}")
-    print(f"Splits: {builder.info.splits.keys()}")
-    print(f"Features: {builder.info.features}")
-    print("=" * 80)
-
-except Exception as e:
-    print("")
-    print("=" * 80)
-    print("❌ DOWNLOAD FAILED!")
-    print("=" * 80)
-    print(f"Error: {e}")
-    import traceback
-    traceback.print_exc()
-    sys.exit(1)
-
-EOF
+# Execute the Python script
+eval "$PYTHON_CMD"
 
 EXIT_CODE=$?
 
