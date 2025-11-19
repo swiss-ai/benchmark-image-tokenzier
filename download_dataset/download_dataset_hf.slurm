@@ -43,8 +43,7 @@ SUBSET_NAME="${SUBSET_NAME:-$1}"  # Use first argument if SUBSET_NAME not set
 SPLIT="${SPLIT:-train}"
 CACHE_DIR="${CACHE_DIR:-/capstor/store/cscs/swissai/infra01/vision-datasets/hf_cache}"
 FORCE_REDOWNLOAD="${FORCE_REDOWNLOAD:-false}"
-
-NUM_PROC=12
+NUM_PROC="${NUM_PROC:-4}"
 
 # Auto-detect number of processes if not set
 if [ -z "$NUM_PROC" ]; then
@@ -116,7 +115,8 @@ python3 -c "import datasets, hf_transfer, huggingface_hub" 2>/dev/null || {
 }
 
 # Enable fast transfers via hf_transfer
-export HF_HUB_ENABLE_HF_TRANSFER=1
+export HF_HUB_ENABLE_HF_TRANSFER=0
+unset HF_HUB_ENABLE_XET_CACHE
 
 # ========================================
 # Download Dataset using Builder
@@ -129,10 +129,12 @@ echo ""
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Build the Python command with arguments
-PYTHON_CMD="python3 ${SCRIPT_DIR}/download_hf_dataset.py \
+PYTHON_CMD="python3 /iopsstor/scratch/cscs/${USER}/benchmark-image-tokenizer/download_dataset/download_hf_dataset.py \
     --dataset-name \"${DATASET_NAME}\" \
     --cache-dir \"${CACHE_DIR}\" \
-    --num-proc ${NUM_PROC}"
+    --num-proc ${NUM_PROC} \
+    --max-retries 10 \
+    --backoff-factor 2.0"
 
 # Add optional subset name if provided
 if [ -n "$SUBSET_NAME" ]; then
