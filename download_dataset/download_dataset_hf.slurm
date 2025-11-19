@@ -25,12 +25,15 @@
 #   CACHE_DIR        - Cache path (default: /capstor/.../hf_cache)
 #   NUM_PROC         - Download processes (default: auto = CPUs available)
 #   FORCE_REDOWNLOAD - Re-download if cached (default: false)
+#   USE_HF_TRANSFER  - Use hf_transfer for faster downloads (default: false)
+#                      WARNING: Bypasses HTTP retry logic on download/resolve
 #
 # EXAMPLES:
 #   sbatch download_dataset_hf.slurm laion_gpt4v
 #   DATASET_NAME="google/docci" sbatch download_dataset_hf.slurm ""
 #   CACHE_DIR="/custom/path" sbatch download_dataset_hf.slurm ocrvqa
 #   NUM_PROC=64 sbatch download_dataset_hf.slurm lvis_instruct4v
+#   USE_HF_TRANSFER=true sbatch download_dataset_hf.slurm ocrvqa
 ################################################################################
 
 # ========================================
@@ -43,23 +46,29 @@ SUBSET_NAME="${SUBSET_NAME:-$1}"  # Use first argument if SUBSET_NAME not set
 SPLIT="${SPLIT:-train}"
 CACHE_DIR="${CACHE_DIR:-/capstor/store/cscs/swissai/infra01/vision-datasets/hf_cache}"
 FORCE_REDOWNLOAD="${FORCE_REDOWNLOAD:-false}"
-NUM_PROC="${NUM_PROC:-4}"
+NUM_PROC="${NUM_PROC:-auto}"
+USE_HF_TRANSFER="${USE_HF_TRANSFER:-false}"
 
-# Auto-detect number of processes if not set
-if [ -z "$NUM_PROC" ]; then
+# Auto-detect number of processes if set to "auto"
+if [ "$NUM_PROC" = "auto" ]; then
     # Use SLURM CPUs if available, otherwise detect from system
     if [ -n "$SLURM_CPUS_PER_TASK" ]; then
-        NUM_PROC=$SLURM_CPUS_PER_TASK
+        TOTAL_CPUS=$SLURM_CPUS_PER_TASK
     else
-        NUM_PROC=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 32)
+        TOTAL_CPUS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 32)
+    fi
+    # Set to half the number of CPUs, minimum 1
+    NUM_PROC=$((TOTAL_CPUS / 2))
+    if [ "$NUM_PROC" -lt 1 ]; then
+        NUM_PROC=1
     fi
 fi
 
 # Create log directory
 mkdir -p /iopsstor/scratch/cscs/$USER/benchmark-image-tokenzier/download_dataset/logs
 
-# Set threading
-export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
+# Set threading per process for openMP enabled libs
+export OMP_NUM_THREADS=1
 
 # ========================================
 # Display Configuration
@@ -80,6 +89,7 @@ echo "  Split:            $SPLIT"
 echo "  Cache Directory:  $CACHE_DIR"
 echo "  Num Processes:    $NUM_PROC"
 echo "  Force Redownload: $FORCE_REDOWNLOAD"
+echo "  Use HF Transfer:  $USE_HF_TRANSFER"
 echo "=========================================="
 
 # Create cache directory
@@ -104,18 +114,55 @@ fi
 echo ""
 echo "Setting up Python environment..."
 
-# Check if required packages are installed, install with pinned versions if missing
-python3 -c "import datasets, hf_transfer, huggingface_hub" 2>/dev/null || {
-    echo "Installing required packages with pinned versions..."
-    pip install -q \
-        datasets==3.2.0 \
-        hf_transfer==0.1.8 \
-        huggingface_hub==0.26.2
-    echo "Packages installed successfully"
+# Function to check if package is installed with correct version
+check_and_install_package() {
+    local package_name="$1"
+    local required_version="$2"
+
+    # Check if package exists and get its version
+    installed_version=$(python3 -c "import $package_name; print($package_name.__version__)" 2>/dev/null)
+
+    if [ $? -eq 0 ] && [ "$installed_version" = "$required_version" ]; then
+        echo "  ✓ $package_name $installed_version (already installed)"
+    else
+        if [ -n "$installed_version" ]; then
+            echo "  ⚠ $package_name $installed_version → $required_version (updating...)"
+        else
+            echo "  ✗ $package_name not found (installing $required_version...)"
+        fi
+        # Install with quiet flag (-q suppresses most output, shows only warnings/errors)
+        pip install -q "${package_name}==${required_version}"
+        if [ $? -eq 0 ]; then
+            echo "    Installed successfully"
+        else
+            echo "    ⚠ Installation failed!"
+            return 1
+        fi
+    fi
 }
 
-# Enable fast transfers via hf_transfer
-export HF_HUB_ENABLE_HF_TRANSFER=0
+# Check and install each package individually
+echo "Checking required packages..."
+check_and_install_package "datasets" "3.2.0"
+check_and_install_package "hf_transfer" "0.1.8"
+check_and_install_package "huggingface_hub" "0.26.2"
+echo "Environment setup complete"
+
+# Configure HF transfer and caching
+if [ "$USE_HF_TRANSFER" = "true" ]; then
+    echo ""
+    echo "⚠️  WARNING: HF_TRANSFER is ENABLED"
+    echo "    This may speed up large file downloads but BYPASSES:"
+    echo "    - HTTP retry logic on download/resolve operations"
+    echo "    - Custom backoff and rate limit handling"
+    echo "    Downloads may fail faster on network issues."
+    echo ""
+    export HF_HUB_ENABLE_HF_TRANSFER=1
+else
+    export HF_HUB_ENABLE_HF_TRANSFER=0
+fi
+
+# Xet Cache does not have benefit on first time download
 unset HF_HUB_ENABLE_XET_CACHE
 
 # ========================================
@@ -125,16 +172,14 @@ echo ""
 echo "Starting dataset download (builder mode)..."
 echo ""
 
-# Get the directory where the script is located
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Build the Python command with arguments
 PYTHON_CMD="python3 /iopsstor/scratch/cscs/${USER}/benchmark-image-tokenizer/download_dataset/download_hf_dataset.py \
     --dataset-name \"${DATASET_NAME}\" \
     --cache-dir \"${CACHE_DIR}\" \
     --num-proc ${NUM_PROC} \
-    --max-retries 10 \
-    --backoff-factor 2.0"
+    --max-retries 8 \
+    --backoff-factor 1.2"
 
 # Add optional subset name if provided
 if [ -n "$SUBSET_NAME" ]; then
