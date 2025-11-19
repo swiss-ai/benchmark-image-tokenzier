@@ -21,7 +21,8 @@
 # PARAMETERS (environment variables):
 #   DATASET_NAME     - HF dataset repo (default: HuggingFaceM4/FineVision)
 #   SUBSET_NAME      - Dataset subset/config (default: $1, use "" if none)
-#   SPLIT            - Dataset split (default: train)
+#   SPLIT            - Dataset split (default: train) - NOTE: Currently ignored,
+#                      all splits are downloaded by download_and_prepare()
 #   CACHE_DIR        - Cache path (default: /capstor/.../hf_cache)
 #   NUM_PROC         - Download processes (default: auto = CPUs available)
 #   FORCE_REDOWNLOAD - Re-download if cached (default: false)
@@ -95,16 +96,45 @@ echo "=========================================="
 # Create cache directory
 mkdir -p "$CACHE_DIR"
 
-# Clean stale lock files (only within this dataset)
+# Function to convert dataset name to HuggingFace cache folder name
+# HF replaces '/' with '___' (three underscores) in dataset names
+get_hf_dataset_cache_path() {
+    local dataset_name="$1"
+    local subset_name="$2"
+    local cache_dir="$3"
+
+    # Sanitize dataset name: replace '/' with '___'
+    local sanitized_name="${dataset_name//\//___}"
+
+    # Build path: cache_dir/sanitized_name/subset_name (if subset exists)
+    if [ -n "$subset_name" ]; then
+        echo "${cache_dir}/${sanitized_name}/${subset_name}"
+    else
+        echo "${cache_dir}/${sanitized_name}"
+    fi
+}
+
+# Clean stale lock files (only within this specific dataset's directory)
 echo ""
-echo "Cleaning up stale lock files..."
-LOCK_COUNT=$(find "$CACHE_DIR" -name "*.lock" 2>/dev/null | wc -l)
-if [ "$LOCK_COUNT" -gt 0 ]; then
-    echo "Found $LOCK_COUNT lock file(s) - removing..."
-    find "$CACHE_DIR" -name "*.lock" -delete 2>/dev/null
-    echo "Lock files cleaned up"
+echo "Cleaning up stale lock files for this dataset..."
+
+# Get the dataset-specific cache path
+DATASET_CACHE_PATH=$(get_hf_dataset_cache_path "$DATASET_NAME" "$SUBSET_NAME" "$CACHE_DIR")
+echo "Dataset cache path: $DATASET_CACHE_PATH"
+
+# Check if the dataset cache directory exists
+if [ -d "$DATASET_CACHE_PATH" ]; then
+    LOCK_COUNT=$(find "$DATASET_CACHE_PATH" -name "*.lock" 2>/dev/null | wc -l)
+    if [ "$LOCK_COUNT" -gt 0 ]; then
+        echo "Found $LOCK_COUNT lock file(s) in dataset directory - removing..."
+        find "$DATASET_CACHE_PATH" -name "*.lock" -delete 2>/dev/null
+        echo "Lock files cleaned up"
+    else
+        echo "No stale lock files found in dataset directory"
+    fi
 else
-    echo "No stale lock files found"
+    echo "⚠ Dataset cache directory does not exist yet (first download)"
+    echo "  Skipping lock file cleanup"
 fi
 
 # ========================================
