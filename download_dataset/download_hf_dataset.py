@@ -18,6 +18,12 @@ Example Usage:
         --subset-name "ParaphraseRC" \
         --cache-dir "./test_cache"
 
+    # Multiple configs (comma-separated)
+    python download_hf_dataset.py \
+        --dataset-name "ibm-research/duorc" \
+        --subset-name "ParaphraseRC,SelfRC" \
+        --cache-dir "./test_cache"
+
     # Auto-download all configs
     python download_hf_dataset.py \
         --dataset-name "HuggingFaceM4/FineVision" \
@@ -53,7 +59,7 @@ def parse_args():
         "--subset-name",
         type=str,
         default=None,
-        help="Dataset subset/config name (optional)",
+        help="Dataset subset/config name(s) - single name or comma-separated list (e.g., 'ParaphraseRC' or 'ParaphraseRC,SelfRC')",
     )
 
     parser.add_argument(
@@ -314,9 +320,15 @@ def main():
     print()
 
     if args.subset_name is not None:
-        # Single config specified
-        configs_to_download = [args.subset_name]
-        print(f"Mode: Single configuration download")
+        # Parse comma-separated config names
+        configs_to_download = [s.strip() for s in args.subset_name.split(',') if s.strip()]
+
+        if len(configs_to_download) == 1:
+            print(f"Mode: Single configuration download")
+        else:
+            print(f"Mode: Multiple configurations specified ({len(configs_to_download)})")
+            for i, config in enumerate(configs_to_download, 1):
+                print(f"  {i}. {config}")
         print()
     else:
         # No config specified - attempt to enumerate all configs
