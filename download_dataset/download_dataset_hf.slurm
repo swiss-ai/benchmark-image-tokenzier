@@ -20,7 +20,8 @@
 #
 # PARAMETERS (environment variables):
 #   DATASET_NAME     - HF dataset repo (default: HuggingFaceM4/FineVision)
-#   SUBSET_NAME      - Dataset subset/config (default: $1, use "" if none)
+#   SUBSET_NAME      - Dataset subset/config, single or comma-separated list
+#                      (default: $1, use "" for auto-detect all configs)
 #   SPLIT            - Dataset split (default: train) - NOTE: Currently ignored,
 #                      all splits are downloaded by download_and_prepare()
 #   CACHE_DIR        - Cache path (default: /capstor/.../hf_cache)
@@ -32,6 +33,7 @@
 # EXAMPLES:
 #   sbatch download_dataset_hf.slurm laion_gpt4v
 #   DATASET_NAME="google/docci" sbatch download_dataset_hf.slurm ""
+#   SUBSET_NAME="ParaphraseRC,SelfRC" sbatch download_dataset_hf.slurm
 #   CACHE_DIR="/custom/path" sbatch download_dataset_hf.slurm ocrvqa
 #   NUM_PROC=64 sbatch download_dataset_hf.slurm lvis_instruct4v
 #   USE_HF_TRANSFER=true sbatch download_dataset_hf.slurm ocrvqa
@@ -208,7 +210,7 @@ PYTHON_CMD="python3 /iopsstor/scratch/cscs/${USER}/benchmark-image-tokenizer/dow
     --dataset-name \"${DATASET_NAME}\" \
     --cache-dir \"${CACHE_DIR}\" \
     --num-proc ${NUM_PROC} \
-    --max-retries 8 \
+    --max-retries 10 \
     --backoff-factor 1.2"
 
 # Add optional subset name if provided
