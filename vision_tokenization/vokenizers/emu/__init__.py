@@ -60,7 +60,6 @@ def create_tokenizer(
         device=device,
         min_pixels=min_pixels,
         max_pixels=max_pixels,
-        mode=mode,
         **kwargs
     )
 

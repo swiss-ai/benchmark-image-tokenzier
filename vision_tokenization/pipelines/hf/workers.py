@@ -6,29 +6,33 @@ Handles all tokenization modes with a single flexible worker class.
 
 import time
 from typing import Dict, Optional
-
 import ray
-
 
 
 @ray.remote
 class ShardQueue:
     """Dynamic queue for distributing shards to workers."""
 
-    def __init__(self, num_shards: int):
+    def __init__(self, num_shards: int, initial_shards: Optional[list] = None):
         self.num_shards = num_shards
-        self.next_shard = 0
+        if initial_shards is not None:
+            # Resume mode: only process specified shards
+            self.remaining_shards = list(initial_shards)
+        else:
+            # Normal mode: process all shards (0 to num_shards-1)
+            self.remaining_shards = list(range(num_shards))
+        self.current_index = 0  # Index to track position in remaining_shards
         self.in_progress = {}  # shard_id -> (worker_id, start_time)
         self.completed = []
         self.failed = []
 
     def get_next_shard(self, worker_id: int) -> Optional[int]:
         """Get next shard index for a worker (work-stealing)."""
-        if self.next_shard >= self.num_shards:
+        if self.current_index >= len(self.remaining_shards):
             return None
 
-        shard_id = self.next_shard
-        self.next_shard += 1
+        shard_id = self.remaining_shards[self.current_index]
+        self.current_index += 1
         self.in_progress[shard_id] = (worker_id, time.time())
 
         return shard_id
@@ -139,11 +143,11 @@ class Worker(BaseTokenizerWorker):
         # Get this specific shard
         shard = dataset.shard(num_shards=num_shards, index=shard_id)
 
-        # Create per-shard output file
+        # Create per-shard output file with total shards in filename
         from vision_tokenization.pipelines.indexed_dataset_megatron import DType, IndexedDatasetBuilder
         from pathlib import Path
 
-        shard_output_path = Path(self.output_dir) / f"rank_{self.worker_id:03d}_shard_{shard_id:05d}"
+        shard_output_path = Path(self.output_dir) / f"rank_{self.worker_id}_shard_{shard_id}_{num_shards}"
         builder = IndexedDatasetBuilder(
             f"{shard_output_path}.bin",
             dtype=DType.optimal_dtype(len(self.tokenizer.text_tokenizer))

@@ -3,6 +3,16 @@
 Main entry point for vision tokenization.
 
 This script provides a unified interface for different tokenization pipelines.
+
+Usage:
+    # Using configuration file (recommended)
+    python -m vision_tokenization.tokenize hf --config /iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/vision_tokenization/configs/example_hf_image_only.json
+
+    # Resume from previous checkpoint (skips completed shards)
+    python -m vision_tokenization.tokenize hf --config path/to/config.json --resume
+
+    # View all available options
+    python -m vision_tokenization.tokenize hf --help
 """
 
 import argparse
@@ -14,7 +24,7 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from vision_tokenization.pipelines import HFDatasetPipeline
+from vision_tokenization.pipelines import HFDatasetPipeline, WebDatasetPipeline
 from vision_tokenization.utils.parse_utils import parse_resolution
 
 
@@ -75,12 +85,6 @@ def create_hf_parser(subparsers):
         help='Number of processes for dataset loading'
     )
     parser.add_argument(
-        '--batch-size',
-        type=int,
-        required=True,
-        help='Batch size for work queue (I/O optimization, affects checkpoint granularity)'
-    )
-    parser.add_argument(
         '--max-samples',
         type=int,
         help='Maximum number of samples to process'
@@ -88,8 +92,7 @@ def create_hf_parser(subparsers):
     parser.add_argument(
         '--num-shards',
         type=int,
-        required=True,
-        help='Number of shards for distributed processing and checkpointing'
+        help='Number of shards for distributed processing and checkpointing (required)'
     )
     parser.add_argument(
         '--image-field',
@@ -102,6 +105,11 @@ def create_hf_parser(subparsers):
         type=str,
         default='texts',
         help='Name of text field in dataset (for image_text_pair and SFT modes)'
+    )
+    parser.add_argument(
+        '--resume',
+        action='store_true',
+        help='Resume from existing checkpoint by skipping completed shards'
     )
 
     return parser
@@ -245,7 +253,7 @@ def main():
     # Validate required parameters
     required = ['tokenizer_path', 'output_dir', 'num_gpus', 'device']
     if data_format == 'hf':
-        required += ['dataset_name', 'dataset_split', 'mode']
+        required += ['dataset_name', 'dataset_split', 'mode', 'num_shards']
 
     missing = [k for k in required if not config.get(k)]
     if missing:

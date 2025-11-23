@@ -36,6 +36,7 @@ class HFDatasetPipeline(BasePipeline):
         batch_size: Optional[int] = None,
         image_field: str = "images",
         text_field: str = "texts",
+        resume: bool = False,
         **kwargs
     ):
         super().__init__(tokenizer_path, output_dir, num_gpus, device, **kwargs)
@@ -77,6 +78,7 @@ class HFDatasetPipeline(BasePipeline):
         self.batch_size = batch_size
         self.image_field = image_field
         self.text_field = text_field
+        self.resume = resume
 
         # Validate mode
         valid_modes = ["image_only", "image2text", "text2image", "sft"]
@@ -91,13 +93,72 @@ class HFDatasetPipeline(BasePipeline):
             )
             self.num_shards = self.num_gpus
 
+    def _get_completed_shards(self) -> set:
+        """Get list of already completed shards by checking for .idx files."""
+        from pathlib import Path
+        import re
+        import sys
+
+        completed = set()
+        output_path = Path(self.output_dir)
+
+        if not output_path.exists():
+            return completed
+
+        # Pattern: rank_X_shard_Y_Z.idx where Y is shard_id and Z is total_shards
+        pattern = re.compile(r'rank_\d+_shard_(\d+)_(\d+)\.idx')
+
+        # Collect all shard counts found
+        shard_counts_found = set()
+        files_by_shard_count = {}
+
+        for idx_file in output_path.glob('*.idx'):
+            match = pattern.match(idx_file.name)
+            if match:
+                shard_id = int(match.group(1))
+                total_shards = int(match.group(2))
+
+                shard_counts_found.add(total_shards)
+                if total_shards not in files_by_shard_count:
+                    files_by_shard_count[total_shards] = []
+                files_by_shard_count[total_shards].append(idx_file.name)
+
+                if total_shards == self.num_shards:
+                    completed.add(shard_id)
+
+        # Check for inconsistency
+        if shard_counts_found and self.num_shards not in shard_counts_found:
+            # No files match the expected shard count
+            self.logger.error(
+                f"ERROR: No existing shards match expected count ({self.num_shards}). "
+                f"Found shard counts: {sorted(shard_counts_found)}"
+            )
+            for count in sorted(shard_counts_found):
+                self.logger.error(f"  {count} total shards: {len(files_by_shard_count[count])} files")
+            self.logger.error(
+                f"To resume, use --num-shards {sorted(shard_counts_found)[0]} or start fresh without --resume"
+            )
+            sys.exit(1)
+
+        if len(shard_counts_found) > 1:
+            # Multiple different shard counts found
+            self.logger.error(
+                f"ERROR: Inconsistent total shard counts found: {sorted(shard_counts_found)}"
+            )
+            for count in sorted(shard_counts_found):
+                self.logger.error(f"  {count} total shards: {len(files_by_shard_count[count])} files")
+            self.logger.error("Clean the output directory or use a different output path")
+            sys.exit(1)
+
+        return completed
+
     def setup(self):
         """Setup Ray and load dataset."""
         self.logger.info(f"Initializing Ray with {self.num_gpus} workers")
 
-        # Initialize Ray
+        # Initialize Ray with GPU support
         if not ray.is_initialized():
-            ray.init(num_cpus=self.num_gpus + 2)
+            ray.init(num_cpus=self.num_gpus + 2, num_gpus=self.num_gpus)
 
         # Load dataset
         config_info = f" (config: {self.config_name})" if self.config_name else ""
@@ -149,8 +210,21 @@ class HFDatasetPipeline(BasePipeline):
         # Create progress tracker
         self.progress_actor = ProgressActor.remote(len(self.dataset))
 
-        # Create work queue for shard distribution
-        self.work_queue = ShardQueue.remote(self.num_shards)
+        # Check for existing completed shards if resuming
+        if self.resume:
+            completed_shards = self._get_completed_shards()
+            if completed_shards:
+                self.logger.info(f"Resume mode: Found {len(completed_shards)} completed shards: {sorted(completed_shards)}")
+                # Create work queue with only uncompleted shards
+                uncompleted = [i for i in range(self.num_shards) if i not in completed_shards]
+                self.logger.info(f"Will process {len(uncompleted)} remaining shards: {uncompleted[:10]}{'...' if len(uncompleted) > 10 else ''}")
+                self.work_queue = ShardQueue.remote(self.num_shards, initial_shards=uncompleted)
+            else:
+                self.logger.info("Resume mode: No completed shards found, starting from beginning")
+                self.work_queue = ShardQueue.remote(self.num_shards)
+        else:
+            # Create work queue for shard distribution
+            self.work_queue = ShardQueue.remote(self.num_shards)
 
         # Start unified workers
         self.workers = []
