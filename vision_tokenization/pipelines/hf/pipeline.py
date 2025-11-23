@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional
 import ray
 
 from vision_tokenization.pipelines.base import BasePipeline, ProgressActor
-from vision_tokenization.pipelines.hf.workers import WorkQueue, Worker
+from vision_tokenization.pipelines.hf.workers import ShardQueue, Worker
 
 
 class HFDatasetPipeline(BasePipeline):
@@ -24,6 +24,7 @@ class HFDatasetPipeline(BasePipeline):
         mode: str,  # "image_only", "image2text", "text2image", or "sft"
         num_gpus: int,
         device: str,
+        num_shards: int,  # Required for checkpointing
         config_name: Optional[str] = None,
         cache_dir: Optional[str] = None,
         num_proc: int = 32,
@@ -45,6 +46,7 @@ class HFDatasetPipeline(BasePipeline):
         self.cache_dir = cache_dir
         self.num_proc = num_proc
         self.mode = mode
+        self.num_shards = num_shards
 
         # Set tokenizer pixels with intelligent defaults
         # If min_image_pixels is set but min_tokenizer_pixels is not, use min_image_pixels
@@ -80,6 +82,14 @@ class HFDatasetPipeline(BasePipeline):
         valid_modes = ["image_only", "image2text", "text2image", "sft"]
         if mode not in valid_modes:
             raise ValueError(f"Invalid mode: {mode}. Must be one of {valid_modes}")
+
+        # Validate num_shards is sufficient for workers
+        if self.num_shards < self.num_gpus:
+            self.logger.warning(
+                f"num_shards ({self.num_shards}) < num_gpus ({self.num_gpus}). "
+                f"Adjusting num_shards to {self.num_gpus} to ensure all workers have work."
+            )
+            self.num_shards = self.num_gpus
 
     def setup(self):
         """Setup Ray and load dataset."""
@@ -131,17 +141,16 @@ class HFDatasetPipeline(BasePipeline):
         self._setup_workers()
 
     def _setup_workers(self):
-        """Setup workers for tokenization.
+        """Setup workers for shard-based tokenization.
 
-        Uses a unified worker setup for all modes. The batch_size parameter
-        controls work queue batching for I/O optimization, not tokenizer batching.
-        The tokenizer always processes one sample at a time due to variable shapes.
+        Creates a work queue that distributes shards to workers. Each shard
+        will be processed completely by a worker and saved as a separate output file.
         """
         # Create progress tracker
         self.progress_actor = ProgressActor.remote(len(self.dataset))
 
-        # Create work queue with configured batch size
-        self.work_queue = WorkQueue.remote(len(self.dataset), self.batch_size)
+        # Create work queue for shard distribution
+        self.work_queue = ShardQueue.remote(self.num_shards)
 
         # Start unified workers
         self.workers = []
@@ -166,7 +175,7 @@ class HFDatasetPipeline(BasePipeline):
         )
 
     def process(self) -> Dict[str, Any]:
-        """Process the dataset."""
+        """Process the dataset using shard-based approach."""
         # Create dataset info dict to pass to workers
         dataset_info = {
             'name': self.dataset_name,
@@ -176,8 +185,9 @@ class HFDatasetPipeline(BasePipeline):
             'total_samples': len(self.dataset)
         }
 
-        # Start workers processing
-        worker_futures = [worker.run.remote(self.work_queue, dataset_info, self.progress_actor)
+        # Start workers processing shards
+        worker_futures = [worker.run_shards.remote(self.work_queue, dataset_info,
+                                                   self.num_shards, self.progress_actor)
                          for worker in self.workers]
 
         # Wait for completion

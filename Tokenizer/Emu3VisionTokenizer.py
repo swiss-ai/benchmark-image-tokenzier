@@ -11,16 +11,30 @@ from Tokenizer.Emu3.emu3.tokenizer.image_processing_emu3visionvq import Emu3Visi
 class Emu3VisionTokenizer(Tokenizer):
     """Emu3 Vision Tokenizer implementation"""
     
-    def __init__(self, 
-                 model_path: str = "BAAI/Emu3-VisionTokenizer", 
+    def __init__(self,
+                 model_path: str = "BAAI/Emu3-VisionTokenizer",
                  min_pixels: int = None,
                  max_pixels: int = None,
+                 metadata_only: bool = False,
                  **kwargs):
         self.model_path = model_path
         self.name = "Emu3VisionTokenizer"
         self.processor = None
         self.min_pixels = min_pixels
         self.max_pixels = max_pixels
+
+        # If metadata_only, just load config and return
+        if metadata_only:
+            from transformers import AutoConfig
+            config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
+
+            if hasattr(config, 'codebook_size'):
+                self.codebook_size = config.codebook_size
+                self.codebook_dim = config.embed_dim
+            else:
+                raise ValueError("Model config not found - cannot determine codebook size")
+            return
+
         super().__init__(**kwargs)
     
     def _load_model(self) -> None:
@@ -34,13 +48,22 @@ class Emu3VisionTokenizer(Tokenizer):
             ).eval().to(self.device)
             
             self.processor = Emu3VisionVQImageProcessor.from_pretrained(
-                self.model_path, 
+                self.model_path,
                 local_files_only=True,
                 min_pixels=self.min_pixels,
                 max_pixels=self.max_pixels
             )
-            
+
+            # Get codebook size and dimension from model config
+            if hasattr(self.model, 'config') and hasattr(self.model.config, 'codebook_size'):
+                self.codebook_size = self.model.config.codebook_size
+                self.codebook_dim = self.model.config.embed_dim
+            else:
+                raise ValueError("Model config not found - cannot determine codebook size")
+
             print(f"✓ {self.name} loaded successfully")
+            print(f"Codebook size: {self.codebook_size}")
+            print(f"Codebook dimension: {self.codebook_dim}")
             self.get_params()
             
         except Exception as e:
@@ -98,7 +121,7 @@ if __name__ == "__main__":
     from utils_benchmark import load_all_images, resize_by_ratio
 
     # Initialize the Emu3 tokenizer
-    tokenizer = Emu3VisionTokenizer()
+    tokenizer = Emu3VisionTokenizer(min_pixels=512*512, max_pixels=1024*1024)
     
     # Get model parameters
     tokenizer.get_params()
@@ -109,7 +132,7 @@ if __name__ == "__main__":
     processing_ratios = [1.0]
     
     # Load images
-    images, image_names, image_paths = load_all_images('/users/nirmiger/benchmark-image-tokenzier/assets/high_aspect_ratio')
+    images, image_names, image_paths = load_all_images('/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/original')
     
     print(f"Found {len(images)} images to process")
     print(f"Processing ratios: {processing_ratios}")
@@ -126,7 +149,7 @@ if __name__ == "__main__":
         
         # Setup paths - different naming for ratio 1.0
         if processing_ratio == 1.0:
-            RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/high_aspect_ratio_recon_2_{tokenizer.name}'
+            RECONSTRUCTION_PATH = f'/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/{tokenizer.name}'
         else:
             RECONSTRUCTION_PATH = f'/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/{tokenizer.name}_ratio_{processing_ratio**2:.3f}'
         os.makedirs(RECONSTRUCTION_PATH, exist_ok=True)

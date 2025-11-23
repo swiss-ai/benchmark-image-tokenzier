@@ -1,15 +1,17 @@
 """
-EMU3 Tokenizers for vision-language models.
+EMU Tokenizers for vision-language models.
 
 This module provides tokenizers for different data types:
-- EMU3ImageOnlyTokenizer: For pure image tokenization
-- EMU3ImageTextPairTokenizer: For image-text pair tokenization
-- EMU3SftTokenizer: For SFT/instruction-tuning data
+- EMUImageOnlyTokenizer: For pure image tokenization
+- EMUImageTextPairTokenizer: For image-text pair tokenization
+- EMUSftTokenizer: For SFT/instruction-tuning data
+
+Supports both Emu3 and Emu3.5 vision tokenizers.
 """
 
-from .image_only import EMU3ImageOnlyTokenizer
-from .image_text_pair import EMU3ImageTextPairTokenizer
-from .sft import EMU3SftTokenizer
+from .image_only import EMUImageOnlyTokenizer
+from .image_text_pair import EMUImageTextPairTokenizer
+from .sft import EMUSftTokenizer
 from typing import Union
 
 
@@ -20,9 +22,9 @@ def create_tokenizer(
     min_pixels: int = 512 * 512,
     max_pixels: int = 1024 * 1024,
     **kwargs
-) -> Union[EMU3ImageOnlyTokenizer, EMU3ImageTextPairTokenizer, EMU3SftTokenizer]:
+) -> Union[EMUImageOnlyTokenizer, EMUImageTextPairTokenizer, EMUSftTokenizer]:
     """
-    Factory function to create the appropriate EMU3 tokenizer based on mode.
+    Factory function to create the appropriate EMU tokenizer based on mode.
 
     Args:
         mode: Tokenization mode ("image_only", "image2text", "text2image", or "sft")
@@ -39,10 +41,10 @@ def create_tokenizer(
         ValueError: If mode is not recognized
     """
     tokenizers = {
-        "image_only": EMU3ImageOnlyTokenizer,
-        "image2text": EMU3ImageTextPairTokenizer,  # image->text (captioning)
-        "text2image": EMU3ImageTextPairTokenizer,  # text->image (generation)
-        "sft": EMU3SftTokenizer
+        "image_only": EMUImageOnlyTokenizer,
+        "image2text": EMUImageTextPairTokenizer,  # image->text (captioning)
+        "text2image": EMUImageTextPairTokenizer,  # text->image (generation)
+        "sft": EMUSftTokenizer
     }
 
     if mode not in tokenizers:
@@ -64,8 +66,8 @@ def create_tokenizer(
 
 
 __all__ = [
-    'EMU3ImageOnlyTokenizer',
-    'EMU3ImageTextPairTokenizer',
-    'EMU3SftTokenizer',
+    'EMUImageOnlyTokenizer',
+    'EMUImageTextPairTokenizer',
+    'EMUSftTokenizer',
     'create_tokenizer'
 ]

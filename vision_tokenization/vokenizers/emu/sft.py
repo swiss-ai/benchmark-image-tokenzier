@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """
-EMU3 tokenizer for SFT (Supervised Fine-Tuning) data.
+EMU tokenizer for SFT (Supervised Fine-Tuning) data.
 Handles conversations with single images and text.
 """
 
 import torch
 from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor
-from .image_only import EMU3ImageOnlyTokenizer
+from .image_only import EMUImageOnlyTokenizer
 
 
-class EMU3SftTokenizer(EMU3ImageOnlyTokenizer):
+class EMUSftTokenizer(EMUImageOnlyTokenizer):
     """
     Tokenizer for SFT (Supervised Fine-Tuning) data with a single image and text.
     Optimized for single image per conversation (most common case).
-    Replaces <|image|> placeholder with actual Emu3 vision tokens.
+    Replaces <|image|> placeholder with actual EMU vision tokens.
 
     Designed for SFT/pretraining with FineVision-style data where conversations
     already include assistant responses.

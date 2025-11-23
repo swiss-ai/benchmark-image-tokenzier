@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional, List
 import ray
 
 from .base import BasePipeline
-from vision_tokenization.vokenizers.emu3 import EMU3ImageOnlyTokenizer, EMU3ImageTextPairTokenizer
+from vision_tokenization.vokenizers.emu import EMUImageOnlyTokenizer, EMUImageTextPairTokenizer
 
 
 class WebDatasetPipeline(BasePipeline):

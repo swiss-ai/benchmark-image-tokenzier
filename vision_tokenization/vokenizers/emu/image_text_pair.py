@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-EMU3 tokenizer for image-text pairs with parallel GPU/CPU processing.
+EMU tokenizer for image-text pairs with parallel GPU/CPU processing.
 """
 
 import torch
 from concurrent.futures import ThreadPoolExecutor
-from .image_only import EMU3ImageOnlyTokenizer
+from .image_only import EMUImageOnlyTokenizer
 
 
-class EMU3ImageTextPairTokenizer(EMU3ImageOnlyTokenizer):
+class EMUImageTextPairTokenizer(EMUImageOnlyTokenizer):
     """
     Extended tokenizer for image-text pairs with parallel GPU/CPU processing.
     Image tokenization happens on GPU while text tokenization happens on CPU in parallel.

@@ -4,61 +4,52 @@ Unified Ray workers for distributed tokenization.
 Handles all tokenization modes with a single flexible worker class.
 """
 
-import queue
-import threading
 import time
-from typing import Dict, Optional, Tuple, Any
+from typing import Dict, Optional
 
 import ray
-from datasets import load_dataset
+
 
 
 @ray.remote
-class WorkQueue:
-    """Dynamic work queue for distributing batches to workers."""
+class ShardQueue:
+    """Dynamic queue for distributing shards to workers."""
 
-    def __init__(self, total_samples: int, batch_size: int = 1):
-        self.total_samples = total_samples
-        self.batch_size = batch_size
-        self.next_idx = 0
-        self.in_progress = {}  # batch_id -> (worker_id, start_time)
+    def __init__(self, num_shards: int):
+        self.num_shards = num_shards
+        self.next_shard = 0
+        self.in_progress = {}  # shard_id -> (worker_id, start_time)
         self.completed = []
         self.failed = []
 
-    def get_next_batch(self, worker_id: int) -> Optional[Dict]:
-        """Get next batch for a worker (work-stealing)."""
-        if self.next_idx >= self.total_samples:
+    def get_next_shard(self, worker_id: int) -> Optional[int]:
+        """Get next shard index for a worker (work-stealing)."""
+        if self.next_shard >= self.num_shards:
             return None
 
-        start_idx = self.next_idx
-        end_idx = min(start_idx + self.batch_size, self.total_samples)
-        batch_id = f"batch_{start_idx:08d}_{end_idx:08d}"
+        shard_id = self.next_shard
+        self.next_shard += 1
+        self.in_progress[shard_id] = (worker_id, time.time())
 
-        self.next_idx = end_idx
-        self.in_progress[batch_id] = (worker_id, time.time())
+        return shard_id
 
-        return {
-            'batch_id': batch_id,
-            'indices': list(range(start_idx, end_idx))
-        }
+    def mark_completed(self, shard_id: int, stats: Dict):
+        """Mark shard as completed."""
+        if shard_id in self.in_progress:
+            del self.in_progress[shard_id]
+        self.completed.append((shard_id, stats))
 
-    def mark_completed(self, batch_id: str, stats: Dict):
-        """Mark batch as completed."""
-        if batch_id in self.in_progress:
-            del self.in_progress[batch_id]
-        self.completed.append((batch_id, stats))
-
-    def mark_failed(self, batch_id: str, error: str):
-        """Mark batch as failed."""
-        if batch_id in self.in_progress:
-            del self.in_progress[batch_id]
-        self.failed.append((batch_id, error))
+    def mark_failed(self, shard_id: int, error: str):
+        """Mark shard as failed."""
+        if shard_id in self.in_progress:
+            del self.in_progress[shard_id]
+        self.failed.append((shard_id, error))
 
     def get_status(self) -> Dict:
         """Get current processing status."""
         return {
-            'processed': self.next_idx,
-            'total': self.total_samples,
+            'processed': self.next_shard,
+            'total': self.num_shards,
             'in_progress': len(self.in_progress),
             'completed': len(self.completed),
             'failed': len(self.failed)
@@ -116,77 +107,49 @@ class Worker(BaseTokenizerWorker):
             max_image_pixels=max_image_pixels
         )
 
-        # Setup HF-specific output (rank-based)
-        self._setup_output(output_dir)
+        # Store output directory for per-shard files
+        self.output_dir = output_dir
 
-        # Initialize HF-specific prefetch queue for async loading
-        self.data_queue = queue.Queue(maxsize=64)
 
-    def _setup_output(self, output_dir: str):
-        """Setup indexed dataset builder for output."""
+
+    def process_shard(self, shard_id: int, dataset_info: Dict, num_shards: int) -> Dict:
+        """
+        Process a complete shard and save to a separate output file.
+
+        Args:
+            shard_id: Index of the shard to process
+            dataset_info: Dataset metadata
+            num_shards: Total number of shards
+
+        Returns:
+            Processing statistics for this shard
+        """
+        self.logger.info(f"Processing shard {shard_id}/{num_shards}")
+        start_time = time.time()
+
+        # Load the shard using HuggingFace's efficient shard method
+        from datasets import load_dataset
+        dataset = load_dataset(
+            dataset_info['name'],
+            name=dataset_info.get('config'),
+            split=dataset_info['split'],
+            cache_dir=dataset_info.get('cache_dir')
+        )
+
+        # Get this specific shard
+        shard = dataset.shard(num_shards=num_shards, index=shard_id)
+
+        # Create per-shard output file
         from vision_tokenization.pipelines.indexed_dataset_megatron import DType, IndexedDatasetBuilder
         from pathlib import Path
 
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        self.output_path = Path(output_dir) / f"rank_{self.worker_id:03d}"
-        self.builder = IndexedDatasetBuilder(
-            f"{self.output_path}.bin",
+        shard_output_path = Path(self.output_dir) / f"rank_{self.worker_id:03d}_shard_{shard_id:05d}"
+        builder = IndexedDatasetBuilder(
+            f"{shard_output_path}.bin",
             dtype=DType.optimal_dtype(len(self.tokenizer.text_tokenizer))
         )
 
-    def _load_data_async(self, indices: list, dataset_info: Dict):
-        """
-        Background thread to load data into queue.
-
-        Args:
-            indices: Sample indices to load
-            dataset_info: Dataset metadata (name, config, split, cache_dir)
-        """
-        try:
-            # Load dataset slice
-            samples = load_dataset(
-                dataset_info['name'],
-                name=dataset_info.get('config'),
-                split=f"{dataset_info['split']}[{indices[0]}:{indices[-1]+1}]",
-                cache_dir=dataset_info.get('cache_dir')
-            )
-
-            # Process and queue samples
-            for sample in samples:
-                self._queue_sample(sample)
-
-        except Exception as e:
-            self.logger.error(f"Loader thread error: {e}")
-        finally:
-            # Add sentinel to mark end of data
-            self.data_queue.put((None, None, 'sentinel'))
-
-    def _queue_sample(self, sample: Dict):
-        """
-        Extract and queue a sample with appropriate status.
-
-        Args:
-            sample: Raw sample from dataset
-        """
-        image, text = self._extract_data(sample)
-
-        # Use base class method to determine status
-        status = self.get_sample_status(image, text)
-
-        # Queue with appropriate data based on status
-        if status == 'ok':
-            self.data_queue.put((image, text, status))
-        else:
-            # Skip samples don't need data
-            self.data_queue.put((None, None, status))
-
-    def _process_data_stream(self) -> Dict:
-        """
-        Process data from queue as GPU becomes available.
-
-        Returns:
-            Statistics dictionary with samples, tokens, errors, and skip counts
-        """
+        # Process all samples in the shard
         stats = {
             'samples': 0,
             'tokens': 0,
@@ -197,201 +160,108 @@ class Worker(BaseTokenizerWorker):
             'resolution_skipped': 0
         }
 
-        while True:
-            # Get next item from queue
-            item = self.data_queue.get()
+        for sample in shard:
+            # Extract data
+            image, text = self._extract_data(sample)
 
-            # Parse queue item (supports 3-tuple format)
-            image, text, status = self._parse_queue_item(item)
+            # Check sample status
+            status = self.get_sample_status(image, text)
 
-            # Handle different statuses
-            if status == 'sentinel':
-                if self.data_queue.empty():
-                    break
-                continue
-            elif status == 'resolution_skip':
+            if status == 'resolution_skip':
                 stats['resolution_skipped'] += 1
                 continue
             elif status == 'data_skip':
                 stats['skipped'] += 1
                 continue
 
-            # Process valid sample
-            self._process_and_save(image, text, stats)
+            # Tokenize and save
+            try:
+                tokens_np = self.tokenize_sample(image, text)
+                if tokens_np is not None:
+                    builder.add_document(tokens_np, [len(tokens_np)])
+                    stats['samples'] += 1
+                    stats['tokens'] += len(tokens_np)
 
-        return stats
+                    # Count image vs text tokens for SFT mode
+                    if self.mode == "sft" and self.img_end_id is not None:
+                        import torch
+                        if torch.is_tensor(tokens_np):
+                            tokens_list = tokens_np.cpu().numpy().tolist()
+                        else:
+                            tokens_list = tokens_np.tolist()
 
-    def _parse_queue_item(self, item) -> Tuple[Any, Any, str]:
-        """
-        Parse item from queue, handling different formats.
-
-        Args:
-            item: Queue item (could be tuple or None)
-
-        Returns:
-            Tuple of (image, text, status)
-        """
-        if isinstance(item, tuple) and len(item) == 3:
-            return item
-
-        # Backward compatibility for old format
-        if item is None:
-            return None, None, 'sentinel'
-
-        # Assume it's (image, text) tuple
-        image, text = item
-        return image, text, 'ok'
-
-    def _process_and_save(self, image, text, stats: Dict):
-        """
-        Tokenize and save a single sample.
-
-        Args:
-            image: Image to tokenize
-            text: Text to tokenize (may be None)
-            stats: Statistics dictionary to update
-        """
-        try:
-            # Tokenize using base class method
-            tokens_np = self.tokenize_sample(image, text)
-
-            if tokens_np is not None:
-                # Save to indexed dataset
-                self.builder.add_document(tokens_np, [len(tokens_np)])
-                stats['samples'] += 1
-                stats['tokens'] += len(tokens_np)
-
-                # For SFT mode, count image vs text tokens
-                if self.mode == "sft" and self.img_end_id is not None:
-                    import torch
-                    if torch.is_tensor(tokens_np):
-                        tokens_list = tokens_np.cpu().numpy().tolist()
-                    else:
-                        tokens_list = tokens_np.tolist()
-
-                    # Find img_end token
-                    if self.img_end_id in tokens_list:
-                        img_end_idx = tokens_list.index(self.img_end_id)
-                        image_token_count = img_end_idx + 1
-                        text_token_count = len(tokens_list) - image_token_count
-                    else:
-                        # No image tokens (shouldn't happen in SFT)
-                        image_token_count = 0
-                        text_token_count = len(tokens_list)
-
-                    stats['image_tokens'] = stats.get('image_tokens', 0) + image_token_count
-                    stats['text_tokens'] = stats.get('text_tokens', 0) + text_token_count
-            else:
+                        if self.img_end_id in tokens_list:
+                            img_end_idx = tokens_list.index(self.img_end_id)
+                            stats['image_tokens'] += img_end_idx + 1
+                            stats['text_tokens'] += len(tokens_list) - (img_end_idx + 1)
+                else:
+                    stats['errors'] += 1
+            except Exception as e:
+                self.logger.warning(f"Failed to process sample: {e}")
                 stats['errors'] += 1
 
-        except Exception as e:
-            self.logger.warning(f"Failed to process sample: {e}")
-            stats['errors'] += 1
+        # Finalize the shard file
+        builder.finalize(f"{shard_output_path}.idx")
 
-    def process_batch(self, batch_info: Dict, dataset_info: Dict) -> Dict:
-        """
-        Process a batch of samples with async prefetching.
-
-        Args:
-            batch_info: Batch metadata (batch_id, indices)
-            dataset_info: Dataset metadata
-
-        Returns:
-            Processing statistics
-        """
-        batch_id = batch_info['batch_id']
-        indices = batch_info['indices']
-
-        self.logger.info(f"Processing {batch_id} ({len(indices)} samples)")
-        start_time = time.time()
-
-        # Start async data loading
-        loader = threading.Thread(
-            target=self._load_data_async,
-            args=(indices, dataset_info),
-            daemon=True
+        elapsed = time.time() - start_time
+        self.logger.info(
+            f"Completed shard {shard_id}: {stats['samples']} samples, "
+            f"{stats['tokens']} tokens in {elapsed:.1f}s"
         )
-        loader.start()
-
-        # Process data stream as it arrives
-        stats = self._process_data_stream()
-
-        # Wait for loader to complete
-        loader.join()
-
-        # Update global statistics
-        self._update_global_stats(stats)
-
-        # Log completion
-        self._log_batch_completion(batch_id, stats, start_time)
 
         return {
-            'batch_id': batch_id,
-            'time': time.time() - start_time,
+            'shard_id': shard_id,
+            'time': elapsed,
             **stats
         }
 
-    def _update_global_stats(self, batch_stats: Dict):
-        """Update worker's global statistics with batch results."""
-        self.stats['batches_processed'] += 1
-        self.update_stats(
-            samples=batch_stats['samples'],
-            tokens=batch_stats['tokens'],
-            errors=batch_stats['errors'],
-            skipped=batch_stats.get('skipped', 0),
-            resolution_skipped=batch_stats.get('resolution_skipped', 0),
-            image_tokens=batch_stats.get('image_tokens', 0),
-            text_tokens=batch_stats.get('text_tokens', 0)
-        )
-
-    def _log_batch_completion(self, batch_id: str, stats: Dict, start_time: float):
-        """Log batch completion with statistics."""
-        elapsed = time.time() - start_time
-        msg = self.format_stats_message(f"Completed {batch_id}", stats, elapsed)
-        self.logger.info(msg)
-
-    def run(self, work_queue, dataset_info, progress_actor=None) -> Dict:
+    def run_shards(self, shard_queue, dataset_info, num_shards, progress_actor=None) -> Dict:
         """
-        Main worker loop: pull and process batches until done.
+        Main worker loop for shard-based processing.
 
         Args:
-            work_queue: Ray remote work queue for batch distribution
+            shard_queue: Ray remote shard queue for distribution
             dataset_info: Dataset metadata
+            num_shards: Total number of shards
             progress_actor: Optional progress tracking actor
 
         Returns:
             Final worker statistics
         """
-        self.logger.info("Starting work loop")
+        self.logger.info("Starting shard processing loop")
 
         while True:
-            # Get next batch from queue
-            batch_info = ray.get(work_queue.get_next_batch.remote(self.worker_id))
+            # Get next shard from queue
+            shard_id = ray.get(shard_queue.get_next_shard.remote(self.worker_id))
 
-            if batch_info is None:
-                self.logger.info("No more batches, finishing")
+            if shard_id is None:
+                self.logger.info("No more shards, finishing")
                 break
 
-            # Process the batch
+            # Process the shard
             try:
-                result = self.process_batch(batch_info, dataset_info)
-                ray.get(work_queue.mark_completed.remote(batch_info['batch_id'], result))
+                result = self.process_shard(shard_id, dataset_info, num_shards)
+                ray.get(shard_queue.mark_completed.remote(shard_id, result))
 
                 # Report progress if actor provided
                 if progress_actor:
                     progress_actor.update.remote(result['samples'])
 
-            except Exception as e:
-                self.logger.error(f"Failed to process batch: {e}")
-                ray.get(work_queue.mark_failed.remote(batch_info['batch_id'], str(e)))
+                # Update global statistics
+                self.update_stats(
+                    samples=result['samples'],
+                    tokens=result['tokens'],
+                    errors=result['errors'],
+                    skipped=result.get('skipped', 0),
+                    resolution_skipped=result.get('resolution_skipped', 0),
+                    image_tokens=result.get('image_tokens', 0),
+                    text_tokens=result.get('text_tokens', 0)
+                )
 
-        # Finalize output files
-        self._finalize()
+            except Exception as e:
+                self.logger.error(f"Failed to process shard {shard_id}: {e}")
+                ray.get(shard_queue.mark_failed.remote(shard_id, str(e)))
 
         # Return final statistics
         return self.get_final_stats()
 
-    def _finalize(self):
-        """Finalize the indexed dataset."""
-        self.builder.finalize(f"{self.output_path}.idx")
-        self.logger.info(f"Finalized output: {self.output_path}")

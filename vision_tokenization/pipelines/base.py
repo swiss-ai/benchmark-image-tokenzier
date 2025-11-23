@@ -205,7 +205,7 @@ class BaseTokenizerWorker:
         self.logger.setLevel(logging.INFO)
 
         # Import here to avoid circular imports
-        from vision_tokenization.vokenizers.emu3 import create_tokenizer
+        from vision_tokenization.vokenizers.emu import create_tokenizer
 
         # Initialize tokenizer using factory function
         self.tokenizer = create_tokenizer(

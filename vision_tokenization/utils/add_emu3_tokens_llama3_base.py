@@ -6,7 +6,7 @@ Part of the vision tokenization pipeline for multimodal models.
 
 Workflow:
 1. Add special structure tokens (<|img_start|>, <|img_end|>, etc.)
-2. Add generation mode token (<|GEN:IMAGE:MODE:HASH|>)
+2. Add generation mode token (<|GEN:IMAGE:MODE|>) - uses RESERVED_001 renamed
 3. Add visual tokens (<|visual token 000000|> through <|visual token XXXXXX|>)
 4. Save tokenizer with vision token mapping for consistent index conversion
 
@@ -28,25 +28,77 @@ Usage:
 Important: The vision tokenizer outputs indices 0-32767, which must be converted
 to the actual token IDs in the vocabulary using the saved mapping.
 
-Generation Mode Token: A special token <|GEN:IMAGE:MODE:HASH|> is added for controlling
-image generation during training. This token should be hidden/removed at deployment.
+Generation Mode Token: <|RESERVED_001|> is renamed to <|GEN:IMAGE:MODE|> for controlling
+image generation during training. Before release, this token's embedding is re-initialized
+to prevent unauthorized use.
 """
 
 from transformers import AutoTokenizer
 import json
 import os
 from typing import Optional
-try:
-    # Import generation mode utils if available (for training)
-    from hidden_mode_token_registry import HiddenModeTokenRegistry
-    HAS_GENERATION_MODE = True
-except ImportError:
-    # Not available (for public deployment)
-    HAS_GENERATION_MODE = False
 
 
 # Note: Custom tokenizer class removed - config.vocab_size is now set correctly for model initialization
 # Runtime operations should use len(tokenizer) for the actual vocabulary size
+
+def _rename_generation_token(save_path: str, tokenizer) -> None:
+    """
+    Rename <|RESERVED_001|> to <|GEN:IMAGE:MODE|> in saved tokenizer files.
+    Similar to how <|RESERVED_002|> is renamed to <|image|> in vision instruct tokenizer.
+
+    Args:
+        save_path: Path where tokenizer was saved
+        tokenizer: Tokenizer instance to get token ID
+    """
+    reserved_001_id = tokenizer.convert_tokens_to_ids("<|RESERVED_001|>")
+    if reserved_001_id == tokenizer.unk_token_id:
+        print("  ⚠️  <|RESERVED_001|> not found, skipping generation token rename")
+        return
+
+    # Modify tokenizer.json
+    tokenizer_json_path = os.path.join(save_path, "tokenizer.json")
+    if os.path.exists(tokenizer_json_path):
+        with open(tokenizer_json_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # Replace all occurrences of <|RESERVED_001|> with <|GEN:IMAGE:MODE|>
+        content = content.replace('"<|RESERVED_001|>"', '"<|GEN:IMAGE:MODE|>"')
+        content = content.replace('<|RESERVED_001|>', '<|GEN:IMAGE:MODE|>')
+
+        with open(tokenizer_json_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        print(f"  ✅ Renamed <|RESERVED_001|> to <|GEN:IMAGE:MODE|> (ID {reserved_001_id}) in tokenizer.json")
+
+    # Also modify tokenizer_config.json
+    config_path = os.path.join(save_path, "tokenizer_config.json")
+    if os.path.exists(config_path):
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+
+        # Replace RESERVED_001 with GEN:IMAGE:MODE in all config values
+        def replace_in_dict(obj):
+            if isinstance(obj, dict):
+                return {k: replace_in_dict(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [replace_in_dict(item) for item in obj]
+            elif isinstance(obj, str):
+                return obj.replace('<|RESERVED_001|>', '<|GEN:IMAGE:MODE|>')
+            return obj
+
+        config = replace_in_dict(config)
+
+        # Add generation token info to config
+        config['generation_token'] = '<|GEN:IMAGE:MODE|>'
+        config['generation_token_id'] = reserved_001_id
+
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2)
+
+        print(f"  ✅ Renamed <|RESERVED_001|> to <|GEN:IMAGE:MODE|> in tokenizer_config.json")
+        print(f"  ℹ️  Remember to re-initialize this token's embedding before release")
+
 
 def save_tokenizer_with_correct_vocab_size(tokenizer, save_path: str, original_vocab_size: int) -> None:
     """
@@ -237,13 +289,6 @@ def add_emu3_special_tokens(
     stats["reserved_tokens_added"] = num_reserved_tokens
     print(f"Adding {num_reserved_tokens} reserved tokens")
     
-    # Set up generation mode if available
-    generation_token = None
-    if HAS_GENERATION_MODE:
-        manager = HiddenModeTokenRegistry()
-        generation_token, _ = manager.select_generation_token(num_reserved_tokens)
-        print(f"[PRIVATE] Generation mode configured (token will be saved separately)")
-    
     # Add visual tokens in EMU3 format
     print(f"Generating {visual_vocab_size} visual tokens...")
     visual_tokens = []
@@ -269,7 +314,10 @@ def add_emu3_special_tokens(
     save_path = output_path or model_path
     print(f"\nSaving updated tokenizer to {save_path}")
     save_tokenizer_with_correct_vocab_size(tokenizer, save_path, original_vocab_size)
-    
+
+    # Rename RESERVED_001 to <|GEN:IMAGE:MODE|> in the saved tokenizer files
+    _rename_generation_token(save_path, tokenizer)
+
     # Save vision token mapping
     print("Creating vision token mapping...")
     vision_mapping = {}
@@ -293,10 +341,6 @@ def add_emu3_special_tokens(
         }, f, indent=2)
     print(f"Saved vision token mapping to {mapping_path}")
     
-    # Save generation mode configuration if available
-    if HAS_GENERATION_MODE and generation_token:
-        manager.save_to_file(save_path, tokenizer)
-    
     # Verification - show some token IDs
     print("\nVerification - Sample token IDs:")
     
@@ -316,11 +360,12 @@ def add_emu3_special_tokens(
         token = f"<|visual token {idx:06d}|>"
         token_id = tokenizer.convert_tokens_to_ids(token)
         print(f"  {token}: ID {token_id}")
-    
-    if HAS_GENERATION_MODE and generation_token:
-        print(f"\n[PRIVATE] Generation mode token configured")
-        print("Remember: Do not distribute generation_mode_token.json file!")
-    
+
+    # Check generation token
+    gen_token_id = tokenizer.convert_tokens_to_ids("<|GEN:IMAGE:MODE|>")
+    if gen_token_id != tokenizer.unk_token_id:
+        print(f"  <|GEN:IMAGE:MODE|>: ID {gen_token_id}")
+
     return tokenizer, stats
 
 
