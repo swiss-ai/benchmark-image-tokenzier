@@ -30,6 +30,7 @@ class Emu3_5_IBQ(Tokenizer):
                  model_path: str,
                  min_pixels: Optional[int] = None,
                  max_pixels: Optional[int] = None,
+                 metadata_only: bool = False,
                  **kwargs):
         """
         Initialize Emu3.5 IBQ tokenizer
@@ -39,12 +40,29 @@ class Emu3_5_IBQ(Tokenizer):
                        Should contain config.yaml and model.ckpt
             min_pixels: Minimum number of pixels after resizing (if None, no resizing)
             max_pixels: Maximum number of pixels after resizing (if None, no resizing)
+            metadata_only: If True, only load metadata (codebook_size, name) without model weights
         """
         self.model_path = model_path
         self.name = "Emu3_5_IBQ"
         self.min_pixels = min_pixels
         self.max_pixels = max_pixels
         self.spatial_factor = 16  # Emu3.5 uses 16x downsampling
+
+        # If metadata_only, just load config and return
+        if metadata_only:
+            config_path = os.path.join(model_path, "config.yaml")
+            if not os.path.exists(config_path):
+                raise FileNotFoundError(f"Config file not found at {config_path}")
+
+            cfg = OmegaConf.load(config_path)
+
+            if 'n_embed' not in cfg or 'embed_dim' not in cfg:
+                raise ValueError(f"Config must contain 'n_embed' and 'embed_dim'. Found keys: {list(cfg.keys())}")
+
+            self.codebook_size = cfg['n_embed']
+            self.codebook_dim = cfg['embed_dim']
+            return
+
         super().__init__(**kwargs)
 
     def smart_resize(self, height: int, width: int) -> Tuple[int, int]:
@@ -106,7 +124,7 @@ class Emu3_5_IBQ(Tokenizer):
             if not os.path.exists(ckpt_path):
                 raise FileNotFoundError(f"Checkpoint file not found at {ckpt_path}")
 
-            ckpt = torch.load(ckpt_path, map_location="cpu")
+            ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
             self.model.load_state_dict(ckpt)
 
             # Move to device and set to eval mode
@@ -117,10 +135,13 @@ class Emu3_5_IBQ(Tokenizer):
             print(f"Model device: {self.device}")
 
             # Get codebook size and embedding dimension from config
-            self.n_embed = cfg.get('n_embed', 32768)
-            self.embed_dim = cfg.get('embed_dim', 8)
-            print(f"Codebook size: {self.n_embed}")
-            print(f"Embedding dimension: {self.embed_dim}")
+            if 'n_embed' not in cfg or 'embed_dim' not in cfg:
+                raise ValueError(f"Config must contain 'n_embed' and 'embed_dim'. Found keys: {list(cfg.keys())}")
+
+            self.codebook_size = cfg['n_embed']
+            self.codebook_dim = cfg['embed_dim']
+            print(f"Codebook size: {self.codebook_size}")
+            print(f"Codebook dimension: {self.codebook_dim}")
 
             self.get_params()
 
@@ -242,19 +263,19 @@ class Emu3_5_IBQ(Tokenizer):
                 if indices.ndim == 3:
                     # Already in [batch, height, width] format
                     batch_size, h, w = indices.shape
-                    shape = (batch_size, h, w, self.embed_dim)
+                    shape = (batch_size, h, w, self.codebook_dim)
                 elif indices.ndim == 2:
                     # [batch, num_tokens] format - need to reshape
                     batch_size = indices.shape[0]
                     num_tokens = indices.shape[1]
                     # Assume square spatial dimensions
                     spatial_size = int(np.sqrt(num_tokens))
-                    shape = (batch_size, spatial_size, spatial_size, self.embed_dim)
+                    shape = (batch_size, spatial_size, spatial_size, self.codebook_dim)
                 else:
                     # Single batch, flatten format
                     num_tokens = indices.numel()
                     spatial_size = int(np.sqrt(num_tokens))
-                    shape = (1, spatial_size, spatial_size, self.embed_dim)
+                    shape = (1, spatial_size, spatial_size, self.codebook_dim)
 
             # Decode using codebook lookup with indices only
             reconstructed = self.model.decode_code(indices, shape=shape)

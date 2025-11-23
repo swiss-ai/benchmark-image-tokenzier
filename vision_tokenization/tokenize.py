@@ -77,12 +77,19 @@ def create_hf_parser(subparsers):
     parser.add_argument(
         '--batch-size',
         type=int,
-        help='Batch size for work queue (I/O optimization)'
+        required=True,
+        help='Batch size for work queue (I/O optimization, affects checkpoint granularity)'
     )
     parser.add_argument(
         '--max-samples',
         type=int,
         help='Maximum number of samples to process'
+    )
+    parser.add_argument(
+        '--num-shards',
+        type=int,
+        required=True,
+        help='Number of shards for distributed processing and checkpointing'
     )
     parser.add_argument(
         '--image-field',

@@ -3,10 +3,10 @@ HuggingFace dataset tokenization pipeline.
 """
 
 from .pipeline import HFDatasetPipeline
-from .workers import WorkQueue, Worker
+from .workers import ShardQueue, Worker
 
 __all__ = [
     'HFDatasetPipeline',
-    'WorkQueue',
+    'ShardQueue',
     'Worker'
 ]

@@ -1,254 +1,301 @@
 # Vision Tokenization Pipeline
 
-This directory contains a scalable pipeline for tokenizing large-scale image datasets using vision tokenizers and saving them in Megatron-LM's IndexedDataset format.
+Unified pipeline for tokenizing large-scale vision datasets with support for multiple modes and vision tokenizers.
 
-## Overview
+**Important:** This pipeline requires an omni-tokenizer (extended text tokenizer with other modality vocabularies). The omni-tokenizer wraps token IDs from modality-specific tokenizers into the unified vocabulary. For example, vision token ID 100 becomes `<|visual token 00100|>` in the omni-tokenizer's vocabulary, with corresponding entries in the model's input and output embeddings. However, during our actual tokenization pipeline, we use the modality-specific tokenizer (e.g., Emu3VisionTokenizer) to get raw token indices, then apply a simple offset to map them to the omni-tokenizer's ID space.
 
-The pipeline consists of three main components:
+**Why this matters:** During inference, the model can predict tokens from any modality (text, vision, audio, etc.). The omni-tokenizer handles the unified token space, while modality-specific tokenizers (vision, audio) decode their respective tokens back to images, audio, etc. See [`utils/omni_tokenizer/README.md`](utils/omni_tokenizer/README.md) for creating omni-tokenizers.
 
-1. **WebDataset Sharding**: Converts directories of images into efficient WebDataset tar files
-2. **Vision Tokenization**: Uses models like Emu3VisionTokenizer to convert images to discrete tokens
-3. **IndexedDataset Creation**: Saves tokens in Megatron-LM compatible format for efficient training
+## Token Structure Format
 
-## Directory Structure
+Images are tokenized into a structured sequence with special tokens marking boundaries and rows:
 
 ```
-vision_tokenization/
-├── configs/              # Dataset-specific configuration files
-│   └── llava_config.yaml
-├── scripts/              # Utility scripts (future)
-├── utils/                # Utility modules
-│   └── indexed_dataset_megatron.py
-├── tests/                # Test suite
-│   ├── test_indexed_dataset_format.py
-│   ├── test_indexed_dataset_integrity.py
-│   ├── test_vision_pipeline_integration.py
-│   └── test_utils.py
-├── tokenize_images.py    # Main tokenization script
-└── README.md
+[BOS]
+<|img_start|>
+"32*32"                    # Image dimensions as text
+<|img_token_start|>
+<|visual token 00100|>     # Row 1, column 1
+<|visual token 00523|>     # Row 1, column 2
+...
+<|img_end_of_row|>         # End of row 1
+<|visual token 01244|>     # Row 2, column 1
+...
+<|img_end_of_row|>         # End of row 2
+...                        # All H rows
+<|img_end_of_frame|>       # End of entire image
+<|img_end|>
+[EOS]
 ```
 
-## Usage
+This structure is created by the `encapsulate_image()` method in [`vokenizers/emu/image_only.py`](vokenizers/emu/image_only.py), which wraps raw vision indices with boundary markers and spatial information. The complete pipeline is orchestrated by `tokenize_image()` in the same file.
 
-### Basic Usage
+**Tokenizer Class Hierarchy:**
+```
+EMUImageOnlyTokenizer (base class)
+├── tokenize_image()      # Core method for image tokenization
+├── encapsulate_image()   # Wraps vision indices with structure tokens
+│
+├─→ EMUImageTextPairTokenizer
+│   └── tokenize_image_text_pair()
+│       ├── Calls self.tokenize_image() for image (GPU, parallel)
+│       ├── Tokenizes text separately (CPU, parallel)
+│       └── Concatenates based on mode (image2text or text2image)
+│
+└─→ EMUSftTokenizer
+    └── tokenize_conversation()
+        ├── Calls self.tokenize_image() for image (GPU, parallel)
+        ├── Applies chat template and tokenizes text (CPU, parallel, includes <|image|> placeholder)
+        └── Replaces <|image|> placeholder token with actual vision tokens
+```
 
-#### Pure Vision Tokenizer (Emu3 only)
+## Quick Start
+
+### Image-Only Tokenization
 ```bash
-python tokenize_images.py \
-    --dataset llava \
-    --input-path /capstor/store/cscs/swissai/infra01/vision-datasets/llava_pretrain/LLaVA-Pretrain \
-    --device cuda \
-    --batch-size 16
+python tokenize.py hf \
+    --mode image_only \
+    --dataset-name HuggingFaceM4/FineVision \
+    --config-name CoSyn_400k_chart \
+    --dataset-split train \
+    --tokenizer-path /path/to/omni/tokenizer \
+    --output-dir ./output \
+    --num-gpus 4 \
+    --num-shards 100 \
+    --device cuda
 ```
 
-#### Multimodal Tokenizer (Text + Image tokens)
-First, detect your text tokenizer's vocabulary size:
+### SFT Tokenization (Conversations with Images)
 ```bash
-python utils/detect_vocab_size.py alehc/swissai-tokenizer
+python tokenize.py hf \
+    --mode sft \
+    --dataset-name HuggingFaceM4/FineVision \
+    --config-name CoSyn_400k_chart \
+    --dataset-split train \
+    --tokenizer-path /path/to/omni/instruct/tokenizer \
+    --output-dir ./output \
+    --num-gpus 4 \
+    --num-shards 100 \
+    --device cuda
 ```
 
-Then tokenize with proper vocabulary offset:
+## Supported Modes
+
+**Note**: Currently supports **single image** per sample. Multi-image interleaving is not yet supported.
+
+- **`image_only`** - Tokenize single images only (for pretraining)
+- **`image2text`** - Single image followed by text caption
+- **`text2image`** - Text prompt followed by single image
+- **`sft`** - Supervised fine-tuning with conversations (single image + text)
+
+## Configuration Options
+
+### Common Arguments
+
+- `--tokenizer-path` - Path to omni-tokenizer (base for pretraining, instruct for sft). The vision tokenizer type and path are automatically loaded from the omni-tokenizer's config.
+- `--output-dir` - Output directory for tokenized data
+- `--num-gpus` - Number of GPUs for distributed processing
+- `--device` - Device to use (cuda or cpu)
+
+### Image Resolution Control
+
+**Tokenizer Resolution** (controls vision tokenizer behavior):
+- `--min-tokenizer-pixels` - Minimum pixels for tokenizer (e.g., "512*512" or "262144")
+- `--max-tokenizer-pixels` - Maximum pixels for tokenizer (e.g., "1024*1024" or "1048576")
+
+**Dataset Filtering** (filters which images to process):
+- `--min-image-pixels` - Filter out images smaller than this
+- `--max-image-pixels` - Filter out images larger than this
+
+### Dataset Options
+
+- `--dataset-name` - HuggingFace dataset name
+- `--config-name` - Dataset configuration/subset
+- `--dataset-split` - Dataset split (train/validation/test)
+- `--cache-dir` - Cache directory for datasets
+- `--max-samples` - Maximum samples to process (for testing)
+
+### Processing Options
+
+- `--num-shards` - Number of shards for distributed processing and checkpointing (required)
+- `--num-proc` - Number of processes for dataset loading
+- `--image-field` - Name of image field in dataset (default: "images")
+- `--text-field` - Name of text field in dataset (default: "texts")
+
+## Configuration Files
+
+You can use JSON configuration files instead of CLI arguments:
+
+```json
+{
+  "dataset_name": "HuggingFaceM4/FineVision",
+  "config_name": "CoSyn_400k_chart",
+  "dataset_split": "train",
+  "mode": "sft",
+  "tokenizer_path": "/path/to/tokenizer",
+  "output_dir": "./output",
+  "num_gpus": 4,
+  "num_shards": 100,
+  "device": "cuda",
+  "min_tokenizer_pixels": "512*512",
+  "max_tokenizer_pixels": "1024*1024"
+}
+```
+
+### Important: Shards in HuggingFace vs WebDataset
+
+**Note:** The concept of "shards" differs between HuggingFace and WebDataset formats:
+
+- **WebDataset shards**: Physical `.tar` files on disk. Each shard is a separate file containing a subset of data.
+- **HuggingFace shards**: Logical views of the dataset created using `.shard()` method. The entire dataset stays as one unit, but we create efficient strided views for parallel processing.
+
+When using `--num-shards` with HuggingFace datasets:
+- It doesn't create physical shard files for input data
+- It creates logical shards for processing, which results in separate output files (`rank_XXX_shard_YYYYY.bin/idx`)
+- Each logical shard is processed atomically for checkpointing
+- `num_shards` should be a multiple of `num_gpus` (workers) for optimal load balancing
+  - Example: 8 workers → use 8, 16, 24, 32, 40, 48... shards
+  - The pipeline will automatically adjust if `num_shards < num_gpus` to ensure each worker has work
+
+## Processing Large Datasets via Config
+
+For large datasets, simply modify the `dataset_split` field to process subsets:
+
+```json
+{
+  "dataset_name": "massive_dataset",
+  "config_name": "some_config",
+  "dataset_split": "train[:10000000]",  // Process first 10M samples
+  "mode": "image_only",
+  "tokenizer_path": "/path/to/tokenizer",
+  "output_dir": "./output",
+  "num_gpus": 8,
+  "num_shards": 1000,  // Enable shard-based checkpointing
+  "device": "cuda"
+}
+```
+
+**Dataset split examples:**
+- `"dataset_split": "train[:10000000]"` - First 10M samples
+- `"dataset_split": "train[10000000:20000000]"` - Samples 10M to 20M
+- `"dataset_split": "train[:50%]"` - First half of dataset
+- `"dataset_split": "train[-5000000:]"` - Last 5M samples
+
+**Note:** Vision tokenizer type and path are automatically loaded from the omni-tokenizer's `tokenizer_config.json`.
+
+Use with:
 ```bash
-python tokenize_images.py \
-    --dataset llava \
-    --input-path /capstor/store/cscs/swissai/infra01/vision-datasets/llava_pretrain/LLaVA-Pretrain \
-    --text-vocab-size 50000 \
-    --image-vocab-size 131072 \
-    --device cuda \
-    --batch-size 16
+python tokenize.py hf --config config.json
 ```
 
-### Advanced Options
-
-```bash
-python tokenize_images.py \
-    --dataset my_dataset \
-    --input-path /path/to/images \
-    --output-dir /custom/output/path \
-    --tokenizer emu3 \
-    --batch-size 32 \
-    --num-shards 20 \
-    --device cuda:1 \
-    --create-shards  # Force recreation of shards
-```
+CLI arguments override config file values.
 
 ## Output Format
 
-The pipeline creates the following structure:
+The pipeline creates Megatron-LM IndexedDataset format with shard-based files:
 
 ```
 output_dir/
-└── dataset_name/
-    ├── shards/           # WebDataset tar files
-    │   ├── shard-000000.tar
-    │   ├── shard-000001.tar
-    │   └── ...
-    ├── tokens/           # Tokenized data
-    │   ├── dataset_name_emu3.bin      # Binary token data
-    │   ├── dataset_name_emu3.idx      # Index for random access
-    │   └── dataset_name_emu3.meta.json # Metadata
-    └── logs/             # Processing logs
-        └── tokenization_stats.json
+└── config_name/
+    ├── rank_000_shard_00000.bin   # Binary token data for worker 0, shard 0
+    ├── rank_000_shard_00000.idx   # Index for random access
+    ├── rank_000_shard_00001.bin   # Binary token data for worker 0, shard 1
+    ├── rank_000_shard_00001.idx
+    ├── rank_001_shard_00008.bin   # Binary token data for worker 1, shard 8
+    ├── rank_001_shard_00008.idx
+    ├── rank_002_shard_00016.bin   # Binary token data for worker 2, shard 16
+    ├── rank_002_shard_00016.idx
+    └── dataset_info.json           # Processing metadata
 ```
 
-## IndexedDataset Format
+Each shard creates an independent file pair, enabling atomic checkpointing and easy resume capability.
 
-The output follows Megatron-LM's IndexedDataset format:
 
-- `.bin`: Raw token data (int32 or uint16 values, concatenated without separators)
-- `.idx`: Index file with document-level metadata and offsets
-- `.meta.json`: Metadata including statistics
+## Examples
 
-### Index File Structure (.idx)
-
-**Header (34 bytes)**:
-- 9 bytes: Magic string `MMIDIDX\x00\x00`
-- 8 bytes: Version (uint64, always 1)
-- 1 byte: Data type code (4=int32, 8=uint16)
-- 8 bytes: Number of documents
-- 8 bytes: Number of documents (repeated for compatibility)
-
-**Data Arrays**:
-- Document lengths: `#docs × 4 bytes` (uint32 for each document's token count)
-- Document pointers: `#docs × 8 bytes` (uint64 byte offsets into the .bin file)
-- Document indices: `(#docs + 1) × 8 bytes` (indices [0, 1, 2, ..., #docs])
-
-### Reading the Dataset
-
-```python
-from utils.indexed_dataset import IndexedDatasetReader
-
-# Load the dataset
-reader = IndexedDatasetReader("/path/to/dataset_name_emu3")
-
-# Get number of sequences
-print(f"Number of sequences: {len(reader)}")
-
-# Get tokens for a specific image
-tokens = reader[0]  # Returns numpy array of token indices
-```
-
-## Multimodal Tokenizer Support
-
-### Vocabulary Structure
-
-For multimodal models, the vocabulary is structured as:
-```
-[0, text_vocab_size)        - Text tokens
-[text_vocab_size, total)    - Image tokens
-```
-
-For example, with `alehc/swissai-tokenizer` (text) + Emu3 (image):
-- Text tokens: [0, 50000)
-- Image tokens: [50000, 181072)
-- Total vocabulary: 181,072 tokens
-
-### Token Offset Process
-
-1. **Emu3 tokenizer** outputs image tokens in range [0, 131072)
-2. **Pipeline** adds offset: `image_token + text_vocab_size`
-3. **Result**: Image tokens in range [50000, 181072)
-
-This ensures no collision between text and image tokens in the multimodal vocabulary.
-
-### Detecting Vocabulary Size
-
-Use the provided utility to detect your text tokenizer's vocabulary:
-```bash
-python utils/detect_vocab_size.py alehc/swissai-tokenizer
-```
-
-This will output the exact vocabulary size and provide the correct command line arguments.
-
-## Pipeline Details
-
-### 1. WebDataset Creation
-
-The pipeline first converts your image directory into WebDataset shards:
-
-- Scans for images (jpg, png, webp)
-- Splits into balanced shards
-- Each sample contains:
-  - Image data
-  - Metadata (original path, index, etc.)
-
-### 2. Tokenization Process
-
-For each image:
-
-1. **Load**: Image loaded from WebDataset as PIL
-2. **Preprocess**: Convert to tensor, normalize (via `tokenizer.preprocess()`)
-3. **Encode**: Generate discrete tokens (via `tokenizer.encode()`)
-4. **Flatten**: Convert spatial tokens [H, W] to flat array
-5. **Save**: Add to IndexedDataset
-
-### 3. Statistics Tracking
-
-The pipeline tracks:
-- Total images processed
-- Token statistics (min, max, average)
-- Processing times
-- Failed images
-
-## Performance Considerations
-
-### Single Node Optimization
-
-- **Batch Processing**: Process multiple images at once
-- **GPU Memory**: Clears cache periodically
-- **I/O Efficiency**: WebDataset enables streaming from disk
-
-### Future Multi-Node Support
-
-The pipeline is designed for future distributed processing:
+### Example 1: Image-Only Pretraining Dataset
 
 ```bash
-# Future usage (not implemented yet)
-torchrun --nproc_per_node=8 tokenize_images.py \
-    --dataset llava \
-    --input-path /path/to/images \
-    --distributed
+python tokenize.py hf \
+    --mode image_only \
+    --dataset-name laion/laion-high-resolution \
+    --dataset-split train \
+    --tokenizer-path ./llama3_emu3_base \
+    --output-dir ./tokenized_data \
+    --num-gpus 8 \
+    --num-shards 800 \
+    --device cuda \
+    --min-tokenizer-pixels "512*512" \
+    --max-tokenizer-pixels "1024*1024" \
+    --min-image-pixels "256*256" \
+    --max-image-pixels "2048*2048"
 ```
 
-## Adding New Tokenizers
+### Example 2: SFT with FineVision
 
-To add a new vision tokenizer:
-
-1. Implement the tokenizer following the base interface
-2. Add to tokenizer choices in `tokenize_images.py`
-3. Update the initialization logic
-
-Example:
-```python
-if args.tokenizer == "emu3":
-    self.tokenizer = Emu3VisionTokenizer(device=self.device)
-elif args.tokenizer == "new_tokenizer":
-    self.tokenizer = NewVisionTokenizer(device=self.device)
+```bash
+python tokenize.py hf \
+    --mode sft \
+    --dataset-name HuggingFaceM4/FineVision \
+    --config-name CoSyn_400k_chart \
+    --dataset-split train \
+    --tokenizer-path ./llama3_emu3_instruct \
+    --output-dir ./sft_data \
+    --num-gpus 4 \
+    --num-shards 100 \
+    --device cuda \
+    --max-samples 1000  # For testing
 ```
+
+### Example 3: Using Emu3.5
+
+```bash
+# Just use an Emu3.5 omni-tokenizer - vision tokenizer is auto-loaded!
+python tokenize.py hf \
+    --mode image_only \
+    --dataset-name ... \
+    --tokenizer-path ./llama3_emu3.5_base \
+    --output-dir ./emu3.5_data \
+    --num-gpus 4 \
+    --num-shards 100 \
+    --device cuda
+```
+
+## Performance Tips
+
+1. **Shard Count**: Choose appropriate `--num-shards` based on dataset size (see recommendations above)
+2. **GPU Count**: More GPUs = faster processing with Ray's work-stealing
+3. **Resolution**: Lower max pixels = faster tokenization but lower quality
+4. **Filtering**: Use min/max image pixels to skip unwanted images early
+5. **Load Balancing**: Set `num_shards` as a multiple of `num_gpus` for optimal distribution
 
 ## Troubleshooting
 
 ### Out of Memory
-
-- Reduce `--batch-size`
-- Use CPU with `--device cpu`
-- Enable gradient checkpointing in tokenizer (if supported)
+- Reduce `--max-tokenizer-pixels`
+- Increase `--num-shards` to reduce samples per shard
+- Use fewer GPUs
 
 ### Slow Processing
+- Ensure `--num-shards` is a multiple of `--num-gpus`
+- Use more GPUs with `--num-gpus`
+- Check GPU utilization with `nvidia-smi`
 
-- Increase `--batch-size` if memory allows
-- Use faster storage for shards
-- Ensure GPU is being utilized
+### Missing Images or Text
+- Check `--image-field` and `--text-field` match your dataset
+- Use `--max-samples 10` to test on small subset first
 
-### Failed Images
+## Architecture
 
-Check `logs/tokenization_stats.json` for failed image count. Common causes:
-- Corrupted image files
-- Unsupported formats
-- Permission issues
+The pipeline uses:
+- **Ray** for distributed GPU processing with dynamic work-stealing
+- **HuggingFace Datasets** for efficient data loading via `.shard()` method
+- **Megatron-LM IndexedDataset** for training-optimized output format
+- **Shard-based processing** for atomic checkpointing and resume capability
 
-## References
+Workers pull shards dynamically from a shared queue, ensuring optimal GPU utilization. Each shard is processed independently and saved as a separate file pair (`rank_XXX_shard_YYYYY.bin/idx`), enabling robust checkpointing and recovery.
 
-- WebDataset: https://github.com/webdataset/webdataset
-- Megatron-LM IndexedDataset: https://github.com/NVIDIA/Megatron-LM
-- Emu3 Vision Tokenizer: https://huggingface.co/BAAI/Emu3-VisionTokenizer
+## Related Tools
+
+- **Omni-Tokenizer Creation**: See `utils/omni_tokenizer/README.md`
+- **Old WebDataset Pipeline**: See `README_OLD_WEBDATASET.md` (legacy)

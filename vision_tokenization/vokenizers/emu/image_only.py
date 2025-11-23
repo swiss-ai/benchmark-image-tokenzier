@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """
-EMU3 image-only tokenizer with core functionality.
+EMU image-only tokenizer with core functionality.
+Supports both Emu3 and Emu3.5 vision tokenizers.
 """
 
 import torch
+import json
 from typing import List, Dict, Any
+from pathlib import Path
 from transformers import AutoTokenizer
 import sys
 import os
@@ -12,15 +15,15 @@ import os
 # Add paths for Tokenizer imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'Tokenizer'))
-from Tokenizer.Emu3VisionTokenizer import Emu3VisionTokenizer
 
 from ..base import BaseTokenizer
 
 
-class EMU3ImageOnlyTokenizer(BaseTokenizer):
+class EMUImageOnlyTokenizer(BaseTokenizer):
     """
-    EMU3 tokenizer for image-only sequences.
-    Provides direct image tokenization with EMU3 special tokens.
+    EMU tokenizer for image-only sequences.
+    Provides direct image tokenization with EMU special tokens.
+    Supports both Emu3 and Emu3.5 vision tokenizers.
     """
 
     def __init__(self,
@@ -29,10 +32,10 @@ class EMU3ImageOnlyTokenizer(BaseTokenizer):
                  max_pixels: int,
                  device: str = "cuda"):
         """
-        Initialize with text tokenizer that has EMU3 vision tokens and image tokenizer.
+        Initialize with text tokenizer that has EMU vision tokens and image tokenizer.
 
         Args:
-            text_tokenizer_path: Path to text tokenizer with EMU3 tokens
+            text_tokenizer_path: Path to text tokenizer with EMU tokens
             min_pixels: Minimum pixels for image preprocessing (required)
             max_pixels: Maximum pixels for image preprocessing (required)
             device: Device for image tokenizer (default: "cuda")
@@ -41,7 +44,7 @@ class EMU3ImageOnlyTokenizer(BaseTokenizer):
         # Store device
         self.device = device
 
-        # Load tokenizer with trust_remote_code for custom EMU3Tokenizer class
+        # Load tokenizer with trust_remote_code for custom tokenizer class
         # Use fast tokenizer for better performance
         self.text_tokenizer = AutoTokenizer.from_pretrained(
             text_tokenizer_path,
@@ -53,11 +56,45 @@ class EMU3ImageOnlyTokenizer(BaseTokenizer):
         assert min_pixels is not None, "min_pixels must be provided"
         assert max_pixels is not None, "max_pixels must be provided"
 
-        self.image_tokenizer = Emu3VisionTokenizer(
-            device=self.device,
-            min_pixels=min_pixels,
-            max_pixels=max_pixels
-        )
+        # Load vision tokenizer config from tokenizer_config.json
+        config_path = Path(text_tokenizer_path) / "tokenizer_config.json"
+        with open(config_path, 'r') as f:
+            tokenizer_config = json.load(f)
+
+        if 'vision_tokenizer' not in tokenizer_config:
+            raise ValueError(
+                f"No vision_tokenizer config found in {config_path}. "
+                f"Make sure the omni-tokenizer was created with vision tokenizer info."
+            )
+
+        vision_config = tokenizer_config['vision_tokenizer']
+        vision_tokenizer_type = vision_config['type']
+        vision_tokenizer_path = vision_config['path']
+
+        print(f"Loading vision tokenizer: {vision_tokenizer_type} from {vision_tokenizer_path}")
+
+        # Dynamically load the correct vision tokenizer class
+        if vision_tokenizer_type == 'Emu3':
+            from Tokenizer.Emu3VisionTokenizer import Emu3VisionTokenizer
+            self.image_tokenizer = Emu3VisionTokenizer(
+                model_path=vision_tokenizer_path,
+                device=self.device,
+                min_pixels=min_pixels,
+                max_pixels=max_pixels
+            )
+        elif vision_tokenizer_type == 'Emu3.5':
+            from Tokenizer.Emu3_5_IBQ import Emu3_5_IBQ
+            self.image_tokenizer = Emu3_5_IBQ(
+                model_path=vision_tokenizer_path,
+                device=self.device,
+                min_pixels=min_pixels,
+                max_pixels=max_pixels
+            )
+        else:
+            raise ValueError(
+                f"Unsupported vision tokenizer type: {vision_tokenizer_type}. "
+                f"Supported types: Emu3, Emu3.5"
+            )
 
         # Cache for dimension tokens to avoid repeated encoding
         self.dim_cache = {}
