@@ -65,6 +65,14 @@ python tokenize.py hf \
     --device cuda
 ```
 
+### Resume from Checkpoint
+```bash
+# If processing was interrupted, simply add --resume to skip completed shards
+python tokenize.py hf \
+    --config config.json \
+    --resume
+```
+
 ### SFT Tokenization (Conversations with Images)
 ```bash
 python tokenize.py hf \
@@ -121,6 +129,7 @@ python tokenize.py hf \
 - `--num-proc` - Number of processes for dataset loading
 - `--image-field` - Name of image field in dataset (default: "images")
 - `--text-field` - Name of text field in dataset (default: "texts")
+- `--resume` - Resume from existing checkpoint, skipping completed shards
 
 ## Configuration Files
 
@@ -197,18 +206,62 @@ The pipeline creates Megatron-LM IndexedDataset format with shard-based files:
 ```
 output_dir/
 └── config_name/
-    ├── rank_000_shard_00000.bin   # Binary token data for worker 0, shard 0
-    ├── rank_000_shard_00000.idx   # Index for random access
-    ├── rank_000_shard_00001.bin   # Binary token data for worker 0, shard 1
-    ├── rank_000_shard_00001.idx
-    ├── rank_001_shard_00008.bin   # Binary token data for worker 1, shard 8
-    ├── rank_001_shard_00008.idx
-    ├── rank_002_shard_00016.bin   # Binary token data for worker 2, shard 16
-    ├── rank_002_shard_00016.idx
-    └── dataset_info.json           # Processing metadata
+    ├── rank_0_shard_3_32.bin   # Binary token data (worker 0, shard 3 of 32 total)
+    ├── rank_0_shard_3_32.idx   # Index for random access
+    ├── rank_0_shard_4_32.bin   # Binary token data (worker 0, shard 4 of 32 total)
+    ├── rank_0_shard_4_32.idx
+    ├── rank_1_shard_8_32.bin   # Binary token data (worker 1, shard 8 of 32 total)
+    ├── rank_1_shard_8_32.idx
+    ├── rank_2_shard_16_32.bin  # Binary token data (worker 2, shard 16 of 32 total)
+    ├── rank_2_shard_16_32.idx
+    └── dataset_info.json       # Processing metadata (written after completion)
 ```
 
-Each shard creates an independent file pair, enabling atomic checkpointing and easy resume capability.
+The filename format `rank_{worker}_shard_{id}_{total}` enables:
+- **Atomic checkpointing**: Each shard is saved independently
+- **Easy resume**: The total shard count is embedded in filenames
+- **Clear tracking**: You can see progress at a glance
+
+## Checkpoint and Resume
+
+### How It Works
+
+1. Each shard saves to `rank_{worker}_shard_{id}_{total}.bin` and `.idx`
+2. The `.idx` file marks completion (written last)
+3. Resume detects completed shards by checking for `.idx` files
+4. Only uncompleted shards are reprocessed
+
+### Resume Usage
+
+```bash
+# Initial run
+python tokenize.py hf --config config.json
+
+# Resume after interruption
+python tokenize.py hf --config config.json --resume
+```
+
+### Edge Cases
+
+**Incomplete shards** (`.bin` without `.idx`):
+- Automatically overwritten when reprocessed
+
+**Inconsistent shard counts**:
+- Program stops with error if existing files have different total shards
+- Example error:
+  ```
+  ERROR: Inconsistent total shard counts found: [32, 64]
+    32 total shards: 20 files
+    64 total shards: 10 files
+  Clean the output directory or use a different output path
+  ```
+
+**Mismatched resume**:
+- If resuming with different `num_shards`, program stops:
+  ```
+  ERROR: No existing shards match expected count (100). Found shard counts: [32]
+  To resume, use --num-shards 32 or start fresh without --resume
+  ```
 
 
 ## Examples

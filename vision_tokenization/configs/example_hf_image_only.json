@@ -1,15 +1,18 @@
 {
-  "tokenizer_path": "/capstor/store/cscs/swissai/infra01/MLLM/llama3_emu3_tokenizer",
+  "tokenizer_path": "/capstor/store/cscs/swissai/infra01/MLLM/llama3_emu3.5_tokenizer",
   "output_dir": "./output/hf_image_only",
-  "dataset_name": "ILSVRC/imagenet-1k",
+  "dataset_name": "HuggingFaceM4/FineVision",
+  "config_name": "lrv_chart",
   "dataset_split": "train",
   "mode": "image_only",
-  "num_workers": 8,
+  "num_gpus": 4,
+  "num_shards": 8,
   "device": "cuda",
   "min_tokenizer_pixels": "384*384",
   "max_tokenizer_pixels": "1024*1024",
   "min_image_pixels": null,
   "max_image_pixels": null,
-  "max_samples": 1000,
-  "image_field": "image"
+  "max_samples": 160,
+  "image_field": "images",
+  "cache_dir": "/users/xyixuan/.cache/huggingface/datasets"
 }
