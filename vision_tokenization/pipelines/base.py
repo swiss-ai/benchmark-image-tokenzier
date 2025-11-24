@@ -78,6 +78,7 @@ class BasePipeline(ABC):
         total_errors = sum(r['errors'] for r in results)
         total_skipped = sum(r.get('samples_skipped', 0) for r in results)
         total_resolution_skipped = sum(r.get('resolution_skipped', 0) for r in results)
+        total_transform_errors = sum(r.get('transform_errors', 0) for r in results)
         total_image_tokens = sum(r.get('image_tokens', 0) for r in results)
         total_text_tokens = sum(r.get('text_tokens', 0) for r in results)
 
@@ -86,6 +87,7 @@ class BasePipeline(ABC):
                 'total_samples_processed': total_samples,
                 'samples_skipped': total_skipped,
                 'resolution_skipped': total_resolution_skipped,
+                'transform_errors': total_transform_errors,
                 'total_tokens': total_tokens,
                 'image_tokens': total_image_tokens,
                 'text_tokens': total_text_tokens,
@@ -116,6 +118,7 @@ class BasePipeline(ABC):
                     'errors': r['errors'],
                     'samples_skipped': r.get('samples_skipped', 0),
                     'resolution_skipped': r.get('resolution_skipped', 0),
+                    'transform_errors': r.get('transform_errors', 0),
                     'throughput': r.get('throughput', 0)
                 } for i, r in enumerate(results)
             ]
@@ -323,6 +326,8 @@ class BaseTokenizerWorker:
         """
         Extract image and/or text from sample based on mode.
         Can be overridden by specific implementations.
+
+        Text loaded here can be either string only or any format of messages (ex. list of objects with {"content": ..., "role": ...})."})
         """
         try:
             # Extract image
@@ -363,6 +368,7 @@ class BaseTokenizerWorker:
 
     def update_stats(self, samples: int = 0, tokens: int = 0, errors: int = 0,
                      skipped: int = 0, resolution_skipped: int = 0,
+                     transform_errors: int = 0,
                      image_tokens: int = 0, text_tokens: int = 0):
         """Update worker statistics."""
         self.stats['samples_processed'] += samples
@@ -372,6 +378,7 @@ class BaseTokenizerWorker:
         self.stats['errors'] += errors
         self.stats['samples_skipped'] += skipped
         self.stats['resolution_skipped'] += resolution_skipped
+        self.stats['transform_errors'] += transform_errors
 
     def format_stats_message(self, prefix: str, stats: Dict, elapsed: float = None) -> str:
         """Format statistics into a clean log message."""
@@ -399,6 +406,8 @@ class BaseTokenizerWorker:
             skips.append(f"{stats.get('skipped', stats.get('samples_skipped', 0))} data_skip")
         if stats.get('resolution_skipped', 0) > 0:
             skips.append(f"{stats['resolution_skipped']} res_skip")
+        if stats.get('transform_errors', 0) > 0:
+            skips.append(f"{stats['transform_errors']} transform_err")
         if skips:
             parts.append(f"({', '.join(skips)})")
 
