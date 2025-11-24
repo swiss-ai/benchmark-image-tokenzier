@@ -10,6 +10,7 @@ import ray
 
 from vision_tokenization.pipelines.base import BasePipeline, ProgressActor
 from vision_tokenization.pipelines.hf.workers import ShardQueue, Worker
+from vision_tokenization.pipelines.transforms import create_transform_pipeline
 
 
 class HFDatasetPipeline(BasePipeline):
@@ -37,6 +38,9 @@ class HFDatasetPipeline(BasePipeline):
         image_field: str = "images",
         text_field: str = "texts",
         resume: bool = False,
+        image_transforms: Optional[str] = None,
+        text_transforms: Optional[str] = None,
+        transform_params: Optional[Dict[str, Dict[str, Any]]] = None,
         **kwargs
     ):
         super().__init__(tokenizer_path, output_dir, num_gpus, device, **kwargs)
@@ -92,6 +96,18 @@ class HFDatasetPipeline(BasePipeline):
                 f"Adjusting num_shards to {self.num_gpus} to ensure all workers have work."
             )
             self.num_shards = self.num_gpus
+
+        # Create transform pipeline if transforms are configured
+        self.transform_pipeline = create_transform_pipeline(
+            image_transforms=image_transforms,
+            text_transforms=text_transforms,
+            transform_params=transform_params
+        )
+        if self.transform_pipeline:
+            self.logger.info(
+                f"Transform pipeline configured with "
+                f"image_transforms='{image_transforms}', text_transforms='{text_transforms}'"
+            )
 
     def _get_completed_shards(self) -> set:
         """Get list of already completed shards by checking for .idx files."""
@@ -239,7 +255,8 @@ class HFDatasetPipeline(BasePipeline):
                 image_field=self.image_field,
                 text_field=self.text_field,
                 min_image_pixels=self.min_image_pixels,
-                max_image_pixels=self.max_image_pixels
+                max_image_pixels=self.max_image_pixels,
+                transform_pipeline=self.transform_pipeline
             )
             self.workers.append(worker)
 
