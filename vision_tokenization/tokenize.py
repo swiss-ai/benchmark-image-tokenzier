@@ -111,6 +111,16 @@ def create_hf_parser(subparsers):
         action='store_true',
         help='Resume from existing checkpoint by skipping completed shards'
     )
+    parser.add_argument(
+        '--image-transforms',
+        type=str,
+        help='Comma-separated list of image transforms to apply (e.g., "convert_rgb,resize_max")'
+    )
+    parser.add_argument(
+        '--text-transforms',
+        type=str,
+        help='Comma-separated list of text transforms to apply (e.g., "strip_whitespace")'
+    )
 
     return parser
 

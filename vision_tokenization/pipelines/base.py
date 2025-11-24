@@ -10,6 +10,8 @@ import ray
 import torch
 from tqdm import tqdm
 
+from vision_tokenization.pipelines.transforms import TransformPipeline, TransformError
+
 
 class BasePipeline(ABC):
     """Abstract base class for tokenization pipelines."""
@@ -190,7 +192,8 @@ class BaseTokenizerWorker:
         text_field: str = "text",
         device: str = None,
         min_image_pixels: Optional[int] = None,  # For filtering images
-        max_image_pixels: Optional[int] = None  # For filtering images
+        max_image_pixels: Optional[int] = None,  # For filtering images
+        transform_pipeline: Optional[TransformPipeline] = None  # For data transforms
     ):
         self.worker_id = worker_id
         self.mode = mode
@@ -199,6 +202,7 @@ class BaseTokenizerWorker:
         self.text_field = text_field
         self.min_image_pixels = min_image_pixels
         self.max_image_pixels = max_image_pixels
+        self.transform_pipeline = transform_pipeline
 
         # Setup logging
         self.logger = logging.getLogger(f"Worker{worker_id:02d}")
@@ -227,6 +231,7 @@ class BaseTokenizerWorker:
             'errors': 0,
             'samples_skipped': 0,  # Samples skipped due to missing data
             'resolution_skipped': 0,  # Samples skipped due to resolution filtering
+            'transform_errors': 0,  # Samples skipped due to transform errors
             'start_time': time.time()
         }
 
@@ -337,6 +342,24 @@ class BaseTokenizerWorker:
                 f"Required field '{field}' not found in sample. "
                 f"Available fields: {', '.join(sample.keys())}"
             ) from None
+
+    def apply_transforms(self, image, text):
+        """
+        Apply transform pipeline to image and text if configured.
+
+        Args:
+            image: PIL Image or None
+            text: Text string or None
+
+        Returns:
+            Tuple of (transformed_image, transformed_text)
+
+        Raises:
+            TransformError: If any transform fails
+        """
+        if self.transform_pipeline is None:
+            return image, text
+        return self.transform_pipeline.apply(image, text)
 
     def update_stats(self, samples: int = 0, tokens: int = 0, errors: int = 0,
                      skipped: int = 0, resolution_skipped: int = 0,

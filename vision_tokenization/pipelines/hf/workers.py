@@ -61,6 +61,7 @@ class ShardQueue:
 
 
 from vision_tokenization.pipelines.base import BaseTokenizerWorker
+from vision_tokenization.pipelines.transforms import TransformPipeline, TransformError
 
 
 @ray.remote(num_gpus=1)
@@ -81,7 +82,8 @@ class Worker(BaseTokenizerWorker):
         image_field: str = "image",
         text_field: str = "text",
         min_image_pixels: Optional[int] = None,
-        max_image_pixels: Optional[int] = None
+        max_image_pixels: Optional[int] = None,
+        transform_pipeline: Optional[TransformPipeline] = None
     ):
         """
         Initialize HF worker with tokenizer and output configuration.
@@ -97,6 +99,7 @@ class Worker(BaseTokenizerWorker):
             text_field: Field name for text in dataset
             min_image_pixels: Min pixels to filter images (optional)
             max_image_pixels: Max pixels to filter images (optional)
+            transform_pipeline: Transform pipeline for image/text transforms (optional)
         """
         # Initialize base tokenizer with resolution filtering parameters
         super().__init__(
@@ -108,7 +111,8 @@ class Worker(BaseTokenizerWorker):
             image_field=image_field,
             text_field=text_field,
             min_image_pixels=min_image_pixels,
-            max_image_pixels=max_image_pixels
+            max_image_pixels=max_image_pixels,
+            transform_pipeline=transform_pipeline
         )
 
         # Store output directory for per-shard files
@@ -161,12 +165,21 @@ class Worker(BaseTokenizerWorker):
             'text_tokens': 0,
             'errors': 0,
             'skipped': 0,
-            'resolution_skipped': 0
+            'resolution_skipped': 0,
+            'transform_errors': 0
         }
 
         for sample in shard:
             # Extract data
             image, text = self._extract_data(sample)
+
+            # Apply transforms if configured
+            try:
+                image, text = self.apply_transforms(image, text)
+            except TransformError as e:
+                self.logger.warning(f"Transform error: {e}")
+                stats['transform_errors'] += 1
+                continue
 
             # Check sample status
             status = self.get_sample_status(image, text)
