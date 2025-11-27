@@ -2,14 +2,14 @@
 #SBATCH --account=a-infra01
 #SBATCH --job-name=emu3-sft-tok
 #SBATCH --environment=emu3
-#SBATCH --nodes=5
+#SBATCH --nodes=10
 #SBATCH --exclusive
 #SBATCH --partition=normal
 #SBATCH --ntasks-per-node=4
 #SBATCH --cpus-per-task=72
 #SBATCH --time=12:00:00
-#SBATCH --output=/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/vision_tokenization/logs/emu3_sft_tok%j.out
-#SBATCH --error=/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/vision_tokenization/logs/emu3_sft_tok%j.err
+#SBATCH --output=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/emu3_sft_tok%j.out
+#SBATCH --error=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/emu3_sft_tok%j.err
 
 ###################### EMU3 SFT Vision Tokenization on Multiple Nodes ######################
 # Monitor GPU usage: srun --jobid=<jobid> --overlap -w nid<node number> --pty nvidia-smi
@@ -20,12 +20,40 @@ export GPUS_PER_NODE=4
 
 # Configuration - can be overridden when submitting job
 # Example: CONFIG_NAME=ocrvqa sbatch finevision_sft_emu3_tokenization_hf.sh
-export CONFIG_NAME="${CONFIG_NAME:-lvis_instruct4v}"
+export DATASET_NAME="lmms-lab/LLaVA-OneVision-1.5-Insturct-Data" # other could be: lmms-lab/LLaVA-OneVision-1.5-Insturct-Data OR HuggingFaceM4/FineVision
+export CONFIG_NAME="${CONFIG_NAME:-aokvqa}"
+#export EXISTING_DATA_FILES="${EXISTING_DATA_FILES:-/capstor/store/cscs/swissai/infra01/vision-datasets/hf_downloads/finevision/Unichart/**/*.parquet}"  # e.g. "/capstor/store/cscs/swissai/infra01/vision-datasets/hf_downloads/finevision/CC-MAIN-2024-10/**/*.parquet"
+
+# Check if EXISTING_DATA_FILES is set and not empty
+if [ -n "$EXISTING_DATA_FILES" ]; then
+    export DATA_FILES_ARG="--data_files=$EXISTING_DATA_FILES"
+else
+    export DATA_FILES_ARG=""
+fi
 
 # Resolution filtering - can be overridden when submitting job
 # Example: MIN_IMAGE_RES="512*512" MAX_IMAGE_RES="1024*1024" sbatch finevision_sft_emu3_tokenization_hf.sh
 export MIN_IMAGE_RES="${MIN_IMAGE_RES:-256*256}"
 export MAX_IMAGE_RES="${MAX_IMAGE_RES:-696*696}"
+
+# set to anything except leving empty to skip res filtering for min and/or max res. Tokenizer will then resize
+export SKIP_MIN_RES_FILTERING="${SKIP_MIN_RES_FILTERING:-true}"
+export SKIP_MAX_RES_FILTERING="${SKIP_MAX_RES_FILTERING:-}"
+
+# After defining the arguments, export them:
+if [ -n "$SKIP_MIN_RES_FILTERING" ]; then
+    echo "Skipping minimum image resolution filtering"
+    export MIN_SKIP_ARG="--skip-min-resolution-check"
+else
+    export MIN_SKIP_ARG=""
+fi
+
+if [ -n "$SKIP_MAX_RES_FILTERING" ]; then
+    echo "Skipping maximum image resolution filtering"
+    export MAX_SKIP_ARG="--skip-max-resolution-check"
+else
+    export MAX_SKIP_ARG=""
+fi
 
 # Ray minimal config
 export MASTER_NODE=$(hostname)
@@ -48,7 +76,7 @@ echo "==========================================================================
 # Execute on all nodes
 srun -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=1 -u bash -c '
     # Python path setup
-    export PYTHONPATH=/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier:$PYTHONPATH
+    export PYTHONPATH=/iopsstor/scratch/cscs/${USER}/benchmark-image-tokenizer:$PYTHONPATH
 
     if [[ $SLURM_PROCID = 0 ]]; then
         echo "=================================================================================="
@@ -80,15 +108,19 @@ srun -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=1 -u bash -c '
         echo "[Master] Processing config: ${CONFIG_NAME}"
         echo "[Master] Image resolution filter: ${MIN_IMAGE_RES} to ${MAX_IMAGE_RES}"
 
-        python /iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/vision_tokenization/tokenize_hf_datasets_sft.py \
-            --dataset-name "HuggingFaceM4/FineVision" \
+        python /iopsstor/scratch/cscs/${USER}/benchmark-image-tokenizer/vision_tokenization/tokenize_hf_datasets_sft.py \
+            --dataset-name "${DATASET_NAME}" \
             --config-name "${CONFIG_NAME}" \
             --output-dir "/capstor/store/cscs/swissai/infra01/vision-datasets/FineVision/tokenized_sft" \
             --tokenizer-path "/capstor/store/cscs/swissai/infra01/MLLM/llama3_vision_instruct_emu3_tokenizer" \
             --num-gpus $((SLURM_JOB_NUM_NODES * 4)) \
             --batch-size 1000 \
             --min-image-res "${MIN_IMAGE_RES}" \
-            --max-image-res "${MAX_IMAGE_RES}"
+            --max-image-res "${MAX_IMAGE_RES}" \
+            --text-field="conversations" \
+            ${DATA_FILES_ARG} \
+            ${MIN_SKIP_ARG} \
+            ${MAX_SKIP_ARG}
 
         EXITCODE=$?
 
