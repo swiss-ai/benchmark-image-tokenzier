@@ -1,25 +1,25 @@
 #!/bin/bash
 #SBATCH --account=a-infra01
 #SBATCH --job-name=merge-all
-#SBATCH --environment=nemo
+#SBATCH --environment=/iopsstor/scratch/cscs/ahernnde/ncg_new_v2.toml
 #SBATCH --nodes=1
 #SBATCH --partition=debug
 #SBATCH --ntasks-per-node=4
 #SBATCH --cpus-per-task=72
 #SBATCH --time=01:30:00
-#SBATCH --output=/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/vision_tokenization/logs/merge_all_%j.out
-#SBATCH --error=/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/vision_tokenization/logs/merge_all_%j.err
+#SBATCH --output=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/merge_all_%j.out
+#SBATCH --error=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/merge_all_%j.err
 
 ###################### Merge Multiple Datasets from Different Sources ######################
 # This script can merge specific folders/files from different datasets into one combined dataset
 
 # Configuration
-MEGATRON_PATH="/iopsstor/scratch/cscs/xyixuan/Megatron-LM"
+MEGATRON_PATH="/iopsstor/scratch/cscs/rkreft/Megatron-LM"
 BASE_DIR="/capstor/store/cscs/swissai/infra01/vision-datasets"
 
 # Output configuration
 OUTPUT_BASE="${OUTPUT_BASE:-${BASE_DIR}/merged}"
-OUTPUT_NAME="${OUTPUT_NAME:-image_only_merged}"
+OUTPUT_NAME="${OUTPUT_NAME:-txt_sft_v1}"
 
 # Define source datasets as "dataset_path:pattern" pairs
 # You can customize this list by setting SOURCE_DATASETS environment variable
@@ -32,12 +32,34 @@ OUTPUT_NAME="${OUTPUT_NAME:-image_only_merged}"
 if [ -z "${SOURCE_DATASETS}" ]; then
     # Default: merge ImageNet and FineVision merged files
     SOURCE_DATASETS=(
-        # ImageNet merged file (in base directory)
-        "${BASE_DIR}:imagenet-w21_range_0-2048_res_65536_1048576_merged.bin"
-
-        # FineVision merged file (in FineVision directory)
-        "${BASE_DIR}/FineVision:finevision_merged.bin"
-    )
+    # ImageNet merged file (in base directory)
+    "${BASE_DIR}/text_OpenMathInstruct-2_tokenized:*"
+    "${BASE_DIR}/text_openorca_tokenized:*"
+    "${BASE_DIR}/text_openhermes_2_5_tokenized:*"
+    "${BASE_DIR}/text_numinamath_cot_tokenized:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/ai2d_merged_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/clevr_math_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/cocoqa_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/cocotext_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/dvqa_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/geo3k_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/latexformulas_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/LLaVA_Instruct_150K_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/lvis_instruct4v_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/mathwriting-google_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/ocrvqa_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/scienceqa_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/st_vqa_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/tabmwp_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/tallyqa_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/Unichart_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/ureader_qa_processed_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/visual7w_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/visualwebinstruct(filtered)_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/vqav2_sft:*"
+    #"${BASE_DIR}/LLaVA-OneVision-1.5-Instruct-Data/tokenized_sft/aokvqa_sft:*"
+    #"${BASE_DIR}/LLaVA-OneVision-1.5-Instruct-Data/tokenized_sft/tinychart_train_sft:*"
+)
 else
     # Parse user-provided datasets
     IFS=' ' read -r -a SOURCE_DATASETS <<< "${SOURCE_DATASETS}"
