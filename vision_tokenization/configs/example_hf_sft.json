@@ -5,6 +5,7 @@
   "config_name": "lrv_chart",
   "dataset_split": "train",
   "mode": "sft",
+  "dataset_load_method": "default",
   "num_gpus": 4,
   "num_shards": 100,
   "device": "cuda",

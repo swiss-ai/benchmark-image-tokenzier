@@ -123,13 +123,69 @@ python tokenize.py hf \
 - `--cache-dir` - Cache directory for datasets
 - `--max-samples` - Maximum samples to process (for testing)
 
+### Dataset Loading Methods
+
+- `--dataset-load-method` - How to load datasets (choices: `default`, `builder_load`)
+  - `default`: Standard `load_dataset()` - requires HF hub cache
+  - `builder_load`: Uses `load_dataset_builder().as_dataset()` - for clusters without HF hub access
+
+**When to use `builder_load`:** Use when HF hub cache is unavailable. Dataset must be pre-prepared with `download_and_prepare()`. **Important:** Downloaded dataset must match latest version (hashes must match). `num_proc` parameter is ignored (dataset already prepared).
+
 ### Processing Options
 
 - `--num-shards` - Number of shards for distributed processing and checkpointing (required)
-- `--num-proc` - Number of processes for dataset loading
+- `--num-proc` - Number of processes for dataset loading (ignored with `builder_load`)
 - `--image-field` - Name of image field in dataset (default: "images")
 - `--text-field` - Name of text field in dataset (default: "texts")
 - `--resume` - Resume from existing checkpoint, skipping completed shards
+
+### Data Transforms
+
+Optional preprocessing transforms applied to text or images before tokenization:
+
+- `--image-transforms` - Comma-separated image transforms (CLI) (currently none implemented)
+- `--text-transforms` - Comma-separated text transforms (CLI)
+- `transform_params` - Transform parameters (config file only)
+
+**Currently supported:**
+- `remove_string`: Remove specific strings from text. Supports nested JSON keys via `text_key` parameter.
+
+**Example configuration:**
+```json
+{
+  "text_transforms": "remove_string",
+  "transform_params": {
+    "remove_string": {
+      "strings": ["<unwanted>", "<tag>"],
+      "text_key": "msg.content"
+    }
+  }
+}
+```
+
+To implement your own transforms, follow the example of `remove_string` in `pipelines/transforms.py`.
+
+### Conversation Transforms (SFT Mode)
+
+For SFT tokenization, conversation structures are handled by `vokenizers/emu/conversation_transforms.py`.
+Each dataset has its own format how it stores conversations. This must be converted to a format that aligns with the expectations of the tokenizer's chat template.
+
+**Configuration:**
+```json
+{
+  "mode": "sft",
+  "conversation_transform": "finevision_to_llama"
+}
+```
+
+**Currently supported transforms:**
+- `finevision_to_llama`: Converts HuggingFace FineVision format (`[{"user": "...", "assistant": "..."}]`) to LLaMA multimodal chat template
+- `llava_to_apertus`: Converts LLaVa-OneVision-Instruct format (`[{"role": "user", "content": "..."}]`) to Apertus chat template
+
+**Adding custom transforms:**
+To tokenize datasets with different conversation formats, implement a new transform by extending `BaseConversationTransform` in `conversation_transforms.py`. See existing transforms for examples.
+
+
 
 ## Configuration Files
 

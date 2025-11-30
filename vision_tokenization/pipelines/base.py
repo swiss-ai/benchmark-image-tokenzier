@@ -333,7 +333,7 @@ class BaseTokenizerWorker:
             # Extract image
             image = sample[self.image_field]
             # Unwrap single-item lists
-            if isinstance(image, list) and len(image) == 1:
+            if isinstance(image, list) and len(image) == 1: # TODO: only supports single image!, might want to support multiple images in future
                 image = image[0]
 
             # Extract text (only for modes that need it)

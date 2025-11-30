@@ -5,6 +5,9 @@ EMU tokenizer for image-text pairs with parallel GPU/CPU processing.
 
 import torch
 from concurrent.futures import ThreadPoolExecutor
+
+from PIL import Image
+
 from .image_only import EMUImageOnlyTokenizer
 
 
@@ -56,7 +59,7 @@ class EMUImageTextPairTokenizer(EMUImageOnlyTokenizer):
         text_future = self.executor.submit(tokenize_text_cpu)
 
         # Wait for both and get results
-        image_tokens = image_future.result()
+        image_tokens = image_future.result() # img will be encapsulated with bos and eos tokens!
         text_tokens = text_future.result()
 
         # Move text tokens to same device as image tokens for concatenation
@@ -78,11 +81,12 @@ class EMUImageTextPairTokenizer(EMUImageOnlyTokenizer):
                 image_tokens[-1:]   # EOS token
             ])
         else:
+            # TODO: Might want to support random order as well.
             raise ValueError(f"Invalid mode for image_text_pair tokenizer: {self.mode}")
 
         return combined_tokens
 
-    def tokenize(self, image, text) -> torch.Tensor:
+    def tokenize(self, image: Image, text: str) -> torch.Tensor:
         """
         Unified tokenization interface for image-text pair mode.
 

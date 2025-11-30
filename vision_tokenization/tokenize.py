@@ -121,6 +121,18 @@ def create_hf_parser(subparsers):
         type=str,
         help='Comma-separated list of text transforms to apply (e.g., "strip_whitespace")'
     )
+    parser.add_argument(
+        '--dataset-load-method',
+        type=str,
+        choices=['default', 'builder_load'],
+        default='default',
+        help=(
+            'Method for loading HuggingFace datasets. '
+            '"default": use load_dataset() (requires HF hub cache). '
+            '"builder_load": use load_dataset_builder().as_dataset() '
+            '(requires pre-prepared dataset, no hub cache needed)'
+        )
+    )
 
     return parser
 

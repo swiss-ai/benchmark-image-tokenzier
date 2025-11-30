@@ -10,6 +10,7 @@ import ray
 
 from vision_tokenization.pipelines.base import BasePipeline, ProgressActor
 from vision_tokenization.pipelines.hf.workers import ShardQueue, Worker
+from vision_tokenization.pipelines.hf.dataset_loader import load_hf_dataset
 from vision_tokenization.pipelines.transforms import create_transform_pipeline
 
 
@@ -41,6 +42,7 @@ class HFDatasetPipeline(BasePipeline):
         image_transforms: Optional[str] = None,
         text_transforms: Optional[str] = None,
         transform_params: Optional[Dict[str, Dict[str, Any]]] = None,
+        dataset_load_method: str = "default",
         **kwargs
     ):
         super().__init__(tokenizer_path, output_dir, num_gpus, device, **kwargs)
@@ -52,6 +54,7 @@ class HFDatasetPipeline(BasePipeline):
         self.num_proc = num_proc
         self.mode = mode
         self.num_shards = num_shards
+        self.dataset_load_method = dataset_load_method
 
         # Set tokenizer pixels with intelligent defaults
         # If min_image_pixels is set but min_tokenizer_pixels is not, use min_image_pixels
@@ -177,15 +180,13 @@ class HFDatasetPipeline(BasePipeline):
             ray.init(num_cpus=self.num_gpus + 2, num_gpus=self.num_gpus)
 
         # Load dataset
-        config_info = f" (config: {self.config_name})" if self.config_name else ""
-        self.logger.info(f"Loading dataset: {self.dataset_name}{config_info}/{self.dataset_split}")
-        from datasets import load_dataset
-        self.dataset = load_dataset(
-            self.dataset_name,
-            name=self.config_name,
+        self.dataset = load_hf_dataset(
+            dataset_name=self.dataset_name,
+            config_name=self.config_name,
             split=self.dataset_split,
             cache_dir=self.cache_dir,
-            num_proc=self.num_proc
+            num_proc=self.num_proc,
+            method=self.dataset_load_method
         )
 
         if self.max_samples:
@@ -273,7 +274,8 @@ class HFDatasetPipeline(BasePipeline):
             'config': self.config_name,
             'split': self.dataset_split,
             'cache_dir': self.cache_dir,
-            'total_samples': len(self.dataset)
+            'total_samples': len(self.dataset),
+            'load_method': self.dataset_load_method
         }
 
         # Start workers processing shards

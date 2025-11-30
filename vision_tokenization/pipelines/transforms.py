@@ -25,9 +25,10 @@ Usage:
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any, List, Tuple, Type, Union
+from typing import Optional, Dict, Any, List, Tuple, Type, Union, Callable
 from PIL import Image
 import logging
+import copy
 
 logger = logging.getLogger(__name__)
 
@@ -336,29 +337,57 @@ def create_transform_pipeline(
 # Built-in Transforms
 # =============================================================================
 
+def _transform_nested_value(obj: Dict[str, Any], key_path: str, fn: Callable[[str], str]) -> None:
+    """Get a nested value, transform it suding the given function fn, and set it back."""
+    keys = key_path.split('.')
+    target = obj
+    for key in keys[:-1]:
+        target = target[key]
+    target[keys[-1]] = fn(target[keys[-1]])
+
+
 @TransformRegistry.register_text("remove_string")
 class RemoveStringTransform(TextTransform):
     """
     Remove all occurrences of one or more strings from text.
+    Supports processing single strings, lists of strings, or lists of objects.
 
     Config examples:
-        # Single string
+        # Single string to remove
         "transform_params": {
             "remove_string": {"strings": "<unwanted_tag>"}
         }
 
-        # Multiple strings
+        # Multiple strings to remove
         "transform_params": {
             "remove_string": {"strings": ["<tag1>", "<tag2>", "unwanted"]}
+        }
+
+        # For processing list of objects with simple field
+        "transform_params": {
+            "remove_string": {
+                "strings": ["<unwanted>"],
+                "text_key": "content"
+            }
+        }
+
+        # For processing list of objects with nested field
+        "transform_params": {
+            "remove_string": {
+                "strings": ["<unwanted>"],
+                "text_key": "msg.content"
+            }
         }
     """
 
     name = "remove_string"
 
-    def __init__(self, strings: Union[str, List[str]]):
+    def __init__(self, strings: Union[str, List[str]], text_key: Optional[str] = None):
         """
         Args:
             strings: String or list of strings to remove from text
+            text_key: Key path for extracting text from objects (supports dot notation, e.g., "msg.content")
+                     Only used when __call__ receives a list of objects
         """
         if isinstance(strings, str):
             self.strings = [strings]
@@ -368,7 +397,50 @@ class RemoveStringTransform(TextTransform):
         if not self.strings or not any(s for s in self.strings):
             raise ValueError("remove_string transform requires at least one non-empty string")
 
-    def __call__(self, text: str) -> str:
+        self.text_key = text_key
+
+    def _remove_strings(self, text: str) -> str:
+        """Apply string removal to a single text string."""
         for s in self.strings:
             text = text.replace(s, "")
         return text
+
+    def __call__(self, text: Union[str, List[str], List[Dict[str, Any]]]) -> Union[str, List[str], List[Dict[str, Any]]]:
+        """
+        Apply string removal to text.
+
+        Args:
+            text: Single string, list of strings, or list of objects
+
+        Returns:
+            Same type as input with strings removed
+        """
+        # Single string
+        if isinstance(text, str):
+            return self._remove_strings(text)
+
+        # List input
+        if isinstance(text, list):
+            if not text:
+                return text
+
+            # List of strings
+            if isinstance(text[0], str):
+                return [self._remove_strings(t) for t in text]
+
+            # List of objects
+            if isinstance(text[0], dict):
+                if not self.text_key:
+                    raise ValueError("text_key must be configured to process list of objects")
+
+                result = []
+                for obj in text:
+                    if not isinstance(obj, dict):
+                        raise ValueError(f"Expected dict, got {type(obj)}")
+                    # Create a deep copy to avoid mutating input (handles nested dicts)
+                    obj_copy = copy.deepcopy(obj)
+                    _transform_nested_value(obj_copy, self.text_key, self._remove_strings)
+                    result.append(obj_copy)
+                return result
+
+        raise ValueError(f"Unsupported text type: {type(text)}")

@@ -61,6 +61,7 @@ class ShardQueue:
 
 
 from vision_tokenization.pipelines.base import BaseTokenizerWorker
+from vision_tokenization.pipelines.hf.dataset_loader import load_hf_dataset
 from vision_tokenization.pipelines.transforms import TransformPipeline, TransformError
 
 
@@ -136,12 +137,12 @@ class Worker(BaseTokenizerWorker):
         start_time = time.time()
 
         # Load the shard using HuggingFace's efficient shard method
-        from datasets import load_dataset
-        dataset = load_dataset(
-            dataset_info['name'],
-            name=dataset_info.get('config'),
+        dataset = load_hf_dataset(
+            dataset_name=dataset_info['name'],
+            config_name=dataset_info.get('config'),
             split=dataset_info['split'],
-            cache_dir=dataset_info.get('cache_dir')
+            cache_dir=dataset_info.get('cache_dir'),
+            method=dataset_info.get('load_method', 'default')
         )
 
         # Get this specific shard
@@ -179,6 +180,10 @@ class Worker(BaseTokenizerWorker):
             except TransformError as e:
                 self.logger.warning(f"Transform error: {e}")
                 stats['transform_errors'] += 1
+                continue
+            except Exception as e:
+                self.logger.error(f"Error applying transforms: {e}")
+                stats['errors'] += 1
                 continue
 
             # Check sample status
@@ -271,6 +276,7 @@ class Worker(BaseTokenizerWorker):
                     errors=result['errors'],
                     skipped=result.get('skipped', 0),
                     resolution_skipped=result.get('resolution_skipped', 0),
+                    transform_errors=result.get('transform_errors', 0),
                     image_tokens=result.get('image_tokens', 0),
                     text_tokens=result.get('text_tokens', 0)
                 )
