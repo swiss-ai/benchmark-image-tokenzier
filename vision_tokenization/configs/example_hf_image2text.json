@@ -4,6 +4,7 @@
   "dataset_name": "google/docci",
   "dataset_split": "train",
   "mode": "image2text",
+  "dataset_load_method": "default",
   "num_gpus": 4,
   "num_shards": 100,
   "device": "cuda",

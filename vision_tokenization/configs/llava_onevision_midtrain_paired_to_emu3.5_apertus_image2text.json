@@ -1,0 +1,19 @@
+{
+  "tokenizer_path": "/capstor/store/cscs/swissai/infra01/MLLM/apertus_emu3.5_tokenizer",
+  "output_dir": "/capstor/store/cscs/swissai/infra01/vision-datasets/LLaVA-OneVision-1.5-Mid-Training/tokenized_apertus_emu3_5",
+  "dataset_name": "mvp-lab/LLaVA-OneVision-1.5-Mid-Training-85M",
+  "dataset_split": "train",
+  "mode": "image2text",
+  "dataset_load_method": "default",
+  "num_gpus": 4,
+  "num_shards": 2000,
+  "device": "cuda",
+  "num_proc": 32,
+  "cache_dir": "/capstor/store/cscs/swissai/infra01/vision-datasets/hf_cache",
+  "min_tokenizer_pixels": "256*256",
+  "max_tokenizer_pixels": "1024*1024",
+  "min_image_pixels": "256*256",
+  "max_image_pixels": "2048*2048",
+  "image_field": "image",
+  "text_field": "caption"
+}
