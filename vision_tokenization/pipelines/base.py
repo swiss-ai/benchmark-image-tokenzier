@@ -196,7 +196,8 @@ class BaseTokenizerWorker:
         device: str = None,
         min_image_pixels: Optional[int] = None,  # For filtering images
         max_image_pixels: Optional[int] = None,  # For filtering images
-        transform_pipeline: Optional[TransformPipeline] = None  # For data transforms
+        transform_pipeline: Optional[TransformPipeline] = None,  # For data transforms
+        conversation_transform: Optional[str] = None  # For SFT conversation transforms
     ):
         self.worker_id = worker_id
         self.mode = mode
@@ -214,13 +215,15 @@ class BaseTokenizerWorker:
         # Import here to avoid circular imports
         from vision_tokenization.vokenizers.emu import create_tokenizer
 
-        # Initialize tokenizer using factory function
+        # Initialize tokenizer using factory function with conversation_transform
+        # (only used for SFT mode, passed via **kwargs to EMUSftTokenizer)
         self.tokenizer = create_tokenizer(
             mode=mode,
             text_tokenizer_path=tokenizer_path,
             device=self.device,
             min_pixels=min_pixels,
-            max_pixels=max_pixels
+            max_pixels=max_pixels,
+            conversation_transform=conversation_transform
         )
 
         # Initialize stats
