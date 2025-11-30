@@ -42,6 +42,7 @@ class HFDatasetPipeline(BasePipeline):
         image_transforms: Optional[str] = None,
         text_transforms: Optional[str] = None,
         transform_params: Optional[Dict[str, Dict[str, Any]]] = None,
+        conversation_transform: Optional[str] = None,
         dataset_load_method: str = "default",
         **kwargs
     ):
@@ -111,6 +112,11 @@ class HFDatasetPipeline(BasePipeline):
                 f"Transform pipeline configured with "
                 f"image_transforms='{image_transforms}', text_transforms='{text_transforms}'"
             )
+
+        # Store conversation transform configuration (will be passed to workers)
+        self.conversation_transform = conversation_transform
+        if self.conversation_transform:
+            self.logger.info(f"Conversation transform configured: '{conversation_transform}'")
 
     def _get_completed_shards(self) -> set:
         """Get list of already completed shards by checking for .idx files."""
@@ -257,7 +263,8 @@ class HFDatasetPipeline(BasePipeline):
                 text_field=self.text_field,
                 min_image_pixels=self.min_image_pixels,
                 max_image_pixels=self.max_image_pixels,
-                transform_pipeline=self.transform_pipeline
+                transform_pipeline=self.transform_pipeline,
+                conversation_transform=self.conversation_transform
             )
             self.workers.append(worker)
 
