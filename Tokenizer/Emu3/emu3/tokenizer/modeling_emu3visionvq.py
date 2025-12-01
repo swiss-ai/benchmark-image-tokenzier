@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" Emu3VisionVQ model """
+"""Emu3VisionVQ model"""
 
 import math
 from typing import Optional, Tuple, Union
@@ -86,7 +86,7 @@ class Emu3VisionVQCausalConv3d(nn.Module):
             kernel_size = (kernel_size,) * 3
         if isinstance(stride, int):
             stride = (stride,) * 3
-        
+
         hw_pad = [k - s for k, s in zip(kernel_size[1:], stride[1:])]
         self.padding = tuple()
         for p in hw_pad[::-1]:
@@ -109,7 +109,7 @@ class Emu3VisionVQCausalConv3d(nn.Module):
 class Emu3VisionVQResnetTemporalBlock(nn.Module):
 
     def __init__(
-        self, 
+        self,
         in_channels: int,
         out_channels: Optional[int] = None,
         conv_shortcut: bool = False,
@@ -297,7 +297,7 @@ class Emu3VisionVQResnetBlock(nn.Module):
                 )
 
     def forward(self, x: torch.Tensor, zq: Optional[torch.Tensor] = None):
-        norm_args = tuple() if self.zq_ch is None else (zq, )
+        norm_args = tuple() if self.zq_ch is None else (zq,)
 
         h = self.norm1(x, *norm_args)
         h = self.act(h)
@@ -319,12 +319,7 @@ class Emu3VisionVQResnetBlock(nn.Module):
 
 class Emu3VisionVQAttnBlock(nn.Module):
 
-    def __init__(
-        self,
-        in_channels: int,
-        zq_ch: Optional[int] = None,
-        add_conv: bool = False
-    ):
+    def __init__(self, in_channels: int, zq_ch: Optional[int] = None, add_conv: bool = False):
         super().__init__()
         self.in_channels = in_channels
         self.zq_ch = zq_ch
@@ -365,7 +360,7 @@ class Emu3VisionVQAttnBlock(nn.Module):
         )
 
     def forward(self, x: torch.Tensor, zq: Optional[torch.Tensor] = None):
-        norm_args = tuple() if self.zq_ch is None else (zq, )
+        norm_args = tuple() if self.zq_ch is None else (zq,)
 
         nx = self.norm(x, *norm_args)
         q = self.q(nx)
@@ -377,7 +372,7 @@ class Emu3VisionVQAttnBlock(nn.Module):
         q = q.reshape(b, c, h * w)
         k = k.reshape(b, c, h * w)
         score = torch.bmm(q.permute(0, 2, 1), k)
-        score = score / (c ** 0.5)
+        score = score / (c**0.5)
         score = F.softmax(score, dim=2)
 
         # attend to values
@@ -397,7 +392,7 @@ class Emu3VisionVQTemporalUpsample(nn.Module):
         in_channel: int,
         out_channel: int,
         kernel_size: Tuple[int, ...] = (3, 3, 3),
-        stride: Tuple[int, ...] = (1, 1, 1)
+        stride: Tuple[int, ...] = (1, 1, 1),
     ):
         super().__init__()
         self.in_channel = in_channel
@@ -408,7 +403,7 @@ class Emu3VisionVQTemporalUpsample(nn.Module):
             kernel_size,
             stride=stride,
         )
-        
+
     def forward(self, x: torch.Tensor):
         b, c, t, h, w = x.shape
         x = x.permute(0, 1, 3, 4, 2).contiguous().view(b, -1, t)
@@ -438,7 +433,7 @@ class Emu3VisionVQTemporalDownsample(nn.Module):
             kernel_size=kernel_size,
             stride=stride,
         )
-        
+
     def forward(self, x: torch.Tensor):
         x = self.conv(x)
         return x
@@ -459,9 +454,11 @@ class Emu3VisionVQVectorQuantizer(nn.Module):
 
         codebook = self.embedding.weight
 
-        d = torch.sum(x_flattened ** 2, dim=1, keepdim=True) + \
-            torch.sum(codebook ** 2, dim=1) - 2 * \
-            torch.einsum('bd,dn->bn', x_flattened, codebook.permute(1, 0))
+        d = (
+            torch.sum(x_flattened**2, dim=1, keepdim=True)
+            + torch.sum(codebook**2, dim=1)
+            - 2 * torch.einsum("bd,dn->bn", x_flattened, codebook.permute(1, 0))
+        )
 
         indices = torch.argmin(d, dim=1)
         indices = indices.view(b, t, h, w)
@@ -478,13 +475,7 @@ class Emu3VisionVQEncoder(nn.Module):
         self.in_channels = config.in_channels
 
         # downsampling
-        self.conv_in = nn.Conv2d(
-            self.in_channels,
-            self.ch,
-            kernel_size=3,
-            stride=1,
-            padding=1
-        )
+        self.conv_in = nn.Conv2d(self.in_channels, self.ch, kernel_size=3, stride=1, padding=1)
 
         in_ch_mult = (1,) + tuple(config.ch_mult)
         self.down = nn.ModuleList()
@@ -538,7 +529,7 @@ class Emu3VisionVQEncoder(nn.Module):
             stride=1,
             padding=1,
         )
-        
+
         temporal_down_blocks = int(math.log2(config.temporal_downsample_factor))
         self.time_conv = nn.ModuleList()
 
@@ -546,13 +537,16 @@ class Emu3VisionVQEncoder(nn.Module):
             conv = Emu3VisionVQTemporalDownsample(out_z_channels, out_z_channels)
             self.time_conv.append(conv)
 
-        self.time_res_stack = nn.Sequential(*[
-            Emu3VisionVQResnetTemporalBlock(
-                in_channels=out_z_channels,
-                out_channels=out_z_channels,
-                dropout=config.dropout,
-            ) for _ in range(self.num_res_blocks)
-        ])
+        self.time_res_stack = nn.Sequential(
+            *[
+                Emu3VisionVQResnetTemporalBlock(
+                    in_channels=out_z_channels,
+                    out_channels=out_z_channels,
+                    dropout=config.dropout,
+                )
+                for _ in range(self.num_res_blocks)
+            ]
+        )
 
         self.act = Emu3VisionVQActivation()
 
@@ -574,7 +568,7 @@ class Emu3VisionVQEncoder(nn.Module):
         h = self.mid.block_1(h)
         h = self.mid.attn_1(h)
         h = self.mid.block_2(h)
-        
+
         # end
         h = self.norm_out(h)
         h = self.act(h)
@@ -605,20 +599,23 @@ class Emu3VisionVQDecoder(nn.Module):
         zq_ch = config.embed_dim
 
         block_in = config.ch * config.ch_mult[-1]
-        self.time_res_stack = nn.Sequential(*[
-            Emu3VisionVQResnetTemporalBlock(
-                in_channels=config.z_channels,
-                out_channels=config.z_channels,
-                dropout=config.dropout,
-            ) for _ in range(config.num_res_blocks)
-        ])
+        self.time_res_stack = nn.Sequential(
+            *[
+                Emu3VisionVQResnetTemporalBlock(
+                    in_channels=config.z_channels,
+                    out_channels=config.z_channels,
+                    dropout=config.dropout,
+                )
+                for _ in range(config.num_res_blocks)
+            ]
+        )
 
         tempo_upsample_block_num = int(math.log2(config.temporal_downsample_factor))
         self.time_conv = nn.ModuleList()
         for i in range(tempo_upsample_block_num):
             conv = Emu3VisionVQTemporalUpsample(config.z_channels, config.z_channels)
             self.time_conv.append(conv)
-            
+
         self.conv_in = nn.Conv2d(
             config.z_channels,
             block_in,
@@ -695,9 +692,9 @@ class Emu3VisionVQDecoder(nn.Module):
 
         h = h.reshape(-1, *h.shape[2:])
         zq = zq.reshape(-1, *zq.shape[2:])
-        
+
         h = self.conv_in(h)
-        
+
         # middle
         h = self.mid.block_1(h, zq)
         h = self.mid.attn_1(h, zq)
@@ -705,7 +702,7 @@ class Emu3VisionVQDecoder(nn.Module):
 
         # upsampling
         for i_level in reversed(range(self.num_resolutions)):
-            for i_block in range(self.num_res_blocks+1):
+            for i_block in range(self.num_res_blocks + 1):
                 h = self.up[i_level].block[i_block](h, zq)
                 if len(self.up[i_level].attn) > 0:
                     h = self.up[i_level].attn[i_block](h, zq)

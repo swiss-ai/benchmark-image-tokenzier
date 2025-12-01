@@ -4,9 +4,10 @@ Utility functions for loading HuggingFace datasets.
 Supports both standard load_dataset() and dataset builder approaches.
 """
 
-from typing import Optional
-from datasets import Dataset, load_dataset, load_dataset_builder
 import logging
+from typing import Optional
+
+from datasets import Dataset, load_dataset, load_dataset_builder
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ def load_hf_dataset(
     split: str = "train",
     cache_dir: Optional[str] = None,
     num_proc: Optional[int] = None,
-    method: str = "default"
+    method: str = "default",
 ) -> Dataset:
     """
     Load a HuggingFace dataset using specified method.
@@ -38,21 +39,13 @@ def load_hf_dataset(
         FileNotFoundError: If "builder_load" is used but dataset is not prepared
     """
     if method not in ["default", "builder_load"]:
-        raise ValueError(
-            f"Invalid method: {method}. Must be 'default' or 'builder_load'"
-        )
+        raise ValueError(f"Invalid method: {method}. Must be 'default' or 'builder_load'")
 
     if method == "default":
         config_info = f" (config: {config_name})" if config_name else ""
         logger.info(f"Loading dataset using load_dataset(): {dataset_name}{config_info}/{split}")
 
-        dataset = load_dataset(
-            dataset_name,
-            name=config_name,
-            split=split,
-            cache_dir=cache_dir,
-            num_proc=num_proc
-        )
+        dataset = load_dataset(dataset_name, name=config_name, split=split, cache_dir=cache_dir, num_proc=num_proc)
 
     elif method == "builder_load":
         config_info = f" (config: {config_name})" if config_name else ""
@@ -68,8 +61,7 @@ def load_hf_dataset(
         # Warn if cache_dir not provided
         if cache_dir is None:
             logger.warning(
-                "Using 'builder_load' without explicit cache_dir. "
-                "Will use default: ~/.cache/huggingface/datasets"
+                "Using 'builder_load' without explicit cache_dir. " "Will use default: ~/.cache/huggingface/datasets"
             )
 
         builder = load_dataset_builder(dataset_name, name=config_name, cache_dir=cache_dir)
@@ -89,9 +81,7 @@ def load_hf_dataset(
                 f"{f', cache_dir={cache_dir!r}' if cache_dir else ''})\n"
                 f"  builder.download_and_prepare()"
             )
-            raise FileNotFoundError(
-                f"Dataset not prepared. Use method='default' or prepare dataset first."
-            ) from e
+            raise FileNotFoundError(f"Dataset not prepared. Use method='default' or prepare dataset first.") from e
 
     logger.info(f"Loaded {len(dataset)} samples from {split} split")
     return dataset

@@ -20,10 +20,10 @@ from tqdm import tqdm
 sys.path.append(str(Path(__file__).parent.parent))
 from utils.parse_utils import add_emu3_tokenization_args
 
-
 # ============================================================================
 # Shard Queue for Dynamic Scheduling
 # ============================================================================
+
 
 @ray.remote
 class ShardQueue:
@@ -58,16 +58,17 @@ class ShardQueue:
     def get_status(self) -> Dict:
         """Get current processing status."""
         return {
-            'pending': len(self.pending),
-            'in_progress': len(self.in_progress),
-            'completed': len(self.completed),
-            'failed': len(self.failed)
+            "pending": len(self.pending),
+            "in_progress": len(self.in_progress),
+            "completed": len(self.completed),
+            "failed": len(self.failed),
         }
 
 
 # ============================================================================
 # GPU Worker with Dynamic Work Pulling
 # ============================================================================
+
 
 @ray.remote(num_gpus=1)
 class EMU3DynamicWorker:
@@ -95,8 +96,8 @@ class EMU3DynamicWorker:
         # Import all required modules once
         import torch
         import webdataset as wds
-        from tokenization_emu3_image_only import EMU3ImageOnlyTokenizer
         from indexed_dataset_megatron import DType, IndexedDatasetBuilder
+        from tokenization_emu3_image_only import EMU3ImageOnlyTokenizer
 
         # Store as class attributes for later use
         self.torch = torch
@@ -117,9 +118,9 @@ class EMU3DynamicWorker:
 
         # Initialize tokenizer
         self.tokenizer = self.EMU3ImageOnlyTokenizer(
-            text_tokenizer_path=self.config['tokenizer_path'],
+            text_tokenizer_path=self.config["tokenizer_path"],
             device=self.device,
-            min_pixels=self.config.get('min_resolution')
+            min_pixels=self.config.get("min_resolution"),
         )
 
         # Setup output directory
@@ -131,30 +132,30 @@ class EMU3DynamicWorker:
 
         # Initialize statistics
         self.stats = {
-            'shards_processed': 0,
-            'samples_processed': 0,
-            'tokens_generated': 0,
-            'errors': 0,
-            'start_time': time.time()
+            "shards_processed": 0,
+            "samples_processed": 0,
+            "tokens_generated": 0,
+            "errors": 0,
+            "start_time": time.time(),
         }
 
         self.logger.info(f"Output directory: {self.output_dir}")
 
     def _build_output_path(self) -> str:
         """Build output directory path with range and resolution info."""
-        output_dir = self.config['output_dir']
+        output_dir = self.config["output_dir"]
 
         # Add range info if specified
-        if self.config.get('range'):
-            range_str = self.config['range'].replace(':', '-')
+        if self.config.get("range"):
+            range_str = self.config["range"].replace(":", "-")
             output_dir = f"{output_dir}_range_{range_str}"
 
         # Add resolution info if filtering is enabled
-        min_res = self.config.get('min_resolution')
-        max_res = self.config.get('max_resolution')
+        min_res = self.config.get("min_resolution")
+        max_res = self.config.get("max_resolution")
         if min_res or max_res:
-            min_str = str(min_res) if min_res else '0'
-            max_str = str(max_res) if max_res else 'inf'
+            min_str = str(min_res) if min_res else "0"
+            max_str = str(max_res) if max_res else "inf"
             output_dir = f"{output_dir}_res_{min_str}_{max_str}"
 
         return output_dir
@@ -169,12 +170,9 @@ class EMU3DynamicWorker:
         tokens = 0
 
         # Create builder for this specific shard
-        shard_base = shard_name.replace('.tar', '')
+        shard_base = shard_name.replace(".tar", "")
         shard_output_path = os.path.join(self.output_dir, shard_base)
-        builder = self.IndexedDatasetBuilder(
-            f"{shard_output_path}.bin",
-            dtype=self.dtype
-        )
+        builder = self.IndexedDatasetBuilder(f"{shard_output_path}.bin", dtype=self.dtype)
 
         try:
             # Create dataset pipeline with efficient batching
@@ -195,11 +193,7 @@ class EMU3DynamicWorker:
                 try:
                     # Tokenize image
                     img_tokens = self.tokenizer.tokenize_image(img)
-                    tokens_np = (
-                        img_tokens.cpu().numpy()
-                        if self.torch.is_tensor(img_tokens)
-                        else img_tokens
-                    )
+                    tokens_np = img_tokens.cpu().numpy() if self.torch.is_tensor(img_tokens) else img_tokens
 
                     # Add to dataset
                     builder.add_document(tokens_np, [len(tokens_np)])
@@ -209,15 +203,15 @@ class EMU3DynamicWorker:
 
                 except Exception as e:
                     self.logger.warning(f"Error processing {key}: {e}")
-                    self.stats['errors'] += 1
+                    self.stats["errors"] += 1
 
             # Finalize the builder for this shard
             builder.finalize(f"{shard_output_path}.idx")
 
             # Update statistics
-            self.stats['shards_processed'] += 1
-            self.stats['samples_processed'] += samples
-            self.stats['tokens_generated'] += tokens
+            self.stats["shards_processed"] += 1
+            self.stats["samples_processed"] += samples
+            self.stats["tokens_generated"] += tokens
 
             elapsed = time.time() - start_time
             self.logger.info(
@@ -225,38 +219,28 @@ class EMU3DynamicWorker:
                 f"{tokens} tokens in {elapsed:.1f}s -> {shard_base}.bin/idx"
             )
 
-            return {
-                'success': True,
-                'shard': shard_name,
-                'samples': samples,
-                'tokens': tokens,
-                'time': elapsed
-            }
+            return {"success": True, "shard": shard_name, "samples": samples, "tokens": tokens, "time": elapsed}
 
         except Exception as e:
             self.logger.error(f"Failed to process {shard_name}: {e}")
-            self.stats['errors'] += 1
-            return {
-                'success': False,
-                'shard': shard_name,
-                'error': str(e)
-            }
+            self.stats["errors"] += 1
+            return {"success": False, "shard": shard_name, "error": str(e)}
 
     def _should_process_sample(self, json_data: Dict) -> bool:
         """Check if sample meets filtering criteria."""
-        min_res = self.config.get('min_resolution')
-        max_res = self.config.get('max_resolution')
+        min_res = self.config.get("min_resolution")
+        max_res = self.config.get("max_resolution")
 
         # If no filtering configured, process everything
         if not min_res and not max_res:
             return True
 
         # Check if metadata has dimensions
-        if 'width' not in json_data or 'height' not in json_data:
+        if "width" not in json_data or "height" not in json_data:
             return True  # Process if no metadata available
 
         # Apply resolution filtering
-        resolution = json_data['width'] * json_data['height']
+        resolution = json_data["width"] * json_data["height"]
 
         if min_res and resolution < min_res:
             return False
@@ -281,20 +265,15 @@ class EMU3DynamicWorker:
             result = self.process_shard(shard_path)
 
             # Report result back to queue
-            if result['success']:
+            if result["success"]:
                 ray.get(shard_queue.mark_completed.remote(shard_path))
             else:
-                ray.get(shard_queue.mark_failed.remote(
-                    shard_path,
-                    result.get('error', 'Unknown')
-                ))
+                ray.get(shard_queue.mark_failed.remote(shard_path, result.get("error", "Unknown")))
 
         # Calculate and return final statistics
-        elapsed = time.time() - self.stats['start_time']
-        self.stats['elapsed_time'] = elapsed
-        self.stats['throughput'] = (
-            self.stats['tokens_generated'] / elapsed if elapsed > 0 else 0
-        )
+        elapsed = time.time() - self.stats["start_time"]
+        self.stats["elapsed_time"] = elapsed
+        self.stats["throughput"] = self.stats["tokens_generated"] / elapsed if elapsed > 0 else 0
 
         return self.stats
 
@@ -303,26 +282,27 @@ class EMU3DynamicWorker:
 # Main Pipeline
 # ============================================================================
 
+
 def process_with_dynamic_scheduling(config: Dict):
     """Main processing with dynamic work distribution."""
 
     # Initialize Ray
     ray.init(ignore_reinit_error=True)
     resources = ray.available_resources()
-    num_gpus = config.get('num_gpus') or int(resources.get('GPU', 1))
+    num_gpus = config.get("num_gpus") or int(resources.get("GPU", 1))
 
     logging.info(f"Starting with {num_gpus} GPU workers")
 
     # Get list of shards
-    input_files = sorted(glob.glob(config['input_pattern']))
+    input_files = sorted(glob.glob(config["input_pattern"]))
     if not input_files:
         logging.error(f"No files found: {config['input_pattern']}")
         return
 
     # Apply range filter if specified
-    if config.get('range'):
+    if config.get("range"):
         try:
-            start, end = map(int, config['range'].split(':'))
+            start, end = map(int, config["range"].split(":"))
             input_files = input_files[start:end]
             logging.info(f"Processing range {start}:{end} of shards")
         except (ValueError, IndexError) as e:
@@ -350,7 +330,7 @@ def process_with_dynamic_scheduling(config: Dict):
 
     # Check for failed shards
     final_status = ray.get(shard_queue.get_status.remote())
-    if final_status['failed'] > 0:
+    if final_status["failed"] > 0:
         logging.warning(f"{final_status['failed']} shards failed processing")
 
     ray.shutdown()
@@ -366,13 +346,13 @@ def monitor_progress(shard_queue, total_shards: int):
         status = ray.get(shard_queue.get_status.remote())
 
         # Update progress bar
-        new_completed = status['completed']
+        new_completed = status["completed"]
         if new_completed > last_completed:
             pbar.update(new_completed - last_completed)
             last_completed = new_completed
 
         # Check if done
-        if status['pending'] == 0 and status['in_progress'] == 0:
+        if status["pending"] == 0 and status["in_progress"] == 0:
             break
 
         # Check every 2 minutes for long-running shards
@@ -383,92 +363,94 @@ def monitor_progress(shard_queue, total_shards: int):
 
 def print_summary(results: List[Dict]):
     """Print processing summary."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("PROCESSING COMPLETE")
-    print("="*60)
+    print("=" * 60)
 
-    total_shards = sum(r['shards_processed'] for r in results)
-    total_samples = sum(r['samples_processed'] for r in results)
-    total_tokens = sum(r['tokens_generated'] for r in results)
-    total_errors = sum(r['errors'] for r in results)
-    max_time = max(r['elapsed_time'] for r in results)
+    total_shards = sum(r["shards_processed"] for r in results)
+    total_samples = sum(r["samples_processed"] for r in results)
+    total_tokens = sum(r["tokens_generated"] for r in results)
+    total_errors = sum(r["errors"] for r in results)
+    max_time = max(r["elapsed_time"] for r in results)
 
     for i, r in enumerate(results):
-        print(f"Worker {i}: {r['shards_processed']} shards, "
-              f"{r['samples_processed']} samples, "
-              f"{r['throughput']:.0f} tok/s")
+        print(
+            f"Worker {i}: {r['shards_processed']} shards, "
+            f"{r['samples_processed']} samples, "
+            f"{r['throughput']:.0f} tok/s"
+        )
 
-    print("-"*60)
+    print("-" * 60)
     print(f"Total: {total_shards} shards, {total_samples} samples, {total_tokens} tokens")
     print(f"Errors: {total_errors}")
     print(f"Time: {max_time:.1f}s")
     print(f"Overall throughput: {total_tokens/max_time:.0f} tokens/sec")
-    print("="*60)
+    print("=" * 60)
 
 
 def save_dataset_info(results: List[Dict], config: Dict, input_files: List[str], final_status: Dict):
     """Save dataset information to JSON file."""
-    import json
     import datetime
+    import json
     from pathlib import Path
 
     # Calculate totals
-    total_shards = sum(r['shards_processed'] for r in results)
-    total_samples = sum(r['samples_processed'] for r in results)
-    total_tokens = sum(r['tokens_generated'] for r in results)
-    total_errors = sum(r['errors'] for r in results)
-    max_time = max(r['elapsed_time'] for r in results) if results else 0
+    total_shards = sum(r["shards_processed"] for r in results)
+    total_samples = sum(r["samples_processed"] for r in results)
+    total_tokens = sum(r["tokens_generated"] for r in results)
+    total_errors = sum(r["errors"] for r in results)
+    max_time = max(r["elapsed_time"] for r in results) if results else 0
 
     # Build actual output directory path
-    output_dir = config['output_dir']
-    if config.get('range'):
-        range_str = config['range'].replace(':', '-')
+    output_dir = config["output_dir"]
+    if config.get("range"):
+        range_str = config["range"].replace(":", "-")
         output_dir = f"{output_dir}_range_{range_str}"
 
-    min_res = config.get('min_resolution')
-    max_res = config.get('max_resolution')
+    min_res = config.get("min_resolution")
+    max_res = config.get("max_resolution")
     if min_res or max_res:
-        min_str = str(min_res) if min_res else '0'
-        max_str = str(max_res) if max_res else 'inf'
+        min_str = str(min_res) if min_res else "0"
+        max_str = str(max_res) if max_res else "inf"
         output_dir = f"{output_dir}_res_{min_str}_{max_str}"
 
     # Prepare dataset info
     dataset_info = {
-        'timestamp': datetime.datetime.now().isoformat(),
-        'configuration': {
-            'input_pattern': config['input_pattern'],
-            'output_dir': output_dir,
-            'tokenizer_path': config['tokenizer_path'],
-            'num_gpus': len(results),
-            'range': config.get('range', 'all'),
-            'min_resolution': config.get('min_resolution'),
-            'max_resolution': config.get('max_resolution'),
-            'num_shards': len(input_files)
+        "timestamp": datetime.datetime.now().isoformat(),
+        "configuration": {
+            "input_pattern": config["input_pattern"],
+            "output_dir": output_dir,
+            "tokenizer_path": config["tokenizer_path"],
+            "num_gpus": len(results),
+            "range": config.get("range", "all"),
+            "min_resolution": config.get("min_resolution"),
+            "max_resolution": config.get("max_resolution"),
+            "num_shards": len(input_files),
         },
-        'statistics': {
-            'total_shards': total_shards,
-            'total_samples': total_samples,
-            'total_tokens': total_tokens,
-            'errors': total_errors,
-            'processing_time_seconds': max_time,
-            'failed_shards': final_status.get('failed', 0)
+        "statistics": {
+            "total_shards": total_shards,
+            "total_samples": total_samples,
+            "total_tokens": total_tokens,
+            "errors": total_errors,
+            "processing_time_seconds": max_time,
+            "failed_shards": final_status.get("failed", 0),
         },
-        'averages': {
-            'tokens_per_sequence': total_tokens / total_samples if total_samples > 0 else 0,
-            'samples_per_shard': total_samples / total_shards if total_shards > 0 else 0
+        "averages": {
+            "tokens_per_sequence": total_tokens / total_samples if total_samples > 0 else 0,
+            "samples_per_shard": total_samples / total_shards if total_shards > 0 else 0,
         },
-        'performance': {
-            'samples_per_second': total_samples / max_time if max_time > 0 else 0,
-            'tokens_per_second': total_tokens / max_time if max_time > 0 else 0
+        "performance": {
+            "samples_per_second": total_samples / max_time if max_time > 0 else 0,
+            "tokens_per_second": total_tokens / max_time if max_time > 0 else 0,
         },
-        'shards_processed': [Path(f).name for f in input_files[:total_shards]]
+        "shards_processed": [Path(f).name for f in input_files[:total_shards]],
     }
 
     # Save to JSON file
-    output_path = Path(output_dir) / 'dataset_info.json'
+    output_path = Path(output_dir) / "dataset_info.json"
     try:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             json.dump(dataset_info, f, indent=2)
         logging.info(f"Dataset info saved to {output_path}")
     except Exception as e:
@@ -477,16 +459,12 @@ def save_dataset_info(results: List[Dict], config: Dict, input_files: List[str],
 
 def main():
     """Main entry point."""
-    parser = add_emu3_tokenization_args(
-        description="EMU3 tokenization with dynamic Ray scheduling"
-    )
+    parser = add_emu3_tokenization_args(description="EMU3 tokenization with dynamic Ray scheduling")
     args = parser.parse_args()
 
     # Setup logging
     logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%H:%M:%S'
+        level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S"
     )
 
     config = vars(args)

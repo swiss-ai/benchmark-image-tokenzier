@@ -15,14 +15,14 @@ Example commands:
 """
 
 import argparse
-import json
 import io
+import json
+import multiprocessing as mp
 import os
 import time
-from pathlib import Path
-from typing import Dict, Any, Optional, List, Tuple
-import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 import webdataset as wds
 from datasets import load_dataset
@@ -76,7 +76,7 @@ def convert_sample(sample: Dict[str, Any], idx: int) -> Optional[Dict[str, bytes
             "original_index": idx,  # Store original dataset index in metadata
             "width": width,
             "height": height,
-            "mode": image.mode
+            "mode": image.mode,
         }
 
         # Add any additional fields (except images)
@@ -93,7 +93,7 @@ def convert_sample(sample: Dict[str, Any], idx: int) -> Optional[Dict[str, bytes
         return {
             "__key__": f"{idx:08d}",
             "png": img_bytes.getvalue(),
-            "json": json.dumps(metadata, ensure_ascii=False).encode('utf-8')
+            "json": json.dumps(metadata, ensure_ascii=False).encode("utf-8"),
         }
 
     except Exception as e:
@@ -107,7 +107,7 @@ def convert_dataset(
     config: Optional[str] = None,
     split: str = "train",
     shard_size: int = 1000,
-    num_workers: int = 4
+    num_workers: int = 4,
 ):
     """
     Convert HuggingFace dataset to WebDataset format.
@@ -132,12 +132,7 @@ def convert_dataset(
 
     # Load dataset
     print(f"Loading dataset...")
-    dataset = load_dataset(
-        dataset_path,
-        config,
-        split=split,
-        num_proc=16
-    )
+    dataset = load_dataset(dataset_path, config, split=split, num_proc=16)
 
     total_samples = len(dataset)
     print(f"Dataset loaded: {total_samples} samples")
@@ -196,12 +191,14 @@ def convert_dataset(
                         futures.remove(done_future)
 
                         # Update progress
-                        pbar.set_postfix({
-                            'shard': successful // shard_size,
-                            'success': successful,
-                            'failed': failed,
-                            'pending': len(futures)
-                        })
+                        pbar.set_postfix(
+                            {
+                                "shard": successful // shard_size,
+                                "success": successful,
+                                "failed": failed,
+                                "pending": len(futures),
+                            }
+                        )
 
                 # Process all remaining futures
                 for future in as_completed(futures):
@@ -221,6 +218,7 @@ def convert_dataset(
 
     # List created files
     import glob
+
     tar_files = sorted(glob.glob(str(output_path / "*.tar")))
     if tar_files:
         print(f"\nCreated files:")
@@ -242,10 +240,10 @@ def convert_dataset(
         "num_shards": num_shards,
         "shard_size": shard_size,
         "conversion_time": elapsed,
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
 
-    with open(info_file, 'w') as f:
+    with open(info_file, "w") as f:
         json.dump(info, f, indent=2)
     print(f"\nDataset info saved to: {info_file}")
 
@@ -270,15 +268,15 @@ def verify_webdataset(tar_path: str, num_samples: int = 5):
         print(f"  Keys: {sample.keys()}")
 
         # Check PNG image
-        if 'png' in sample:
-            img = Image.open(io.BytesIO(sample['png']))
+        if "png" in sample:
+            img = Image.open(io.BytesIO(sample["png"]))
             print(f"  Image: {img.size} {img.mode}")
 
         # Check metadata
-        if 'json' in sample:
-            metadata = json.loads(sample['json'])
+        if "json" in sample:
+            metadata = json.loads(sample["json"])
             print(f"  Metadata keys: {metadata.keys()}")
-            if 'texts' in metadata and metadata['texts']:
+            if "texts" in metadata and metadata["texts"]:
                 print(f"  Q&A pairs: {len(metadata['texts'])}")
                 print(f"  First Q: {metadata['texts'][0].get('user', '')[:100]}...")
 
@@ -287,24 +285,24 @@ def main():
     parser = argparse.ArgumentParser(description="Convert HuggingFace dataset to WebDataset format")
 
     # Input options
-    parser.add_argument("--dataset", type=str, default="HuggingFaceM4/FineVision",
-                        help="HuggingFace dataset name")
-    parser.add_argument("--config", type=str, default="ocrvqa",
-                        help="Dataset configuration (e.g., ocrvqa, textcaps, vqav2)")
-    parser.add_argument("--split", type=str, default="train",
-                        help="Dataset split to convert")
+    parser.add_argument("--dataset", type=str, default="HuggingFaceM4/FineVision", help="HuggingFace dataset name")
+    parser.add_argument(
+        "--config", type=str, default="ocrvqa", help="Dataset configuration (e.g., ocrvqa, textcaps, vqav2)"
+    )
+    parser.add_argument("--split", type=str, default="train", help="Dataset split to convert")
 
     # Output options
-    parser.add_argument("--output-dir", type=str, required=True,
-                        help="Output directory for WebDataset files")
-    parser.add_argument("--shard-size", type=int, default=1000,
-                        help="Number of samples per shard")
+    parser.add_argument("--output-dir", type=str, required=True, help="Output directory for WebDataset files")
+    parser.add_argument("--shard-size", type=int, default=1000, help="Number of samples per shard")
 
     # Processing options
-    parser.add_argument("--num-workers", type=int, default=min(64, mp.cpu_count()),
-                        help="Number of parallel workers (default: min(64, cpu_count))")
-    parser.add_argument("--verify", action="store_true",
-                        help="Verify the created WebDataset")
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=min(64, mp.cpu_count()),
+        help="Number of parallel workers (default: min(64, cpu_count))",
+    )
+    parser.add_argument("--verify", action="store_true", help="Verify the created WebDataset")
 
     args = parser.parse_args()
 
@@ -315,12 +313,13 @@ def main():
         config=args.config,
         split=args.split,
         shard_size=args.shard_size,
-        num_workers=args.num_workers
+        num_workers=args.num_workers,
     )
 
     # Verify if requested
     if args.verify:
         import glob
+
         tar_files = glob.glob(os.path.join(args.output_dir, "*.tar"))
         if tar_files:
             verify_webdataset(tar_files[0])

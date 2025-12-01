@@ -23,9 +23,9 @@ Usage:
     }
 """
 
-from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Type
 import logging
+from abc import ABC, abstractmethod
+from typing import Any, Dict, List, Type
 
 logger = logging.getLogger(__name__)
 
@@ -79,11 +79,13 @@ class ConversationTransformRegistry:
         Args:
             name: Unique name for the transform
         """
+
         def decorator(transform_cls: Type[BaseConversationTransform]) -> Type[BaseConversationTransform]:
             if name in cls._transforms:
                 logger.warning(f"Overwriting existing conversation transform: {name}")
             cls._transforms[name] = transform_cls
             return transform_cls
+
         return decorator
 
     @classmethod
@@ -102,10 +104,7 @@ class ConversationTransformRegistry:
         """
         if name not in cls._transforms:
             available = list(cls._transforms.keys())
-            raise ValueError(
-                f"Unknown conversation transform: '{name}'. "
-                f"Available: {available}"
-            )
+            raise ValueError(f"Unknown conversation transform: '{name}'. " f"Available: {available}")
         return cls._transforms[name]
 
     @classmethod
@@ -117,6 +116,7 @@ class ConversationTransformRegistry:
 # =============================================================================
 # Built-in Transforms
 # =============================================================================
+
 
 @ConversationTransformRegistry.register("finevision_to_llama")
 class FineVisionToLLaMATransform(BaseConversationTransform):
@@ -178,7 +178,7 @@ class FineVisionToLLaMATransform(BaseConversationTransform):
             if not isinstance(conv, dict):
                 raise ValueError(f"Expected dict at index {i}, got {type(conv)}")
 
-            if 'user' not in conv or 'assistant' not in conv:
+            if "user" not in conv or "assistant" not in conv:
                 raise ValueError(
                     f"Conversation dict at index {i} must contain 'user' and 'assistant' keys, "
                     f"got keys: {list(conv.keys())}"
@@ -187,24 +187,14 @@ class FineVisionToLLaMATransform(BaseConversationTransform):
             # Add user message
             if i == 0:
                 # First message gets the image placeholder
-                messages.append({
-                    "role": "user",
-                    "content": [
-                        {"type": "image"},
-                        {"type": "text", "text": conv['user']}
-                    ]
-                })
+                messages.append(
+                    {"role": "user", "content": [{"type": "image"}, {"type": "text", "text": conv["user"]}]}
+                )
             else:
-                messages.append({
-                    "role": "user",
-                    "content": conv['user']
-                })
+                messages.append({"role": "user", "content": conv["user"]})
 
             # Add assistant message
-            messages.append({
-                "role": "assistant",
-                "content": conv['assistant']
-            })
+            messages.append({"role": "assistant", "content": conv["assistant"]})
 
         return messages
 
@@ -269,7 +259,7 @@ class LLaVaInstructToApertusTransform(BaseConversationTransform):
             if not isinstance(conv, dict):
                 raise ValueError(f"Expected dict at index {i}, got {type(conv)}")
 
-            if 'role' not in conv or 'content' not in conv:
+            if "role" not in conv or "content" not in conv:
                 raise ValueError(
                     f"Conversation dict at index {i} must contain 'role' and 'content' keys, "
                     f"got keys: {list(conv.keys())}"
@@ -277,27 +267,15 @@ class LLaVaInstructToApertusTransform(BaseConversationTransform):
 
             # First message gets the image placeholder and question for user
             if i == 0:
-                assert conv['role'] == 'user'
-                messages.append({
-                    "role": "user",
-                    "content": {
-                        "parts": [
-                            {
-                                "type": "image"
-                            },
-                            {
-                                "type": "text",
-                                "text": conv['content']
-                            }
-                        ]
+                assert conv["role"] == "user"
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": {"parts": [{"type": "image"}, {"type": "text", "text": conv["content"]}]},
                     }
-                })
+                )
             else:
                 # Normal messages
-                messages.append({
-                    "role": conv['role'],
-                    "content": conv['content']
-                })
-
+                messages.append({"role": conv["role"], "content": conv["content"]})
 
         return messages

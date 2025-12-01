@@ -1,29 +1,29 @@
 import dataclasses
 import math
 import warnings
-from typing import List, Optional, Union, Any, Tuple
+from typing import Any, List, Optional, Tuple, Union
 
 import PIL
-from PIL import ImageFile
-from PIL import ImageOps
+from PIL import ImageFile, ImageOps
 
 
 def setup_pil():
     PIL.Image.MAX_IMAGE_PIXELS = None
     ImageFile.LOAD_TRUNCATED_IMAGES = True
 
+
 import numpy as np
 import torch
 import torchvision.transforms
+import torchvision.transforms.functional as TF
 from torchvision.transforms import InterpolationMode
 from torchvision.transforms.functional import convert_image_dtype
-import torchvision.transforms.functional as TF
-
 from transformers.image_utils import (
     OPENAI_CLIP_MEAN,
     OPENAI_CLIP_STD,
     ImageInput,
 )
+
 
 def load_image(image_path):
     setup_pil()  # Call here so the setting is applied in multi-processing contexts
@@ -45,13 +45,8 @@ def load_image(image_path):
         with PIL.Image.open(image_path) as image:
             return load_image(image)
 
-def resize_and_pad(
-    image,
-    desired_output_size,
-    is_training=False,
-    pad_value=-1,
-    rng=np.random
-):
+
+def resize_and_pad(image, desired_output_size, is_training=False, pad_value=-1, rng=np.random):
     """Resize an image while padding to preserve its aspect ratio."""
     desired_height, desired_width = desired_output_size
     height, width = image.shape[:2]
@@ -74,11 +69,12 @@ def resize_and_pad(
     padding = [
         [top_pad, desired_height - scaled_height - top_pad],
         [left_pad, desired_width - scaled_width - left_pad],
-        [0, 0]
+        [0, 0],
     ]
     image_mask = np.pad(np.ones_like(image[:, :, 0], dtype=bool), padding[:2])
     image = np.pad(image, padding, constant_values=pad_value)
     return image, image_mask
+
 
 def select_tiling(h, w, patch_size, max_num_crops):
     """Divide in image of size [w, h] in up to max_num_patches of size patch_size"""
@@ -87,10 +83,10 @@ def select_tiling(h, w, patch_size, max_num_crops):
     tilings = []
     for i in range(1, max_num_crops + 1):
         for j in range(1, max_num_crops + 1):
-            if i*j <= max_num_crops:
+            if i * j <= max_num_crops:
                 tilings.append((i, j))
     # sort so argmin and argmax favour smaller tilings in the event of a tie
-    tilings.sort(key=lambda x: (x[0]*x[1], x[0]))
+    tilings.sort(key=lambda x: (x[0] * x[1], x[0]))
     candidate_tilings = np.array(tilings, dtype=np.int32)  # [n_resolutions, 2]
     candidate_resolutions = candidate_tilings * patch_size  # [n_resolutions, 2]
 
@@ -100,8 +96,8 @@ def select_tiling(h, w, patch_size, max_num_crops):
     # The original size can be zero in rare cases if the image is smaller than the margin
     # In those cases letting the scale become infinite means the tiling is based on the
     # other side, or falls back to the smallest tiling
-    with np.errstate(divide='ignore'):
-        required_scale_d = candidate_resolutions.astype(np.float32) / original_size,
+    with np.errstate(divide="ignore"):
+        required_scale_d = (candidate_resolutions.astype(np.float32) / original_size,)
     required_scale = np.min(required_scale_d, axis=-1, keepdims=True)  # [n_resolutions, 1]
     if np.all(required_scale < 1):
         # We are forced to downscale, so try to minimize the amount of downscaling
@@ -119,6 +115,7 @@ class MultiModalPreprocessor:
     Converts text/images inputs into tensors that can be used in the forward method
     for the a model
     """
+
     tokenizer: Optional[Any] = None
     loss_token_weighting: Optional[str] = None
 
@@ -153,16 +150,9 @@ class MultiModalPreprocessor:
         self.image_prompt_token_id = 0
 
     def resize_image(self, image, output_size, is_training, rng):
-        return resize_and_pad(
-            image, output_size, pad_value=self.pad_value, rng=rng, is_training=is_training)
+        return resize_and_pad(image, output_size, pad_value=self.pad_value, rng=rng, is_training=is_training)
 
-
-    def image_to_patches_and_tokens(
-        self,
-        image: ImageInput,
-        is_training=False,
-        rng=None
-    ):
+    def image_to_patches_and_tokens(self, image: ImageInput, is_training=False, rng=None):
         max_crops = self.max_crops
         overlap_margins = self.overlap_margins
         base_image_input_size = self.base_image_input_size
@@ -187,13 +177,13 @@ class MultiModalPreprocessor:
             # Required for compatibility with image pooling
             assert left_margin % self.image_pooling_w == 0 and right_margin % self.image_pooling_w == 0
             assert left_margin % self.image_pooling_h == 0 and right_margin % self.image_pooling_h == 0
-            total_margin_pixels = base_image_input_d*(right_margin + left_margin)  # pixels removed per dim
+            total_margin_pixels = base_image_input_d * (right_margin + left_margin)  # pixels removed per dim
             crop_patches = base_image_input_size[0] // base_image_input_d  # patches per crop dim
             crop_window_patches = crop_patches - (right_margin + left_margin)  # usable patches
             crop_window_size = crop_window_patches * base_image_input_d
 
             # Correction for non-spatial tokenizers where the numbers do not fully add up
-            if overlap_margins == (0,0):
+            if overlap_margins == (0, 0):
                 crop_window_size = crop_size
 
             # Decide how to tile the image, to account for the overlap margins we compute the tiling
@@ -202,14 +192,17 @@ class MultiModalPreprocessor:
                 original_image_h - total_margin_pixels,
                 original_image_w - total_margin_pixels,
                 crop_window_size,
-                max_crops
+                max_crops,
             )
 
             src, img_mask = self.resize_image(
                 image,
-                [tiling[0]*crop_window_size+total_margin_pixels, tiling[1]*crop_window_size+total_margin_pixels],
+                [
+                    tiling[0] * crop_window_size + total_margin_pixels,
+                    tiling[1] * crop_window_size + total_margin_pixels,
+                ],
                 is_training,
-                rng
+                rng,
             )
             # Now we have to split the image into crops, while keeping track of how each patch in the
             # each crop should be ordered in the global image, this require a lot of tricky booking
@@ -221,7 +214,7 @@ class MultiModalPreprocessor:
             on = 0
             on_patch = 0
             for i in range(tiling[0]):
-                y0 = i*crop_window_size
+                y0 = i * crop_window_size
                 if i == 0:
                     crop_y0 = 0
                 else:
@@ -230,10 +223,10 @@ class MultiModalPreprocessor:
                 crop_h = image_base_patch_h - (right_margin + left_margin)
                 if i == 0:
                     crop_h += left_margin
-                if i == (tiling[0]-1):
+                if i == (tiling[0] - 1):
                     crop_h += right_margin
                 for j in range(tiling[1]):
-                    x0 = j*crop_window_size
+                    x0 = j * crop_window_size
                     if j == 0:
                         crop_x0 = 0
                     else:
@@ -242,7 +235,7 @@ class MultiModalPreprocessor:
                     crop_w = image_base_patch_w - (right_margin + left_margin)
                     if j == 0:
                         crop_w += left_margin
-                    if j == (tiling[1]-1):
+                    if j == (tiling[1] - 1):
                         crop_w += right_margin
 
                     pooled_w = (crop_w + self.image_pooling_w - 1) // self.image_pooling_w
@@ -251,17 +244,16 @@ class MultiModalPreprocessor:
                     after_padding_height = image_token_length_h - pooled_h - crop_y0
                     patch_ordering_arr.append(
                         np.pad(
-                            np.reshape(
-                                np.arange(on, on+pooled_h*pooled_w, dtype=np.int32),
-                                (pooled_h, pooled_w)),
+                            np.reshape(np.arange(on, on + pooled_h * pooled_w, dtype=np.int32), (pooled_h, pooled_w)),
                             [[crop_y0, after_padding_height], [crop_x0, after_padding_width]],
-                            constant_values=-1, mode='constant'
+                            constant_values=-1,
+                            mode="constant",
                         )
                     )
-                    patches_arr.append(src[y0:y0+crop_size, x0:x0+crop_size])
-                    mask_arr.append(img_mask[y0:y0+crop_size, x0:x0+crop_size])
+                    patches_arr.append(src[y0 : y0 + crop_size, x0 : x0 + crop_size])
+                    mask_arr.append(img_mask[y0 : y0 + crop_size, x0 : x0 + crop_size])
 
-                    on += pooled_h*pooled_w
+                    on += pooled_h * pooled_w
                     on_patch += 1
             patches = np.stack(patches_arr)
             patch_ordering = np.stack(patch_ordering_arr)
@@ -272,10 +264,18 @@ class MultiModalPreprocessor:
 
             def get_num_patches(num_tiles: int, pooling_size: int) -> int:
                 if num_tiles > 1:
-                    left_crop_window_patches = (crop_window_patches + left_margin + pooling_size - 1) // pooling_size * pooling_size
+                    left_crop_window_patches = (
+                        (crop_window_patches + left_margin + pooling_size - 1) // pooling_size * pooling_size
+                    )
                     middle_crop_window_patches = (crop_window_patches + pooling_size - 1) // pooling_size * pooling_size
-                    right_crop_window_patches = (crop_window_patches + right_margin + pooling_size - 1) // pooling_size * pooling_size
-                    return left_crop_window_patches + (num_tiles - 2) * middle_crop_window_patches + right_crop_window_patches
+                    right_crop_window_patches = (
+                        (crop_window_patches + right_margin + pooling_size - 1) // pooling_size * pooling_size
+                    )
+                    return (
+                        left_crop_window_patches
+                        + (num_tiles - 2) * middle_crop_window_patches
+                        + right_crop_window_patches
+                    )
                 else:
                     single_crop_window_patches = (crop_patches + pooling_size - 1) // pooling_size * pooling_size
                     return single_crop_window_patches
@@ -283,20 +283,12 @@ class MultiModalPreprocessor:
             # Now build the output tokens
             h = get_num_patches(tiling[0], self.image_pooling_h)
             w = get_num_patches(tiling[1], self.image_pooling_w)
-            per_row = np.full(
-                (w // self.image_pooling_w,),
-                self.image_patch_token_id,
-                dtype=np.int32
-            )
+            per_row = np.full((w // self.image_pooling_w,), self.image_patch_token_id, dtype=np.int32)
             if self.use_col_tokens:
                 per_row = np.concatenate([per_row, [self.image_col_token_id]], 0)
 
             joint = np.tile(per_row, [h // self.image_pooling_h])
-            joint = [
-                [self.image_start_token_id],
-                joint,
-                [self.image_end_token_id]
-            ]
+            joint = [[self.image_start_token_id], joint, [self.image_end_token_id]]
 
             # Finally do the same for the global image
             resized, mask = self.resize_image(image, base_image_input_size, is_training, rng)
@@ -304,27 +296,19 @@ class MultiModalPreprocessor:
             patches = np.concatenate([np.expand_dims(resized, 0), patches], 0)
 
             # Global image goes first, so the order of patches in previous crops gets increased
-            patch_ordering = np.where(
-                patch_ordering >= 0,
-                patch_ordering + tokens_per_image,
-                -1
-            )
+            patch_ordering = np.where(patch_ordering >= 0, patch_ordering + tokens_per_image, -1)
             base_ordering = np.arange(tokens_per_image).reshape(self.image_token_length_h, self.image_token_length_w)
             patch_ordering = np.concatenate([base_ordering[None], patch_ordering], axis=0)
 
-            per_row = np.full(
-                (image_token_length_w,),
-                self.image_patch_token_id,
-                dtype=np.int32
-            )
+            per_row = np.full((image_token_length_w,), self.image_patch_token_id, dtype=np.int32)
             if self.use_col_tokens:
                 per_row = np.concatenate([per_row, [self.image_col_token_id]], 0)
             extra_tokens = np.tile(per_row, [image_token_length_h])
             joint = [
-                        [self.image_start_token_id],
-                        extra_tokens,
-                        [self.image_end_token_id],
-                    ] + joint
+                [self.image_start_token_id],
+                extra_tokens,
+                [self.image_end_token_id],
+            ] + joint
 
             joint = np.concatenate(joint, 0)
             img_mask = np.pad(img_mask, [[0, 1], [0, 0]], constant_values=-1)
@@ -367,8 +351,8 @@ class MultiModalPreprocessor:
             # this since the `image_tokens`` will contain special tokens interleave with the
             # tokens that will become image features
             valid = (sorted_patch_ixs_ex >= 0).astype(np.int32)
-            image_input_idx = image_input_idx[sorted_patch_ixs_ex*valid]
-            image_input_idx = image_input_idx*valid - 100*(1 - valid)
+            image_input_idx = image_input_idx[sorted_patch_ixs_ex * valid]
+            image_input_idx = image_input_idx * valid - 100 * (1 - valid)
 
         image_input_idx = np.reshape(image_input_idx, [-1, tokens_per_image])
         return image_input_idx
@@ -386,9 +370,8 @@ class MultiModalPreprocessor:
             padding_mask: (n_crops, n_patches) what percent of each crop is padding, can be None
                           if the image mask is not being used.
         """
-        crops, image_tokens, patch_ordering, img_mask = self.image_to_patches_and_tokens(
-            image, is_training, rng)
-        # I need to fix this function       
+        crops, image_tokens, patch_ordering, img_mask = self.image_to_patches_and_tokens(image, is_training, rng)
+        # I need to fix this function
         patch_idx = self.build_image_input_idx(
             image_tokens,
             patch_ordering,
@@ -410,15 +393,12 @@ class MultiModalPreprocessor:
         tiles_x, tiles_y = tiling
         # reshape the crops into a grid
         # The first crop is the global image, the rest are the crops
-        crops_grid = [
-            trimmed_crops[1 + y * tiles_y : 1 + (y + 1) * tiles_y]
-            for y in range(tiles_x)
-        ]
+        crops_grid = [trimmed_crops[1 + y * tiles_y : 1 + (y + 1) * tiles_y] for y in range(tiles_x)]
         rows = [np.concatenate(row, axis=1) for row in crops_grid]
         full_image = np.concatenate(rows, axis=0)
 
         return full_image, trimmed_crops[0]  # Return the full image and the first crop (global image)
-    
+
     def count_invalid_edges(self, masks, invalid_value=-1):
         """
         Counts how many full rows/columns can be trimmed from the edges of each crop,
@@ -460,7 +440,7 @@ class MultiModalPreprocessor:
                 trims[i, 3] += 1  # bottom
 
         return trims
-    
+
     def apply_trims_to_crops(self, crops, trims):
         """
         Trim each crop according to the corresponding trims.
@@ -476,13 +456,10 @@ class MultiModalPreprocessor:
         for i in range(len(crops)):
             left, top, right, bottom = trims[i]
             crop = crops[i]
-            trimmed_crop = crop[
-                top : crop.shape[0] - bottom,
-                left : crop.shape[1] - right,
-                :
-            ]
+            trimmed_crop = crop[top : crop.shape[0] - bottom, left : crop.shape[1] - right, :]
             trimmed_crops.append(trimmed_crop)
         return trimmed_crops
+
 
 # Example usage of the MultiModalPreprocessor class
 if __name__ == "__main__":
@@ -500,21 +477,25 @@ if __name__ == "__main__":
         image_token_length_h=16,
         image_patch_size=16,
         image_padding_mask=False,
-        pad_value=0.0
+        pad_value=0.0,
     )
 
     # Example usage
     image = load_image("/users/nirmiger/benchmark-image-tokenzier/assets/original/math_draft1.png")
-    crops, tiling, patch_ordering, masks = preprocessor.image_to_patches_and_tokens(image, is_training=True, rng=np.random.default_rng())
+    crops, tiling, patch_ordering, masks = preprocessor.image_to_patches_and_tokens(
+        image, is_training=True, rng=np.random.default_rng()
+    )
     print("Crops shape:", crops.shape)
     print("Tiling:", tiling)
     print("Patch ordering shape:", patch_ordering.shape)
     print("Image mask shape:", masks.shape)
 
     import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
+
+    matplotlib.use("Agg")
     import matplotlib.patches as patches
+    import matplotlib.pyplot as plt
+
     crops = crops.numpy()
     images_to_plot = crops.astype(np.uint8)
 
@@ -528,22 +509,34 @@ if __name__ == "__main__":
     # Function to plot a single crop at a given location in the figure
     def plot_crop(ax, img, patch_mask):
         ax.imshow(img)
-        ax.axis('off')
+        ax.axis("off")
 
         h_patches, w_patches = patch_mask.shape
         for y in range(h_patches):
             for x in range(w_patches):
                 if patch_mask[y, x] == -1:
                     rect = patches.Rectangle(
-                        (x * patch_size, y * patch_size), patch_size, patch_size,
-                        linewidth=0, edgecolor=None, facecolor='black', alpha=0.3
+                        (x * patch_size, y * patch_size),
+                        patch_size,
+                        patch_size,
+                        linewidth=0,
+                        edgecolor=None,
+                        facecolor="black",
+                        alpha=0.3,
                     )
                     ax.add_patch(rect)
 
     # --- First crop (plotted alone at the top) ---
     ax_first = fig.add_subplot(tiling_rows + 1, tiling_cols, 1)  # First cell in the top row
     plot_crop(ax_first, images_to_plot[0], patch_ordering[0])
-    fig.text(0.65, 0.8, "Global overview (left) and corresponding crops (below).\nOverlapping regions are shaded", fontsize=16, ha='center', va='center')
+    fig.text(
+        0.65,
+        0.8,
+        "Global overview (left) and corresponding crops (below).\nOverlapping regions are shaded",
+        fontsize=16,
+        ha="center",
+        va="center",
+    )
 
     # --- Rest of the crops (laid out in tiling grid, starting from the second one) ---
     index = 1  # Start from second image
@@ -557,10 +550,9 @@ if __name__ == "__main__":
             index += 1
 
     plt.tight_layout(pad=2.0)  # Add spacing between subplots
-    plt.savefig('rearranged_crops_plot.png', dpi=150)
+    plt.savefig("rearranged_crops_plot.png", dpi=150)
     plt.close()
 
     full_grid, first_crop = preprocessor.reconstruct(crops, tiling, patch_ordering, masks)
     full_image = full_grid.clip(0, 255).astype(np.uint8)
     PIL.Image.fromarray(full_image).save("reconstructed_image.png")
-

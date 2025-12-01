@@ -1,17 +1,18 @@
 import os
+import re
+import warnings
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
+import torch
+from lpips import LPIPS
 from PIL import Image
 from skimage.metrics import peak_signal_noise_ratio as psnr
 from skimage.metrics import structural_similarity as ssim
-import torch
-from torchvision import transforms
 from torchmetrics.image.fid import FrechetInceptionDistance
-from lpips import LPIPS
-import warnings
-import matplotlib.pyplot as plt
-import seaborn as sns
-import re
+from torchvision import transforms
 
 # Path to the assets folder
 ASSETS_FOLDER = "assets"
@@ -22,20 +23,25 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Transform for SSIM (preserve original size)
 basic_transform = transforms.ToTensor()
 
-lpips_transform = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.5]*3, std=[0.5]*3),  # scales [0,1] to [-1,1]
-])
+lpips_transform = transforms.Compose(
+    [
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5] * 3, std=[0.5] * 3),  # scales [0,1] to [-1,1]
+    ]
+)
 
 # Transform specifically for FID (resize to 299x299 for InceptionV3)
-fid_transform = transforms.Compose([
-    transforms.Resize((299, 299)),
-    transforms.PILToTensor(),
-])
+fid_transform = transforms.Compose(
+    [
+        transforms.Resize((299, 299)),
+        transforms.PILToTensor(),
+    ]
+)
 
 # Initialize LPIPS model
 warnings.filterwarnings("ignore", category=UserWarning)
-lpips_model = LPIPS(net='alex').to(device)
+lpips_model = LPIPS(net="alex").to(device)
+
 
 # Function to round ratio values in folder names
 def round_ratio_in_name(folder_name):
@@ -45,11 +51,12 @@ def round_ratio_in_name(folder_name):
         def round_match(match):
             number = float(match.group())
             return f"{number:.2f}"
-        
+
         # Replace decimal numbers with rounded versions
-        rounded_name = re.sub(r'\d+\.\d+', round_match, folder_name)
+        rounded_name = re.sub(r"\d+\.\d+", round_match, folder_name)
         return rounded_name
     return folder_name
+
 
 # Function to calculate FID
 def calculate_fid(original_images, generated_images):
@@ -60,20 +67,22 @@ def calculate_fid(original_images, generated_images):
         fid.update(fid_transform(img).unsqueeze(0).to(device), real=False)
     return fid.compute().item()
 
+
 # Function to load images from a folder
 def load_images_from_folder(folder_path, original=False):
     images = []
     numbers = []
     for filename in sorted(os.listdir(folder_path)):
-        if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+        if filename.lower().endswith((".png", ".jpg", ".jpeg")):
             img_path = os.path.join(folder_path, filename)
             images.append(Image.open(img_path).convert("RGB"))
             if not original:
                 base_name = os.path.splitext(filename)[0]
-                number_str = base_name.split('_')[-1] 
+                number_str = base_name.split("_")[-1]
                 number = int(number_str)
                 numbers.append(number)
     return images, numbers
+
 
 # Main function to calculate metrics
 def calculate_metrics():
@@ -151,21 +160,25 @@ def calculate_metrics():
 
             # Round ratio values in folder name for consistent display
             display_folder_name = round_ratio_in_name(folder_name)
-            
-            results.append({
-                "Folder": display_folder_name,
-                "PSNR": avg_psnr,
-                "SSIM": avg_ssim,
-                "LPIPS": avg_lpips,
-                "#Tokens": avg_tokens,
-            })
+
+            results.append(
+                {
+                    "Folder": display_folder_name,
+                    "PSNR": avg_psnr,
+                    "SSIM": avg_ssim,
+                    "LPIPS": avg_lpips,
+                    "#Tokens": avg_tokens,
+                }
+            )
 
             # Results
             print(f"  Average PSNR:  {avg_psnr:.2f}")
             print(f"  Average SSIM:  {avg_ssim:.4f}")
             print(f"  Average LPIPS: {avg_lpips:.4f}")
             print(f"  FID:           {fid_value:.2f}")
-            print("We currently do not have enough data to calculate the true FID or rFID. Do not use this value for any serious evaluation.")
+            print(
+                "We currently do not have enough data to calculate the true FID or rFID. Do not use this value for any serious evaluation."
+            )
 
     # Save results to CSV
     if results:
@@ -177,7 +190,7 @@ def calculate_metrics():
         # Save pretty Markdown
         with open("metrics_results.md", "w") as f:
             f.write(df_sorted.to_markdown(index=False))
-            
+
         sns.set_theme(style="whitegrid", font_scale=1.1)
 
         # Use a larger, more diverse color palette (tab20 has 20 colors, extend if needed)
@@ -185,32 +198,32 @@ def calculate_metrics():
         palette = sns.color_palette("tab20", n_colors=len(unique_folders))
         palette_dict = dict(zip(unique_folders, palette))
 
-
         # --- Sorted LPIPS barplot ---
         plt.figure(figsize=(14, 6))
         sorted_df = df.sort_values(by="LPIPS", ascending=True)
 
-        ax = sns.barplot(
-            data=sorted_df,
-            x="Folder", y="LPIPS",
-            palette=[palette_dict[f] for f in sorted_df["Folder"]]
-        )
-        ax.set_title("LPIPS Scores per Tokenizer\n(Lower is Better)", fontsize=16, weight='bold')
+        ax = sns.barplot(data=sorted_df, x="Folder", y="LPIPS", palette=[palette_dict[f] for f in sorted_df["Folder"]])
+        ax.set_title("LPIPS Scores per Tokenizer\n(Lower is Better)", fontsize=16, weight="bold")
         ax.set_xlabel("Tokenizer", fontsize=12)
         ax.set_ylabel("LPIPS", fontsize=12)
         plt.xticks(rotation=40, ha="right", fontsize=9)
 
         # Annotate LPIPS values on bars
         for p in ax.patches:
-            ax.annotate(f"{p.get_height():.3f}",
-                        (p.get_x() + p.get_width() / 2., p.get_height()),
-                        ha='center', va='bottom', fontsize=8, color='black', xytext=(0, 3),
-                        textcoords='offset points')
+            ax.annotate(
+                f"{p.get_height():.3f}",
+                (p.get_x() + p.get_width() / 2.0, p.get_height()),
+                ha="center",
+                va="bottom",
+                fontsize=8,
+                color="black",
+                xytext=(0, 3),
+                textcoords="offset points",
+            )
 
         plt.tight_layout()
         plt.savefig("lpips_comparison_plot.png", dpi=300, bbox_inches="tight")
         plt.close()
-
 
         # --- LPIPS vs #Tokens (lowest LPIPS) ---
         top20 = df.nsmallest(20, "LPIPS")
@@ -218,31 +231,34 @@ def calculate_metrics():
         plt.figure(figsize=(14, 6))
         ax = sns.scatterplot(
             data=top20,
-            x="#Tokens", y="LPIPS",
-            hue="Folder", palette=palette_dict,
-            s=120, edgecolor="black", linewidth=0.5
+            x="#Tokens",
+            y="LPIPS",
+            hue="Folder",
+            palette=palette_dict,
+            s=120,
+            edgecolor="black",
+            linewidth=0.5,
         )
-        ax.set_title("LPIPS vs Average #Tokens", fontsize=16, weight='bold')
+        ax.set_title("LPIPS vs Average #Tokens", fontsize=16, weight="bold")
         ax.set_xlabel("#Tokens", fontsize=12)
         ax.set_ylabel("LPIPS", fontsize=12)
 
         leg = ax.legend(
             title="Tokenizer",
             bbox_to_anchor=(1.05, 1),
-            loc='upper left',
-            borderaxespad=0.,
+            loc="upper left",
+            borderaxespad=0.0,
             fontsize=8,
             markerscale=1.2,
-            labelspacing=1.25
+            labelspacing=1.25,
         )
         if leg is not None:
             leg.get_frame().set_alpha(0.95)
 
-        ax.grid(True, linestyle='--', linewidth=0.5, alpha=0.5)
+        ax.grid(True, linestyle="--", linewidth=0.5, alpha=0.5)
         plt.tight_layout(rect=[0, 0, 0.75, 1])
-        plt.savefig("lpips_vs_tokens_scatter.png", dpi=300, bbox_inches='tight')
+        plt.savefig("lpips_vs_tokens_scatter.png", dpi=300, bbox_inches="tight")
         plt.close()
-
 
         # --- LPIPS vs #Tokens (lowest Tokens × LPIPS) ---
         df["Composite"] = df["#Tokens"] * df["LPIPS"]
@@ -251,29 +267,33 @@ def calculate_metrics():
         plt.figure(figsize=(14, 6))
         ax = sns.scatterplot(
             data=top20_composite,
-            x="#Tokens", y="LPIPS",
-            hue="Folder", palette=palette_dict,
-            s=120, edgecolor="black", linewidth=0.5
+            x="#Tokens",
+            y="LPIPS",
+            hue="Folder",
+            palette=palette_dict,
+            s=120,
+            edgecolor="black",
+            linewidth=0.5,
         )
-        ax.set_title("LPIPS vs Average #Tokens/Image", fontsize=16, weight='bold')
+        ax.set_title("LPIPS vs Average #Tokens/Image", fontsize=16, weight="bold")
         ax.set_xlabel("#Tokens", fontsize=12)
         ax.set_ylabel("LPIPS", fontsize=12)
 
         leg = ax.legend(
             title="Tokenizer",
             bbox_to_anchor=(1.05, 1),
-            loc='upper left',
-            borderaxespad=0.,
+            loc="upper left",
+            borderaxespad=0.0,
             fontsize=8,
             markerscale=1.2,
-            labelspacing=1.1
+            labelspacing=1.1,
         )
         if leg is not None:
             leg.get_frame().set_alpha(0.95)
 
-        ax.grid(True, linestyle='--', linewidth=0.5, alpha=0.5)
+        ax.grid(True, linestyle="--", linewidth=0.5, alpha=0.5)
         plt.tight_layout(rect=[0, 0, 0.75, 1])
-        plt.savefig("lpips_vs_tokens_composite_plot.png", dpi=300, bbox_inches='tight')
+        plt.savefig("lpips_vs_tokens_composite_plot.png", dpi=300, bbox_inches="tight")
         plt.close()
 
 

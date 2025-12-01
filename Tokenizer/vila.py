@@ -1,44 +1,39 @@
-import cv2
-import numpy as np
-import os
-from PIL import Image
-from typing import Tuple, Any
-import torch
-from torchvision import transforms
-
 import os
 import sys
+from typing import Any, Tuple
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import cv2
+import numpy as np
+import torch
+from PIL import Image
+from torchvision import transforms
 
-from utils_benchmark import load_all_images
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from pathlib import Path
 
 from Tiler import Tiler
 from Tokenizer.base import Tokenizer
+from utils_benchmark import load_all_images
 
-os.chdir('/users/nirmiger/vila-u')
-sys.path.append('/users/nirmiger/vila-u')
+os.chdir("/users/nirmiger/vila-u")
+sys.path.append("/users/nirmiger/vila-u")
 
 import vila_u
 
-TOKENIZER_PATH = '/iopsstor/scratch/cscs/nirmiger/vila-u-7b-256'
-TOKENIZER = 'vila-u-7b-256'
+TOKENIZER_PATH = "/iopsstor/scratch/cscs/nirmiger/vila-u-7b-256"
+TOKENIZER = "vila-u-7b-256"
 
 IMAGE_SIZE = 256
 TILE_SIZE = 256
 
-RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}_ratio_{(IMAGE_SIZE/TILE_SIZE)*(IMAGE_SIZE/TILE_SIZE)}'
+RECONSTRUCTION_PATH = f"/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}_ratio_{(IMAGE_SIZE/TILE_SIZE)*(IMAGE_SIZE/TILE_SIZE)}"
+
 
 class VILA_U_Tokenizer(Tokenizer):
     """UniTok tokenizer implementation"""
 
-    def __init__(self,
-                 model_path: str,
-                 device: str = "cuda",
-                 image_size: int = 256,
-                 seed: int = 0,
-                 **kwargs):
+    def __init__(self, model_path: str, device: str = "cuda", image_size: int = 256, seed: int = 0, **kwargs):
         self.model_path = model_path
         self.device = device
         self.image_size = image_size
@@ -56,10 +51,12 @@ class VILA_U_Tokenizer(Tokenizer):
 
     def preprocess(self, image: Image.Image) -> torch.Tensor:
         """Preprocess image to tensor format expected by VILA-U"""
-        transform = transforms.Compose([
-            transforms.ToTensor(),  # Converts PIL image to tensor and scales to [0, 1]
-            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # Normalize to [-1, 1]
-        ])
+        transform = transforms.Compose(
+            [
+                transforms.ToTensor(),  # Converts PIL image to tensor and scales to [0, 1]
+                transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),  # Normalize to [-1, 1]
+            ]
+        )
         tensor = transform(image).unsqueeze(0)
         return tensor
 
@@ -85,20 +82,20 @@ class VILA_U_Tokenizer(Tokenizer):
 
     def get_num_tokens(self, indices: torch.Tensor) -> int:
         """Get total number of tokens"""
-        return int(indices.numel()/256)
-    
+        return int(indices.numel() / 256)
+
 
 if __name__ == "__main__":
     # Example usage
-    tokenizer = VILA_U_Tokenizer(model_path=TOKENIZER_PATH, device='cuda', image_size=256)
+    tokenizer = VILA_U_Tokenizer(model_path=TOKENIZER_PATH, device="cuda", image_size=256)
     tiler = Tiler(tile_size=TILE_SIZE, pad_value=-1.0, tile_resize=IMAGE_SIZE)
-    images, _, image_paths = load_all_images('/users/nirmiger/benchmark-image-tokenzier/assets/original')
+    images, _, image_paths = load_all_images("/users/nirmiger/benchmark-image-tokenzier/assets/original")
     batch_size = 8  # Adjust based on GPU memory
     os.makedirs(RECONSTRUCTION_PATH, exist_ok=True)
     for idx, image_path in enumerate(image_paths):
         name = Path(image_path).name
         print(f"\nProcessing image {idx+1}: {name}")
-        
+
         # Load and normalize image manually
         image = Image.open(image_path).convert("RGB")
         image_tensor = tokenizer.preprocess(image).squeeze(0)  # Shape: (3, H, W)
@@ -106,8 +103,8 @@ if __name__ == "__main__":
 
         # Tile the image
         result = tiler(image_tensor)
-        tiles = result['tiles']  # (N, C, H, W)
-        metadata = result['metadata']
+        tiles = result["tiles"]  # (N, C, H, W)
+        metadata = result["metadata"]
         print(f"Number of tiles: {tiles.shape[0]} | Tile shape: {tiles.shape[1:]}")
 
         total_tiles = tiles.shape[0]
@@ -149,13 +146,13 @@ if __name__ == "__main__":
         compression_ratio = original_pixels / total_tokens
 
         metrics = {
-            'input_shape': image_tensor.shape,
-            'num_tokens': total_tokens,
-            'original_pixels': original_pixels,
-            'compression_ratio': compression_ratio,
-            'indices_shape': all_indices_tensor.shape,
-            'num_tiles': total_tiles,
-            'tile_size': tiler.tile_size
+            "input_shape": image_tensor.shape,
+            "num_tokens": total_tokens,
+            "original_pixels": original_pixels,
+            "compression_ratio": compression_ratio,
+            "indices_shape": all_indices_tensor.shape,
+            "num_tiles": total_tiles,
+            "tile_size": tiler.tile_size,
         }
 
         # Log
