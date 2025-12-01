@@ -4,11 +4,15 @@ Prompts and images are loaded from json files. Results are stored in an experime
 
 For now only supports EMU3 inferencer.
 """
+
 import argparse
 import json
-import re
-import time
 import os
+import re
+
+# Add paths for imports
+import sys
+import time
 from pathlib import Path
 from typing import Dict, Tuple
 
@@ -16,28 +20,36 @@ import numpy as np
 import torch
 from PIL import Image
 
-# Add paths for imports
-import sys
 base_dir = Path(__file__).parent.parent.parent
 sys.path.append(str(base_dir))
-sys.path.append(str(base_dir / 'Tokenizer'))
+sys.path.append(str(base_dir / "Tokenizer"))
 
 import json
 from datetime import datetime
-from typing import List, Dict, Any
 from pathlib import Path
+from typing import Any, Dict, List
+
 from tqdm import tqdm
 
-
 # Set environment variables to prevent OOM and process issues
-os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
-os.environ['VLLM_WORKER_MULTIPROC_METHOD'] = 'spawn'
-os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'  # Use only GPU 0 for the LLM
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"  # Use only GPU 0 for the LLM
 
 
 class InferenceArgs:
     """Class to store inference arguments."""
-    def __init__(self, apply_chat_template: bool, temperature: float, top_p: float, stop_token_ids: List[int], max_new_tokens: int, max_emu_aspect_ratio, min_emu_aspect_ratio):
+
+    def __init__(
+        self,
+        apply_chat_template: bool,
+        temperature: float,
+        top_p: float,
+        stop_token_ids: List[int],
+        max_new_tokens: int,
+        max_emu_aspect_ratio,
+        min_emu_aspect_ratio,
+    ):
         self.apply_chat_template = apply_chat_template
         self.temperature = temperature
         self.top_p = top_p
@@ -49,6 +61,7 @@ class InferenceArgs:
 
 class VLM(object):
     """Class to initialize and run VLM inference. TODO: Add abstract class"""
+
     def __init__(self, model_path: str, tokenizer_path: str, inf_args: InferenceArgs):
         """Initialize VLM with model and tokenizer paths."""
         self.model_path = model_path
@@ -57,9 +70,9 @@ class VLM(object):
 
         print("Initializing EMU3 Vision Tokenizer...")
         from Tokenizer.Emu3VisionTokenizer import Emu3VisionTokenizer
+
         self.emu3_tokenizer = Emu3VisionTokenizer(
-            min_pixels=self.inf_args.min_emu_aspect_ratio,
-            max_pixels=self.inf_args.max_emu_aspect_ratio
+            min_pixels=self.inf_args.min_emu_aspect_ratio, max_pixels=self.inf_args.max_emu_aspect_ratio
         )
         if torch.cuda.is_available():
             self.emu3_tokenizer.model = self.emu3_tokenizer.model.to("cuda:1")
@@ -67,18 +80,19 @@ class VLM(object):
 
         print("Initializing EMU3 Inferencer...")
         from emu3_vllm_inferencer import EMU3Inferencer
+
         self.inferencer = EMU3Inferencer(
             model_path=self.model_path,
             tokenizer_path=self.tokenizer_path,
             tensor_parallel_size=1,  # 3B model fits on 1 GPU
-            max_model_len=8192
+            max_model_len=8192,
         )
 
         self.inf_args.stop_token_ids = [self.inferencer.special_token_ids["end_of_turn"]]
 
     def _load_image(self, image_path: str, resize: Tuple[int, int] = None):
         """Load image from path."""
-        img = Image.open(image_path).convert('RGB')
+        img = Image.open(image_path).convert("RGB")
         if resize is not None:
             img = img.resize(resize, Image.LANCZOS)
         return img
@@ -118,23 +132,22 @@ class VLM(object):
         and encodes it into the list of tokens needed for inference.
         """
         if self.inf_args.apply_chat_template:
-            my_prompt = [{
-                "role": "user",
-                "content": [
-                    {"type": "image"},  # This becomes <|image|> token (ID 128263)
-                    # {"type": "text", "text": "What do you see in this image?"}
-                    {"type": "text", "text": prompt}
-                ]
-            }]
+            my_prompt = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image"},  # This becomes <|image|> token (ID 128263)
+                        # {"type": "text", "text": "What do you see in this image?"}
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ]
             msg_template = self.inferencer.tokenizer.apply_chat_template(
-                my_prompt,
-                tokenize=False,
-                add_generation_prompt=True
+                my_prompt, tokenize=False, add_generation_prompt=True
             )
         else:
             # Not applying the chat template, just add image token and text prompt one after another
             msg_template = f"<|image|>{prompt}"
-
 
         chat_text = re.sub(r"<\|image\|>", image_token_string, msg_template)
         return self.inferencer.tokenizer.encode(chat_text, add_special_tokens=not self.inf_args.apply_chat_template)
@@ -156,7 +169,7 @@ class VLM(object):
             top_p=self.inf_args.top_p,
             stop_token_ids=self.inf_args.stop_token_ids,
         )
-        generated_ids = result['generated_token_ids']
+        generated_ids = result["generated_token_ids"]
         decoded = self.inferencer.tokenizer.decode(generated_ids, skip_special_tokens=False)
         return decoded
 
@@ -181,19 +194,19 @@ class VLMBenchmark:
 
     def _load_json(self, path: str) -> List[Dict[str, Any]]:
         """Load JSON configuration file."""
-        with open(path, 'r') as f:
+        with open(path, "r") as f:
             return json.load(f)
 
     def _tags_match(self, image_tags: List[str], prompt_tags: List[str], require_all: bool = False) -> bool:
         """
         Check if image and prompt tags match.
-        
+
         Args:
             image_tags: Tags from the image
             prompt_tags: Tags from the prompt
             require_all: If True, all prompt tags must be in image tags.
                         If False, at least one overlap is sufficient.
-        
+
         Returns:
             True if tags match according to the requirement
         """
@@ -220,7 +233,7 @@ class VLMBenchmark:
             "max_new_tokens": self.vlm.inf_args.max_new_tokens,
             "max_emu_aspect_ratio": self.vlm.inf_args.max_emu_aspect_ratio,
             "min_emu_aspect_ratio": self.vlm.inf_args.min_emu_aspect_ratio,
-            "stop_token_ids": self.vlm.inf_args.stop_token_ids
+            "stop_token_ids": self.vlm.inf_args.stop_token_ids,
         }
 
         results = {
@@ -229,7 +242,7 @@ class VLMBenchmark:
             "tokenizer_path": self.vlm.tokenizer_path,
             "inference_args": inference_args_dict,
             "total_runs": 0,
-            "runs": []
+            "runs": [],
         }
 
         # Match images with prompts based on tags
@@ -243,15 +256,9 @@ class VLMBenchmark:
 
                     # Store result
                     result_entry = {
-                        "image": {
-                            "path": image["path"],
-                            "tags": image.get("tags", [])
-                        },
-                        "prompt": {
-                            "text": prompt["text"],
-                            "tags": prompt.get("tags", [])
-                        },
-                        "output": output
+                        "image": {"path": image["path"], "tags": image.get("tags", [])},
+                        "prompt": {"text": prompt["text"], "tags": prompt.get("tags", [])},
+                        "output": output,
                     }
 
                     results["runs"].append(result_entry)
@@ -263,12 +270,11 @@ class VLMBenchmark:
             output_filename = f"benchmark_results_{timestamp}.json"
 
         output_path = self.results_dir / output_filename
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             json.dump(results, f, indent=2)
 
         print(f"Benchmark complete! {results['total_runs']} runs saved to {output_path}")
         return results
-
 
 
 def parse_args():
@@ -276,19 +282,35 @@ def parse_args():
     parser.add_argument("--tokenizer_path", type=str, required=True, help="Path to tokenizer supporting SFT and Images")
     parser.add_argument("--model_path", type=str, required=True, help="Path to HF model")
     parser.add_argument("--results_folder", type=str, default="results/", help="Path to save results")
-    parser.add_argument("--experiment_name", type=str, required=True, help="Name of experiment, used for saving results")
+    parser.add_argument(
+        "--experiment_name", type=str, required=True, help="Name of experiment, used for saving results"
+    )
     parser.add_argument("--image_list", type=str, default="images.json", help="Path to image list")
     parser.add_argument("--prompt_list", type=str, default="prompts.json", help="Path to prompt list")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing results file if it exists")
 
     # Inference arguments group
-    inference_group = parser.add_argument_group('inference arguments', 'Arguments controlling model inference behavior')
-    inference_group.add_argument("--no_chat_template", action="store_true", help="Do not apply chat template to prompts")
+    inference_group = parser.add_argument_group("inference arguments", "Arguments controlling model inference behavior")
+    inference_group.add_argument(
+        "--no_chat_template", action="store_true", help="Do not apply chat template to prompts"
+    )
     inference_group.add_argument("--temperature", type=float, default=0.3, help="Sampling temperature (default: 0.3)")
     inference_group.add_argument("--top_p", type=float, default=0.9, help="Top-p sampling parameter (default: 0.9)")
-    inference_group.add_argument("--max_new_tokens", type=int, default=300, help="Maximum number of tokens to generate (default: 300)")
-    inference_group.add_argument("--min_emu_aspect_ratio", type=int, default=256*256, help="Minimum aspect ratio for EMU3 tokenizer (default: 65536)")
-    inference_group.add_argument("--max_emu_aspect_ratio", type=int, default=512*512, help="Maximum aspect ratio for EMU3 tokenizer (default: 262144)")
+    inference_group.add_argument(
+        "--max_new_tokens", type=int, default=300, help="Maximum number of tokens to generate (default: 300)"
+    )
+    inference_group.add_argument(
+        "--min_emu_aspect_ratio",
+        type=int,
+        default=256 * 256,
+        help="Minimum aspect ratio for EMU3 tokenizer (default: 65536)",
+    )
+    inference_group.add_argument(
+        "--max_emu_aspect_ratio",
+        type=int,
+        default=512 * 512,
+        help="Maximum aspect ratio for EMU3 tokenizer (default: 262144)",
+    )
 
     return parser.parse_args()
 
@@ -301,13 +323,9 @@ def setup_vlm_inferencer(args):
         stop_token_ids=[],  # Will be set after model initialization
         max_new_tokens=args.max_new_tokens,
         max_emu_aspect_ratio=args.max_emu_aspect_ratio,
-        min_emu_aspect_ratio=args.min_emu_aspect_ratio
+        min_emu_aspect_ratio=args.min_emu_aspect_ratio,
     )
-    vlm = VLM(
-        model_path=args.model_path,
-        tokenizer_path=args.tokenizer_path,
-        inf_args=inference_args
-    )
+    vlm = VLM(model_path=args.model_path, tokenizer_path=args.tokenizer_path, inf_args=inference_args)
     return vlm
 
 
@@ -335,10 +353,7 @@ if __name__ == "__main__":
     vlm = setup_vlm_inferencer(args)
 
     benchmark = VLMBenchmark(
-        images_config_path=args.image_list,
-        prompts_config_path=args.prompt_list,
-        vlm=vlm,
-        results_dir=str(results_dir)
+        images_config_path=args.image_list, prompts_config_path=args.prompt_list, vlm=vlm, results_dir=str(results_dir)
     )
     results = benchmark.run_benchmark(output_filename=f"{args.experiment_name}.json")
     print("Done!")

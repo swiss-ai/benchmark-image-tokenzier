@@ -36,6 +36,7 @@ Example usage:
 """
 
 import argparse
+
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
@@ -46,7 +47,9 @@ def main():
     parser.add_argument("--config", default=None, help="Dataset configuration (e.g., for FineVision)")
     parser.add_argument("--split", default="train", help="Dataset split to use")
     parser.add_argument("--output-dir", required=True, help="Output directory for formatted files")
-    parser.add_argument("--output-format", default="parquet", choices=["parquet", "jsonl"], help="Output format (default: parquet)")
+    parser.add_argument(
+        "--output-format", default="parquet", choices=["parquet", "jsonl"], help="Output format (default: parquet)"
+    )
     parser.add_argument("--tokenizer-path", required=True, help="Path to tokenizer for chat template")
     parser.add_argument("--max-samples", type=int, default=None, help="Maximum number of samples to process")
     parser.add_argument("--message-column", default="texts", help="Column containing messages")
@@ -58,6 +61,7 @@ def main():
 
     # Generate output filename from dataset and config
     import os
+
     os.makedirs(args.output_dir, exist_ok=True)
 
     # Create filename: config_formatted.{format} or dataset_formatted.{format}
@@ -65,7 +69,7 @@ def main():
         filename = f"{args.config}_formatted.{args.output_format}"
     else:
         # Use last part of dataset name (e.g., HuggingFaceH4/ultrachat_200k -> ultrachat_200k)
-        dataset_name = args.dataset.split('/')[-1]
+        dataset_name = args.dataset.split("/")[-1]
         filename = f"{dataset_name}_formatted.{args.output_format}"
 
     output_file = os.path.join(args.output_dir, filename)
@@ -79,16 +83,11 @@ def main():
     # Load dataset (download full dataset for faster processing)
     if args.config:
         dataset = load_dataset(
-            args.dataset,
-            args.config,
-            split=args.split,
-            num_proc=args.num_proc  # Use parallel processing if specified
+            args.dataset, args.config, split=args.split, num_proc=args.num_proc  # Use parallel processing if specified
         )
     else:
         dataset = load_dataset(
-            args.dataset,
-            split=args.split,
-            num_proc=args.num_proc  # Use parallel processing if specified
+            args.dataset, split=args.split, num_proc=args.num_proc  # Use parallel processing if specified
         )
 
     print(f"Loading tokenizer: {args.tokenizer_path}")
@@ -134,14 +133,14 @@ def main():
             return messages
 
         # Check format and convert if needed (single pass)
-        if 'role' in first:  # Already correct format
+        if "role" in first:  # Already correct format
             return messages
 
-        if 'user' in first:  # Conversation format - convert
+        if "user" in first:  # Conversation format - convert
             return [
                 {"role": role, "content": conv[role]}
                 for conv in messages
-                for role in ('user', 'assistant')
+                for role in ("user", "assistant")
                 if role in conv
             ]
 
@@ -156,11 +155,7 @@ def main():
 
             # Apply chat template
             # LLAMA3.2 Vision Instruct Tokenizer hardcode the BOS token
-            formatted_text = tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=False
-            )
+            formatted_text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
 
             # Add BOS/EOS if requested
             if args.add_bos and bos_token and not formatted_text.startswith(bos_token):
@@ -179,16 +174,14 @@ def main():
     # Process dataset in parallel using map
     print(f"\nApplying chat template to dataset...")
     processed_dataset = dataset.map(
-        apply_chat_template_to_sample,
-        num_proc=args.num_proc if args.num_proc else 1,
-        desc="Applying chat template"
+        apply_chat_template_to_sample, num_proc=args.num_proc if args.num_proc else 1, desc="Applying chat template"
     )
 
     # Save to appropriate format
     print(f"\nSaving to {output_file}...")
-    if args.output_format == 'parquet':
+    if args.output_format == "parquet":
         processed_dataset.to_parquet(output_file)
-    elif args.output_format == 'jsonl':
+    elif args.output_format == "jsonl":
         processed_dataset.to_json(output_file, orient="records", lines=True)
 
     count = len(processed_dataset)
@@ -197,7 +190,9 @@ def main():
     # Check if chat template added BOS token (verify first few samples)
     sample_texts = [processed_dataset[i]["text"] for i in range(min(10, count)) if processed_dataset[i].get("text")]
     # Always check against tokenizer.bos_token (actual string), not bos_token variable (which may be None)
-    bos_added_by_template = all(text.startswith(tokenizer.bos_token) for text in sample_texts) if tokenizer.bos_token else False
+    bos_added_by_template = (
+        all(text.startswith(tokenizer.bos_token) for text in sample_texts) if tokenizer.bos_token else False
+    )
 
     print(f"\n{'='*60}")
     print(f"Processing complete!")
@@ -221,7 +216,9 @@ def main():
 
     print(f"\n{'='*60}")
     print(f"Next step - tokenize with datatrove:")
-    print(f"python3 /iopsstor/scratch/cscs/xyixuan/data-pipeline-pretrain/examples/tokenize_megatron/preprocess_megatron.py \\")
+    print(
+        f"python3 /iopsstor/scratch/cscs/xyixuan/data-pipeline-pretrain/examples/tokenize_megatron/preprocess_megatron.py \\"
+    )
     print(f"    --tokenizer-name-or-path {args.tokenizer_path} \\")
     print(f"    --output-folder <output_folder> \\")
     print(f"    --n-tasks 16 \\")

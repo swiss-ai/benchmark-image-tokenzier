@@ -8,20 +8,21 @@ Tests:
 4. Performance metrics
 """
 
+import io
 import sys
 import time
 from pathlib import Path
-import torch
+
 import numpy as np
+import torch
 from PIL import Image
-import io
 
 # Add paths
 sys.path.append(str(Path(__file__).parent.parent))
 
+from test_utils import tokenize_image_text_pair_sequential
 from utils.tokenization_emu3_pipelined import EMU3PipelinedTokenizer
 from vokenizers.emu3 import EMU3ImageOnlyTokenizer, EMU3ImageTextPairTokenizer
-from test_utils import tokenize_image_text_pair_sequential
 
 # Default tokenizer path
 TOKENIZER_PATH = "/capstor/store/cscs/swissai/infra01/MLLM/llama3_emu3_tokenizer"
@@ -35,7 +36,7 @@ def create_test_data(num_samples=10):
     for i in range(num_samples):
         # Create images of different sizes
         size = 256 + i * 32  # Variable sizes
-        img = Image.new('RGB', (size, size), color=(i*20, i*20, i*20))
+        img = Image.new("RGB", (size, size), color=(i * 20, i * 20, i * 20))
         images.append(img)
 
         # Create texts of different lengths - make them longer to see pipeline benefit
@@ -54,13 +55,11 @@ def test_round_trip():
     try:
         # Initialize tokenizer
         tokenizer = EMU3PipelinedTokenizer(
-            text_tokenizer_path=TOKENIZER_PATH,
-            device="cuda" if torch.cuda.is_available() else "cpu",
-            num_cpu_workers=2
+            text_tokenizer_path=TOKENIZER_PATH, device="cuda" if torch.cuda.is_available() else "cpu", num_cpu_workers=2
         )
 
         # Create simple test data
-        img = Image.new('RGB', (256, 256), color=(128, 128, 128))
+        img = Image.new("RGB", (256, 256), color=(128, 128, 128))
         text = "This is a test caption for the image."
 
         # Tokenize
@@ -116,28 +115,23 @@ def test_round_trip():
         print(f"Text tokens count: {len(text_tokens)}")
 
         # Tokenize the text alone to compare
-        text_only_tokens = tokenizer.text_tokenizer(
-            text,
-            truncation=False,
-            add_special_tokens=False,
-            return_tensors="pt"
-        )['input_ids'].squeeze(0).tolist()
+        text_only_tokens = (
+            tokenizer.text_tokenizer(text, truncation=False, add_special_tokens=False, return_tensors="pt")["input_ids"]
+            .squeeze(0)
+            .tolist()
+        )
 
         print(f"Text-only tokenization: {text_only_tokens}")
         print(f"Text portion from combined: {text_tokens}")
 
         # EXACT match required
         assert text_tokens == text_only_tokens, (
-            f"Text tokenization mismatch!\n"
-            f"Expected: {text_only_tokens}\n"
-            f"Got: {text_tokens}"
+            f"Text tokenization mismatch!\n" f"Expected: {text_only_tokens}\n" f"Got: {text_tokens}"
         )
 
         # Also check exact text match
         assert decoded_text == text, (
-            f"Text not preserved exactly!\n"
-            f"Original: '{text}'\n"
-            f"Decoded: '{decoded_text}'"
+            f"Text not preserved exactly!\n" f"Original: '{text}'\n" f"Decoded: '{decoded_text}'"
         )
 
         print("✓ Text tokenization is EXACTLY consistent!")
@@ -156,6 +150,7 @@ def test_round_trip():
     except Exception as e:
         print(f"✗ Round trip test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -167,20 +162,18 @@ def test_text_consistency_all_tokenizers():
     try:
         # Initialize tokenizers
         pipelined = EMU3PipelinedTokenizer(
-            text_tokenizer_path=TOKENIZER_PATH,
-            device="cuda" if torch.cuda.is_available() else "cpu",
-            num_cpu_workers=2
+            text_tokenizer_path=TOKENIZER_PATH, device="cuda" if torch.cuda.is_available() else "cpu", num_cpu_workers=2
         )
 
         sequential = EMU3ImageTextPairTokenizer(
             text_tokenizer_path=TOKENIZER_PATH,
             min_pixels=384 * 384,
             max_pixels=1024 * 1024,
-            device="cuda" if torch.cuda.is_available() else "cpu"
+            device="cuda" if torch.cuda.is_available() else "cpu",
         )
 
         # Test data
-        img = Image.new('RGB', (256, 256), color=(128, 128, 128))
+        img = Image.new("RGB", (256, 256), color=(128, 128, 128))
         text = "This is a test caption for the image."
 
         # Get tokens from each method
@@ -207,12 +200,13 @@ def test_text_consistency_all_tokenizers():
         sequential_seq_text = extract_text_tokens(sequential_tokens_seq)
 
         # Direct text tokenization for comparison
-        text_only = sequential.text_tokenizer(
-            text,
-            truncation=False,
-            add_special_tokens=False,
-            return_tensors="pt"
-        )['input_ids'].squeeze(0).tolist()
+        text_only = (
+            sequential.text_tokenizer(text, truncation=False, add_special_tokens=False, return_tensors="pt")[
+                "input_ids"
+            ]
+            .squeeze(0)
+            .tolist()
+        )
 
         print(f"Original text: '{text}'")
         print(f"Direct text tokenization: {text_only}")
@@ -226,9 +220,11 @@ def test_text_consistency_all_tokenizers():
         assert sequential_seq_text == text_only, "Sequential (true) text tokens don't match"
 
         # Decode each to verify
-        for name, tokens in [("Pipelined", pipelined_text),
-                              ("Sequential", sequential_text),
-                              ("Sequential (true)", sequential_seq_text)]:
+        for name, tokens in [
+            ("Pipelined", pipelined_text),
+            ("Sequential", sequential_text),
+            ("Sequential (true)", sequential_seq_text),
+        ]:
             decoded = sequential.text_tokenizer.decode(tokens, skip_special_tokens=True)
             assert decoded == text, f"{name} decoded text doesn't match: '{decoded}' vs '{text}'"
 
@@ -238,6 +234,7 @@ def test_text_consistency_all_tokenizers():
     except Exception as e:
         print(f"✗ Text consistency test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -249,16 +246,14 @@ def test_correctness_vs_sequential():
     try:
         # Initialize both tokenizers
         pipelined = EMU3PipelinedTokenizer(
-            text_tokenizer_path=TOKENIZER_PATH,
-            device="cuda" if torch.cuda.is_available() else "cpu",
-            num_cpu_workers=4
+            text_tokenizer_path=TOKENIZER_PATH, device="cuda" if torch.cuda.is_available() else "cpu", num_cpu_workers=4
         )
 
         sequential = EMU3ImageTextPairTokenizer(
             text_tokenizer_path=TOKENIZER_PATH,
             min_pixels=384 * 384,
             max_pixels=1024 * 1024,
-            device="cuda" if torch.cuda.is_available() else "cpu"
+            device="cuda" if torch.cuda.is_available() else "cpu",
         )
 
         # Create test data
@@ -266,9 +261,7 @@ def test_correctness_vs_sequential():
 
         # Process with pipelined
         pipelined.start_pipeline()
-        pipelined_results = list(pipelined.process_stream(
-            ((img, txt) for img, txt in zip(images, texts))
-        ))
+        pipelined_results = list(pipelined.process_stream(((img, txt) for img, txt in zip(images, texts))))
         pipelined.stop_pipeline()
 
         # Process with sequential
@@ -295,6 +288,7 @@ def test_correctness_vs_sequential():
     except Exception as e:
         print(f"✗ Correctness test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -305,9 +299,7 @@ def test_order_preservation():
 
     try:
         tokenizer = EMU3PipelinedTokenizer(
-            text_tokenizer_path=TOKENIZER_PATH,
-            device="cuda" if torch.cuda.is_available() else "cpu",
-            num_cpu_workers=4
+            text_tokenizer_path=TOKENIZER_PATH, device="cuda" if torch.cuda.is_available() else "cpu", num_cpu_workers=4
         )
 
         # Create numbered test data
@@ -315,15 +307,13 @@ def test_order_preservation():
         images = []
         texts = []
         for i in range(num_samples):
-            img = Image.new('RGB', (256, 256), color=(i, i, i))
+            img = Image.new("RGB", (256, 256), color=(i, i, i))
             images.append(img)
             texts.append(f"Caption {i:03d}")
 
         # Process
         tokenizer.start_pipeline()
-        results = list(tokenizer.process_stream(
-            ((img, txt) for img, txt in zip(images, texts))
-        ))
+        results = list(tokenizer.process_stream(((img, txt) for img, txt in zip(images, texts))))
         tokenizer.stop_pipeline()
 
         # Verify order by checking text tokens
@@ -360,8 +350,7 @@ def test_timing_comparison():
         print("\n=== Warming up GPU ===")
         # Create a dummy tokenizer and run warmup
         warmup_tokenizer = EMU3ImageOnlyTokenizer(
-            text_tokenizer_path=TOKENIZER_PATH,
-            device="cuda" if torch.cuda.is_available() else "cpu"
+            text_tokenizer_path=TOKENIZER_PATH, device="cuda" if torch.cuda.is_available() else "cpu"
         )
         # Run several warmup iterations
         for _ in range(3):
@@ -374,8 +363,7 @@ def test_timing_comparison():
         # 1. Time image-only tokenization (baseline first)
         print("\n1. Image-Only Tokenization:")
         image_tokenizer = EMU3ImageOnlyTokenizer(
-            text_tokenizer_path=TOKENIZER_PATH,
-            device="cuda" if torch.cuda.is_available() else "cpu"
+            text_tokenizer_path=TOKENIZER_PATH, device="cuda" if torch.cuda.is_available() else "cpu"
         )
 
         # Run multiple times and average
@@ -397,7 +385,7 @@ def test_timing_comparison():
             text_tokenizer_path=TOKENIZER_PATH,
             min_pixels=384 * 384,
             max_pixels=1024 * 1024,
-            device="cuda" if torch.cuda.is_available() else "cpu"
+            device="cuda" if torch.cuda.is_available() else "cpu",
         )
 
         times = []
@@ -418,7 +406,7 @@ def test_timing_comparison():
             text_tokenizer_path=TOKENIZER_PATH,
             device="cuda" if torch.cuda.is_available() else "cpu",
             num_cpu_workers=4,
-            queue_size=50
+            queue_size=50,
         )
 
         times = []
@@ -452,6 +440,7 @@ def test_timing_comparison():
     except Exception as e:
         print(f"✗ Timing comparison failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -467,16 +456,12 @@ def test_performance():
 
         # Test pipelined
         pipelined = EMU3PipelinedTokenizer(
-            text_tokenizer_path=TOKENIZER_PATH,
-            device="cuda" if torch.cuda.is_available() else "cpu",
-            num_cpu_workers=4
+            text_tokenizer_path=TOKENIZER_PATH, device="cuda" if torch.cuda.is_available() else "cpu", num_cpu_workers=4
         )
 
         pipelined.start_pipeline()
         start = time.time()
-        pipelined_results = list(pipelined.process_stream(
-            ((img, txt) for img, txt in zip(images, texts))
-        ))
+        pipelined_results = list(pipelined.process_stream(((img, txt) for img, txt in zip(images, texts))))
         pipelined_time = time.time() - start
         pipelined.stop_pipeline()
 
@@ -485,7 +470,7 @@ def test_performance():
             text_tokenizer_path=TOKENIZER_PATH,
             min_pixels=384 * 384,
             max_pixels=1024 * 1024,
-            device="cuda" if torch.cuda.is_available() else "cpu"
+            device="cuda" if torch.cuda.is_available() else "cpu",
         )
 
         start = time.time()
@@ -506,6 +491,7 @@ def test_performance():
     except Exception as e:
         print(f"✗ Performance test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -519,18 +505,15 @@ def test_edge_cases():
             text_tokenizer_path=TOKENIZER_PATH,
             device="cuda" if torch.cuda.is_available() else "cpu",
             num_cpu_workers=2,
-            queue_size=10
+            queue_size=10,
         )
 
         tokenizer.start_pipeline()
 
         # Test 1: Empty text
         print("Testing empty text...")
-        img = Image.new('RGB', (256, 256))
-        results = list(tokenizer.process_stream([
-            (img, ""),
-            (img, "Normal text")
-        ]))
+        img = Image.new("RGB", (256, 256))
+        results = list(tokenizer.process_stream([(img, ""), (img, "Normal text")]))
         print(f"  ✓ Empty text handled: {len(results)} results")
 
         # Test 2: Very long text
@@ -543,7 +526,7 @@ def test_edge_cases():
         print("Testing various image sizes...")
         sizes = [(64, 64), (256, 256), (1024, 1024), (2048, 2048)]
         for size in sizes:
-            img = Image.new('RGB', size)
+            img = Image.new("RGB", size)
             results = list(tokenizer.process_stream([(img, "test")]))
             print(f"  ✓ Size {size}: result shape {results[0].shape}")
 
@@ -554,15 +537,16 @@ def test_edge_cases():
     except Exception as e:
         print(f"✗ Edge case test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
 
 def main():
     """Run all tests."""
-    print("="*60)
+    print("=" * 60)
     print("EMU3 PIPELINED TOKENIZER TEST SUITE")
-    print("="*60)
+    print("=" * 60)
 
     tests = [
         ("Round Trip", test_round_trip),
@@ -571,7 +555,7 @@ def main():
         ("Order Preservation", test_order_preservation),
         ("Timing Comparison", test_timing_comparison),
         ("Performance", test_performance),
-        ("Edge Cases", test_edge_cases)
+        ("Edge Cases", test_edge_cases),
     ]
 
     results = {}
@@ -579,9 +563,9 @@ def main():
         results[name] = test_func()
 
     # Summary
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("TEST SUMMARY")
-    print("="*60)
+    print("=" * 60)
 
     for name, passed in results.items():
         status = "✓ PASSED" if passed else "✗ FAILED"

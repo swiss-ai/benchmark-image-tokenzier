@@ -6,10 +6,12 @@ This webapp provides an interface to:
 2. View results with images, prompts, and model outputs
 3. Filter results by tags
 """
+
 import argparse
 import json
 from pathlib import Path
-from flask import Flask, render_template, jsonify, send_from_directory, request
+
+from flask import Flask, jsonify, render_template, request, send_from_directory
 
 app = Flask(__name__)
 
@@ -29,11 +31,7 @@ def get_experiments():
         if item.is_file() and item.suffix == ".json":
             # Extract experiment name from filename (without .json extension)
             experiment_name = item.stem
-            experiments.append({
-                "name": experiment_name,
-                "path": str(item),
-                "file": item.name
-            })
+            experiments.append({"name": experiment_name, "path": str(item), "file": item.name})
 
     return experiments
 
@@ -46,7 +44,7 @@ def load_experiment_results(experiment_name):
     if not result_file.exists():
         return None
 
-    with open(result_file, 'r') as f:
+    with open(result_file, "r") as f:
         return json.load(f)
 
 
@@ -59,20 +57,17 @@ def get_all_tags(results):
         image_tags.update(run["image"].get("tags", []))
         prompt_tags.update(run["prompt"].get("tags", []))
 
-    return {
-        "image_tags": sorted(list(image_tags)),
-        "prompt_tags": sorted(list(prompt_tags))
-    }
+    return {"image_tags": sorted(list(image_tags)), "prompt_tags": sorted(list(prompt_tags))}
 
 
-@app.route('/')
+@app.route("/")
 def index():
     """Home page showing list of experiments."""
     experiments = get_experiments()
-    return render_template('index.html', experiments=experiments)
+    return render_template("index.html", experiments=experiments)
 
 
-@app.route('/experiment/<experiment_name>')
+@app.route("/experiment/<experiment_name>")
 def view_experiment(experiment_name):
     """View results for a specific experiment."""
     results = load_experiment_results(experiment_name)
@@ -81,8 +76,8 @@ def view_experiment(experiment_name):
         return "Experiment not found", 404
 
     # Get filter parameters
-    image_tag_filter = request.args.get('image_tag', None)
-    prompt_tag_filter = request.args.get('prompt_tag', None)
+    image_tag_filter = request.args.get("image_tag", None)
+    prompt_tag_filter = request.args.get("prompt_tag", None)
 
     # Filter results if requested
     filtered_runs = results.get("runs", [])
@@ -95,30 +90,29 @@ def view_experiment(experiment_name):
     all_tags = get_all_tags(results)
 
     return render_template(
-        'experiment.html',
+        "experiment.html",
         experiment_name=experiment_name,
         results=results,
         filtered_runs=filtered_runs,
         all_tags=all_tags,
         current_image_tag=image_tag_filter,
-        current_prompt_tag=prompt_tag_filter
+        current_prompt_tag=prompt_tag_filter,
     )
 
 
-@app.route('/compare')
+@app.route("/compare")
 def compare_experiments():
     """Compare multiple experiments side-by-side."""
     all_experiments = get_experiments()
 
     # Get selected experiments from query parameters
-    selected_experiments = request.args.getlist('experiments')
+    selected_experiments = request.args.getlist("experiments")
 
     if not selected_experiments or len(selected_experiments) < 2:
         # Show experiment selection page
-        return render_template('compare.html',
-                             experiments=all_experiments,
-                             selected_experiments=selected_experiments,
-                             comparison_data=None)
+        return render_template(
+            "compare.html", experiments=all_experiments, selected_experiments=selected_experiments, comparison_data=None
+        )
 
     # Load results for all selected experiments
     experiment_results = {}
@@ -128,20 +122,24 @@ def compare_experiments():
             experiment_results[exp_name] = results
 
     if len(experiment_results) < 2:
-        return render_template('compare.html',
-                             experiments=all_experiments,
-                             selected_experiments=selected_experiments,
-                             comparison_data=None,
-                             error="Could not load results for selected experiments")
+        return render_template(
+            "compare.html",
+            experiments=all_experiments,
+            selected_experiments=selected_experiments,
+            comparison_data=None,
+            error="Could not load results for selected experiments",
+        )
 
     # Find common image-prompt combinations
     comparison_data = find_common_runs(experiment_results)
 
-    return render_template('compare.html',
-                         experiments=all_experiments,
-                         selected_experiments=selected_experiments,
-                         experiment_results=experiment_results,
-                         comparison_data=comparison_data)
+    return render_template(
+        "compare.html",
+        experiments=all_experiments,
+        selected_experiments=selected_experiments,
+        experiment_results=experiment_results,
+        comparison_data=comparison_data,
+    )
 
 
 def find_common_runs(experiment_results):
@@ -173,11 +171,7 @@ def find_common_runs(experiment_results):
             key = (run["image"]["path"], run["prompt"]["text"])
 
             if key not in combinations:
-                combinations[key] = {
-                    "image": run["image"],
-                    "prompt": run["prompt"],
-                    "outputs": {}
-                }
+                combinations[key] = {"image": run["image"], "prompt": run["prompt"], "outputs": {}}
 
             combinations[key]["outputs"][exp_name] = run["output"]
 
@@ -185,24 +179,26 @@ def find_common_runs(experiment_results):
     common_runs = []
     for key, data in combinations.items():
         if len(data["outputs"]) == len(exp_names):
-            common_runs.append({
-                "image_path": data["image"]["path"],
-                "image_tags": data["image"].get("tags", []),
-                "prompt_text": data["prompt"]["text"],
-                "prompt_tags": data["prompt"].get("tags", []),
-                "outputs": data["outputs"]
-            })
+            common_runs.append(
+                {
+                    "image_path": data["image"]["path"],
+                    "image_tags": data["image"].get("tags", []),
+                    "prompt_text": data["prompt"]["text"],
+                    "prompt_tags": data["prompt"].get("tags", []),
+                    "outputs": data["outputs"],
+                }
+            )
 
     return common_runs
 
 
-@app.route('/api/experiments')
+@app.route("/api/experiments")
 def api_experiments():
     """API endpoint to get list of experiments."""
     return jsonify(get_experiments())
 
 
-@app.route('/api/experiment/<experiment_name>')
+@app.route("/api/experiment/<experiment_name>")
 def api_experiment_results(experiment_name):
     """API endpoint to get results for a specific experiment."""
     results = load_experiment_results(experiment_name)
@@ -211,7 +207,7 @@ def api_experiment_results(experiment_name):
     return jsonify(results)
 
 
-@app.route('/assets/<path:filename>')
+@app.route("/assets/<path:filename>")
 def serve_asset(filename):
     """Serve image assets."""
     return send_from_directory(ASSETS_BASE_DIR, filename)
@@ -219,42 +215,26 @@ def serve_asset(filename):
 
 def parse_args():
     """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Flask webapp for exploring VLM benchmark results"
-    )
+    parser = argparse.ArgumentParser(description="Flask webapp for exploring VLM benchmark results")
     parser.add_argument(
         "--results_folder",
         type=str,
         default="results/",
-        help="Path to results folder containing experiment subdirectories (default: results/)"
+        help="Path to results folder containing experiment subdirectories (default: results/)",
     )
     parser.add_argument(
         "--assets_folder",
         type=str,
         default=None,
-        help="Path to assets folder containing images (default: auto-detected relative to results folder)"
+        help="Path to assets folder containing images (default: auto-detected relative to results folder)",
     )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=5000,
-        help="Port to run the webapp on (default: 5000)"
-    )
-    parser.add_argument(
-        "--host",
-        type=str,
-        default="0.0.0.0",
-        help="Host to run the webapp on (default: 0.0.0.0)"
-    )
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Run in debug mode"
-    )
+    parser.add_argument("--port", type=int, default=5000, help="Port to run the webapp on (default: 5000)")
+    parser.add_argument("--host", type=str, default="0.0.0.0", help="Host to run the webapp on (default: 0.0.0.0)")
+    parser.add_argument("--debug", action="store_true", help="Run in debug mode")
     return parser.parse_args()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     args = parse_args()
 
     # Set global configuration from arguments

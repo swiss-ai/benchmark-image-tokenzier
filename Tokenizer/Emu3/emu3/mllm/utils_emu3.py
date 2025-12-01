@@ -12,9 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" Logits Processor Helper class for Emu3. """
+"""Logits Processor Helper class for Emu3."""
 
 import torch
+
 
 class Emu3PrefixConstrainedLogitsHelper:
 
@@ -55,14 +56,14 @@ class Emu3PrefixConstrainedLogitsHelper:
         width = width.to(offset.device)
 
         if offset % (width + 1) == 0:
-            return (self.eol_token, )
+            return (self.eol_token,)
         elif offset == (width + 1) * height + 1:
-            return (self.eof_token, )
+            return (self.eof_token,)
         elif offset == (width + 1) * height + 2:
-            return (self.eoi_token, )
+            return (self.eoi_token,)
         elif offset == (width + 1) * height + 3:
-            return (self.eos_token, )
+            return (self.eos_token,)
         elif offset > (width + 1) * height + 3:
-            return (self.pad_token, )
+            return (self.pad_token,)
         else:
             return self.visual_tokens

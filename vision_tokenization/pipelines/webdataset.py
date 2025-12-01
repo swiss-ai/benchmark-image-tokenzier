@@ -4,15 +4,17 @@ WebDataset tokenization pipeline.
 Handles webdataset format with parallel processing.
 """
 
-import os
 import json
 import logging
+import os
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
+
 import ray
 
-from .base import BasePipeline
 from vision_tokenization.vokenizers.emu import EMUImageOnlyTokenizer, EMUImageTextPairTokenizer
+
+from .base import BasePipeline
 
 
 class WebDatasetPipeline(BasePipeline):
@@ -29,7 +31,7 @@ class WebDatasetPipeline(BasePipeline):
         min_pixels: int = 384 * 384,
         max_pixels: int = 1024 * 1024,
         batch_size: int = 64,
-        **kwargs
+        **kwargs,
     ):
         """
         Initialize WebDataset pipeline.
@@ -81,7 +83,7 @@ class WebDatasetPipeline(BasePipeline):
             output_dir=self.output_dir,
             num_workers=self.num_workers,
             min_pixels=self.min_pixels,
-            max_pixels=self.max_pixels
+            max_pixels=self.max_pixels,
         )
 
     def _setup_image_only_workers(self):
@@ -94,7 +96,7 @@ class WebDatasetPipeline(BasePipeline):
             tokenizer_path=self.tokenizer_path,
             output_dir=self.output_dir,
             min_pixels=self.min_pixels,
-            max_pixels=self.max_pixels
+            max_pixels=self.max_pixels,
         )
 
     def process(self) -> Dict[str, Any]:
@@ -104,12 +106,7 @@ class WebDatasetPipeline(BasePipeline):
         else:
             result = self._process_image_only()
 
-        return {
-            "mode": self.mode,
-            "output_dir": self.output_dir,
-            "num_workers": self.num_workers,
-            **result
-        }
+        return {"mode": self.mode, "output_dir": self.output_dir, "num_workers": self.num_workers, **result}
 
     def _process_image_only(self) -> Dict[str, Any]:
         """Process image-only webdataset."""

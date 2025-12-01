@@ -2,30 +2,31 @@
 
 import base64
 import io
-from PIL import Image
 
 import gradio as gr
+import torch
+from emu3.mllm.processing_emu3 import Emu3Processor
+from PIL import Image
 from transformers import (
-    AutoTokenizer,
-    AutoModelForCausalLM,
     AutoImageProcessor,
     AutoModel,
+    AutoModelForCausalLM,
+    AutoTokenizer,
 )
-from transformers.generation.configuration_utils import GenerationConfig
 from transformers.generation import (
     LogitsProcessorList,
     PrefixConstrainedLogitsProcessor,
     UnbatchedClassifierFreeGuidanceLogitsProcessor,
 )
-import torch
+from transformers.generation.configuration_utils import GenerationConfig
 
-from emu3.mllm.processing_emu3 import Emu3Processor
 
 def image2str(image):
     buf = io.BytesIO()
     image.save(buf, format="PNG")
     i_str = base64.b64encode(buf.getvalue()).decode()
     return f'<div style="float:left"><img src="data:image/png;base64, {i_str}"></div>'
+
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -52,20 +53,24 @@ chat_model = AutoModelForCausalLM.from_pretrained(
 ).eval()
 
 tokenizer = AutoTokenizer.from_pretrained(
-    EMU_CHAT_HUB, trust_remote_code=True, padding_side="left",
+    EMU_CHAT_HUB,
+    trust_remote_code=True,
+    padding_side="left",
 )
 image_processor = AutoImageProcessor.from_pretrained(
-    VQ_HUB, trust_remote_code=True,
+    VQ_HUB,
+    trust_remote_code=True,
 )
 image_tokenizer = AutoModel.from_pretrained(
-    VQ_HUB, device_map="cpu", trust_remote_code=True,
+    VQ_HUB,
+    device_map="cpu",
+    trust_remote_code=True,
 ).eval()
 
 image_tokenizer.to(device)
 
-processor = Emu3Processor(
-    image_processor, image_tokenizer, tokenizer
-)
+processor = Emu3Processor(image_processor, image_tokenizer, tokenizer)
+
 
 def generate_image(prompt):
     POSITIVE_PROMPT = " masterpiece, film grained, best quality."
@@ -103,17 +108,19 @@ def generate_image(prompt):
     h = pos_inputs.image_size[:, 0]
     w = pos_inputs.image_size[:, 1]
     constrained_fn = processor.build_prefix_constrained_fn(h, w)
-    logits_processor = LogitsProcessorList([
-        UnbatchedClassifierFreeGuidanceLogitsProcessor(
-            classifier_free_guidance,
-            gen_model,
-            unconditional_ids=neg_inputs.input_ids.to(device),
-        ),
-        PrefixConstrainedLogitsProcessor(
-            constrained_fn,
-            num_beams=1,
-        ),
-    ])
+    logits_processor = LogitsProcessorList(
+        [
+            UnbatchedClassifierFreeGuidanceLogitsProcessor(
+                classifier_free_guidance,
+                gen_model,
+                unconditional_ids=neg_inputs.input_ids.to(device),
+            ),
+            PrefixConstrainedLogitsProcessor(
+                constrained_fn,
+                num_beams=1,
+            ),
+        ]
+    )
 
     # Generate
     outputs = gen_model.generate(
@@ -132,8 +139,9 @@ def generate_image(prompt):
 
     gen_model.cpu()
     torch.cuda.empty_cache()
-    
+
     return result
+
 
 def vision_language_understanding(image, text):
     inputs = processor(
@@ -167,10 +175,10 @@ def vision_language_understanding(image, text):
 
     chat_model.cpu()
     torch.cuda.empty_cache()
-    
+
     return response
 
-    
+
 def chat(history, user_input, user_image):
     if user_image is not None:
         # Use Emu3-Chat for vision-language understanding
@@ -185,22 +193,18 @@ def chat(history, user_input, user_image):
             history = history + [(user_input, image2str(generated_image))]
         else:
             # If image generation failed, respond with an error message
-            history = history + [
-                (user_input, "Sorry, I could not generate an image.")
-            ]
+            history = history + [(user_input, "Sorry, I could not generate an image.")]
 
     return history, history, gr.update(value=None)
 
-    
+
 def clear_input():
     return gr.update(value="")
 
-    
+
 with gr.Blocks() as demo:
     gr.Markdown("# Emu3 Chatbot Demo")
-    gr.Markdown(
-        "This is a chatbot demo for image generation and vision-language understanding using Emu3 models."
-    )
+    gr.Markdown("This is a chatbot demo for image generation and vision-language understanding using Emu3 models.")
     gr.Markdown(
         "Please provide <b>only text input</b> for image generation (<b>\~600s</b>) and <b>both image and text</b> for vision-language understanding (<b>\~20s</b>)"
     )
@@ -209,11 +213,12 @@ with gr.Blocks() as demo:
     with gr.Row():
         with gr.Column(scale=0.2):
             user_input = gr.Textbox(
-                show_label=False, placeholder="Type your message here...", lines=10, container=False,
+                show_label=False,
+                placeholder="Type your message here...",
+                lines=10,
+                container=False,
             )
-            user_image = gr.Image(
-                sources="upload", type="pil", label="Upload an image (optional)"
-            )
+            user_image = gr.Image(sources="upload", type="pil", label="Upload an image (optional)")
             submit_btn = gr.Button("Send")
 
         with gr.Column(scale=0.8):

@@ -1,5 +1,18 @@
 # Benchmark: Discrete Image Tokenizers
 
+Repo supports benchmarking and tokenization with discrete Image tokenizers.
+
+## Setup Autoformatting
+
+This repo supports auto-formatting using, flake8, black and isort. Submodules are ignored by default.
+
+Install dev requirements
+`pip install -r requirements-dev.txt`
+Then run formatting any time using:
+`./format.sh`
+
+## Benchmarked Tokenizers
+
 | Model | Approach | Token Type | Training Resolution | Inference Resolution | # Tokens per Image | Codebook Size | Training Data Augmented | Image Understanding | Image Generation | Pretraining Data |
 |-------|----------|------------|---------------------|---------------------|-------------------|---------------|----------------------|---------------------|------------------|---------------------------|
 | **Open-MagVit2** | VQ-VAE + MLM | Spatial (2D Grid) | 256×256 | Flexible (e.g., 256×256) | 16×16 Compression | 262,144 | Unknown | ✅ | ✅ |  Imagenet2012 |

@@ -22,14 +22,15 @@ from tqdm import tqdm
 sys.path.append(str(Path(__file__).parent.parent))
 sys.path.append(str(Path(__file__).parent.parent / "utils"))
 
-# Import shared components
-from webdataset_emu3_ray_dynamic_clean import ShardQueue
 from utils.parse_utils import add_emu3_tokenization_args
 
+# Import shared components
+from webdataset_emu3_ray_dynamic_clean import ShardQueue
 
 # ============================================================================
 # GPU Worker for Image-Text Tokenization
 # ============================================================================
+
 
 @ray.remote(num_gpus=1)
 class EMU3ImageTextWorker:
@@ -77,8 +78,7 @@ class EMU3ImageTextWorker:
         from utils.tokenization_emu3_image_only import EMU3ImageTextPairTokenizer
 
         self.tokenizer = EMU3ImageTextPairTokenizer(
-            text_tokenizer_path=self.config['tokenizer_path'],
-            device=self.device
+            text_tokenizer_path=self.config["tokenizer_path"], device=self.device
         )
 
         # Cache frequently used token IDs
@@ -94,7 +94,7 @@ class EMU3ImageTextWorker:
         self.IndexedDatasetBuilder = IndexedDatasetBuilder
 
         # Create output directory
-        self.output_dir = self.config['output_dir']
+        self.output_dir = self.config["output_dir"]
         os.makedirs(self.output_dir, exist_ok=True)
 
         # Store dtype for builders
@@ -103,14 +103,14 @@ class EMU3ImageTextWorker:
     def _reset_stats(self):
         """Reset statistics counters."""
         self.stats = {
-            'shards_processed': 0,
-            'samples_processed': 0,
-            'samples_skipped': 0,
-            'total_tokens': 0,
-            'image_tokens': 0,
-            'text_tokens': 0,
-            'errors': 0,
-            'start_time': time.time()
+            "shards_processed": 0,
+            "samples_processed": 0,
+            "samples_skipped": 0,
+            "total_tokens": 0,
+            "image_tokens": 0,
+            "text_tokens": 0,
+            "errors": 0,
+            "start_time": time.time(),
         }
 
     def process_shard(self, shard_path: str) -> Dict[str, Any]:
@@ -136,19 +136,16 @@ class EMU3ImageTextWorker:
         shard_skipped = 0
 
         # Create builder for this specific shard
-        shard_base = shard_name.replace('.tar', '')
+        shard_base = shard_name.replace(".tar", "")
         shard_output_path = os.path.join(self.output_dir, shard_base)
-        builder = self.IndexedDatasetBuilder(
-            f"{shard_output_path}.bin",
-            dtype=self.dtype
-        )
+        builder = self.IndexedDatasetBuilder(f"{shard_output_path}.bin", dtype=self.dtype)
 
         try:
             # Create WebDataset pipeline
             dataset = self._create_dataset(shard_path)
 
             # Process samples
-            has_filtering = self.config.get('min_resolution') or self.config.get('max_resolution')
+            has_filtering = self.config.get("min_resolution") or self.config.get("max_resolution")
 
             for sample in dataset:
                 # Unpack based on whether we have JSON metadata
@@ -170,9 +167,9 @@ class EMU3ImageTextWorker:
                 success = self._process_sample(img, text, key, builder)
                 if success:
                     shard_samples += 1
-                    shard_tokens += success['total_tokens']
-                    shard_image_tokens += success['image_tokens']
-                    shard_text_tokens += success['text_tokens']
+                    shard_tokens += success["total_tokens"]
+                    shard_image_tokens += success["image_tokens"]
+                    shard_text_tokens += success["text_tokens"]
 
                 # Log progress periodically (only on rank 0)
                 if self.worker_id == 0 and shard_samples % 100 == 0 and shard_samples > 0:
@@ -193,27 +190,23 @@ class EMU3ImageTextWorker:
                 )
 
             return {
-                'success': True,
-                'shard': shard_name,
-                'samples': shard_samples,
-                'tokens': shard_tokens,
-                'skipped': shard_skipped,
-                'time': elapsed
+                "success": True,
+                "shard": shard_name,
+                "samples": shard_samples,
+                "tokens": shard_tokens,
+                "skipped": shard_skipped,
+                "time": elapsed,
             }
 
         except Exception as e:
             self.logger.error(f"Failed to process {shard_name}: {e}")
-            self.stats['errors'] += 1
-            return {
-                'success': False,
-                'shard': shard_name,
-                'error': str(e)
-            }
+            self.stats["errors"] += 1
+            return {"success": False, "shard": shard_name, "error": str(e)}
 
     def _create_dataset(self, shard_path: str):
         """Create WebDataset pipeline with optimized I/O."""
         # Check if we have JSON metadata for filtering
-        has_json = self.config.get('min_resolution') or self.config.get('max_resolution')
+        has_json = self.config.get("min_resolution") or self.config.get("max_resolution")
 
         if has_json:
             # Include JSON metadata for filtering
@@ -221,8 +214,8 @@ class EMU3ImageTextWorker:
                 wds.WebDataset(shard_path, shardshuffle=False)
                 .decode("pil")
                 .to_tuple("jpg;png;jpeg;webp", "txt", "json", "__key__")
-                .batched(64)   # Batch for I/O efficiency
-                .unbatched()   # Unbatch for clean iteration
+                .batched(64)  # Batch for I/O efficiency
+                .unbatched()  # Unbatch for clean iteration
             )
         else:
             # Original pipeline without JSON
@@ -230,25 +223,25 @@ class EMU3ImageTextWorker:
                 wds.WebDataset(shard_path, shardshuffle=False)
                 .decode("pil")
                 .to_tuple("jpg;png;jpeg;webp", "txt", "__key__")
-                .batched(64)   # Batch for I/O efficiency
-                .unbatched()   # Unbatch for clean iteration
+                .batched(64)  # Batch for I/O efficiency
+                .unbatched()  # Unbatch for clean iteration
             )
 
     def _should_process_sample(self, json_data: Dict) -> bool:
         """Check if sample meets filtering criteria."""
-        min_res = self.config.get('min_resolution')
-        max_res = self.config.get('max_resolution')
+        min_res = self.config.get("min_resolution")
+        max_res = self.config.get("max_resolution")
 
         # If no filtering configured, process everything
         if not min_res and not max_res:
             return True
 
         # Check if metadata has dimensions
-        if 'width' not in json_data or 'height' not in json_data:
+        if "width" not in json_data or "height" not in json_data:
             return True  # Process if no metadata available
 
         # Apply resolution filtering
-        resolution = json_data['width'] * json_data['height']
+        resolution = json_data["width"] * json_data["height"]
 
         if min_res and resolution < min_res:
             return False
@@ -290,15 +283,11 @@ class EMU3ImageTextWorker:
             # Don't update global stats here - will be done in _update_stats
             # Just return the counts
 
-            return {
-                'total_tokens': total_tokens,
-                'image_tokens': image_tokens,
-                'text_tokens': text_tokens
-            }
+            return {"total_tokens": total_tokens, "image_tokens": image_tokens, "text_tokens": text_tokens}
 
         except Exception as e:
             self.logger.error(f"Error processing {key}: {e}")
-            self.stats['errors'] += 1
+            self.stats["errors"] += 1
             return None
 
     def _count_tokens(self, tokens) -> tuple:
@@ -321,12 +310,12 @@ class EMU3ImageTextWorker:
 
     def _update_stats(self, samples: int, tokens: int, image_tokens: int, text_tokens: int, skipped: int):
         """Update global statistics."""
-        self.stats['shards_processed'] += 1
-        self.stats['samples_processed'] += samples
-        self.stats['total_tokens'] += tokens
-        self.stats['image_tokens'] += image_tokens
-        self.stats['text_tokens'] += text_tokens
-        self.stats['samples_skipped'] += skipped
+        self.stats["shards_processed"] += 1
+        self.stats["samples_processed"] += samples
+        self.stats["total_tokens"] += tokens
+        self.stats["image_tokens"] += image_tokens
+        self.stats["text_tokens"] += text_tokens
+        self.stats["samples_skipped"] += skipped
 
     def _log_progress(self, shard_name: str, samples: int, start_time: float):
         """Log processing progress."""
@@ -352,20 +341,15 @@ class EMU3ImageTextWorker:
             result = self.process_shard(shard_path)
 
             # Report result
-            if result['success']:
+            if result["success"]:
                 ray.get(shard_queue.mark_completed.remote(shard_path))
             else:
-                ray.get(shard_queue.mark_failed.remote(
-                    shard_path,
-                    result.get('error', 'Unknown error')
-                ))
+                ray.get(shard_queue.mark_failed.remote(shard_path, result.get("error", "Unknown error")))
 
         # Calculate final metrics
-        elapsed = time.time() - self.stats['start_time']
-        self.stats['elapsed_time'] = elapsed
-        self.stats['throughput'] = (
-            self.stats['total_tokens'] / elapsed if elapsed > 0 else 0
-        )
+        elapsed = time.time() - self.stats["start_time"]
+        self.stats["elapsed_time"] = elapsed
+        self.stats["throughput"] = self.stats["total_tokens"] / elapsed if elapsed > 0 else 0
 
         return self.stats
 
@@ -373,6 +357,7 @@ class EMU3ImageTextWorker:
 # ============================================================================
 # Main Processing Pipeline
 # ============================================================================
+
 
 def process_image_text_pairs(config: Dict):
     """
@@ -384,7 +369,7 @@ def process_image_text_pairs(config: Dict):
     # Initialize Ray
     ray.init(ignore_reinit_error=True)
     resources = ray.available_resources()
-    num_gpus = config.get('num_gpus') or int(resources.get('GPU', 1))
+    num_gpus = config.get("num_gpus") or int(resources.get("GPU", 1))
 
     logging.info(f"Starting with {num_gpus} GPU workers")
 
@@ -397,10 +382,7 @@ def process_image_text_pairs(config: Dict):
     shard_queue = ShardQueue.remote(input_files)
 
     # Launch workers
-    workers = [
-        EMU3ImageTextWorker.remote(config, i)
-        for i in range(num_gpus)
-    ]
+    workers = [EMU3ImageTextWorker.remote(config, i) for i in range(num_gpus)]
 
     # Start processing
     futures = [worker.run.remote(shard_queue) for worker in workers]
@@ -423,15 +405,15 @@ def get_input_files(config: Dict) -> list:
     import glob
 
     # Get all matching files
-    all_files = sorted(glob.glob(config['input_pattern']))
+    all_files = sorted(glob.glob(config["input_pattern"]))
 
     if not all_files:
         logging.error(f"No files found: {config['input_pattern']}")
         return []
 
     # Apply range filter if specified
-    if config.get('range'):
-        all_files = apply_range_filter(all_files, config['range'])
+    if config.get("range"):
+        all_files = apply_range_filter(all_files, config["range"])
 
     if not all_files:
         return []
@@ -444,8 +426,8 @@ def apply_range_filter(files: list, range_str: str) -> list:
     """Apply range filter to file list."""
     try:
         # Parse range
-        if ':' in range_str:
-            parts = range_str.split(':')
+        if ":" in range_str:
+            parts = range_str.split(":")
             start = int(parts[0]) if parts[0] else 0
             end = int(parts[1]) if parts[1] else len(files)
         else:
@@ -480,13 +462,13 @@ def monitor_progress(shard_queue, total_shards: int):
         status = ray.get(shard_queue.get_status.remote())
 
         # Update progress
-        completed = status['completed']
+        completed = status["completed"]
         if completed > last_completed:
             pbar.update(completed - last_completed)
             last_completed = completed
 
         # Check if done
-        if status['pending'] == 0 and status['in_progress'] == 0:
+        if status["pending"] == 0 and status["in_progress"] == 0:
             break
 
         time.sleep(0.1)
@@ -528,14 +510,14 @@ def print_summary(results: list, shard_queue, config: Dict, input_files: list):
 def calculate_totals(results: list) -> Dict:
     """Calculate total statistics from worker results."""
     return {
-        'shards': sum(r['shards_processed'] for r in results),
-        'samples': sum(r['samples_processed'] for r in results),
-        'skipped': sum(r.get('samples_skipped', 0) for r in results),
-        'tokens': sum(r['total_tokens'] for r in results),
-        'image_tokens': sum(r['image_tokens'] for r in results),
-        'text_tokens': sum(r['text_tokens'] for r in results),
-        'errors': sum(r['errors'] for r in results),
-        'time': max(r['elapsed_time'] for r in results)
+        "shards": sum(r["shards_processed"] for r in results),
+        "samples": sum(r["samples_processed"] for r in results),
+        "skipped": sum(r.get("samples_skipped", 0) for r in results),
+        "tokens": sum(r["total_tokens"] for r in results),
+        "image_tokens": sum(r["image_tokens"] for r in results),
+        "text_tokens": sum(r["text_tokens"] for r in results),
+        "errors": sum(r["errors"] for r in results),
+        "time": max(r["elapsed_time"] for r in results),
     }
 
 
@@ -549,18 +531,16 @@ def print_totals(totals: Dict):
     print(f"Shards:     {totals['shards']:8d}")
     print(f"Samples:    {totals['samples']:8d}")
 
-    if totals['skipped'] > 0:
+    if totals["skipped"] > 0:
         print(f"Skipped:    {totals['skipped']:8d}")
 
     print(f"Tokens:     {totals['tokens']:8,d}")
 
     # Token distribution
-    if totals['samples'] > 0:
+    if totals["samples"] > 0:
         print(f"\nToken Distribution:")
-        print(f"  Image:    {totals['image_tokens']:12,d} "
-              f"({totals['image_tokens']/totals['tokens']*100:5.1f}%)")
-        print(f"  Text:     {totals['text_tokens']:12,d} "
-              f"({totals['text_tokens']/totals['tokens']*100:5.1f}%)")
+        print(f"  Image:    {totals['image_tokens']:12,d} " f"({totals['image_tokens']/totals['tokens']*100:5.1f}%)")
+        print(f"  Text:     {totals['text_tokens']:12,d} " f"({totals['text_tokens']/totals['tokens']*100:5.1f}%)")
 
         # Averages
         print(f"\nAverage per Sequence:")
@@ -572,12 +552,12 @@ def print_totals(totals: Dict):
     print(f"\nPerformance:")
     print(f"  Time:     {totals['time']:8.1f}s")
 
-    if totals['time'] > 0:
+    if totals["time"] > 0:
         print(f"  Samples:  {totals['samples']/totals['time']:8.1f} samples/sec")
         print(f"  Tokens:   {totals['tokens']/totals['time']/1000:8.1f}K tokens/sec")
 
     # Errors
-    if totals['errors'] > 0:
+    if totals["errors"] > 0:
         print(f"\n⚠ Errors:   {totals['errors']}")
 
     print("=" * 70)
@@ -586,7 +566,7 @@ def print_totals(totals: Dict):
 def check_failures(shard_queue):
     """Check for failed shards."""
     status = ray.get(shard_queue.get_status.remote())
-    if status['failed'] > 0:
+    if status["failed"] > 0:
         print(f"\n⚠ Warning: {status['failed']} shards failed processing")
 
 
@@ -596,59 +576,59 @@ def save_dataset_info(results: list, totals: Dict, config: Dict, input_files: li
 
     # Prepare dataset info
     dataset_info = {
-        'timestamp': datetime.datetime.now().isoformat(),
-        'configuration': {
-            'input_pattern': config['input_pattern'],
-            'output_dir': config['output_dir'],
-            'tokenizer_path': config['tokenizer_path'],
-            'num_gpus': len(results),
-            'range': config.get('range', 'all'),
-            'num_shards': len(input_files)
+        "timestamp": datetime.datetime.now().isoformat(),
+        "configuration": {
+            "input_pattern": config["input_pattern"],
+            "output_dir": config["output_dir"],
+            "tokenizer_path": config["tokenizer_path"],
+            "num_gpus": len(results),
+            "range": config.get("range", "all"),
+            "num_shards": len(input_files),
         },
-        'statistics': {
-            'total_shards': totals['shards'],
-            'total_samples': totals['samples'],
-            'samples_skipped': totals['skipped'],
-            'total_tokens': totals['tokens'],
-            'image_tokens': totals['image_tokens'],
-            'text_tokens': totals['text_tokens'],
-            'errors': totals['errors'],
-            'processing_time_seconds': totals['time']
+        "statistics": {
+            "total_shards": totals["shards"],
+            "total_samples": totals["samples"],
+            "samples_skipped": totals["skipped"],
+            "total_tokens": totals["tokens"],
+            "image_tokens": totals["image_tokens"],
+            "text_tokens": totals["text_tokens"],
+            "errors": totals["errors"],
+            "processing_time_seconds": totals["time"],
         },
-        'averages': {
-            'tokens_per_sequence': totals['tokens'] / totals['samples'] if totals['samples'] > 0 else 0,
-            'image_tokens_per_sequence': totals['image_tokens'] / totals['samples'] if totals['samples'] > 0 else 0,
-            'text_tokens_per_sequence': totals['text_tokens'] / totals['samples'] if totals['samples'] > 0 else 0
+        "averages": {
+            "tokens_per_sequence": totals["tokens"] / totals["samples"] if totals["samples"] > 0 else 0,
+            "image_tokens_per_sequence": totals["image_tokens"] / totals["samples"] if totals["samples"] > 0 else 0,
+            "text_tokens_per_sequence": totals["text_tokens"] / totals["samples"] if totals["samples"] > 0 else 0,
         },
-        'performance': {
-            'samples_per_second': totals['samples'] / totals['time'] if totals['time'] > 0 else 0,
-            'tokens_per_second_k': totals['tokens'] / totals['time'] / 1000 if totals['time'] > 0 else 0
+        "performance": {
+            "samples_per_second": totals["samples"] / totals["time"] if totals["time"] > 0 else 0,
+            "tokens_per_second_k": totals["tokens"] / totals["time"] / 1000 if totals["time"] > 0 else 0,
         },
-        'worker_details': []
+        "worker_details": [],
     }
 
     # Add per-worker details
     for i, r in enumerate(results):
         worker_info = {
-            'worker_id': i,
-            'shards_processed': r['shards_processed'],
-            'samples_processed': r['samples_processed'],
-            'total_tokens': r['total_tokens'],
-            'image_tokens': r['image_tokens'],
-            'text_tokens': r['text_tokens'],
-            'errors': r['errors'],
-            'elapsed_time': r['elapsed_time'],
-            'throughput': r['throughput']
+            "worker_id": i,
+            "shards_processed": r["shards_processed"],
+            "samples_processed": r["samples_processed"],
+            "total_tokens": r["total_tokens"],
+            "image_tokens": r["image_tokens"],
+            "text_tokens": r["text_tokens"],
+            "errors": r["errors"],
+            "elapsed_time": r["elapsed_time"],
+            "throughput": r["throughput"],
         }
-        dataset_info['worker_details'].append(worker_info)
+        dataset_info["worker_details"].append(worker_info)
 
     # Add shard list
-    dataset_info['shards_processed'] = [Path(f).name for f in input_files]
+    dataset_info["shards_processed"] = [Path(f).name for f in input_files]
 
     # Save to JSON file
-    output_path = Path(config['output_dir']) / 'dataset_info.json'
+    output_path = Path(config["output_dir"]) / "dataset_info.json"
     try:
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             json.dump(dataset_info, f, indent=2)
     except Exception as e:
         logging.error(f"Failed to save dataset info: {e}")
@@ -658,20 +638,17 @@ def save_dataset_info(results: list, totals: Dict, config: Dict, input_files: li
 # Command Line Interface
 # ============================================================================
 
+
 def main():
     """Main entry point."""
     # Use shared parser with filtering and range
-    parser = add_emu3_tokenization_args(
-        description="EMU3 image-text tokenization with Ray distributed processing"
-    )
+    parser = add_emu3_tokenization_args(description="EMU3 image-text tokenization with Ray distributed processing")
 
     args = parser.parse_args()
 
     # Setup logging
     logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%H:%M:%S'
+        level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S"
     )
 
     # Process

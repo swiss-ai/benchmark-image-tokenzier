@@ -1,8 +1,6 @@
+import argparse
 import json
 from pathlib import Path
-import argparse
-
-
 from typing import Tuple
 
 
@@ -39,7 +37,10 @@ def read_statistics(p: Path) -> Tuple[int, int, int, int, int]:
         with p.open("r", encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError):
-        print("Could not read: ", p, )
+        print(
+            "Could not read: ",
+            p,
+        )
         return 0, 0, 0, 0, 0
 
     stats = data.get("statistics")
@@ -112,7 +113,7 @@ def human_tokens(n: int) -> str:
 def main():
     parser = argparse.ArgumentParser(
         description="Sum token statistics from dataset_info.json files. Given a root directory, recursively searches for all dataset_info.json files, reads their statistics, and sums them up. Can also read a single JSON file directly."
-                    "Works only on json output files as part of tokenization script in this repo.",
+        "Works only on json output files as part of tokenization script in this repo.",
     )
     parser.add_argument(
         "--path",
@@ -160,7 +161,9 @@ def main():
             input_tokens_sum += input_tok
             output_tokens_sum += output_tok
             total_sources += num_sources
-            print(f"{name:<35} {human_tokens(input_tok):>15} {human_tokens(output_tok):>15} {efficiency:>11.2f}% {num_sources:>10}")
+            print(
+                f"{name:<35} {human_tokens(input_tok):>15} {human_tokens(output_tok):>15} {efficiency:>11.2f}% {num_sources:>10}"
+            )
 
             # Print source breakdown with percentages
             if sources_detail:
@@ -193,7 +196,9 @@ def main():
         processed_sum = 0
 
         print(f"\n=== SUBSET info ===")
-        print(f"{'Dataset':<35} {'Total Tokens':>15} {'Image Tokens':>15} {'Text Tokens':>15} {'Skipped':>10} {'Processed':>10}")
+        print(
+            f"{'Dataset':<35} {'Total Tokens':>15} {'Image Tokens':>15} {'Text Tokens':>15} {'Skipped':>10} {'Processed':>10}"
+        )
         print("-" * 110)
         for info_path in overall_info_paths:
             t, i, x, s, p = read_statistics(info_path)
@@ -202,7 +207,9 @@ def main():
             text_sum += x
             skipped_sum += s
             processed_sum += p
-            print(f"{info_path.parent.name:<35} {human_tokens(t):>15} {human_tokens(i):>15} {human_tokens(x):>15} {s:>10,} {p:>10,}")
+            print(
+                f"{info_path.parent.name:<35} {human_tokens(t):>15} {human_tokens(i):>15} {human_tokens(x):>15} {s:>10,} {p:>10,}"
+            )
 
         print("\n===Raw totals===")
         print(f"  total_tokens: {total_sum}")

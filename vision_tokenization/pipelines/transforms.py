@@ -24,17 +24,19 @@ Usage:
     }
 """
 
-from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any, List, Tuple, Type, Union, Callable
-from PIL import Image
-import logging
 import copy
+import logging
+from abc import ABC, abstractmethod
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
+
+from PIL import Image
 
 logger = logging.getLogger(__name__)
 
 
 class TransformError(Exception):
     """Raised when a transform fails. Sample will be skipped."""
+
     pass
 
 
@@ -115,11 +117,13 @@ class TransformRegistry:
         Args:
             name: Unique name for the transform
         """
+
         def decorator(transform_cls: Type[ImageTransform]) -> Type[ImageTransform]:
             if name in cls._image_transforms:
                 logger.warning(f"Overwriting existing image transform: {name}")
             cls._image_transforms[name] = transform_cls
             return transform_cls
+
         return decorator
 
     @classmethod
@@ -130,11 +134,13 @@ class TransformRegistry:
         Args:
             name: Unique name for the transform
         """
+
         def decorator(transform_cls: Type[TextTransform]) -> Type[TextTransform]:
             if name in cls._text_transforms:
                 logger.warning(f"Overwriting existing text transform: {name}")
             cls._text_transforms[name] = transform_cls
             return transform_cls
+
         return decorator
 
     @classmethod
@@ -153,10 +159,7 @@ class TransformRegistry:
         """
         if name not in cls._image_transforms:
             available = list(cls._image_transforms.keys())
-            raise ValueError(
-                f"Unknown image transform: '{name}'. "
-                f"Available: {available}"
-            )
+            raise ValueError(f"Unknown image transform: '{name}'. " f"Available: {available}")
         return cls._image_transforms[name]
 
     @classmethod
@@ -175,10 +178,7 @@ class TransformRegistry:
         """
         if name not in cls._text_transforms:
             available = list(cls._text_transforms.keys())
-            raise ValueError(
-                f"Unknown text transform: '{name}'. "
-                f"Available: {available}"
-            )
+            raise ValueError(f"Unknown text transform: '{name}'. " f"Available: {available}")
         return cls._text_transforms[name]
 
     @classmethod
@@ -203,7 +203,7 @@ class TransformPipeline:
         self,
         image_transforms: Optional[List[str]] = None,
         text_transforms: Optional[List[str]] = None,
-        transform_params: Optional[Dict[str, Dict[str, Any]]] = None
+        transform_params: Optional[Dict[str, Dict[str, Any]]] = None,
     ):
         """
         Initialize transform pipeline.
@@ -239,11 +239,7 @@ class TransformPipeline:
             f"{len(self.text_chain)} text transforms"
         )
 
-    def apply(
-        self,
-        image: Optional[Image.Image],
-        text: Optional[str]
-    ) -> Tuple[Optional[Image.Image], Optional[str]]:
+    def apply(self, image: Optional[Image.Image], text: Optional[str]) -> Tuple[Optional[Image.Image], Optional[str]]:
         """
         Apply transform chains to image and text.
 
@@ -265,9 +261,7 @@ class TransformPipeline:
                 except TransformError:
                     raise
                 except Exception as e:
-                    raise TransformError(
-                        f"Image transform '{transform.name}' failed: {e}"
-                    )
+                    raise TransformError(f"Image transform '{transform.name}' failed: {e}")
 
         # Apply text transforms
         if text is not None:
@@ -277,9 +271,7 @@ class TransformPipeline:
                 except TransformError:
                     raise
                 except Exception as e:
-                    raise TransformError(
-                        f"Text transform '{transform.name}' failed: {e}"
-                    )
+                    raise TransformError(f"Text transform '{transform.name}' failed: {e}")
 
         return image, text
 
@@ -301,13 +293,13 @@ def parse_transforms(transform_string: Optional[str]) -> List[str]:
     """
     if not transform_string:
         return []
-    return [t.strip() for t in transform_string.split(',') if t.strip()]
+    return [t.strip() for t in transform_string.split(",") if t.strip()]
 
 
 def create_transform_pipeline(
     image_transforms: Optional[str] = None,
     text_transforms: Optional[str] = None,
-    transform_params: Optional[Dict[str, Dict[str, Any]]] = None
+    transform_params: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Optional[TransformPipeline]:
     """
     Create a TransformPipeline from configuration.
@@ -326,20 +318,17 @@ def create_transform_pipeline(
     if not image_list and not text_list:
         return None
 
-    return TransformPipeline(
-        image_transforms=image_list,
-        text_transforms=text_list,
-        transform_params=transform_params
-    )
+    return TransformPipeline(image_transforms=image_list, text_transforms=text_list, transform_params=transform_params)
 
 
 # =============================================================================
 # Built-in Transforms
 # =============================================================================
 
+
 def _transform_nested_value(obj: Dict[str, Any], key_path: str, fn: Callable[[str], str]) -> None:
     """Get a nested value, transform it suding the given function fn, and set it back."""
-    keys = key_path.split('.')
+    keys = key_path.split(".")
     target = obj
     for key in keys[:-1]:
         target = target[key]
@@ -405,7 +394,9 @@ class RemoveStringTransform(TextTransform):
             text = text.replace(s, "")
         return text
 
-    def __call__(self, text: Union[str, List[str], List[Dict[str, Any]]]) -> Union[str, List[str], List[Dict[str, Any]]]:
+    def __call__(
+        self, text: Union[str, List[str], List[Dict[str, Any]]]
+    ) -> Union[str, List[str], List[Dict[str, Any]]]:
         """
         Apply string removal to text.
 
