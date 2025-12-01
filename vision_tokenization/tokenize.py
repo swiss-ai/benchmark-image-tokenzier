@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
 Main entry point for vision tokenization.
+Unified interface for different tokenization pipelines.
 
-This script provides a unified interface for different tokenization pipelines.
+Args and Config precedences:
+    - defaults < json config file < CLI args
 
 Usage:
     # Using configuration file (recommended)
@@ -133,7 +135,13 @@ def create_hf_parser(subparsers):
             '(requires pre-prepared dataset, no hub cache needed)'
         )
     )
-
+    parser.add_argument(
+        '--conversation_transform',
+        type=str,
+        help=('(Optional!) Conversation transform to apply in SFT tokenizer worker. Conversation transforms are applied '
+             'to conversation structure of a dataset, to convert to a format that is compatible with tokenizer chat template.'
+        )
+    )
     return parser
 
 
@@ -167,8 +175,8 @@ def create_wds_parser(subparsers):
     return parser
 
 
-def main():
-    """Main entry point."""
+def parse_args():
+    """Main entry point for parsing CLI arguments."""
     parser = argparse.ArgumentParser(
         description='Vision Tokenization Pipeline',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -191,7 +199,7 @@ def main():
         '--num-gpus',
         type=int,
         required=False,
-        help='Number of GPUs for tokenization'
+        help='Number of GPUs for tokenization. In a multinode setup this should be the number of GPUs per node.'
     )
     parser.add_argument(
         '--device',
@@ -238,17 +246,25 @@ def main():
     # TODO: Add WebDataset parser when implemented
     # create_wds_parser(subparsers)
 
-    args = parser.parse_args()
+    return parser.parse_args(), parser
+
+
+def main():
+    """Main entry point."""
+    args, parser = parse_args()
     setup_logging(args.verbose)
     logger = logging.getLogger(__name__)
 
-    # Load config file or use CLI args
+    # Build config container from args
+    config = vars(args).copy()
+
+    # Load config file if exists.
     if args.config:
         logger.info(f"Loading config from {args.config}")
         with open(args.config) as f:
-            config = json.load(f)
-
-        logger.info(f"Config loaded: {list(config.keys())}")
+            json_config = json.load(f)
+        logger.info(f"Config loaded: {list(json_config.keys())}")
+        config.update(json_config)
 
         # Parse resolution strings like "384*384"
         res_keys = ['min_tokenizer_pixels', 'max_tokenizer_pixels', 'min_image_pixels', 'max_image_pixels']
@@ -259,13 +275,11 @@ def main():
                 config[key] = parsed['pixels']
                 parsed_resolutions[key] = parsed['dims']
 
-        # CLI args override config file
-        cli_overrides = {k: v for k, v in vars(args).items() if v is not None}
+        # CLI args override config file (only where non default values)
+        cli_overrides = {k: v for k, v in vars(args).items() if v is not None and v != parser.get_default(k)}
         logger.info(f"CLI overrides: {list(cli_overrides.keys())}")
         config.update(cli_overrides)
-        logger.info(f"Final config keys: {list(config.keys())}")
-    else:
-        config = vars(args)
+
 
     # Extract data format and remove non-pipeline keys
     data_format = args.data_format
