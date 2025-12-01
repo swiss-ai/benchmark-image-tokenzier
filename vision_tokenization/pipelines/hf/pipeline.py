@@ -12,7 +12,7 @@ import ray
 from vision_tokenization.pipelines.base import BasePipeline, ProgressActor
 from vision_tokenization.pipelines.hf.dataset_loader import load_hf_dataset
 from vision_tokenization.pipelines.hf.workers import ShardQueue, Worker
-from vision_tokenization.pipelines.transforms import create_transform_pipeline
+from vision_tokenization.vokenizers.transforms import create_transform_pipeline
 
 
 class HFDatasetPipeline(BasePipeline):

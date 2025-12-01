@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 import torch
 
-from .conversation_transforms import BaseConversationTransform, ConversationTransformRegistry
+from vision_tokenization.vokenizers.conversation_transforms import BaseConversationTransform, ConversationTransformRegistry
 from .image_only import EMUImageOnlyTokenizer
 
 

@@ -63,7 +63,7 @@ class ShardQueue:
 
 from vision_tokenization.pipelines.base import BaseTokenizerWorker
 from vision_tokenization.pipelines.hf.dataset_loader import load_hf_dataset
-from vision_tokenization.pipelines.transforms import TransformError, TransformPipeline
+from vision_tokenization.vokenizers.transforms import TransformError, TransformPipeline
 
 
 @ray.remote(num_gpus=1)
