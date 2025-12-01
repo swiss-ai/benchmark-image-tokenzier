@@ -11,7 +11,7 @@ import ray
 import torch
 from tqdm import tqdm
 
-from vision_tokenization.pipelines.transforms import TransformError, TransformPipeline
+from vision_tokenization.vokenizers.transforms import TransformPipeline
 
 
 class BasePipeline(ABC):

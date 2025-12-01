@@ -4,6 +4,11 @@ Create omnimodal tokenizers by adding vision tokens to text tokenizers with auto
 
 ## Quick Start
 
+**Setup*:*
+Make sure to have submodules initialized, as some tokenizers (ex. EMU3.5 are added as submodules). Also for some tokenizers there are specific patches applied.
+
+`git submodule update --init --recursive`
+
 **Base Tokenizer (for pretraining):**
 ```bash
 python -m vision_tokenization.utils.omni_tokenizer.create_base \
