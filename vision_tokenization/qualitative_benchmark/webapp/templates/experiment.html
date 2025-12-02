@@ -13,14 +13,20 @@
         <p><strong>Total runs:</strong> {{ results.total_runs }}</p>
         <p><strong>Filtered runs:</strong> {{ filtered_runs|length }}</p>
     </div>
-    {% if results.model_path or results.tokenizer_path %}
+    {% if results.model_path or results.tokenizer_path or results.vision_tokenizer or results.inferencer %}
     <div class="model-info">
         <h3>Model Configuration</h3>
+        {% if results.vision_tokenizer %}
+        <p><strong>Vision Tokenizer:</strong> {{ results.vision_tokenizer }}</p>
+        {% endif %}
+        {% if results.inferencer %}
+        <p><strong>Inferencer:</strong> {{ results.inferencer }}</p>
+        {% endif %}
         {% if results.model_path %}
-        <p><strong>Model:</strong> <code>{{ results.model_path }}</code></p>
+        <p><strong>Model Path:</strong> <code>{{ results.model_path }}</code></p>
         {% endif %}
         {% if results.tokenizer_path %}
-        <p><strong>Tokenizer:</strong> <code>{{ results.tokenizer_path }}</code></p>
+        <p><strong>Tokenizer Path:</strong> <code>{{ results.tokenizer_path }}</code></p>
         {% endif %}
     </div>
     {% endif %}
@@ -31,8 +37,8 @@
         <p><strong>Temperature:</strong> {{ results.inference_args.temperature }}</p>
         <p><strong>Top-p:</strong> {{ results.inference_args.top_p }}</p>
         <p><strong>Max new tokens:</strong> {{ results.inference_args.max_new_tokens }}</p>
-        <p><strong>Min EMU aspect ratio:</strong> {{ results.inference_args.min_emu_aspect_ratio }}</p>
-        <p><strong>Max EMU aspect ratio:</strong> {{ results.inference_args.max_emu_aspect_ratio }}</p>
+        <p><strong>Min tokenizer pixels:</strong> {{ results.inference_args.min_emu_aspect_ratio }}</p>
+        <p><strong>Max tokenizer pixels:</strong> {{ results.inference_args.max_emu_aspect_ratio }}</p>
         {% if results.inference_args.stop_token_ids %}
         <p><strong>Stop token IDs:</strong> {{ results.inference_args.stop_token_ids|join(', ') }}</p>
         {% endif %}

@@ -16,9 +16,14 @@ import time
 from pathlib import Path
 from typing import Dict, Tuple
 
+import PIL
 import numpy as np
 import torch
 from PIL import Image
+
+from vision_tokenization.qualitative_benchmark.utils.prompt_formatter import PromptFormatter
+from vision_tokenization.qualitative_benchmark.utils.vllm_inferencer import VLLMInferencer
+from vision_tokenization.qualitative_benchmark.v_tokenizers import VLMVisionTokenizer
 
 base_dir = Path(__file__).parent.parent.parent
 sys.path.append(str(base_dir))
@@ -49,46 +54,49 @@ class InferenceArgs:
         max_new_tokens: int,
         max_emu_aspect_ratio,
         min_emu_aspect_ratio,
+        chat_transform: str = None, # method out of registered ones in prompt_formatter to prepare input to chat template
+        img_right: bool = False # Will image be after the prompt or before
     ):
         self.apply_chat_template = apply_chat_template
+        self.img_right = img_right
         self.temperature = temperature
         self.top_p = top_p
         self.stop_token_ids = stop_token_ids
         self.max_new_tokens = max_new_tokens
+        self.chat_transform = chat_transform
         self.max_emu_aspect_ratio = max_emu_aspect_ratio
         self.min_emu_aspect_ratio = min_emu_aspect_ratio
 
 
 class VLM(object):
-    """Class to initialize and run VLM inference. TODO: Add abstract class"""
+    """Class to initialize and run VLM inference with pluggable vision v_tokenizers and utils."""
 
-    def __init__(self, model_path: str, tokenizer_path: str, inf_args: InferenceArgs):
-        """Initialize VLM with model and tokenizer paths."""
+    def __init__(self, vision_tokenizer: VLMVisionTokenizer, inferencer, inf_args: InferenceArgs,
+                 tokenizer_path: str, model_path: str):
+        """
+        Initialize VLM with vision tokenizer and inferencer.
+
+        Args:
+            vision_tokenizer: VLMVisionTokenizer instance for encoding images
+            inferencer: VLMInferencer instance for running generation
+            inf_args: InferenceArgs with generation parameters
+            tokenizer_path: Path to text tokenizer
+            model_path: Path to VLM model
+        """
+        self.vision_tokenizer = vision_tokenizer
+        self.prompt_formatter = PromptFormatter(tokenizer_path)
+        self.inferencer = inferencer
+        self.inf_args = inf_args
         self.model_path = model_path
         self.tokenizer_path = tokenizer_path
-        self.inf_args = inf_args
 
-        print("Initializing EMU3 Vision Tokenizer...")
-        from Tokenizer.Emu3VisionTokenizer import Emu3VisionTokenizer
+        # Extract stop tokens from tokenizer
+        stop_tokens = []
+        if hasattr(self.inferencer.txt_tokenizer, 'eos_token_id') and self.inferencer.txt_tokenizer.eos_token_id:
+            stop_tokens.append(self.inferencer.txt_tokenizer.eos_token_id)
+        self.inf_args.stop_token_ids = stop_tokens
 
-        self.emu3_tokenizer = Emu3VisionTokenizer(
-            min_pixels=self.inf_args.min_emu_aspect_ratio, max_pixels=self.inf_args.max_emu_aspect_ratio
-        )
-        if torch.cuda.is_available():
-            self.emu3_tokenizer.model = self.emu3_tokenizer.model.to("cuda:1")
-            self.emu3_tokenizer.device = "cuda:1"
-
-        print("Initializing EMU3 Inferencer...")
-        from emu3_vllm_inferencer import EMU3Inferencer
-
-        self.inferencer = EMU3Inferencer(
-            model_path=self.model_path,
-            tokenizer_path=self.tokenizer_path,
-            tensor_parallel_size=1,  # 3B model fits on 1 GPU
-            max_model_len=8192,
-        )
-
-        self.inf_args.stop_token_ids = [self.inferencer.special_token_ids["end_of_turn"]]
+        print(f"VLM initialized with {self.vision_tokenizer.name} tokenizer and vLLM inferencer")
 
     def _load_image(self, image_path: str, resize: Tuple[int, int] = None):
         """Load image from path."""
@@ -97,81 +105,73 @@ class VLM(object):
             img = img.resize(resize, Image.LANCZOS)
         return img
 
-    def _prepare_image_text_tokens(self, img):
-        """Prepare image tokens as text to insert into chat for VLM inference."""
-        img_tensor = self.emu3_tokenizer.preprocess(img)
-        img_tensor = img_tensor.to(self.emu3_tokenizer.device)
+    def _prepare_image_text_tokens(self, img: Image.Image) -> str:
+        """
+        Encode image to vision tokens and format for VLM.
 
-        with torch.no_grad():
-            indices, _ = self.emu3_tokenizer.encode(img_tensor)
+        Uses the vision tokenizer to encode the image and format it as a string
+        suitable for insertion into the chat template.
+        """
+        # Encode image using vision tokenizer
+        indices, metadata = self.vision_tokenizer.encode_for_vlm(img)
 
-        h, w = indices.shape[1], indices.shape[2]
-        visual_indices = indices[0].flatten().cpu().tolist()
-        print(f"   Token dimensions: {h}×{w} = {len(visual_indices)} tokens")
+        # Log token dimensions if available
+        if 'height' in metadata and 'width' in metadata:
+            h, w = metadata['height'], metadata['width']
+            print(f"   Token dimensions: {h}×{w} = {metadata.get('num_tokens', h*w)} tokens")
 
-        img_tokens_str = f"<|img_start|>{h}*{w}<|img_token_start|>"
+        # Format tokens for chat using tokenizer-specific logic
+        # EMU3 uses string tokens, not IDs, so we pass an empty dict
+        img_tokens_str = self.vision_tokenizer.format_tokens_for_chat(
+            indices, metadata, {}
+        )
 
-        # Add all image tokens
-        for row in range(h):
-            row_start = row * w
-            row_end = row_start + w
-            row_tokens = visual_indices[row_start:row_end]
-
-            for token_idx in row_tokens:
-                img_tokens_str += f"<|visual token {token_idx:06d}|>"
-            img_tokens_str += "<|img_end_of_row|>"
-
-        # End image and add text prompt
-        img_tokens_str += "<|img_end_of_frame|><|img_end|>"
         return img_tokens_str
 
     def _prepare_final_prompt(self, image_token_string, prompt):
         """
         Prepare final prompt for VLM inference.
-        Loads Image and text prompt. Puts Everything into chat template or vanilla format
-        and encodes it into the list of tokens needed for inference.
+
+        Uses PromptFormatter to create the chat input string.
         """
         if self.inf_args.apply_chat_template:
-            my_prompt = [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image"},  # This becomes <|image|> token (ID 128263)
-                        # {"type": "text", "text": "What do you see in this image?"}
-                        {"type": "text", "text": prompt},
-                    ],
-                }
-            ]
-            msg_template = self.inferencer.tokenizer.apply_chat_template(
-                my_prompt, tokenize=False, add_generation_prompt=True
+            # Apply chat template and replace <|image|> with actual image tokens
+            formatted_prompt = self.prompt_formatter.prepare_chat_prompt(
+                prompt,
+                image_token_string,
+                chat_transform=self.inf_args.chat_transform,
+                add_generation_prompt=True,
+                img_right=self.inf_args.img_right
             )
         else:
-            # Not applying the chat template, just add image token and text prompt one after another
-            msg_template = f"<|image|>{prompt}"
+            # Simple concatenation without chat template
+            formatted_prompt = self.prompt_formatter.prepare_non_chat_prompt(
+                prompt,
+                image_token_string,
+                img_right=self.inf_args.img_right
+            )
 
-        chat_text = re.sub(r"<\|image\|>", image_token_string, msg_template)
-        return self.inferencer.tokenizer.encode(chat_text, add_special_tokens=not self.inf_args.apply_chat_template)
+        return formatted_prompt
 
     def preprocess(self, img_path, prompt):
-        """Prepare image and prompt for VLM inference."""
+        """Prepare image and prompt for VLM inference. Returns formatted string."""
         img = self._load_image(img_path)
         img_tokens_str = self._prepare_image_text_tokens(img)
-        tokens = self._prepare_final_prompt(img_tokens_str, prompt)
-        return tokens
+        formatted_prompt_str = self._prepare_final_prompt(img_tokens_str, prompt)
+        return formatted_prompt_str  # Return string, not token IDs
 
-    def generate(self, tokens: List[int]):
-        """Run VLM inference on given tokens."""
-        result = self.inferencer.generate(
-            tokens,
-            max_tokens=self.inf_args.max_new_tokens,
-            min_tokens=1,
-            temperature=self.inf_args.temperature,  # Higher temperature for more creative text
-            top_p=self.inf_args.top_p,
-            stop_token_ids=self.inf_args.stop_token_ids,
+    def generate(self, prompt_string: str):
+        """Run VLM inference on formatted prompt string."""
+        result = self.inferencer.run_inference(
+            prompt_string,
+            return_text=True,
+            sampling_tmp=self.inf_args.temperature,
+            sampling_topp=self.inf_args.top_p,
+            sampling_max_tok=self.inf_args.max_new_tokens,
+            sampling_min_tok=1,
+            sampling_stop_token_ids=self.inf_args.stop_token_ids
         )
-        generated_ids = result["generated_token_ids"]
-        decoded = self.inferencer.tokenizer.decode(generated_ids, skip_special_tokens=False)
-        return decoded
+        return result["generated_text"]
 
 
 class VLMBenchmark:
@@ -240,6 +240,8 @@ class VLMBenchmark:
             "timestamp": datetime.now().isoformat(),
             "model_path": self.vlm.model_path,
             "tokenizer_path": self.vlm.tokenizer_path,
+            "vision_tokenizer": self.vlm.vision_tokenizer.name,
+            "inferencer": "vllm",
             "inference_args": inference_args_dict,
             "total_runs": 0,
             "runs": [],
@@ -278,18 +280,50 @@ class VLMBenchmark:
 
 
 def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--tokenizer_path", type=str, required=True, help="Path to tokenizer supporting SFT and Images")
-    parser.add_argument("--model_path", type=str, required=True, help="Path to HF model")
+    parser = argparse.ArgumentParser(
+        description="Run VLM benchmark with configurable vision v_tokenizers and utils"
+    )
+
+    # Core arguments
+    parser.add_argument("--tokenizer_path", type=str, required=True, help="Path to text tokenizer supporting SFT")
+    parser.add_argument("--model_path", type=str, required=True, help="Path to VLM model")
     parser.add_argument("--results_folder", type=str, default="results/", help="Path to save results")
     parser.add_argument(
         "--experiment_name", type=str, required=True, help="Name of experiment, used for saving results"
     )
-    parser.add_argument("--image_list", type=str, default="images.json", help="Path to image list")
-    parser.add_argument("--prompt_list", type=str, default="prompts.json", help="Path to prompt list")
+    parser.add_argument("--image_list", type=str, default="images.json", help="Path to image list JSON")
+    parser.add_argument("--prompt_list", type=str, default="prompts.json", help="Path to prompt list JSON")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing results file if it exists")
 
-    # Inference arguments group
+    # Vision tokenizer arguments
+    tokenizer_group = parser.add_argument_group("vision tokenizer arguments", "Configuration for vision tokenizer")
+    tokenizer_group.add_argument(
+        "--vision-tokenizer-type",
+        type=str,
+        default="emu3",
+        choices=["emu3", "emu3.5", "emu3.5-ibq"],
+        help="Type of vision tokenizer to use (default: emu3)"
+    )
+    tokenizer_group.add_argument(
+        "--vision-tokenizer-path",
+        type=str,
+        default=None,
+        help="Path to vision tokenizer model (required for emu3.5)"
+    )
+    tokenizer_group.add_argument(
+        "--min-tokenizer-pixels",
+        type=int,
+        default=256 * 256,
+        help="Minimum pixel count for vision tokenizer (default: 65536)"
+    )
+    tokenizer_group.add_argument(
+        "--max-tokenizer-pixels",
+        type=int,
+        default=512 * 512,
+        help="Maximum pixel count for vision tokenizer (default: 262144)"
+    )
+
+    # Inference generation arguments
     inference_group = parser.add_argument_group("inference arguments", "Arguments controlling model inference behavior")
     inference_group.add_argument(
         "--no_chat_template", action="store_true", help="Do not apply chat template to prompts"
@@ -299,33 +333,83 @@ def parse_args():
     inference_group.add_argument(
         "--max_new_tokens", type=int, default=300, help="Maximum number of tokens to generate (default: 300)"
     )
-    inference_group.add_argument(
-        "--min_emu_aspect_ratio",
-        type=int,
-        default=256 * 256,
-        help="Minimum aspect ratio for EMU3 tokenizer (default: 65536)",
-    )
-    inference_group.add_argument(
-        "--max_emu_aspect_ratio",
-        type=int,
-        default=512 * 512,
-        help="Maximum aspect ratio for EMU3 tokenizer (default: 262144)",
-    )
 
     return parser.parse_args()
 
 
 def setup_vlm_inferencer(args):
+    """
+    Setup VLM with pluggable vision tokenizer and inferencer components.
+
+    Handles backward compatibility with deprecated arguments.
+    """
+    from vision_tokenization.qualitative_benchmark.v_tokenizers import create_vision_tokenizer
+
+    # Handle backward compatibility for pixel arguments
+    min_pixels = args.min_tokenizer_pixels
+    max_pixels = args.max_tokenizer_pixels
+
+    if hasattr(args, 'min_emu_aspect_ratio') and args.min_emu_aspect_ratio is not None:
+        print("WARNING: --min_emu_aspect_ratio is deprecated, use --min-tokenizer-pixels")
+        min_pixels = args.min_emu_aspect_ratio
+    if hasattr(args, 'max_emu_aspect_ratio') and args.max_emu_aspect_ratio is not None:
+        print("WARNING: --max_emu_aspect_ratio is deprecated, use --max-tokenizer-pixels")
+        max_pixels = args.max_emu_aspect_ratio
+
+    # Create vision tokenizer
+    print(f"\nCreating vision tokenizer: {args.vision_tokenizer_type}")
+
+    vision_tokenizer_kwargs = {
+        'min_pixels': min_pixels,
+        'max_pixels': max_pixels,
+        'device': 'cuda:1' if torch.cuda.is_available() else 'cpu'
+    }
+
+    # Add model_path for v_tokenizers that need it
+    if args.vision_tokenizer_type in ['emu3.5', 'emu3.5-ibq']:
+        if not args.vision_tokenizer_path:
+            raise ValueError(
+                f"--vision-tokenizer-path is required for {args.vision_tokenizer_type}"
+            )
+        vision_tokenizer_kwargs['model_path'] = args.vision_tokenizer_path
+    elif args.vision_tokenizer_path:
+        # Optional for emu3
+        vision_tokenizer_kwargs['model_path'] = args.vision_tokenizer_path
+
+    vision_tokenizer = create_vision_tokenizer(
+        args.vision_tokenizer_type,
+        **vision_tokenizer_kwargs
+    )
+
+    # Create inferencer
+    print(f"Creating inferencer: vllm")
+    inferencer = VLLMInferencer(
+        model_path=args.model_path,
+        tokenizer_path=args.tokenizer_path,
+        tp_size=1,
+        max_seq_len=8192
+    )
+
+    # Create inference args
     inference_args = InferenceArgs(
         apply_chat_template=not args.no_chat_template,
         temperature=args.temperature,
         top_p=args.top_p,
-        stop_token_ids=[],  # Will be set after model initialization
+        stop_token_ids=[],  # Will be set by VLM __init__
         max_new_tokens=args.max_new_tokens,
-        max_emu_aspect_ratio=args.max_emu_aspect_ratio,
-        min_emu_aspect_ratio=args.min_emu_aspect_ratio,
+        max_emu_aspect_ratio=max_pixels,
+        min_emu_aspect_ratio=min_pixels,
     )
-    vlm = VLM(model_path=args.model_path, tokenizer_path=args.tokenizer_path, inf_args=inference_args)
+
+    # Create VLM with pluggable components
+    vlm = VLM(
+        vision_tokenizer=vision_tokenizer,
+        inferencer=inferencer,
+        inf_args=inference_args,
+        tokenizer_path=args.tokenizer_path,
+        model_path=args.model_path
+    )
+
     return vlm
 
 
