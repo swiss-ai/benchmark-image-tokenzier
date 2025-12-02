@@ -21,7 +21,7 @@ import numpy as np
 import torch
 from PIL import Image
 
-from vision_tokenization.qualitative_benchmark.utils.prompt_formatter import PromptFormatter
+from vision_tokenization.qualitative_benchmark.utils.prompt_formatter import PromptFormatter, CHAT_TRANFORMS
 from vision_tokenization.qualitative_benchmark.utils.vllm_inferencer import VLLMInferencer
 from vision_tokenization.qualitative_benchmark.v_tokenizers import VLMVisionTokenizer
 
@@ -287,6 +287,7 @@ def parse_args():
     # Core arguments
     parser.add_argument("--tokenizer_path", type=str, required=True, help="Path to text tokenizer supporting SFT")
     parser.add_argument("--model_path", type=str, required=True, help="Path to VLM model")
+    parser.add_argument("--chat-format", type=str, choices=list(CHAT_TRANFORMS.keys()), help="Chat format to use. Method to transform input into format hat works with a models chat template")
     parser.add_argument("--results_folder", type=str, default="results/", help="Path to save results")
     parser.add_argument(
         "--experiment_name", type=str, required=True, help="Name of experiment, used for saving results"
@@ -399,6 +400,7 @@ def setup_vlm_inferencer(args):
         max_new_tokens=args.max_new_tokens,
         max_emu_aspect_ratio=max_pixels,
         min_emu_aspect_ratio=min_pixels,
+        chat_transform=CHAT_TRANFORMS[args.chat_format] if args.chat_format else None
     )
 
     # Create VLM with pluggable components
