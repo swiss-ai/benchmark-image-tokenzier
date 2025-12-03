@@ -159,7 +159,9 @@ class ProgressActor:
     def __init__(self, total_samples: int, desc: str = "Samples processed"):
         self.total_samples = total_samples
         self.processed = 0
-        self.pbar = tqdm(total=total_samples, desc=desc)
+        # For streaming datasets where total is unknown, pass None to tqdm
+        total_for_tqdm = None if total_samples < 0 else total_samples
+        self.pbar = tqdm(total=total_for_tqdm, desc=desc)
 
     def update(self, samples: int):
         """Update progress bar with completed samples."""

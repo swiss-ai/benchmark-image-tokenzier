@@ -9,8 +9,8 @@ vision tokenizer implementations. New v_tokenizers can be easily added by:
 """
 
 from typing import Any, Dict
-from .base import VLMVisionTokenizer
 
+from .base import VLMVisionTokenizer
 
 # Registry of available v_tokenizers
 TOKENIZER_REGISTRY = {}
@@ -18,9 +18,11 @@ TOKENIZER_REGISTRY = {}
 
 def register_tokenizer(name: str):
     """Decorator to register a tokenizer class."""
+
     def decorator(cls):
         TOKENIZER_REGISTRY[name] = cls
         return cls
+
     return decorator
 
 
@@ -71,34 +73,33 @@ def create_vision_tokenizer(tokenizer_type: str, **kwargs) -> VLMVisionTokenizer
 
     # Map tokenizer types to classes
     tokenizer_map = {
-        'emu3': 'emu3',
-        'emu3.5': 'emu3_5_ibq',
-        'emu3.5-ibq': 'emu3_5_ibq',
+        "emu3": "emu3",
+        "emu3.5": "emu3_5_ibq",
+        "emu3.5-ibq": "emu3_5_ibq",
     }
 
     if tokenizer_type_lower not in tokenizer_map:
-        available = ', '.join(sorted(tokenizer_map.keys()))
-        raise ValueError(
-            f"Unsupported tokenizer type: '{tokenizer_type}'. "
-            f"Available types: {available}"
-        )
+        available = ", ".join(sorted(tokenizer_map.keys()))
+        raise ValueError(f"Unsupported tokenizer type: '{tokenizer_type}'. " f"Available types: {available}")
 
     # Import the appropriate tokenizer class
     tokenizer_module = tokenizer_map[tokenizer_type_lower]
 
-    if tokenizer_module == 'emu3':
+    if tokenizer_module == "emu3":
         from .emu3 import EMU3VisionTokenizer
+
         return EMU3VisionTokenizer(**kwargs)
-    elif tokenizer_module == 'emu3_5_ibq':
+    elif tokenizer_module == "emu3_5_ibq":
         from .emu3_5_ibq import EMU35IBQVisionTokenizer
+
         return EMU35IBQVisionTokenizer(**kwargs)
     else:
         raise ValueError(f"Tokenizer module '{tokenizer_module}' not implemented")
 
 
 __all__ = [
-    'VLMVisionTokenizer',
-    'create_vision_tokenizer',
-    'register_tokenizer',
-    'TOKENIZER_REGISTRY',
+    "VLMVisionTokenizer",
+    "create_vision_tokenizer",
+    "register_tokenizer",
+    "TOKENIZER_REGISTRY",
 ]

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """EMU3.5 IBQ vision tokenizer wrapper for VLM benchmarking."""
 
+from typing import Any, Dict, Tuple
+
 import torch
 from PIL import Image
-from typing import Any, Dict, Tuple
 
 from .base import SpatialTokenizer
 
@@ -53,12 +54,7 @@ class EMU35IBQVisionTokenizer(SpatialTokenizer):
         self.device = device
 
         # Initialize core EMU3.5 IBQ tokenizer
-        self.tokenizer = Emu3_5_IBQ(
-            model_path=model_path,
-            min_pixels=min_pixels,
-            max_pixels=max_pixels,
-            device=device
-        )
+        self.tokenizer = Emu3_5_IBQ(model_path=model_path, min_pixels=min_pixels, max_pixels=max_pixels, device=device)
 
     @property
     def name(self) -> str:
@@ -93,19 +89,16 @@ class EMU35IBQVisionTokenizer(SpatialTokenizer):
             raise ValueError(f"Unexpected indices shape: {indices.shape}")
 
         metadata = {
-            'height': h,
-            'width': w,
-            'num_tokens': h * w,
-            'latent_shape': additional_info.get('latent_shape')  # Keep for potential future use
+            "height": h,
+            "width": w,
+            "num_tokens": h * w,
+            "latent_shape": additional_info.get("latent_shape"),  # Keep for potential future use
         }
 
         return indices, metadata
 
     def format_tokens_for_chat(
-        self,
-        indices: torch.Tensor,
-        metadata: Dict[str, Any],
-        special_tokens: Dict[str, int]
+        self, indices: torch.Tensor, metadata: Dict[str, Any], special_tokens: Dict[str, int]
     ) -> str:
         """
         Format vision tokens as string for chat template insertion.
@@ -124,8 +117,8 @@ class EMU35IBQVisionTokenizer(SpatialTokenizer):
         Returns:
             Formatted token string
         """
-        h = metadata['height']
-        w = metadata['width']
+        h = metadata["height"]
+        w = metadata["width"]
 
         # Flatten indices to 1D list
         if indices.ndim == 3:  # [B, H, W]
@@ -160,8 +153,4 @@ class EMU35IBQVisionTokenizer(SpatialTokenizer):
         Returns:
             Dict with 'min_pixels' and 'max_pixels'
         """
-        return {
-            'min_pixels': self.min_pixels,
-            'max_pixels': self.max_pixels,
-            'model_path': self.model_path
-        }
+        return {"min_pixels": self.min_pixels, "max_pixels": self.max_pixels, "model_path": self.model_path}

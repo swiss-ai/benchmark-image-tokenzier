@@ -1,0 +1,58 @@
+{
+  "statistics": {
+    "total_samples_processed": 100,
+    "samples_skipped": 0,
+    "resolution_skipped": 0,
+    "transform_errors": 0,
+    "total_tokens": 83630,
+    "image_tokens": 70020,
+    "text_tokens": 13610,
+    "errors": 0
+  },
+  "averages": {
+    "tokens_per_sample": 836.3,
+    "image_tokens_per_sample": 700.2,
+    "text_tokens_per_sample": 136.1
+  },
+  "token_distribution": {
+    "image_percentage": 83.7259356690183,
+    "text_percentage": 16.274064330981705
+  },
+  "processing": {
+    "num_gpus": 1,
+    "processing_time_seconds": 24.767109394073486,
+    "samples_per_second": 4.037612884446215,
+    "tokens_per_second": 3376.6556552623697
+  },
+  "worker_details": [
+    {
+      "worker_id": 0,
+      "samples_processed": 100,
+      "tokens_generated": 83630,
+      "image_tokens": 70020,
+      "text_tokens": 13610,
+      "errors": 0,
+      "samples_skipped": 0,
+      "resolution_skipped": 0,
+      "transform_errors": 0,
+      "throughput": 3376.6556552623697
+    }
+  ],
+  "dataset_type": "sft tokenization",
+  "dataset_name": "mvp-lab/LLaVA-OneVision-1.5-Instruct-Data",
+  "config_name": "CLEVR",
+  "split": "train[:100]",
+  "mode": "sft",
+  "image_field": "image",
+  "text_field": "conversations",
+  "batch_size": null,
+  "tokenizer": {
+    "path": "/capstor/store/cscs/swissai/infra01/MLLM/apertus_emu3.5_instruct_tokenizer",
+    "min_pixels": 65536,
+    "max_pixels": 1048576
+  },
+  "image_filtering": {
+    "min_pixels": 65536,
+    "max_pixels": 4194304
+  }
+}

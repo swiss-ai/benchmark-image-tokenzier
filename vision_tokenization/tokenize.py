@@ -92,12 +92,15 @@ def create_hf_parser(subparsers):
         ),
     )
     parser.add_argument(
-        "--conversation_transform",
+        "--conversation-transform",
         type=str,
         help=(
             "(Optional!) Conversation transform to apply in SFT tokenizer worker. Conversation transforms are applied "
             "to conversation structure of a dataset, to convert to a format that is compatible with tokenizer chat template."
         ),
+    )
+    parser.add_argument(
+        "--dataset-streamed", action="store_true", help="If set, and a HF dataset is loaded with mode 'load_dataset'"
     )
     return parser
 
@@ -169,11 +172,19 @@ def parse_args():
     return parser.parse_args(), parser
 
 
+def get_defaults(parser, data_format):
+    """Get defaults for a subparser by parsing minimal required args."""
+    defaults, _ = parser.parse_known_args([data_format])
+    return defaults
+
+
 def main():
     """Main entry point."""
     args, parser = parse_args()
     setup_logging(args.verbose)
     logger = logging.getLogger(__name__)
+
+    defaults = vars(get_defaults(parser, args.data_format))
 
     # Build config container from args
     config = vars(args).copy()
@@ -186,19 +197,35 @@ def main():
         logger.info(f"Config loaded: {list(json_config.keys())}")
         config.update(json_config)
 
-        # Parse resolution strings like "384*384"
-        res_keys = ["min_tokenizer_pixels", "max_tokenizer_pixels", "min_image_pixels", "max_image_pixels"]
-        parsed_resolutions = {}
-        for key in res_keys:
-            if isinstance(config.get(key), str):
-                parsed = parse_resolution(config[key])
-                config[key] = parsed["pixels"]
-                parsed_resolutions[key] = parsed["dims"]
-
         # CLI args override config file (only where non default values)
-        cli_overrides = {k: v for k, v in vars(args).items() if v is not None and v != parser.get_default(k)}
+        cli_overrides = {k: v for k, v in vars(args).items() if v is not None and v != defaults.get(k, None)}
         logger.info(f"CLI overrides: {list(cli_overrides.keys())}")
         config.update(cli_overrides)
+
+    # Parse resolution strings like "384*384" (from config file or CLI)
+    res_keys = ["min_tokenizer_pixels", "max_tokenizer_pixels", "min_image_pixels", "max_image_pixels"]
+    parsed_resolutions = {}
+    original_resolutions = {}
+    for key in res_keys:
+        value = config.get(key)
+        if value is not None:
+            original_resolutions[key] = str(value)
+        if isinstance(value, str):
+            value = parse_resolution(value)
+        if isinstance(value, dict):
+            config[key] = value["pixels"]
+            parsed_resolutions[key] = value["dims"]
+
+    # Pretty print final config
+    logger.info("=" * 80)
+    logger.info("Final Configuration (after CLI overrides and parsing):")
+    logger.info("=" * 80)
+    for key, value in sorted(config.items()):
+        if key in res_keys and key in original_resolutions:
+            logger.info(f"  {key}: {value:,} pixels (from: {original_resolutions[key]})")
+        elif value is not None:
+            logger.info(f"  {key}: {value}")
+    logger.info("=" * 80)
 
     # Extract data format and remove non-pipeline keys
     data_format = args.data_format

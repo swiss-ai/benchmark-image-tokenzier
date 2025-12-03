@@ -45,6 +45,7 @@ class HFDatasetPipeline(BasePipeline):
         transform_params: Optional[Dict[str, Dict[str, Any]]] = None,
         conversation_transform: Optional[str] = None,
         dataset_load_method: str = "default",
+        dataset_streamed: bool = False,
         **kwargs,
     ):
         super().__init__(tokenizer_path, output_dir, num_gpus, device, **kwargs)
@@ -57,6 +58,7 @@ class HFDatasetPipeline(BasePipeline):
         self.mode = mode
         self.num_shards = num_shards
         self.dataset_load_method = dataset_load_method
+        self.dataset_streamed = dataset_streamed
 
         # Set tokenizer pixels with intelligent defaults
         # If min_image_pixels is set but min_tokenizer_pixels is not, use min_image_pixels
@@ -184,12 +186,22 @@ class HFDatasetPipeline(BasePipeline):
             cache_dir=self.cache_dir,
             num_proc=self.num_proc,
             method=self.dataset_load_method,
+            streaming=self.dataset_streamed,
         )
 
+        # Handle max_samples for both streaming and non-streaming datasets
         if self.max_samples:
-            self.dataset = self.dataset.select(range(min(self.max_samples, len(self.dataset))))
+            if self.dataset_streamed:
+                self.logger.info(f"Limiting to {self.max_samples} samples using .take() (streaming mode)")
+                self.dataset = self.dataset.take(self.max_samples)
+            else:
+                self.dataset = self.dataset.select(range(min(self.max_samples, len(self.dataset))))
 
-        self.logger.info(f"Processing {len(self.dataset)} samples")
+        # Log dataset size (not available for streaming datasets)
+        if self.dataset_streamed:
+            self.logger.info(f"Processing dataset in streaming mode (size unknown upfront)")
+        else:
+            self.logger.info(f"Processing {len(self.dataset)} samples")
 
         # Auto-create output subdirectory based on config_name and mode if config_name is provided
         if self.config_name:
@@ -221,8 +233,9 @@ class HFDatasetPipeline(BasePipeline):
         Creates a work queue that distributes shards to workers. Each shard
         will be processed completely by a worker and saved as a separate output file.
         """
-        # Create progress tracker
-        self.progress_actor = ProgressActor.remote(len(self.dataset))
+        # Create progress tracker (for streaming, we don't know total size upfront, use -1)
+        dataset_size = -1 if self.dataset_streamed else len(self.dataset)
+        self.progress_actor = ProgressActor.remote(dataset_size)
 
         # Check for existing completed shards if resuming
         if self.resume:
@@ -276,8 +289,9 @@ class HFDatasetPipeline(BasePipeline):
             "config": self.config_name,
             "split": self.dataset_split,
             "cache_dir": self.cache_dir,
-            "total_samples": len(self.dataset),
+            "total_samples": -1 if self.dataset_streamed else len(self.dataset),
             "load_method": self.dataset_load_method,
+            "dataset_streamed": self.dataset_streamed,
         }
 
         # Start workers processing shards

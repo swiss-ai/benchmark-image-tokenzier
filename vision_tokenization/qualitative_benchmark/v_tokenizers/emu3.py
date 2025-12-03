@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """EMU3 vision tokenizer wrapper for VLM benchmarking."""
 
+from typing import Any, Dict, Tuple
+
 import torch
 from PIL import Image
-from typing import Any, Dict, Tuple
 
 from .base import SpatialTokenizer
 
@@ -25,11 +26,7 @@ class EMU3VisionTokenizer(SpatialTokenizer):
     """
 
     def __init__(
-        self,
-        min_pixels: int = 256 * 256,
-        max_pixels: int = 512 * 512,
-        device: str = "cuda",
-        model_path: str = None
+        self, min_pixels: int = 256 * 256, max_pixels: int = 512 * 512, device: str = "cuda", model_path: str = None
     ):
         """
         Initialize EMU3 vision tokenizer.
@@ -47,10 +44,7 @@ class EMU3VisionTokenizer(SpatialTokenizer):
         self.device = device
 
         # Initialize core EMU3 tokenizer
-        self.tokenizer = CoreEmu3Tokenizer(
-            min_pixels=min_pixels,
-            max_pixels=max_pixels
-        )
+        self.tokenizer = CoreEmu3Tokenizer(min_pixels=min_pixels, max_pixels=max_pixels)
 
         # Move to specified device
         if torch.cuda.is_available() and device.startswith("cuda"):
@@ -89,19 +83,12 @@ class EMU3VisionTokenizer(SpatialTokenizer):
         else:
             raise ValueError(f"Unexpected indices shape: {indices.shape}")
 
-        metadata = {
-            'height': h,
-            'width': w,
-            'num_tokens': h * w
-        }
+        metadata = {"height": h, "width": w, "num_tokens": h * w}
 
         return indices, metadata
 
     def format_tokens_for_chat(
-        self,
-        indices: torch.Tensor,
-        metadata: Dict[str, Any],
-        special_tokens: Dict[str, int]
+        self, indices: torch.Tensor, metadata: Dict[str, Any], special_tokens: Dict[str, int]
     ) -> str:
         """
         Format vision tokens as string for chat template insertion.
@@ -120,8 +107,8 @@ class EMU3VisionTokenizer(SpatialTokenizer):
         Returns:
             Formatted token string
         """
-        h = metadata['height']
-        w = metadata['width']
+        h = metadata["height"]
+        w = metadata["width"]
 
         # Flatten indices to 1D list
         if indices.ndim == 3:  # [B, H, W]
@@ -156,7 +143,4 @@ class EMU3VisionTokenizer(SpatialTokenizer):
         Returns:
             Dict with 'min_pixels' and 'max_pixels'
         """
-        return {
-            'min_pixels': self.min_pixels,
-            'max_pixels': self.max_pixels
-        }
+        return {"min_pixels": self.min_pixels, "max_pixels": self.max_pixels}

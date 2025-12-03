@@ -10,7 +10,7 @@
   "num_shards": 100,
   "device": "cuda",
   "num_proc": 32,
-  "cache_dir": "/capstor/store/cscs/swissai/infra01/vision-datasets/hf_cache",
+  "cache_dir": "/capstor/store/cscs/swissai/infra01/vision-datasets/hf_datasets_cache",
   "min_tokenizer_pixels": "256*256",
   "max_tokenizer_pixels": "1024*1024",
   "min_image_pixels": "256*256",
@@ -21,7 +21,8 @@
   "transform_params": {
             "remove_string": {
                 "strings": ["<image>"],
-                "text_key": "msg.content"
+                "text_key": "content"
             }
-        }
+        },
+  "conversation_transform": "llava_to_apertus"
 }

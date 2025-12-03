@@ -231,13 +231,12 @@ class LLaVaInstructToApertusTransform(BaseConversationTransform):
                 }
             },
             {"role": "assistant", "content": "answer1"},
-            {"role": "user", "content": "question2"},
-            {"role": "assistant", "content": "answer2"},
-            ...
         ]
 
     The first user message we include message part, so the chat template adds the image placeholder we later replace with
     actual vision tokens during tokenization.
+    Also Configure for empty system prompt! (Otherwise cutoff date and so on included.)
+    Deliberation and Tool Capabilities are set false by default.
     """
 
     name = "llava_to_apertus"
@@ -254,6 +253,9 @@ class LLaVaInstructToApertusTransform(BaseConversationTransform):
             raise ValueError("Conversation list cannot be empty")
 
         messages = []
+
+        # Add empty system prompt
+        messages.append({"role": "system", "content": ""})
 
         for i, conv in enumerate(text):
             if not isinstance(conv, dict):

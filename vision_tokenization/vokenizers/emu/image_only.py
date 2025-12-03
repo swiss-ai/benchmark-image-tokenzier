@@ -27,7 +27,7 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
     Supports both Emu3 and Emu3.5 vision tokenizers.
     """
 
-    def __init__(self, text_tokenizer_path: str, min_pixels: int, max_pixels: int, device: str = "cuda"):
+    def __init__(self, text_tokenizer_path: str, min_pixels: int, max_pixels: int, device: str = "cuda", **kwargs):
         """
         Initialize with text tokenizer that has EMU vision tokens and image tokenizer.
 
