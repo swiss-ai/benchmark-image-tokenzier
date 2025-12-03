@@ -13,6 +13,7 @@ tokens for insertion into chat templates.
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Tuple
+
 import torch
 from PIL import Image
 
@@ -62,10 +63,7 @@ class VLMVisionTokenizer(ABC):
 
     @abstractmethod
     def format_tokens_for_chat(
-        self,
-        indices: torch.Tensor,
-        metadata: Dict[str, Any],
-        special_tokens: Dict[str, int]
+        self, indices: torch.Tensor, metadata: Dict[str, Any], special_tokens: Dict[str, int]
     ) -> str:
         """
         Format vision tokens as string for insertion into chat template.
@@ -108,6 +106,7 @@ class SpatialTokenizer(VLMVisionTokenizer):
 
     Token format: [B, H, W] where H and W represent spatial dimensions.
     """
+
     pass
 
 
@@ -120,4 +119,5 @@ class FlattenedTokenizer(VLMVisionTokenizer):
 
     Token format: [B, N] where N is the total number of tokens.
     """
+
     pass

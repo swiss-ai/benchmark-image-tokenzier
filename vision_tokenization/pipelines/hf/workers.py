@@ -145,6 +145,7 @@ class Worker(BaseTokenizerWorker):
             split=dataset_info["split"],
             cache_dir=dataset_info.get("cache_dir"),
             method=dataset_info.get("load_method", "default"),
+            streaming=dataset_info["dataset_streamed"],
         )
 
         # Get this specific shard
@@ -222,7 +223,11 @@ class Worker(BaseTokenizerWorker):
                 else:
                     stats["errors"] += 1
             except Exception as e:
-                self.logger.warning(f"Failed to process sample: {e}")
+                import traceback
+
+                error_msg = f"Failed to process sample: {e}\n{traceback.format_exc()}"
+                self.logger.warning(error_msg)
+                print(f"[Worker {self.worker_id}] {error_msg}", flush=True)
                 stats["errors"] += 1
 
         # Finalize the shard file
@@ -280,7 +285,11 @@ class Worker(BaseTokenizerWorker):
                 )
 
             except Exception as e:
-                self.logger.error(f"Failed to process shard {shard_id}: {e}")
+                import traceback
+
+                error_msg = f"Failed to process shard {shard_id}: {e}\n{traceback.format_exc()}"
+                self.logger.error(error_msg)
+                print(f"[Worker {self.worker_id}] {error_msg}", flush=True)
                 ray.get(shard_queue.mark_failed.remote(shard_id, str(e)))
 
         # Return final statistics

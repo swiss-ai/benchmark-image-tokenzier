@@ -54,6 +54,7 @@ done
 
 # Set up Python path
 export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH}"
+pip install -q omegaconf
 
 echo "=================================================================================="
 echo "LLaVA-OneVision Instruct Tokenization"

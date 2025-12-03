@@ -54,7 +54,12 @@ def create_tokenizer(
     tokenizer_class = tokenizers[mode]
 
     return tokenizer_class(
-        text_tokenizer_path=text_tokenizer_path, device=device, min_pixels=min_pixels, max_pixels=max_pixels, **kwargs
+        text_tokenizer_path=text_tokenizer_path,
+        device=device,
+        min_pixels=min_pixels,
+        max_pixels=max_pixels,
+        mode=mode,
+        **kwargs,
     )
 
 

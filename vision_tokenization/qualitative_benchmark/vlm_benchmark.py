@@ -16,12 +16,12 @@ import time
 from pathlib import Path
 from typing import Dict, Tuple
 
-import PIL
 import numpy as np
+import PIL
 import torch
 from PIL import Image
 
-from vision_tokenization.qualitative_benchmark.utils.prompt_formatter import PromptFormatter, CHAT_TRANFORMS
+from vision_tokenization.qualitative_benchmark.utils.prompt_formatter import CHAT_TRANFORMS, PromptFormatter
 from vision_tokenization.qualitative_benchmark.utils.vllm_inferencer import VLLMInferencer
 from vision_tokenization.qualitative_benchmark.v_tokenizers import VLMVisionTokenizer
 
@@ -54,8 +54,8 @@ class InferenceArgs:
         max_new_tokens: int,
         max_emu_aspect_ratio,
         min_emu_aspect_ratio,
-        chat_transform: str = None, # method out of registered ones in prompt_formatter to prepare input to chat template
-        img_right: bool = False # Will image be after the prompt or before
+        chat_transform: str = None,  # method out of registered ones in prompt_formatter to prepare input to chat template
+        img_right: bool = False,  # Will image be after the prompt or before
     ):
         self.apply_chat_template = apply_chat_template
         self.img_right = img_right
@@ -71,8 +71,14 @@ class InferenceArgs:
 class VLM(object):
     """Class to initialize and run VLM inference with pluggable vision v_tokenizers and utils."""
 
-    def __init__(self, vision_tokenizer: VLMVisionTokenizer, inferencer, inf_args: InferenceArgs,
-                 tokenizer_path: str, model_path: str):
+    def __init__(
+        self,
+        vision_tokenizer: VLMVisionTokenizer,
+        inferencer,
+        inf_args: InferenceArgs,
+        tokenizer_path: str,
+        model_path: str,
+    ):
         """
         Initialize VLM with vision tokenizer and inferencer.
 
@@ -92,7 +98,7 @@ class VLM(object):
 
         # Extract stop tokens from tokenizer
         stop_tokens = []
-        if hasattr(self.inferencer.txt_tokenizer, 'eos_token_id') and self.inferencer.txt_tokenizer.eos_token_id:
+        if hasattr(self.inferencer.txt_tokenizer, "eos_token_id") and self.inferencer.txt_tokenizer.eos_token_id:
             stop_tokens.append(self.inferencer.txt_tokenizer.eos_token_id)
         self.inf_args.stop_token_ids = stop_tokens
 
@@ -116,15 +122,13 @@ class VLM(object):
         indices, metadata = self.vision_tokenizer.encode_for_vlm(img)
 
         # Log token dimensions if available
-        if 'height' in metadata and 'width' in metadata:
-            h, w = metadata['height'], metadata['width']
+        if "height" in metadata and "width" in metadata:
+            h, w = metadata["height"], metadata["width"]
             print(f"   Token dimensions: {h}×{w} = {metadata.get('num_tokens', h*w)} tokens")
 
         # Format tokens for chat using tokenizer-specific logic
         # EMU3 uses string tokens, not IDs, so we pass an empty dict
-        img_tokens_str = self.vision_tokenizer.format_tokens_for_chat(
-            indices, metadata, {}
-        )
+        img_tokens_str = self.vision_tokenizer.format_tokens_for_chat(indices, metadata, {})
 
         return img_tokens_str
 
@@ -141,14 +145,12 @@ class VLM(object):
                 image_token_string,
                 chat_transform=self.inf_args.chat_transform,
                 add_generation_prompt=True,
-                img_right=self.inf_args.img_right
+                img_right=self.inf_args.img_right,
             )
         else:
             # Simple concatenation without chat template
             formatted_prompt = self.prompt_formatter.prepare_non_chat_prompt(
-                prompt,
-                image_token_string,
-                img_right=self.inf_args.img_right
+                prompt, image_token_string, img_right=self.inf_args.img_right
             )
 
         return formatted_prompt
@@ -169,7 +171,7 @@ class VLM(object):
             sampling_topp=self.inf_args.top_p,
             sampling_max_tok=self.inf_args.max_new_tokens,
             sampling_min_tok=1,
-            sampling_stop_token_ids=self.inf_args.stop_token_ids
+            sampling_stop_token_ids=self.inf_args.stop_token_ids,
         )
         return result["generated_text"]
 
@@ -280,14 +282,17 @@ class VLMBenchmark:
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Run VLM benchmark with configurable vision v_tokenizers and utils"
-    )
+    parser = argparse.ArgumentParser(description="Run VLM benchmark with configurable vision v_tokenizers and utils")
 
     # Core arguments
     parser.add_argument("--tokenizer_path", type=str, required=True, help="Path to text tokenizer supporting SFT")
     parser.add_argument("--model_path", type=str, required=True, help="Path to VLM model")
-    parser.add_argument("--chat-format", type=str, choices=list(CHAT_TRANFORMS.keys()), help="Chat format to use. Method to transform input into format hat works with a models chat template")
+    parser.add_argument(
+        "--chat-format",
+        type=str,
+        choices=list(CHAT_TRANFORMS.keys()),
+        help="Chat format to use. Method to transform input into format hat works with a models chat template",
+    )
     parser.add_argument("--results_folder", type=str, default="results/", help="Path to save results")
     parser.add_argument(
         "--experiment_name", type=str, required=True, help="Name of experiment, used for saving results"
@@ -303,25 +308,22 @@ def parse_args():
         type=str,
         default="emu3",
         choices=["emu3", "emu3.5", "emu3.5-ibq"],
-        help="Type of vision tokenizer to use (default: emu3)"
+        help="Type of vision tokenizer to use (default: emu3)",
     )
     tokenizer_group.add_argument(
-        "--vision-tokenizer-path",
-        type=str,
-        default=None,
-        help="Path to vision tokenizer model (required for emu3.5)"
+        "--vision-tokenizer-path", type=str, default=None, help="Path to vision tokenizer model (required for emu3.5)"
     )
     tokenizer_group.add_argument(
         "--min-tokenizer-pixels",
         type=int,
         default=256 * 256,
-        help="Minimum pixel count for vision tokenizer (default: 65536)"
+        help="Minimum pixel count for vision tokenizer (default: 65536)",
     )
     tokenizer_group.add_argument(
         "--max-tokenizer-pixels",
         type=int,
         default=512 * 512,
-        help="Maximum pixel count for vision tokenizer (default: 262144)"
+        help="Maximum pixel count for vision tokenizer (default: 262144)",
     )
 
     # Inference generation arguments
@@ -350,10 +352,10 @@ def setup_vlm_inferencer(args):
     min_pixels = args.min_tokenizer_pixels
     max_pixels = args.max_tokenizer_pixels
 
-    if hasattr(args, 'min_emu_aspect_ratio') and args.min_emu_aspect_ratio is not None:
+    if hasattr(args, "min_emu_aspect_ratio") and args.min_emu_aspect_ratio is not None:
         print("WARNING: --min_emu_aspect_ratio is deprecated, use --min-tokenizer-pixels")
         min_pixels = args.min_emu_aspect_ratio
-    if hasattr(args, 'max_emu_aspect_ratio') and args.max_emu_aspect_ratio is not None:
+    if hasattr(args, "max_emu_aspect_ratio") and args.max_emu_aspect_ratio is not None:
         print("WARNING: --max_emu_aspect_ratio is deprecated, use --max-tokenizer-pixels")
         max_pixels = args.max_emu_aspect_ratio
 
@@ -361,34 +363,26 @@ def setup_vlm_inferencer(args):
     print(f"\nCreating vision tokenizer: {args.vision_tokenizer_type}")
 
     vision_tokenizer_kwargs = {
-        'min_pixels': min_pixels,
-        'max_pixels': max_pixels,
-        'device': 'cuda:1' if torch.cuda.is_available() else 'cpu'
+        "min_pixels": min_pixels,
+        "max_pixels": max_pixels,
+        "device": "cuda:1" if torch.cuda.is_available() else "cpu",
     }
 
     # Add model_path for v_tokenizers that need it
-    if args.vision_tokenizer_type in ['emu3.5', 'emu3.5-ibq']:
+    if args.vision_tokenizer_type in ["emu3.5", "emu3.5-ibq"]:
         if not args.vision_tokenizer_path:
-            raise ValueError(
-                f"--vision-tokenizer-path is required for {args.vision_tokenizer_type}"
-            )
-        vision_tokenizer_kwargs['model_path'] = args.vision_tokenizer_path
+            raise ValueError(f"--vision-tokenizer-path is required for {args.vision_tokenizer_type}")
+        vision_tokenizer_kwargs["model_path"] = args.vision_tokenizer_path
     elif args.vision_tokenizer_path:
         # Optional for emu3
-        vision_tokenizer_kwargs['model_path'] = args.vision_tokenizer_path
+        vision_tokenizer_kwargs["model_path"] = args.vision_tokenizer_path
 
-    vision_tokenizer = create_vision_tokenizer(
-        args.vision_tokenizer_type,
-        **vision_tokenizer_kwargs
-    )
+    vision_tokenizer = create_vision_tokenizer(args.vision_tokenizer_type, **vision_tokenizer_kwargs)
 
     # Create inferencer
     print(f"Creating inferencer: vllm")
     inferencer = VLLMInferencer(
-        model_path=args.model_path,
-        tokenizer_path=args.tokenizer_path,
-        tp_size=1,
-        max_seq_len=8192
+        model_path=args.model_path, tokenizer_path=args.tokenizer_path, tp_size=1, max_seq_len=8192
     )
 
     # Create inference args
@@ -400,7 +394,7 @@ def setup_vlm_inferencer(args):
         max_new_tokens=args.max_new_tokens,
         max_emu_aspect_ratio=max_pixels,
         min_emu_aspect_ratio=min_pixels,
-        chat_transform=CHAT_TRANFORMS[args.chat_format] if args.chat_format else None
+        chat_transform=CHAT_TRANFORMS[args.chat_format] if args.chat_format else None,
     )
 
     # Create VLM with pluggable components
@@ -409,7 +403,7 @@ def setup_vlm_inferencer(args):
         inferencer=inferencer,
         inf_args=inference_args,
         tokenizer_path=args.tokenizer_path,
-        model_path=args.model_path
+        model_path=args.model_path,
     )
 
     return vlm

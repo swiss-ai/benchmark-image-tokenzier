@@ -4,19 +4,21 @@ outputs final string or token id list
 """
 
 import logging
-from transformers import AutoTokenizer
 import re
 
+from transformers import AutoTokenizer
+
 logger = logging.getLogger(__name__)
+
 
 ########################################################################
 # Simple transforms for simple single turn prompt to model chat format #
 ########################################################################
 def to_apertus_format(text: str, img_right: bool = False) -> dict:
     conv_dict = {
-                "role": "user",
-                "content": {"parts": []},
-            }
+        "role": "user",
+        "content": {"parts": []},
+    }
     if img_right:
         conv_dict["content"]["parts"].append({"type": "image"})
         conv_dict["content"]["parts"].append({"type": "text", "text": text})
@@ -24,12 +26,10 @@ def to_apertus_format(text: str, img_right: bool = False) -> dict:
         conv_dict["content"]["parts"].append({"type": "text", "text": text})
         conv_dict["content"]["parts"].append({"type": "image"})
     return conv_dict
+
 
 def to_llama_format(text: str, img_right: bool = False) -> dict:
-    conv_dict = {
-                "role": "user",
-                "content": []
-            }
+    conv_dict = {"role": "user", "content": []}
     if img_right:
         conv_dict["content"].append({"type": "image"})
         conv_dict["content"].append({"type": "text", "text": text})
@@ -38,9 +38,9 @@ def to_llama_format(text: str, img_right: bool = False) -> dict:
         conv_dict["content"].append({"type": "image"})
     return conv_dict
 
+
 # Mapper methods to convert standard prompts to format needed by chat template of models tokenizer
-CHAT_TRANFORMS = {"to_apertus": to_apertus_format,
-                  "to_llama": to_llama_format}
+CHAT_TRANFORMS = {"to_apertus": to_apertus_format, "to_llama": to_llama_format}
 
 
 class PromptFormatter:
@@ -49,7 +49,14 @@ class PromptFormatter:
             logger.info(f"Loading tokenizer from {tokenizer_path}")
             self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
 
-    def prepare_chat_prompt(self, conversation_text: str, img_token_string: str, chat_transform: str = None, add_generation_prompt: bool = True, img_right: bool = False) -> str:
+    def prepare_chat_prompt(
+        self,
+        conversation_text: str,
+        img_token_string: str,
+        chat_transform: str = None,
+        add_generation_prompt: bool = True,
+        img_right: bool = False,
+    ) -> str:
         """
         Takes conversation dict and list of img tokens and returns formatted prompt.
         Conversation dict will be transformed through chat_transform indicated by string arg "chat_transform".
@@ -61,7 +68,9 @@ class PromptFormatter:
         if chat_transform is not None:
             conversation_text = CHAT_TRANFORMS[chat_transform](conversation_text, img_right=img_right)
 
-        chat_txt = self.tokenizer.apply_chat_template(conversation_text, tokenize=False, add_generation_prompt=add_generation_prompt)
+        chat_txt = self.tokenizer.apply_chat_template(
+            conversation_text, tokenize=False, add_generation_prompt=add_generation_prompt
+        )
 
         if img_token_string is not None:
             # TODO: img placeholder might change for different tokenizers/chat templates
