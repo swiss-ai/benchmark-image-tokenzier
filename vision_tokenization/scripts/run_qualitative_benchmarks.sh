@@ -10,6 +10,8 @@
 #SBATCH --output=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/qualitative_bench%j.out
 #SBATCH --error=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/qualitative_bench%j.err
 
+PROJECT_ROOT="/iopsstor/scratch/cscs/${USER}/benchmark-image-tokenizer"
+
 # Default values
 DEFAULT_MODEL_PATH="/iopsstor/scratch/cscs/rkreft/Megatron-LM/logs/Meg-Runs/image-extension/llama3-3b-SFT-15n-8192sl-240gbsz-1.0i-0.0t-stage2-base-ST-MASKED-USR-MASKED-NOTIMG-FIXES-RPAD/HF"
 DEFAULT_TOKENIZER_PATH="/capstor/store/cscs/swissai/infra01/MLLM/llama3_vision_instruct_emu3_tokenizer"
@@ -19,9 +21,10 @@ EXPERIMENT_NAME=""
 MODEL_PATH="$DEFAULT_MODEL_PATH"
 TOKENIZER_PATH="$DEFAULT_TOKENIZER_PATH"
 APPLY_CHAT_TEMPLATE=""
+CHAT_FORMAT=""
 
 usage() {
-    echo "Usage: $0 --experiment_name <name> [--model_path <path>] [--tokenizer_path <path>] [--no_chat_template]"
+    echo "Usage: $0 --experiment_name <name> [--model_path <path>] [--tokenizer_path <path>] [--chat-format <format>] [--no_chat_template]"
     echo ""
     echo "Required arguments:"
     echo "  --experiment_name <name>    Name of the experiment"
@@ -29,6 +32,7 @@ usage() {
     echo "Optional arguments:"
     echo "  --model_path <path>         Path to HF model (default: $DEFAULT_MODEL_PATH)"
     echo "  --tokenizer_path <path>     Path to tokenizer (default: $DEFAULT_TOKENIZER_PATH)"
+    echo "  --chat-format <format>      Chat format to use (e.g., llama, apertus)"
     echo "  --no_chat_template          Do not apply chat template to prompts"
     echo ""
     exit 1
@@ -46,6 +50,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --tokenizer_path)
             TOKENIZER_PATH="$2"
+            shift 2
+            ;;
+        --chat-format)
+            CHAT_FORMAT="$2"
             shift 2
             ;;
         --no_chat_template)
@@ -69,18 +77,21 @@ if [ -z "$EXPERIMENT_NAME" ]; then
 fi
 
 cd /iopsstor/scratch/cscs/$USER/benchmark-image-tokenizer/vision_tokenization/qualitative_benchmark || exit
+export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH}"
 
 echo "=================================================================================="
 echo "Running qualitative benchmark with:"
 echo "  Experiment name: $EXPERIMENT_NAME"
 echo "  Model path:      $MODEL_PATH"
 echo "  Tokenizer path:  $TOKENIZER_PATH"
+echo "  Chat format:     $([ -z "$CHAT_FORMAT" ] && echo "None" || echo "$CHAT_FORMAT")"
 echo "  Apply chat template: $([ -z "$APPLY_CHAT_TEMPLATE" ] && echo "Yes" || echo "No")"
 echo "=================================================================================="
 
 python vlm_benchmark.py --tokenizer_path "$TOKENIZER_PATH" \
                         --model_path "$MODEL_PATH" \
                         --experiment_name "$EXPERIMENT_NAME" \
+                        $([ -n "$CHAT_FORMAT" ] && echo "--chat-format $CHAT_FORMAT") \
                         $APPLY_CHAT_TEMPLATE
 
 echo "=================================================================================="

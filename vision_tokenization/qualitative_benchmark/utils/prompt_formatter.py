@@ -5,6 +5,7 @@ outputs final string or token id list
 
 import logging
 import re
+from typing import List
 
 from transformers import AutoTokenizer
 
@@ -14,7 +15,9 @@ logger = logging.getLogger(__name__)
 ########################################################################
 # Simple transforms for simple single turn prompt to model chat format #
 ########################################################################
-def to_apertus_format(text: str, img_right: bool = False) -> dict:
+def to_apertus_format(text: str, img_right: bool = False) -> List[dict]:
+    messages = []
+    messages.append({"role": "system", "content": ""})
     conv_dict = {
         "role": "user",
         "content": {"parts": []},
@@ -25,10 +28,12 @@ def to_apertus_format(text: str, img_right: bool = False) -> dict:
     else:
         conv_dict["content"]["parts"].append({"type": "text", "text": text})
         conv_dict["content"]["parts"].append({"type": "image"})
-    return conv_dict
+    messages.append(conv_dict)
+    return messages
 
 
-def to_llama_format(text: str, img_right: bool = False) -> dict:
+def to_llama_format(text: str, img_right: bool = False) -> List[dict]:
+    messages = []
     conv_dict = {"role": "user", "content": []}
     if img_right:
         conv_dict["content"].append({"type": "image"})
@@ -36,11 +41,13 @@ def to_llama_format(text: str, img_right: bool = False) -> dict:
     else:
         conv_dict["content"].append({"type": "text", "text": text})
         conv_dict["content"].append({"type": "image"})
-    return conv_dict
+    messages.append(conv_dict)
+    return messages
 
 
 # Mapper methods to convert standard prompts to format needed by chat template of models tokenizer
-CHAT_TRANFORMS = {"to_apertus": to_apertus_format, "to_llama": to_llama_format}
+CHAT_TRANFORMS = {"to_apertus": to_apertus_format,
+                  "to_llama": to_llama_format}
 
 
 class PromptFormatter:
@@ -67,6 +74,8 @@ class PromptFormatter:
 
         if chat_transform is not None:
             conversation_text = CHAT_TRANFORMS[chat_transform](conversation_text, img_right=img_right)
+        else:
+            logger.warning("No chat format given, treat input as being correct!")
 
         chat_txt = self.tokenizer.apply_chat_template(
             conversation_text, tokenize=False, add_generation_prompt=add_generation_prompt
