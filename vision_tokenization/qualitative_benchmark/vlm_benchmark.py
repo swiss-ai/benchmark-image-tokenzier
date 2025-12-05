@@ -336,7 +336,6 @@ def parse_args():
     inference_group.add_argument(
         "--max_new_tokens", type=int, default=300, help="Maximum number of tokens to generate (default: 300)"
     )
-
     return parser.parse_args()
 
 
@@ -394,7 +393,7 @@ def setup_vlm_inferencer(args):
         max_new_tokens=args.max_new_tokens,
         max_emu_aspect_ratio=max_pixels,
         min_emu_aspect_ratio=min_pixels,
-        chat_transform=CHAT_TRANFORMS[args.chat_format] if args.chat_format else None,
+        chat_transform=args.chat_format or None
     )
 
     # Create VLM with pluggable components

@@ -7,6 +7,7 @@ from typing import List, Union
 
 from transformers import AutoTokenizer
 from vllm import LLM, SamplingParams
+from vllm.inputs import TokensPrompt
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ class VLLMInferencer:
             max_model_len=max_seq_len,
             skip_tokenizer_init=self.txt_tokenizer is not None,
             dtype=model_dtype,
-            quantization_config=model_quantization,
+            quantization=model_quantization,
             seed=seed,
         )
 
@@ -84,6 +85,10 @@ class VLLMInferencer:
                 logger.warning(
                     "Specific Tokenizer(VLLMInferencer.txt_tokenizer) not given, vllm will try to use default model tokenizer which might be unintended or fail!"
                 )
+
+        # Wrap token IDs in TokensPrompt for vLLM
+        if isinstance(prompt, list):
+            prompt = TokensPrompt(prompt_token_ids=prompt)
 
         # Single sample output
         output = self.llm.generate([prompt], sampling_params=sampling_params)[0]
