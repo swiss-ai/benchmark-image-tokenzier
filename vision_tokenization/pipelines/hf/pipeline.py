@@ -10,7 +10,12 @@ from typing import Any, Dict, Optional
 import ray
 
 from vision_tokenization.pipelines.base import BasePipeline, ProgressActor
-from vision_tokenization.pipelines.hf.dataset_loader import load_hf_dataset
+from vision_tokenization.pipelines.hf.dataset_loader import (
+    load_hf_dataset,
+    get_builder_split_info,
+    check_memory_mapping_limits,
+    _parse_split_slice,
+)
 from vision_tokenization.pipelines.hf.workers import ShardQueue, Worker
 from vision_tokenization.vokenizers.transforms import create_transform_pipeline
 
@@ -178,30 +183,62 @@ class HFDatasetPipeline(BasePipeline):
         if not ray.is_initialized():
             ray.init(num_cpus=self.num_gpus + 2, num_gpus=self.num_gpus)
 
-        # Load dataset
-        self.dataset = load_hf_dataset(
-            dataset_name=self.dataset_name,
-            config_name=self.config_name,
-            split=self.dataset_split,
-            cache_dir=self.cache_dir,
-            num_proc=self.num_proc,
-            method=self.dataset_load_method,
-            streaming=self.dataset_streamed,
-        )
-
-        # Handle max_samples for both streaming and non-streaming datasets
-        if self.max_samples:
-            if self.dataset_streamed:
-                self.logger.info(f"Limiting to {self.max_samples} samples using .take() (streaming mode)")
-                self.dataset = self.dataset.take(self.max_samples)
-            else:
-                self.dataset = self.dataset.select(range(min(self.max_samples, len(self.dataset))))
-
-        # Log dataset size (not available for streaming datasets)
+        # Get dataset size without loading the full dataset
         if self.dataset_streamed:
-            self.logger.info(f"Processing dataset in streaming mode (size unknown upfront)")
+            # For streaming datasets, we don't know the size upfront
+            self.logger.info("Processing dataset in streaming mode (size unknown upfront)")
+            self.dataset_size = -1
         else:
-            self.logger.info(f"Processing {len(self.dataset)} samples")
+            # For non-streaming datasets, use get_builder_split_info to get metadata without loading
+            self.logger.info("Getting dataset information without loading full dataset...")
+
+            split_info = get_builder_split_info(
+                dataset_name=self.dataset_name,
+                config_name=self.config_name,
+                cache_dir=self.cache_dir,
+            )
+
+            # Parse split string to handle slice notation (e.g., "train[:100]")
+            base_split, start, end = _parse_split_slice(self.dataset_split)
+
+            # Check if base split exists in split_info
+            if base_split not in split_info:
+                available_splits = list(split_info.keys())
+                raise ValueError(
+                    f"Split '{base_split}' not found in dataset. "
+                    f"Available splits: {available_splits}"
+                )
+
+            # Get total number of examples for this split
+            num_examples = split_info[base_split]["num_examples"]
+
+            # Apply slice bounds if present in split string
+            if start is not None or end is not None:
+                effective_start = start or 0
+                effective_end = end or num_examples
+                num_examples = effective_end - effective_start
+                self.logger.info(
+                    f"Split slice '{self.dataset_split}' will process "
+                    f"{num_examples:,} samples (from {effective_start} to {effective_end})"
+                )
+
+            # Apply max_samples limit if specified
+            if self.max_samples:
+                original_num = num_examples
+                num_examples = min(self.max_samples, num_examples)
+                if num_examples < original_num:
+                    self.logger.info(
+                        f"Limiting to {num_examples:,} samples due to max_samples parameter "
+                        f"(dataset has {original_num:,} samples)"
+                    )
+
+            # Run memory mapping limits check
+            self.logger.info("Checking system memory mapping limits...")
+            check_memory_mapping_limits(split_info, self.dataset_split)
+
+            # Store dataset size for later use
+            self.dataset_size = num_examples
+            self.logger.info(f"Will process {num_examples:,} samples")
 
         # Auto-create output subdirectory based on config_name and mode if config_name is provided
         if self.config_name:
@@ -233,9 +270,8 @@ class HFDatasetPipeline(BasePipeline):
         Creates a work queue that distributes shards to workers. Each shard
         will be processed completely by a worker and saved as a separate output file.
         """
-        # Create progress tracker (for streaming, we don't know total size upfront, use -1)
-        dataset_size = -1 if self.dataset_streamed else len(self.dataset)
-        self.progress_actor = ProgressActor.remote(dataset_size)
+        # Create progress tracker using dataset_size calculated in setup()
+        self.progress_actor = ProgressActor.remote(self.dataset_size)
 
         # Check for existing completed shards if resuming
         if self.resume:
@@ -289,7 +325,7 @@ class HFDatasetPipeline(BasePipeline):
             "config": self.config_name,
             "split": self.dataset_split,
             "cache_dir": self.cache_dir,
-            "total_samples": -1 if self.dataset_streamed else len(self.dataset),
+            "total_samples": self.dataset_size,
             "load_method": self.dataset_load_method,
             "dataset_streamed": self.dataset_streamed,
         }
