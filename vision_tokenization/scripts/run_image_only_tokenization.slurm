@@ -24,6 +24,9 @@ PROJECT_ROOT="/iopsstor/scratch/cscs/${USER}/benchmark-image-tokenizer"
 # Configuration
 CONFIG_PATH="${PROJECT_ROOT}/vision_tokenization/configs/llava_onevision_midtrain_image_only_to_emu3.5_apertus.json"
 
+# Allow environment variable override for num-gpus (used in multi-node mode)
+NUM_GPUS="${NUM_GPUS:-}"
+
 # Parse command-line arguments
 DEBUG_MODE=false
 RESUME_MODE=false
@@ -74,19 +77,27 @@ if [ "$RESUME_MODE" = true ]; then
     echo "RESUME mode enabled - will skip completed shards"
 fi
 
+# Build GPU override flag (empty by default, set if NUM_GPUS environment variable is provided)
+GPU_FLAG=""
+if [ -n "${NUM_GPUS}" ]; then
+    GPU_FLAG="--num-gpus ${NUM_GPUS}"
+    echo "GPU override: ${NUM_GPUS} GPUs (from NUM_GPUS environment variable)"
+fi
+
 if [ "$DEBUG_MODE" = true ]; then
     echo "Running in DEBUG mode (small dataset for testing)"
     echo "=================================================================================="
-
+    OUTPUT_DIR="${PROJECT_ROOT}/vision_tokenization/tokenized_outputs/image_only_1000_s2"
     # Debug mode: override config with small dataset parameters
     python -m vision_tokenization.tokenize \
-        --output-dir "${PROJECT_ROOT}/vision_tokenization/tokenized_outputs/image_only_1000_s2" \
+        --output-dir "${OUTPUT_DIR}" \
         --num-gpus 1 \
         hf \
         --config "${CONFIG_PATH}" \
         --dataset-split "train[:1000]" \
         --num-shards 2 \
         --dataset-streamed \
+        ${GPU_FLAG} \
         ${RESUME_FLAG}
 else
     echo "Running in NORMAL mode (full dataset)"
@@ -95,6 +106,7 @@ else
     # Normal mode: use config file as-is
     python -m vision_tokenization.tokenize hf \
         --config "${CONFIG_PATH}" \
+        ${GPU_FLAG} \
         ${RESUME_FLAG}
 fi
 
@@ -106,9 +118,7 @@ if [ $EXITCODE -eq 0 ]; then
     echo "=================================================================================="
 
     # Show output directory
-    if [ "$DEBUG_MODE" = true ]; then
-        OUTPUT_DIR="${PROJECT_ROOT}/vision_tokenization/tokenized_outputs/image_only_100"
-    else
+    if [ "$DEBUG_MODE" = false ]; then
         # Extract output_dir from config
         OUTPUT_DIR=$(python -c "import json; print(json.load(open('${CONFIG_PATH}'))['output_dir'])" 2>/dev/null || echo "")
     fi

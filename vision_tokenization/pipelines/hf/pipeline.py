@@ -4,6 +4,7 @@ HuggingFace datasets tokenization pipeline.
 Handles both image-only and SFT tokenization modes.
 """
 
+import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -180,8 +181,18 @@ class HFDatasetPipeline(BasePipeline):
         self.logger.info(f"Initializing Ray with {self.num_gpus} workers")
 
         # Initialize Ray with GPU support
+        # Check if Ray should connect to existing cluster or start local
         if not ray.is_initialized():
-            ray.init(num_cpus=self.num_gpus + 2, num_gpus=self.num_gpus)
+            ray_address = os.environ.get('RAY_ADDRESS', None)
+
+            if ray_address:
+                # Multi-node mode: Connect to existing cluster
+                self.logger.info(f"Connecting to existing Ray cluster at {ray_address}")
+                ray.init(address='auto')  # Auto-detect from environment
+            else:
+                # Local mode: Start new cluster with explicit resources
+                self.logger.info(f"Starting local Ray cluster with {self.num_gpus} GPUs")
+                ray.init(num_cpus=self.num_gpus + 2, num_gpus=self.num_gpus)
 
         # Get dataset size without loading the full dataset
         if self.dataset_streamed:
@@ -234,7 +245,7 @@ class HFDatasetPipeline(BasePipeline):
 
             # Run memory mapping limits check
             self.logger.info("Checking system memory mapping limits...")
-            check_memory_mapping_limits(split_info, self.dataset_split)
+            check_memory_mapping_limits(split_info, self.dataset_split, self.dataset_streamed)
 
             # Store dataset size for later use
             self.dataset_size = num_examples
