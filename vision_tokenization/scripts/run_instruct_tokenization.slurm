@@ -80,13 +80,13 @@ if [ "$DEBUG_MODE" = true ]; then
 
     # Debug mode: override config with small dataset parameters
     python -m vision_tokenization.tokenize \
-        --output-dir "${PROJECT_ROOT}/vision_tokenization/tokenized_outputs/instruct_100" \
+        --output-dir "${PROJECT_ROOT}/vision_tokenization/tokenized_outputs/instruct_1000_s2" \
         --num-gpus 1 \
         hf \
         --config "${CONFIG_PATH}" \
         --config-name "CLEVR" \
-        --dataset-split "train[:100]" \
-        --num-shards 1 \
+        --dataset-split "train[:1000]" \
+        --num-shards 2 \
         ${RESUME_FLAG}
 else
     echo "Running in NORMAL mode (full dataset)"
