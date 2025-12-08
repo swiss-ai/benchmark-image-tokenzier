@@ -290,16 +290,16 @@ class HFDatasetPipeline(BasePipeline):
             completed_shards = self._get_completed_shards()
             if completed_shards:
                 self.logger.info(
-                    f"Resume mode: Found {len(completed_shards)} completed shards: {sorted(completed_shards)}"
+                    f"[RESUME]: Found {len(completed_shards)} completed shards: {sorted(completed_shards)}"
                 )
                 # Create work queue with only uncompleted shards
                 uncompleted = [i for i in range(self.num_shards) if i not in completed_shards]
                 self.logger.info(
-                    f"Will process {len(uncompleted)} remaining shards: {uncompleted[:10]}{'...' if len(uncompleted) > 10 else ''}"
+                    f"[RESUME]: Will process {len(uncompleted)} remaining shards: {uncompleted[:10]}{'...' if len(uncompleted) > 10 else ''}"
                 )
                 self.work_queue = ShardQueue.remote(self.num_shards, initial_shards=uncompleted)
             else:
-                self.logger.info("Resume mode: No completed shards found, starting from beginning")
+                self.logger.info("[RESUME]: No completed shards found, starting from beginning")
                 self.work_queue = ShardQueue.remote(self.num_shards)
         else:
             # Create work queue for shard distribution

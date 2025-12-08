@@ -167,7 +167,6 @@ class ProgressActor:
             desc: Description for progress bar
         """
         # Detect if output is being piped to a file
-        self.is_tty = sys.stderr.isatty()
         self.log_interval = log_interval if log_interval is not None else 1000
         self.samples_processed = 0
         self.last_logged = 0
@@ -176,12 +175,13 @@ class ProgressActor:
 
         if self.is_tty:
             # Use tqdm for interactive terminals
+            self.logger.warning("Detected TTY -> Use tqdm progress bar")
             total_for_tqdm = None if total_samples < 0 else total_samples
             self.pbar = tqdm(total=total_for_tqdm, desc=desc)
         else:
             # Disable tqdm for file output
             self.pbar = None
-            self.logger.info("Progress tracking: TTY not detected, using line-based logging")
+            self.logger.warning("TTY not detected, using line-based logging")
             if self.total:
                 self.logger.info(f"Total samples to process: {self.total:,}")
 
