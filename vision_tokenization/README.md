@@ -143,7 +143,7 @@ python tokenize.py hf \
 
 Optional preprocessing transforms applied to text or images before tokenization:
 
-- `--image-transforms` - Comma-separated image transforms (CLI) (currently none implemented)
+- `--image-transforms` - Comma-separated image transforms (CLI) (e.g., "random_augment")
 - `--text-transforms` - Comma-separated text transforms (CLI)
 - `transform_params` - Transform parameters (config file only)
 
@@ -163,7 +163,41 @@ Optional preprocessing transforms applied to text or images before tokenization:
 }
 ```
 
-To implement your own transforms, follow the example of `remove_string` in `pipelines/transforms.py`.
+To implement your own transforms, follow the example of `remove_string` in `vokenizers/transforms.py`.
+
+#### Random Augmentation (random_augment)
+
+Image transform that applies albumentations-based augmentations with configurable probability.
+
+**Parameters:**
+- `probability` (float): Global probability (0.0-1.0) of applying the entire pipeline. 1.0 means always apply, 0.0 means never apply.
+- `transforms` (list): Albumentations pipeline in JSON export format from `A.Compose`. Each transform should have `__class_fullname__` and its parameters.
+
+**Example configuration:**
+```json
+{
+  "image_transforms": "random_augment",
+  "transform_params": {
+    "random_augment": {
+      "probability": 0.8,
+      "transforms": [
+        {"__class_fullname__": "HorizontalFlip", "p": 0.5},
+        {"__class_fullname__": "Rotate", "limit": 30, "p": 0.3}
+      ]
+    }
+  }
+}
+```
+
+Supports any albumentations transform. See [albumentations docs](https://albumentations.ai/docs/) for available transforms.
+
+**Interactive notebook for testing augmentations:**
+
+See [`examples/test_augmentations.ipynb`](examples/test_augmentations.ipynb) for an interactive notebook that helps you:
+- Preview benchmark images from `assets/original`
+- Build augmentation pipelines using **Python code** (`A.Compose([...])`) or **JSON format** (dict-based)
+- Test augmentations visually on multiple images
+- Export configurations as JSON for the tokenization pipeline
 
 ### Conversation Transforms (SFT Mode)
 
