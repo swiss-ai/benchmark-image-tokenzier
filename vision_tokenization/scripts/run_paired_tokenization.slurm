@@ -96,7 +96,7 @@ if [ "$DEBUG_MODE" = true ]; then
         --config "${CONFIG_PATH}" \
         --dataset-split "train[:1000]" \
         --num-shards 2 \
-        --dataset-streamed \
+        --log-interval 100 \
         ${GPU_FLAG} \
         ${RESUME_FLAG}
 else

@@ -16,5 +16,6 @@
   "min_image_pixels": "128*128",
   "max_image_pixels": "2048*2048",
   "image_field": "image",
-  "text_field": "caption"
+  "text_field": "caption",
+  "log_interval": 500
 }

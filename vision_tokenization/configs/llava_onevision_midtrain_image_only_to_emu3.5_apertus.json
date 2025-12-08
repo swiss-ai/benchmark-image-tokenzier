@@ -21,5 +21,6 @@
     "random_augment": {
       "config_path": "vision_tokenization/examples/augmentation_config.json"
     }
-  }
+  },
+  "log_interval": 500
 }

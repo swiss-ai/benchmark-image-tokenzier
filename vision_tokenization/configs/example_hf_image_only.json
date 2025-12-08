@@ -15,5 +15,6 @@
   "max_image_pixels": null,
   "max_samples": 160,
   "image_field": "images",
-  "cache_dir": "/users/xyixuan/.cache/huggingface/datasets"
+  "cache_dir": "/users/xyixuan/.cache/huggingface/datasets",
+  "log_interval": 1000
 }

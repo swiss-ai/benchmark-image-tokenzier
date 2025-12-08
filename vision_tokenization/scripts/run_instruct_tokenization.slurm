@@ -97,6 +97,7 @@ if [ "$DEBUG_MODE" = true ]; then
         --config-name "CLEVR" \
         --dataset-split "train[:1000]" \
         --num-shards 2 \
+        --log-interval 100 \
         ${GPU_FLAG} \
         ${RESUME_FLAG}
 else

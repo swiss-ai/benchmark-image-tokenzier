@@ -24,5 +24,6 @@
                 "text_key": "content"
             }
         },
-  "conversation_transform": "llava_to_apertus"
+  "conversation_transform": "llava_to_apertus",
+  "log_interval": 500
 }
