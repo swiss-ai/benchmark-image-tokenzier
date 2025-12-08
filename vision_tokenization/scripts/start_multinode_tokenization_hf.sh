@@ -19,7 +19,7 @@ export SLURM_JOB_NUM_NODES="${SLURM_JOB_NUM_NODES:-${SLURM_NNODES:-1}}"
 export GPUS_PER_NODE=4
 
 # Configuration - can be overridden when submitting job
-# Example: CONFIG_NAME=densefusion_1m sbatch multinode_emu3_tokenization_hf.sh
+# Example: CONFIG_NAME=densefusion_1m sbatch start_multinode_tokenization_hf.sh
 export CONFIG_NAME="${CONFIG_NAME:-latexformulas}"
 
 # Ray minimal config  

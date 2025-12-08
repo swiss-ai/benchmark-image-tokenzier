@@ -83,13 +83,18 @@ def get_builder_split_info(
     return split_info
 
 
-def check_memory_mapping_limits(split_info: Dict[str, Dict[str, int]], split: str) -> None:
+def check_memory_mapping_limits(split_info: Dict[str, Dict[str, int]], split: str, dataset_streamed: bool = False) -> None:
     """
     Check if system memory mapping limits are sufficient for the dataset.
+    If limits are insufficient and streaming is not enabled, abort tokenization.
 
     Args:
         split_info: Dictionary with split information from get_builder_split_info()
         split: The split being loaded (may include slice notation like "train[:100]")
+        dataset_streamed: Whether dataset streaming is enabled
+
+    Raises:
+        RuntimeError: If memory mapping limits are insufficient and streaming is not enabled
     """
     # Parse split to get base split name (without slice notation)
     base_split, _, _ = _parse_split_slice(split)
@@ -117,10 +122,26 @@ def check_memory_mapping_limits(split_info: Dict[str, Dict[str, int]], split: st
 
     # Check if max_map_count is sufficient
     if max_map_count < num_shards:
-        logger.warning(
-            f"⚠️  WARNING: System max memory mappings ({max_map_count:,}) is lower than "
-            f"the number of shards ({num_shards}) in split '{base_split}'. -> LOADING ISSUES POSSIBLE! "
-        )
+        if dataset_streamed:
+            # Streaming mode is enabled - memory mapping not used, so this is OK
+            logger.info(
+                f"⚠️  System max memory mappings ({max_map_count:,}) is lower than "
+                f"the number of shards ({num_shards}) in split '{base_split}'.\n"
+                f"✓ Dataset streaming is ENABLED - this will work correctly without memory mapping issues."
+            )
+        else:
+            # Streaming mode is NOT enabled - this will cause problems
+            error_msg = (
+                f"❌ ERROR: System max memory mappings ({max_map_count:,}) is lower than "
+                f"the number of shards ({num_shards}) in split '{base_split}'.\n"
+                f"This will cause memory mapping errors during dataset loading.\n\n"
+                f"SOLUTION: Enable dataset streaming by adding '--dataset-streamed' flag or set "
+                f"'dataset_streamed': true in your config file.\n\n"
+                f"Or increase system memory mapping limit:\n"
+                f"  sudo sysctl -w vm.max_map_count={num_shards * 2}"
+            )
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
     else:
         logger.info(
             f"✓ System max memory mappings ({max_map_count:,}) is sufficient "
@@ -160,6 +181,93 @@ def _parse_split_slice(split: str) -> Tuple[str, Optional[int], Optional[int]]:
     return base_split, start, end
 
 
+def _load_with_default_method(
+    dataset_name: str,
+    config_name: Optional[str],
+    actual_split: str,
+    cache_dir: Optional[str],
+    num_proc: Optional[int],
+    streaming: bool,
+) -> Dataset:
+    """Load dataset using load_dataset()."""
+    if streaming and num_proc is not None:
+        logger.warning(
+            "Number of processes is set to None as streaming with multiple processes "
+            "is not implemented in HuggingFace datasets"
+        )
+        num_proc = None
+
+    return load_dataset(
+        dataset_name,
+        name=config_name,
+        split=actual_split,
+        cache_dir=cache_dir,
+        num_proc=num_proc,
+        streaming=streaming,
+    )
+
+
+def _load_with_builder_method(
+    dataset_name: str,
+    config_name: Optional[str],
+    actual_split: str,
+    cache_dir: Optional[str],
+    num_proc: Optional[int],
+    streaming: bool,
+) -> Dataset:
+    """Load dataset using builder.as_dataset() or builder.as_streaming_dataset()."""
+    # Warn about ignored parameters
+    if num_proc is not None:
+        logger.warning(
+            f"num_proc parameter ({num_proc}) is ignored when using 'builder_load' method. "
+            f"Dataset is already prepared."
+        )
+
+    if cache_dir is None:
+        logger.warning(
+            "Using 'builder_load' without explicit cache_dir. "
+            "Will use default: ~/.cache/huggingface/datasets"
+        )
+
+    builder = load_dataset_builder(dataset_name, name=config_name, cache_dir=cache_dir)
+
+    try:
+        # Use appropriate method based on streaming mode
+        if streaming:
+            dataset = builder.as_streaming_dataset(split=actual_split)
+        else:
+            dataset = builder.as_dataset(split=actual_split)
+
+        return dataset
+
+    except FileNotFoundError as e:
+        error_msg = (f"Dataset '{dataset_name}' is not prepared. "
+            f"When using 'builder_load', run download_and_prepare() first."
+            f"Dataset not prepared. Use method='default' or prepare dataset first.")
+        logger.error(error_msg)
+        raise FileNotFoundError(error_msg) from e
+
+
+def _apply_streaming_slice(
+    dataset,
+    start: Optional[int],
+    end: Optional[int],
+) -> Dataset:
+    """Apply slice to streaming dataset using skip/take."""
+    if start is not None and start > 0:
+        logger.info(f"[STREAMING] Skipping first {start} samples")
+        dataset = dataset.skip(start)
+
+    if end is not None:
+        count = end - (start or 0)
+        logger.info(f"[STREAMING] Taking {count} samples")
+        dataset = dataset.take(count)
+    elif start is not None:
+        logger.info(f"[STREAMING] Taking all samples after skipping {start}")
+
+    return dataset
+
+
 def load_hf_dataset(
     dataset_name: str,
     config_name: Optional[str] = None,
@@ -170,7 +278,9 @@ def load_hf_dataset(
     streaming: bool = False,
 ) -> Dataset:
     """
-    Load a HuggingFace dataset using specified method.
+    Load a HuggingFace dataset using specified method ("default" or "builder_load")
+
+    Both methods support streaming mode.
 
     Args:
         dataset_name: HF dataset name (e.g., "HuggingFaceM4/FineVision")
@@ -182,102 +292,52 @@ def load_hf_dataset(
         streaming: Whether to use streaming mode
 
     Returns:
-        Dataset object supporting len(), .shard(), .select(), iteration
+        Dataset object
 
     Raises:
         ValueError: If method is not "default" or "builder_load"
         FileNotFoundError: If "builder_load" is used but dataset is not prepared
     """
+    # Validate method parameter
     if method not in ["default", "builder_load"]:
         raise ValueError(f"Invalid method: {method}. Must be 'default' or 'builder_load'")
 
+    # Parse split once for all cases
+    base_split, start, end = _parse_split_slice(split)
+    has_slice = (start is not None or end is not None)
+
+    # Determine actual split to load
+    if streaming and has_slice:
+        actual_split = base_split  # Load base, apply slice later
+    else:
+        actual_split = split  # Load with slice notation
+
+    config_info = f" (config: {config_name})" if config_name else ""
+
+    # Load dataset using appropriate method
     if method == "default":
-        config_info = f" (config: {config_name})" if config_name else ""
-        logger.info(f"Loading dataset using load_dataset(): {dataset_name}{config_info}/{split}")
-
-        if streaming:
-            logger.warning(
-                "Number of processes is set to 1 as streaming with multiple processes is not implemented in hf"
-            )
-            num_proc = None
-
-            # Parse split to handle slice notation (not supported in streaming mode)
-            base_split, start, end = _parse_split_slice(split)
-
-            if start is not None or end is not None:
-                logger.info(
-                    f"Detected slice notation in split '{split}'. Loading base split '{base_split}' and applying slice via .skip()/.take()"
-                )
-                actual_split = base_split
-            else:
-                actual_split = split
-        else:
-            actual_split = split
-            start, end = None, None
-
-        dataset = load_dataset(
-            dataset_name,
-            name=config_name,
-            split=actual_split,
+        logger.info(f"[MODE: default] Loading dataset using load_dataset(): {dataset_name}{config_info}/{actual_split}")
+        dataset = _load_with_default_method(
+            dataset_name=dataset_name,
+            config_name=config_name,
+            actual_split=actual_split,
+            cache_dir=cache_dir,
+            num_proc=num_proc,
+            streaming=streaming,
+        )
+    else:  # builder_load
+        logger.info(f"[MODE: builder_load] Loading dataset using builder method: {dataset_name}{config_info}/{actual_split}")
+        dataset = _load_with_builder_method(
+            dataset_name=dataset_name,
+            config_name=config_name,
+            actual_split=actual_split,
             cache_dir=cache_dir,
             num_proc=num_proc,
             streaming=streaming,
         )
 
-        # Apply slicing for streaming datasets
-        if streaming and (start is not None or end is not None):
-            if start is not None and start > 0:
-                logger.info(f"Skipping first {start} samples")
-                dataset = dataset.skip(start)
-            if end is not None:
-                count = end - (start or 0)
-                logger.info(f"Taking {count} samples")
-                dataset = dataset.take(count)
-            elif start is not None:
-                # start specified but no end - take all remaining
-                logger.info(f"Taking all samples after skipping {start}")
+    # Apply slicing for streaming datasets (unified for both methods)
+    if streaming and has_slice:
+        dataset = _apply_streaming_slice(dataset, start, end)
 
-        return dataset
-
-    elif method == "builder_load":
-        config_info = f" (config: {config_name})" if config_name else ""
-        logger.info(f"Loading dataset using builder.as_dataset(): {dataset_name}{config_info}/{split}")
-
-        # Warn if num_proc provided (not supported)
-        if num_proc is not None:
-            logger.warning(
-                f"num_proc parameter ({num_proc}) is ignored when using 'builder_load' method. "
-                f"Dataset is already prepared."
-            )
-
-        # Warn if cache_dir not provided
-        if cache_dir is None:
-            logger.warning(
-                "Using 'builder_load' without explicit cache_dir. " "Will use default: ~/.cache/huggingface/datasets"
-            )
-
-        builder = load_dataset_builder(dataset_name, name=config_name, cache_dir=cache_dir)
-
-        try:
-            dataset = builder.as_dataset(split=split)
-        except FileNotFoundError as e:
-            logger.error(
-                f"Dataset '{dataset_name}' is not prepared. "
-                f"When using 'builder_load', run download_and_prepare() first."
-            )
-            logger.error(
-                f"To prepare:\n"
-                f"  from datasets import load_dataset_builder\n"
-                f"  builder = load_dataset_builder('{dataset_name}'"
-                f"{f', name={config_name!r}' if config_name else ''}"
-                f"{f', cache_dir={cache_dir!r}' if cache_dir else ''})\n"
-                f"  builder.download_and_prepare()"
-            )
-            raise FileNotFoundError(f"Dataset not prepared. Use method='default' or prepare dataset first.") from e
-
-    # Log dataset size (streaming datasets don't have len())
-    if streaming:
-        logger.info(f"Loaded streaming dataset from {split} split")
-    else:
-        logger.info(f"Loaded {len(dataset)} samples from {split} split")
     return dataset
