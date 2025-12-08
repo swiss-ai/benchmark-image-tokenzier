@@ -4,6 +4,7 @@ Base pipeline class for tokenization and shared utilities.
 """
 
 import logging
+import sys
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 
@@ -156,22 +157,69 @@ class BasePipeline(ABC):
 class ProgressActor:
     """Lightweight actor for collecting progress updates without polling."""
 
-    def __init__(self, total_samples: int, desc: str = "Samples processed"):
-        self.total_samples = total_samples
-        self.processed = 0
-        # For streaming datasets where total is unknown, pass None to tqdm
-        total_for_tqdm = None if total_samples < 0 else total_samples
-        self.pbar = tqdm(total=total_for_tqdm, desc=desc)
+    def __init__(self, total_samples: int, log_interval: Optional[int] = None, desc: str = "Samples processed"):
+        """
+        Initialize progress tracker.
+
+        Args:
+            total_samples: Total number of samples to process (-1 for streaming/unknown)
+            log_interval: Log progress every N samples when output is piped to file (None = log every update)
+            desc: Description for progress bar
+        """
+        # Detect if output is being piped to a file
+        self.is_tty = sys.stderr.isatty()
+        self.log_interval = log_interval if log_interval is not None else 1000
+        self.samples_processed = 0
+        self.last_logged = 0
+        self.total = total_samples if total_samples > 0 else None
+        self.logger = logging.getLogger("ProgressTracker")
+
+        if self.is_tty:
+            # Use tqdm for interactive terminals
+            total_for_tqdm = None if total_samples < 0 else total_samples
+            self.pbar = tqdm(total=total_for_tqdm, desc=desc)
+        else:
+            # Disable tqdm for file output
+            self.pbar = None
+            self.logger.info("Progress tracking: TTY not detected, using line-based logging")
+            if self.total:
+                self.logger.info(f"Total samples to process: {self.total:,}")
 
     def update(self, samples: int):
-        """Update progress bar with completed samples."""
-        self.processed += samples
-        self.pbar.update(samples)
+        """Update progress with completed samples."""
+        self.samples_processed += samples
+
+        if self.pbar:
+            # TTY mode: use tqdm
+            self.pbar.update(samples)
+        else:
+            # File mode: line-based logging
+            if self.log_interval == 0:
+                # Log every update (every batch)
+                self._log_progress()
+            elif (self.samples_processed - self.last_logged) >= self.log_interval:
+                self._log_progress()
+                self.last_logged = self.samples_processed
+
+    def _log_progress(self):
+        """Log progress in a file-friendly format."""
+        if self.total:
+            percentage = (self.samples_processed / self.total) * 100
+            self.logger.info(
+                f"Progress: {self.samples_processed:,}/{self.total:,} samples ({percentage:.1f}%)"
+            )
+        else:
+            # Streaming mode: no percentage
+            self.logger.info(f"Progress: {self.samples_processed:,} samples processed")
 
     def close(self):
-        """Close the progress bar."""
-        self.pbar.close()
-        return self.processed
+        """Close the progress tracker and return total processed samples."""
+        if self.pbar:
+            self.pbar.close()
+        else:
+            # Final progress log for file output
+            self.logger.info(f"Progress complete: {self.samples_processed:,} total samples processed")
+        return self.samples_processed
 
 
 class BaseTokenizerWorker:

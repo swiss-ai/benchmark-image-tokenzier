@@ -160,6 +160,12 @@ def parse_args():
         "--max-image-pixels", type=parse_resolution, help='Maximum pixels to filter images (e.g., "2048*2048")'
     )
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+    parser.add_argument(
+        "--log-interval",
+        type=int,
+        default=1000,
+        help="Log progress every N samples when output is piped to file (default: 1000, 0 = log every batch)",
+    )
 
     # Subparsers for different data formats
     subparsers = parser.add_subparsers(dest="data_format", help="Data format to process", required=True)
