@@ -80,12 +80,12 @@ if [ "$DEBUG_MODE" = true ]; then
 
     # Debug mode: override config with small dataset parameters
     python -m vision_tokenization.tokenize \
-        --output-dir "${PROJECT_ROOT}/vision_tokenization/tokenized_outputs/image_only_100" \
+        --output-dir "${PROJECT_ROOT}/vision_tokenization/tokenized_outputs/image_only_1000_s2" \
         --num-gpus 1 \
         hf \
         --config "${CONFIG_PATH}" \
-        --dataset-split "train[:100]" \
-        --num-shards 1 \
+        --dataset-split "train[:1000]" \
+        --num-shards 2 \
         --dataset-streamed \
         ${RESUME_FLAG}
 else
