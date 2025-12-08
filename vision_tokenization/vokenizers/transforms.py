@@ -445,7 +445,7 @@ class RandomAugment(ImageTransform):
     Supports both global probability (apply entire pipeline or skip) and
     per-augmentation probability (configured within each augmentation).
 
-    Config example:
+    Config example (inline):
         "transform_params": {
             "random_augment": {
                 "probability": 0.7,
@@ -468,11 +468,34 @@ class RandomAugment(ImageTransform):
                 ]
             }
         }
+
+    External config file (recommended for complex augmentations):
+        "transform_params": {
+            "random_augment": {
+                "config_path": "examples/augmentation_config.json"
+            }
+        }
+
+        # In examples/augmentation_config.json:
+        {
+            "random_augment": {
+                "probability": 1.0,
+                "transforms": [...]
+            }
+        }
+
+        See vision_tokenization/examples/augmentation_config.json for a complete
+        example generated from test_augmentations.ipynb notebook.
     """
 
     name = "random_augment"
 
-    def __init__(self, probability: float = 1.0, transforms: List[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        probability: float = 1.0,
+        transforms: List[Dict[str, Any]] = None,
+        config_path: Optional[str] = None
+    ):
         """
         Initialize random augmentation transform.
 
@@ -482,11 +505,65 @@ class RandomAugment(ImageTransform):
             transforms: List of albumentations transform configurations
                        Each transform should be a dict with "__class_fullname__" key
                        and any transform-specific parameters
+            config_path: Path to external augmentation config JSON file (optional)
+                        If provided, loads probability and transforms from file.
+                        Takes precedence over inline probability/transforms parameters.
 
         Raises:
             ImportError: If albumentations is not installed
             ValueError: If probability is not in [0, 1] or transforms is empty
+            FileNotFoundError: If config_path provided but file doesn't exist
         """
+        from pathlib import Path
+        import json
+
+        # Load from external config file if path provided
+        if config_path is not None:
+            path = Path(config_path)
+            if not path.is_absolute():
+                path = Path.cwd() / path
+
+            if not path.exists():
+                raise FileNotFoundError(
+                    f"Augmentation config file not found: {path}\n"
+                    f"  Config path provided: {config_path}\n"
+                    f"  Resolved to: {path}"
+                )
+
+            try:
+                with open(path, 'r') as f:
+                    aug_config = json.load(f)
+            except json.JSONDecodeError as e:
+                raise ValueError(
+                    f"Malformed JSON in augmentation config: {path}\n"
+                    f"  Error at line {e.lineno}, column {e.colno}: {e.msg}"
+                )
+
+            # Validate structure
+            if 'random_augment' not in aug_config:
+                raise ValueError(
+                    f"Invalid augmentation config structure: {path}\n"
+                    f"  Expected top-level key 'random_augment'\n"
+                    f"  Found keys: {list(aug_config.keys())}"
+                )
+
+            random_augment_config = aug_config['random_augment']
+            required_keys = ['probability', 'transforms']
+            missing_keys = [k for k in required_keys if k not in random_augment_config]
+
+            if missing_keys:
+                raise ValueError(
+                    f"Invalid random_augment structure in: {path}\n"
+                    f"  Missing required keys: {missing_keys}\n"
+                    f"  Found keys: {list(random_augment_config.keys())}"
+                )
+
+            # Extract from config file (overrides inline params)
+            probability = random_augment_config['probability']
+            transforms = random_augment_config['transforms']
+
+            logger.info(f"✓ Loaded augmentation config from: {path}")
+
         # Validate inputs
         if not 0.0 <= probability <= 1.0:
             raise ValueError(f"probability must be in [0, 1], got {probability}")
