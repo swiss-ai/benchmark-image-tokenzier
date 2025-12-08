@@ -435,3 +435,144 @@ class RemoveStringTransform(TextTransform):
                 return result
 
         raise ValueError(f"Unsupported text type: {type(text)}")
+
+
+@TransformRegistry.register_image("random_augment")
+class RandomAugment(ImageTransform):
+    """
+    Apply albumentations augmentations to images with configurable probability.
+
+    Supports both global probability (apply entire pipeline or skip) and
+    per-augmentation probability (configured within each augmentation).
+
+    Config example:
+        "transform_params": {
+            "random_augment": {
+                "probability": 0.7,
+                "transforms": [
+                    {
+                        "__class_fullname__": "HorizontalFlip",
+                        "p": 0.5
+                    },
+                    {
+                        "__class_fullname__": "Rotate",
+                        "limit": 45,
+                        "p": 0.3
+                    },
+                    {
+                        "__class_fullname__": "ColorJitter",
+                        "brightness": 0.2,
+                        "contrast": 0.2,
+                        "p": 0.5
+                    }
+                ]
+            }
+        }
+    """
+
+    name = "random_augment"
+
+    def __init__(self, probability: float = 1.0, transforms: List[Dict[str, Any]] = None):
+        """
+        Initialize random augmentation transform.
+
+        Args:
+            probability: Global probability of applying the entire pipeline (0.0-1.0)
+                        1.0 means always apply, 0.0 means never apply
+            transforms: List of albumentations transform configurations
+                       Each transform should be a dict with "__class_fullname__" key
+                       and any transform-specific parameters
+
+        Raises:
+            ImportError: If albumentations is not installed
+            ValueError: If probability is not in [0, 1] or transforms is empty
+        """
+        # Validate inputs
+        if not 0.0 <= probability <= 1.0:
+            raise ValueError(f"probability must be in [0, 1], got {probability}")
+
+        if transforms is None or len(transforms) == 0:
+            raise ValueError("transforms must be a non-empty list")
+
+        self.probability = probability
+
+        # Import albumentations (lazy import to avoid requiring it if not used)
+        try:
+            import albumentations as A
+        except ImportError:
+            raise ImportError(
+                "albumentations is required for random_augment transform. "
+                "Install with: pip install albumentations"
+            )
+
+        # Build albumentations pipeline from transform configs
+        # Use the configured probability in Compose to control pipeline application
+        pipeline_dict = {
+            "transform": {
+                "__class_fullname__": "Compose",
+                "p": float(self.probability),  # Use configured probability
+                "transforms": transforms,
+            }
+        }
+
+        try:
+            self.pipeline = A.from_dict(pipeline_dict)
+        except Exception as e:
+            raise ValueError(
+                f"Failed to create albumentations pipeline from config: {e}\n"
+                f"Transforms config: {transforms}"
+            )
+
+        # Build detailed pipeline information for logging
+        transform_details = []
+        for t in transforms:
+            name = t.get("__class_fullname__", "Unknown")
+            prob = t.get("p", 1.0)
+            # Collect other params (excluding __class_fullname__ and p)
+            other_params = {k: v for k, v in t.items() if k not in ["__class_fullname__", "p"]}
+            if other_params:
+                params_str = ', '.join(f'{k}={v}' for k, v in other_params.items())
+                transform_details.append(f"{name}(p={prob}, {params_str})")
+            else:
+                transform_details.append(f"{name}(p={prob})")
+
+        logger.info(
+            f"RandomAugment initialized:\n"
+            f"  Global probability: {probability}\n"
+            f"  Number of augmentations: {len(transforms)}\n"
+            f"  Pipeline: {' -> '.join(transform_details)}"
+        )
+
+    def __call__(self, image: Image.Image) -> Image.Image:
+        """
+        Apply augmentations to image with configured probability.
+
+        Args:
+            image: Input PIL Image
+
+        Returns:
+            Augmented PIL Image (or original if probability check fails)
+
+        Raises:
+            TransformError: If augmentation fails
+        """
+        import numpy as np
+
+        try:
+            # Convert PIL Image to numpy array for albumentations
+            img_np = np.array(image)
+
+            # Apply augmentation pipeline (probability handled by albumentations Compose)
+            augmented = self.pipeline(image=img_np)
+
+            # Convert back to PIL Image
+            result = Image.fromarray(augmented["image"])
+
+            # Ensure mode matches original (albumentations might change it)
+            if result.mode != image.mode and image.mode in ["RGB", "L", "RGBA"]:
+                result = result.convert(image.mode)
+
+            return result
+
+        except Exception as e:
+            raise TransformError(f"RandomAugment failed: {e}")
