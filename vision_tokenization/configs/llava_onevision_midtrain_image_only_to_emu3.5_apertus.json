@@ -14,5 +14,11 @@
   "max_tokenizer_pixels": "1024*1024",
   "min_image_pixels": "128*128",
   "max_image_pixels": "2048*2048",
-  "image_field": "image"
+  "image_field": "image",
+  "image_transforms": "random_augment",
+  "transform_params": {
+    "random_augment": {
+      "config_path": "vision_tokenization/examples/augmentation_config.json"
+    }
+  }
 }

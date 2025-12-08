@@ -172,8 +172,9 @@ Image transform that applies albumentations-based augmentations with configurabl
 **Parameters:**
 - `probability` (float): Global probability (0.0-1.0) of applying the entire pipeline. 1.0 means always apply, 0.0 means never apply.
 - `transforms` (list): Albumentations pipeline in JSON export format from `A.Compose`. Each transform should have `__class_fullname__` and its parameters.
+- `config_path` (str): Path to external augmentation config JSON file. Takes precedence over inline probability/transforms parameters.
 
-**Example configuration:**
+**Example configuration (inline):**
 ```json
 {
   "image_transforms": "random_augment",
@@ -189,7 +190,24 @@ Image transform that applies albumentations-based augmentations with configurabl
 }
 ```
 
+**Example configuration (external file):**
+```json
+{
+  "image_transforms": "random_augment",
+  "transform_params": {
+    "random_augment": {
+      "config_path": "examples/augmentation_config.json"
+    }
+  }
+}
+```
+
+**Path resolution:**
+- Absolute paths: `/full/path/to/augmentation_config.json`
+- Relative paths: Resolved relative to current working directory
+
 Supports any albumentations transform. See [albumentations docs](https://albumentations.ai/docs/) for available transforms.
+See [`examples/augmentation_config.json`](examples/augmentation_config.json) for a complete example with Affine, Rotate, ColorJitter, GaussianBlur, and CoarseDropout transforms.
 
 **Interactive notebook for testing augmentations:**
 
