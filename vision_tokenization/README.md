@@ -87,6 +87,44 @@ python tokenize.py hf \
     --device cuda
 ```
 
+## HuggingFace Hub Cache Configuration
+
+### Critical: HF_HUB_CACHE Environment Variable
+
+When using the **default load method** for HuggingFace datasets, you might want to configure the `HF_HUB_CACHE` environment variable, especially in distributed environments (multi-node clusters) where one has a central cahce location. Because by default hf hub chooses `~/.cache/huggingface/hub`.
+
+**Why this matters:**
+- HuggingFace datasets download and cache files to `HF_HUB_CACHE` (or `~/.cache/huggingface/hub` by default)
+- In distributed setups, all nodes must access the same cache to avoid redundant downloads
+- Without proper cache configuration, each node may try to download the dataset separately, causing slowdowns and potential cache conflicts
+
+**Setting HF_HUB_CACHE:**
+
+Before running tokenization:
+```bash
+export HF_HUB_CACHE=/path/to/shared/hf_hub_cache
+python -m vision_tokenization.tokenize hf --config your_config.json
+```
+
+**In SLURM scripts** (already configured in provided scripts):
+```bash
+# Hub cache location with default fallback
+HF_HUB_CACHE="${HF_HUB_CACHE:-/capstor/store/cscs/swissai/infra01/vision-datasets/hf_hub_cache}"
+export HF_HUB_CACHE
+```
+
+**Override the default cache location:**
+```bash
+# Set before submitting job
+export HF_HUB_CACHE=/your/custom/cache/path
+sbatch vision_tokenization/scripts/run_instruct_tokenization.slurm
+```
+
+### Alternative: builder_load Method (No Cache Required)
+
+If you **do not have access to a shared cache location** or want to avoid caching issues entirely, use the `builder_load` method:
+
+
 ## Supported Modes
 
 **Note**: Currently supports **single image** per sample. Multi-image interleaving is not yet supported.
