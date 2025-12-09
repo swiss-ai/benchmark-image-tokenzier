@@ -29,8 +29,11 @@
 #############################################################################
 
 # Get the project root directory
-PROJECT_ROOT="/iopsstor/scratch/cscs/${USER}/benchmark-image-tokenizer"
-SCRIPT_DIR="${PROJECT_ROOT}/vision_tokenization/scripts"
+export PROJECT_ROOT="/iopsstor/scratch/cscs/${USER}/benchmark-image-tokenizer"
+export SCRIPT_DIR="${PROJECT_ROOT}/vision_tokenization/scripts"
+# Hub cache location
+export HF_HUB_CACHE="${HF_HUB_CACHE:-/capstor/store/cscs/swissai/infra01/vision-datasets/hf_hub_cache}"
+
 
 # Configuration
 export SLURM_JOB_NUM_NODES="${SLURM_JOB_NUM_NODES:-${SLURM_NNODES:-1}}"
@@ -86,6 +89,7 @@ echo "==========================================================================
 srun -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=1 -u bash -c '
     # Python path setup
     export PYTHONPATH='"${PROJECT_ROOT}"':$PYTHONPATH
+    pip install -q omegaconf
 
     if [[ $SLURM_PROCID = 0 ]]; then
         echo "=================================================================================="
