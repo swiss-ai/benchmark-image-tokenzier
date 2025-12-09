@@ -32,8 +32,8 @@ def get_tokenizer_class(tokenizer_name: str):
         from Tokenizer.Emu3VisionTokenizer import Emu3VisionTokenizer
         return Emu3VisionTokenizer
     elif tokenizer_name == "Emu3_5_IBQ":
-        from Tokenizer.Emu3_5_IBQ import Emu3VisionTokenizerIBQ
-        return Emu3VisionTokenizerIBQ
+        from Tokenizer.Emu3_5_IBQ import Emu3_5_IBQ
+        return Emu3_5_IBQ
     elif tokenizer_name == "Cosmos":
         from Tokenizer.Cosmos import CosmosTokenizer
         return CosmosTokenizer
@@ -160,19 +160,33 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Process original images with Emu3 tokenizer
+  # Process images with Emu3 tokenizer (default HuggingFace model)
   python batch_reconstruct.py --tokenizer Emu3VisionTokenizer --input assets/original/ --output assets/Emu3VisionTokenizer/
 
-  # Process with Cosmos tokenizer
-  python batch_reconstruct.py --tokenizer Cosmos --input assets/original/ --output assets/Cosmos-custom/
+  # Process with Emu3 tokenizer with resolution constraints (512*512 to 1024*1024)
+  python batch_reconstruct.py --tokenizer Emu3VisionTokenizer \\
+      --input assets/original/ --output assets/Emu3VisionTokenizer/ \\
+      --min-pixels 262144 --max-pixels 1048576
 
-  # Process with custom tokenizer path
-  python batch_reconstruct.py --tokenizer Emu3_5_IBQ --tokenizer-path /path/to/model --input assets/original/ --output assets/Emu3_5_custom/
+  # Process with Emu3.5 IBQ tokenizer (requires model path)
+  python batch_reconstruct.py --tokenizer Emu3_5_IBQ \\
+      --tokenizer-path /path/to/Emu3.5-VisionTokenizer \\
+      --input assets/original/ --output assets/Emu3_5_IBQ/ \\
+      --min-pixels 262144 --max-pixels 1048576
+
+  # Process with Cosmos tokenizer
+  python batch_reconstruct.py --tokenizer Cosmos --input assets/original/ --output assets/Cosmos/
 
 Available tokenizers:
   Emu3VisionTokenizer, Emu3_5_IBQ, Cosmos, UniTok, TokenFlow, TokenFlow_molmo,
   Selftok, Selftok_molmo, DetailFlow, FlowMoTok, LlamaGenTok, OpenMAGViT2,
   FQGAN, VILA, VQGAN, IBQ
+
+Notes:
+  - For Emu3VisionTokenizer: uses default HuggingFace model "BAAI/Emu3-VisionTokenizer"
+  - For Emu3_5_IBQ: requires --tokenizer-path to model checkpoint directory
+  - min-pixels and max-pixels enable smart resizing (e.g., 262144 = 512*512, 1048576 = 1024*1024)
+  - Without min/max pixels, images are processed at original resolution
         """
     )
 
@@ -204,6 +218,20 @@ Available tokenizers:
         help="Optional path to tokenizer model (if required)"
     )
 
+    parser.add_argument(
+        "--min-pixels",
+        type=int,
+        default=None,
+        help="Minimum number of pixels after resizing (e.g., 262144 for 512*512)"
+    )
+
+    parser.add_argument(
+        "--max-pixels",
+        type=int,
+        default=None,
+        help="Maximum number of pixels after resizing (e.g., 1048576 for 1024*1024)"
+    )
+
     args = parser.parse_args()
 
     # Validate input folder exists
@@ -211,12 +239,26 @@ Available tokenizers:
         print(f"Error: Input folder does not exist: {args.input}")
         return
 
+    # Validate Emu3_5_IBQ requires tokenizer path
+    if args.tokenizer == "Emu3_5_IBQ" and args.tokenizer_path is None:
+        print(f"Error: Emu3_5_IBQ tokenizer requires --tokenizer-path to be specified")
+        print(f"Example: --tokenizer-path /path/to/Emu3.5-VisionTokenizer")
+        return
+
+    # Prepare additional tokenizer kwargs
+    tokenizer_kwargs = {}
+    if args.min_pixels is not None:
+        tokenizer_kwargs["min_pixels"] = args.min_pixels
+    if args.max_pixels is not None:
+        tokenizer_kwargs["max_pixels"] = args.max_pixels
+
     # Run batch reconstruction
     batch_reconstruct(
         input_folder=args.input,
         output_folder=args.output,
         tokenizer_name=args.tokenizer,
-        tokenizer_path=args.tokenizer_path
+        tokenizer_path=args.tokenizer_path,
+        **tokenizer_kwargs
     )
 
 
