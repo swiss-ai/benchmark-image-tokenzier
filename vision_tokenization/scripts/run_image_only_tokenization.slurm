@@ -24,6 +24,9 @@ PROJECT_ROOT="/iopsstor/scratch/cscs/${USER}/benchmark-image-tokenizer"
 # Configuration
 CONFIG_PATH="${PROJECT_ROOT}/vision_tokenization/configs/llava_onevision_midtrain_image_only_to_emu3.5_apertus.json"
 
+# Hub cache location
+HF_HUB_CACHE="${HF_HUB_CACHE:-/capstor/store/cscs/swissai/infra01/vision-datasets/hf_hub_cache}"
+
 # Allow environment variable override for num-gpus (used in multi-node mode)
 NUM_GPUS="${NUM_GPUS:-}"
 
@@ -67,6 +70,7 @@ echo "Config:       ${CONFIG_PATH}"
 echo "Debug mode:   ${DEBUG_MODE}"
 echo "Resume mode:  ${RESUME_MODE}"
 echo "Job ID:       ${SLURM_JOB_ID}"
+echo "HF HUB CACHE  ${HF_HUB_CACHE}"
 echo "Node:         $(hostname)"
 echo "=================================================================================="
 
@@ -84,6 +88,9 @@ if [ -n "${NUM_GPUS}" ]; then
     echo "GPU override: ${NUM_GPUS} GPUs (from NUM_GPUS environment variable)"
 fi
 
+# Export HF_HUB_CACHE so Python scripts inherit it (important to set in case of central cache location in distributed envs and using default load method)
+export HF_HUB_CACHE
+
 if [ "$DEBUG_MODE" = true ]; then
     echo "Running in DEBUG mode (small dataset for testing)"
     echo "=================================================================================="
@@ -91,12 +98,12 @@ if [ "$DEBUG_MODE" = true ]; then
     # Debug mode: override config with small dataset parameters
     python -m vision_tokenization.tokenize \
         --output-dir "${OUTPUT_DIR}" \
-        --num-gpus 1 \
+        --num-gpus 4 \
+        --log-interval 100 \
         hf \
         --config "${CONFIG_PATH}" \
         --dataset-split "train[:1000]" \
         --num-shards 2 \
-        --log-interval 100 \
         ${GPU_FLAG} \
         ${RESUME_FLAG}
 else

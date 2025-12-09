@@ -340,6 +340,7 @@ class HFDatasetPipeline(BasePipeline):
             "total_samples": self.dataset_size,
             "load_method": self.dataset_load_method,
             "dataset_streamed": self.dataset_streamed,
+            "log_interval": self.kwargs.get("log_interval", 1000),
         }
 
         # Start workers processing shards

@@ -4,7 +4,6 @@ Base pipeline class for tokenization and shared utilities.
 """
 
 import logging
-import sys
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 
@@ -153,6 +152,35 @@ class BasePipeline(ABC):
             raise
 
 
+def setup_logger_basic(loglevel, loggerName, formatter):
+    # Get the root logger
+    logger = logging.getLogger(loggerName)
+    logger.setLevel(loglevel)
+    
+    # Remove existing handlers to avoid duplicates
+    logger.handlers.clear()
+    
+    # Add a console handler (stderr)
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    return logger
+
+
+def setup_worker_logging(loglevel = logging.INFO):
+    """Configure logging for Ray workers with worker identification."""
+    worker_id = ray.get_runtime_context().get_worker_id()
+    node_id = ray.get_runtime_context().get_node_id()
+    
+    # Create a custom formatter that includes worker info
+    formatter = logging.Formatter(
+        f'%(asctime)s - [Worker:{worker_id[:8]} / Node:{node_id[:8]}] - '
+        f'%(name)s - %(levelname)s - %(message)s'
+    )
+    
+    return setup_logger_basic(loglevel, loggerName=f"RayWorker[{worker_id}]", formatter=formatter)
+
+
 @ray.remote
 class ProgressActor:
     """Lightweight actor for collecting progress updates without polling."""
@@ -171,54 +199,40 @@ class ProgressActor:
         self.samples_processed = 0
         self.last_logged = 0
         self.total = total_samples if total_samples > 0 else None
-        self.logger = logging.getLogger("ProgressTracker")
 
-        if self.is_tty:
-            # Use tqdm for interactive terminals
-            self.logger.warning("Detected TTY -> Use tqdm progress bar")
-            total_for_tqdm = None if total_samples < 0 else total_samples
-            self.pbar = tqdm(total=total_for_tqdm, desc=desc)
-        else:
-            # Disable tqdm for file output
-            self.pbar = None
-            self.logger.warning("TTY not detected, using line-based logging")
-            if self.total:
-                self.logger.info(f"Total samples to process: {self.total:,}")
+        logFmt = logging.Formatter(f'%(asctime)s ::: [%(name)s] - %(levelname)s -> %(message)s')
+        self.logger = setup_logger_basic(logging.INFO, loggerName="ProgressActor", formatter=logFmt)
+
+        self.logger.warning(f"Log every {self.log_interval} steps!")
+        if self.total:
+            self.logger.warning(f"Total samples to process: {self.total:,}")
 
     def update(self, samples: int):
         """Update progress with completed samples."""
         self.samples_processed += samples
 
-        if self.pbar:
-            # TTY mode: use tqdm
-            self.pbar.update(samples)
-        else:
-            # File mode: line-based logging
-            if self.log_interval == 0:
-                # Log every update (every batch)
-                self._log_progress()
-            elif (self.samples_processed - self.last_logged) >= self.log_interval:
-                self._log_progress()
-                self.last_logged = self.samples_processed
+        # File mode: line-based logging
+        if self.log_interval == 0:
+            # Log every update (every batch)
+            self._log_progress()
+        elif (self.samples_processed - self.last_logged) >= self.log_interval:
+            self._log_progress()
+            self.last_logged = self.samples_processed
 
     def _log_progress(self):
         """Log progress in a file-friendly format."""
         if self.total:
             percentage = (self.samples_processed / self.total) * 100
             self.logger.info(
-                f"Progress: {self.samples_processed:,}/{self.total:,} samples ({percentage:.1f}%)"
+                f"{self.samples_processed:,}/{self.total:,} samples ({percentage:.1f}%)"
             )
         else:
             # Streaming mode: no percentage
-            self.logger.info(f"Progress: {self.samples_processed:,} samples processed")
+            self.logger.info(f"{self.samples_processed:,} samples")
 
     def close(self):
         """Close the progress tracker and return total processed samples."""
-        if self.pbar:
-            self.pbar.close()
-        else:
-            # Final progress log for file output
-            self.logger.info(f"Progress complete: {self.samples_processed:,} total samples processed")
+        self.logger.info(f"Progress complete: {self.samples_processed:,} total samples processed")
         return self.samples_processed
 
 
@@ -254,8 +268,7 @@ class BaseTokenizerWorker:
         self.transform_pipeline = transform_pipeline
 
         # Setup logging
-        self.logger = logging.getLogger(f"Worker{worker_id:02d}")
-        self.logger.setLevel(logging.INFO)
+        self.logger = setup_worker_logging(logging.WARNING)
 
         # Import here to avoid circular imports
         from vision_tokenization.vokenizers.emu import create_tokenizer
@@ -293,7 +306,7 @@ class BaseTokenizerWorker:
         else:
             self.img_end_id = None
 
-        self.logger.info(f"Worker {worker_id} initialized on {self.device} in {mode} mode")
+        self.logger.warning(f"Worker {worker_id} initialized on {self.device} in {mode} mode")
 
     def should_process_resolution(self, image) -> bool:
         """

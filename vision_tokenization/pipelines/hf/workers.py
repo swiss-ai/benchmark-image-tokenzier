@@ -123,20 +123,26 @@ class Worker(BaseTokenizerWorker):
         # Store output directory for per-shard files
         self.output_dir = output_dir
 
-    def process_shard(self, shard_id: int, dataset_info: Dict, num_shards: int) -> Dict:
+    def process_shard(self, shard_id: int, dataset_info: Dict, num_shards: int, progress_actor=None) -> Dict:
         """
         Process a complete shard and save to a separate output file.
 
         Args:
             shard_id: Index of the shard to process
-            dataset_info: Dataset metadata
+            dataset_info: Dataset metadata (includes 'log_interval' for progress updates)
             num_shards: Total number of shards
+            progress_actor: Optional progress tracking actor for periodic updates
 
         Returns:
             Processing statistics for this shard
         """
         self.logger.info(f"Processing shard {shard_id}/{num_shards}")
         start_time = time.time()
+
+        # Calculate progress update interval (half of log_interval, minimum 10)
+        log_interval = dataset_info.get("log_interval", 1000)
+        update_interval = max(log_interval // 2, 10)
+        samples_since_update = 0  # Track samples since last progress update
 
         # Load the shard using HuggingFace's efficient shard method
         dataset = load_hf_dataset(
@@ -206,6 +212,12 @@ class Worker(BaseTokenizerWorker):
                     builder.add_document(tokens_np, [len(tokens_np)])
                     stats["samples"] += 1
                     stats["tokens"] += len(tokens_np)
+                    samples_since_update += 1
+
+                    # Send periodic progress updates during shard processing
+                    if progress_actor and samples_since_update >= update_interval:
+                        progress_actor.update.remote(samples_since_update)
+                        samples_since_update = 0  # Reset counter
 
                     # Count image vs text tokens for SFT mode
                     if self.mode == "sft" and self.img_end_id is not None:
@@ -233,6 +245,10 @@ class Worker(BaseTokenizerWorker):
         # Finalize the shard file
         builder.finalize(f"{shard_output_path}.idx")
 
+        # Send final progress update for any remaining samples
+        if progress_actor and samples_since_update > 0:
+            progress_actor.update.remote(samples_since_update)
+
         elapsed = time.time() - start_time
         self.logger.info(
             f"Completed shard {shard_id}: {stats['samples']} samples, " f"{stats['tokens']} tokens in {elapsed:.1f}s"
@@ -246,7 +262,7 @@ class Worker(BaseTokenizerWorker):
 
         Args:
             shard_queue: Ray remote shard queue for distribution
-            dataset_info: Dataset metadata
+            dataset_info: Dataset metadata (includes 'log_interval' passed to process_shard)
             num_shards: Total number of shards
             progress_actor: Optional progress tracking actor
 
@@ -265,12 +281,8 @@ class Worker(BaseTokenizerWorker):
 
             # Process the shard
             try:
-                result = self.process_shard(shard_id, dataset_info, num_shards)
+                result = self.process_shard(shard_id, dataset_info, num_shards, progress_actor)
                 ray.get(shard_queue.mark_completed.remote(shard_id, result))
-
-                # Report progress if actor provided
-                if progress_actor:
-                    progress_actor.update.remote(result["samples"])
 
                 # Update global statistics
                 self.update_stats(
