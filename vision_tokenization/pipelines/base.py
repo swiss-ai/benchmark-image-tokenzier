@@ -3,6 +3,7 @@
 Base pipeline class for tokenization and shared utilities.
 """
 
+import time
 import logging
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
@@ -113,7 +114,8 @@ class BasePipeline(ABC):
                     "samples_skipped": r.get("samples_skipped", 0),
                     "resolution_skipped": r.get("resolution_skipped", 0),
                     "transform_errors": r.get("transform_errors", 0),
-                    "throughput": r.get("throughput", 0),
+                    "throughput_tokens": r.get("throughput_tokens", r.get("throughput", 0)),
+                    "throughput_samples": r.get("throughput_samples", 0),
                 }
                 for i, r in enumerate(results)
             ],
@@ -200,6 +202,9 @@ class ProgressActor:
         self.last_logged = 0
         self.total = total_samples if total_samples > 0 else None
 
+        # Add throughput tracking
+        self.start_time = time.time()
+
         logFmt = logging.Formatter(f'%(asctime)s ::: [%(name)s] - %(levelname)s -> %(message)s')
         self.logger = setup_logger_basic(logging.INFO, loggerName="ProgressActor", formatter=logFmt)
 
@@ -211,7 +216,6 @@ class ProgressActor:
         """Update progress with completed samples."""
         self.samples_processed += samples
 
-        # File mode: line-based logging
         if self.log_interval == 0:
             # Log every update (every batch)
             self._log_progress()
@@ -221,17 +225,23 @@ class ProgressActor:
 
     def _log_progress(self):
         """Log progress in a file-friendly format."""
+        throughput = self.samples_processed / (time.time() - self.start_time)
         if self.total:
             percentage = (self.samples_processed / self.total) * 100
             self.logger.info(
-                f"{self.samples_processed:,}/{self.total:,} samples ({percentage:.1f}%)"
+                f"{self.samples_processed:,}/{self.total:,} samples ({percentage:.1f}%) - [Throughput: {throughput:.2f} samples/s]"
             )
         else:
             # Streaming mode: no percentage
-            self.logger.info(f"{self.samples_processed:,} samples")
+            self.logger.info(f"{self.samples_processed:,} samples [Throughput: {throughput:.2f} samples/s]")
 
     def close(self):
         """Close the progress tracker and return total processed samples."""
+        # Log any remaining un-logged progress before closing
+        if self.samples_processed > self.last_logged:
+            self._log_progress()
+            self.last_logged = self.samples_processed
+
         self.logger.info(f"Progress complete: {self.samples_processed:,} total samples processed")
         return self.samples_processed
 
@@ -459,9 +469,11 @@ class BaseTokenizerWorker:
         # Base message
         parts = [f"{samples} samples", f"{tokens} tokens ({avg_tokens:.1f} avg)"]
 
-        # Throughput
+        # Throughput - show both metrics clearly labeled
         if elapsed and elapsed > 0:
-            parts.append(f"{samples / elapsed:.1f} samples/s")
+            samples_per_sec = samples / elapsed
+            tokens_per_sec = tokens / elapsed
+            parts.append(f"throughput(samples): {samples_per_sec:.1f}/s, throughput(tokens): {tokens_per_sec:.1f}/s")
 
         # Token breakdown (always show for non-image_only modes)
         if self.mode != "image_only":
@@ -489,7 +501,13 @@ class BaseTokenizerWorker:
 
         elapsed = time.time() - self.stats["start_time"]
         self.stats["elapsed_time"] = elapsed
-        self.stats["throughput"] = self.stats["tokens_generated"] / elapsed if elapsed > 0 else 0
+
+        # Calculate both throughput metrics
+        self.stats["throughput_tokens"] = self.stats["tokens_generated"] / elapsed if elapsed > 0 else 0
+        self.stats["throughput_samples"] = self.stats["samples_processed"] / elapsed if elapsed > 0 else 0
+
+        # Keep old "throughput" key for backward compatibility (same as throughput_tokens)
+        self.stats["throughput"] = self.stats["throughput_tokens"]
 
         msg = self.format_stats_message(f"Worker {self.worker_id} finished", self.stats, elapsed)
         self.logger.info(msg)

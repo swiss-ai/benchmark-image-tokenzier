@@ -104,16 +104,14 @@ if [ "$DEBUG_MODE" = true ]; then
         --config "${CONFIG_PATH}" \
         --dataset-split "train[:1000]" \
         --num-shards 2 \
-        ${GPU_FLAG} \
         ${RESUME_FLAG}
 else
     echo "Running in NORMAL mode (full dataset)"
     echo "=================================================================================="
 
     # Normal mode: use config file as-is
-    python -m vision_tokenization.tokenize hf \
+    python -m vision_tokenization.tokenize ${GPU_FLAG} hf \
         --config "${CONFIG_PATH}" \
-        ${GPU_FLAG} \
         ${RESUME_FLAG}
 fi
 
