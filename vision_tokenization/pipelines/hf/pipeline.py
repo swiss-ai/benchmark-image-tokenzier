@@ -16,6 +16,7 @@ from vision_tokenization.pipelines.hf.dataset_loader import (
     get_builder_split_info,
     check_memory_mapping_limits,
     _parse_split_slice,
+    _convert_percentage_to_absolute,
 )
 from vision_tokenization.pipelines.hf.workers import ShardQueue, Worker
 from vision_tokenization.vokenizers.transforms import create_transform_pipeline
@@ -209,8 +210,8 @@ class HFDatasetPipeline(BasePipeline):
                 cache_dir=self.cache_dir,
             )
 
-            # Parse split string to handle slice notation (e.g., "train[:100]")
-            base_split, start, end = _parse_split_slice(self.dataset_split)
+            # Parse split string to handle slice notation (e.g., "train[:100]" or "train[:50%]")
+            base_split, start, end, start_is_pct, end_is_pct = _parse_split_slice(self.dataset_split)
 
             # Check if base split exists in split_info
             if base_split not in split_info:
@@ -225,8 +226,13 @@ class HFDatasetPipeline(BasePipeline):
 
             # Apply slice bounds if present in split string
             if start is not None or end is not None:
-                effective_start = start or 0
-                effective_end = end or num_examples
+                # Convert percentages to absolute indices
+                abs_start = _convert_percentage_to_absolute(start, start_is_pct, num_examples)
+                abs_end = _convert_percentage_to_absolute(end, end_is_pct, num_examples)
+
+                effective_start = abs_start if abs_start is not None else 0
+                effective_end = abs_end if abs_end is not None else num_examples
+
                 num_examples = effective_end - effective_start
                 self.logger.info(
                     f"Split slice '{self.dataset_split}' will process "
