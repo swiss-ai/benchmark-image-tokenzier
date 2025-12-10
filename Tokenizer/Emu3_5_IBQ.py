@@ -33,6 +33,7 @@ class Emu3_5_IBQ(Tokenizer):
         min_pixels: Optional[int] = None,
         max_pixels: Optional[int] = None,
         metadata_only: bool = False,
+        verbose: bool = False,
         **kwargs,
     ):
         """
@@ -44,12 +45,15 @@ class Emu3_5_IBQ(Tokenizer):
             min_pixels: Minimum number of pixels after resizing (if None, no resizing)
             max_pixels: Maximum number of pixels after resizing (if None, no resizing)
             metadata_only: If True, only load metadata (codebook_size, name) without model weights
+            verbose: If True, print detailed information during processing (default: False)
         """
         self.model_path = model_path
         self.name = "Emu3_5_IBQ"
         self.min_pixels = min_pixels
         self.max_pixels = max_pixels
         self.spatial_factor = 16  # Emu3.5 uses 16x downsampling
+        self.verbose = verbose
+        self.dtype = None  # Will be set during model loading
 
         # If metadata_only, just load config and return
         if metadata_only:
@@ -146,6 +150,11 @@ class Emu3_5_IBQ(Tokenizer):
             print(f"Codebook size: {self.codebook_size}")
             print(f"Codebook dimension: {self.codebook_dim}")
 
+            # Cache dtype for efficient preprocessing
+            self.dtype = next(self.model.parameters()).dtype
+            if self.verbose:
+                print(f"Model dtype: {self.dtype}")
+
             self.get_params()
 
         except Exception as e:
@@ -170,16 +179,15 @@ class Emu3_5_IBQ(Tokenizer):
             # Only resize if dimensions changed
             if (new_height, new_width) != (height, width):
                 image = image.resize((new_width, new_height), Image.BICUBIC)
-                print(
-                    f"Resized image from {width}x{height} to {new_width}x{new_height} "
-                    f"({width*height} -> {new_width*new_height} pixels)"
-                )
-
-        # Get model's dtype for consistency with Emu3.5 source
-        dtype = next(self.model.parameters()).dtype
+                if self.verbose:
+                    print(
+                        f"Resized image from {width}x{height} to {new_width}x{new_height} "
+                        f"({width*height} -> {new_width*new_height} pixels)"
+                    )
 
         # Following exact preprocessing from Emu3.5's build_image function
-        image_tensor = torch.tensor((np.array(image) / 127.5 - 1.0)).to(self.device, dtype).permute(2, 0, 1)
+        # Use cached dtype for efficiency (avoids iterating through parameters on every image)
+        image_tensor = torch.tensor((np.array(image) / 127.5 - 1.0)).to(self.device, self.dtype).permute(2, 0, 1)
 
         # Note: NOT adding batch dimension here to be consistent with other tokenizers
         # Batch dimension will be added in encode() method when needed
