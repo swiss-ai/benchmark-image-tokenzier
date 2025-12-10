@@ -1,3 +1,4 @@
+import argparse
 import os
 import re
 import warnings
@@ -84,23 +85,94 @@ def load_images_from_folder(folder_path, original=False):
     return images, numbers
 
 
+# Helper function for output filenames
+def get_output_filename(base_name, prefix=""):
+    """Generate output filename with optional prefix."""
+    return f"{prefix}{base_name}" if prefix else base_name
+
+
+# Function to detect mode and generate prefix
+def detect_mode_and_prefix(comparison_path, output_prefix=None):
+    """
+    Detect single vs multi-folder mode and generate appropriate output prefix.
+
+    Args:
+        comparison_path: Path to comparison folder(s)
+        output_prefix: Optional manual prefix override
+
+    Returns:
+        tuple: (folders_to_process, final_output_prefix)
+            - folders_to_process: List of (folder_name, folder_path) tuples
+            - final_output_prefix: Prefix for output files
+    """
+    # Check if comparison_path contains images directly
+    try:
+        items = os.listdir(comparison_path)
+    except (FileNotFoundError, NotADirectoryError) as e:
+        raise ValueError(f"Comparison path does not exist: {comparison_path}") from e
+
+    image_files = [f for f in items if f.lower().endswith((".png", ".jpg", ".jpeg"))]
+
+    if image_files:
+        # Single folder mode: process comparison_path directly
+        folder_name = os.path.basename(comparison_path.rstrip("/\\"))
+        folders_to_process = [(folder_name, comparison_path)]
+
+        # Auto-generate prefix if not provided
+        if output_prefix is None:
+            # Sanitize folder name: lowercase, replace special chars with underscores
+            sanitized = re.sub(r"[^a-z0-9]+", "_", folder_name.lower()).strip("_")
+            final_output_prefix = f"{sanitized}_"
+        else:
+            final_output_prefix = output_prefix
+
+    else:
+        # Multi-folder mode: process all subdirectories
+        folders_to_process = [
+            (folder_name, os.path.join(comparison_path, folder_name))
+            for folder_name in items
+            if os.path.isdir(os.path.join(comparison_path, folder_name)) and folder_name != "original"
+        ]
+
+        # No auto-prefix in multi-folder mode
+        final_output_prefix = output_prefix if output_prefix else ""
+
+    return folders_to_process, final_output_prefix
+
+
 # Main function to calculate metrics
-def calculate_metrics():
-    original_folder = os.path.join(ASSETS_FOLDER, "original")
-    if not os.path.exists(original_folder):
-        print(f"Original folder not found: {original_folder}")
+def calculate_metrics(original_path="assets/original", comparison_path="assets", output_prefix=None):
+    """
+    Calculate reconstruction metrics between original and comparison images.
+
+    Args:
+        original_path: Path to folder containing original images
+        comparison_path: Path to comparison folder(s) - can be parent folder or single folder
+        output_prefix: Optional prefix for output files (auto-generated in single folder mode)
+    """
+    if not os.path.exists(original_path):
+        print(f"Error: Original path does not exist: {original_path}")
         return
 
-    original_images, _ = load_images_from_folder(original_folder, original=True)
+    if not os.path.exists(comparison_path):
+        print(f"Error: Comparison path does not exist: {comparison_path}")
+        return
+
+    original_images, _ = load_images_from_folder(original_path, original=True)
     if not original_images:
-        print("No original images found.")
+        print(f"No original images found in: {original_path}")
+        return
+
+    # Detect mode and generate prefix
+    folders_to_process, output_prefix = detect_mode_and_prefix(comparison_path, output_prefix)
+
+    if not folders_to_process:
+        print(f"No comparison folders found in: {comparison_path}")
         return
 
     results = []
 
-    for folder_name in os.listdir(ASSETS_FOLDER):
-        folder_path = os.path.join(ASSETS_FOLDER, folder_name)
-        if os.path.isdir(folder_path) and folder_name != "original":
+    for folder_name, folder_path in folders_to_process:
             print(f"\nCalculating metrics for folder: {folder_name}")
             generated_images, numbers = load_images_from_folder(folder_path)
 
@@ -184,11 +256,13 @@ def calculate_metrics():
     if results:
         df = pd.DataFrame(results)
         df_sorted = df.sort_values(by="LPIPS")
-        df_sorted.to_csv("metrics_results.csv", index=False)
-        print("\nSaved metrics to metrics_results.csv")
+        output_csv = get_output_filename("metrics_results.csv", output_prefix)
+        df_sorted.to_csv(output_csv, index=False)
+        print(f"\nSaved metrics to {output_csv}")
 
         # Save pretty Markdown
-        with open("metrics_results.md", "w") as f:
+        output_md = get_output_filename("metrics_results.md", output_prefix)
+        with open(output_md, "w") as f:
             f.write(df_sorted.to_markdown(index=False))
 
         sns.set_theme(style="whitegrid", font_scale=1.1)
@@ -222,7 +296,8 @@ def calculate_metrics():
             )
 
         plt.tight_layout()
-        plt.savefig("lpips_comparison_plot.png", dpi=300, bbox_inches="tight")
+        output_plot1 = get_output_filename("lpips_comparison_plot.png", output_prefix)
+        plt.savefig(output_plot1, dpi=300, bbox_inches="tight")
         plt.close()
 
         # --- LPIPS vs #Tokens (lowest LPIPS) ---
@@ -257,7 +332,8 @@ def calculate_metrics():
 
         ax.grid(True, linestyle="--", linewidth=0.5, alpha=0.5)
         plt.tight_layout(rect=[0, 0, 0.75, 1])
-        plt.savefig("lpips_vs_tokens_scatter.png", dpi=300, bbox_inches="tight")
+        output_plot2 = get_output_filename("lpips_vs_tokens_scatter.png", output_prefix)
+        plt.savefig(output_plot2, dpi=300, bbox_inches="tight")
         plt.close()
 
         # --- LPIPS vs #Tokens (lowest Tokens × LPIPS) ---
@@ -293,9 +369,62 @@ def calculate_metrics():
 
         ax.grid(True, linestyle="--", linewidth=0.5, alpha=0.5)
         plt.tight_layout(rect=[0, 0, 0.75, 1])
-        plt.savefig("lpips_vs_tokens_composite_plot.png", dpi=300, bbox_inches="tight")
+        output_plot3 = get_output_filename("lpips_vs_tokens_composite_plot.png", output_prefix)
+        plt.savefig(output_plot3, dpi=300, bbox_inches="tight")
         plt.close()
 
 
 if __name__ == "__main__":
-    calculate_metrics()
+    parser = argparse.ArgumentParser(
+        description="Calculate image reconstruction metrics (PSNR, SSIM, LPIPS, FID)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Default behavior (backwards compatible, multi-folder mode)
+  python calculate_metrics.py
+
+  # Custom original path only
+  python calculate_metrics.py --original-path /path/to/originals
+
+  # Single comparison folder (auto-prefix enabled)
+  python calculate_metrics.py --comparison-path assets/Emu3_5_IBQ
+
+  # Custom both paths (multi-folder mode)
+  python calculate_metrics.py --original-path /data/originals --comparison-path /data/reconstructions
+
+  # Override auto-prefix
+  python calculate_metrics.py --comparison-path assets/Emu3_5_IBQ --output-prefix custom_
+
+  # Multi-folder with custom prefix
+  python calculate_metrics.py --comparison-path /data/reconstructions --output-prefix experiment1_
+        """,
+    )
+
+    parser.add_argument(
+        "--original-path",
+        type=str,
+        default="assets/original",
+        help="Path to folder containing original images (default: assets/original)",
+    )
+
+    parser.add_argument(
+        "--comparison-path",
+        type=str,
+        default="assets",
+        help="Path to comparison folder(s) - single folder or parent folder (default: assets)",
+    )
+
+    parser.add_argument(
+        "--output-prefix",
+        type=str,
+        default=None,
+        help="Prefix for output files (default: auto-generated for single folder, none for multi-folder)",
+    )
+
+    args = parser.parse_args()
+
+    calculate_metrics(
+        original_path=args.original_path,
+        comparison_path=args.comparison_path,
+        output_prefix=args.output_prefix,
+    )
