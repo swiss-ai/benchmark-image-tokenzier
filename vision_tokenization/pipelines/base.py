@@ -6,6 +6,7 @@ Base pipeline class for tokenization and shared utilities.
 import time
 import logging
 from abc import ABC, abstractmethod
+from collections import deque
 from typing import Any, Dict, Optional
 
 import ray
@@ -205,6 +206,10 @@ class ProgressActor:
         # Add throughput tracking
         self.start_time = time.time()
 
+        # Sliding window tracking (last 20 updates)
+        # Each entry is (timestamp, cumulative_samples_at_that_time)
+        self.sliding_window = deque(maxlen=20)
+
         logFmt = logging.Formatter(f'%(asctime)s ::: [%(name)s] - %(levelname)s -> %(message)s')
         self.logger = setup_logger_basic(logging.INFO, loggerName="ProgressActor", formatter=logFmt)
 
@@ -216,6 +221,10 @@ class ProgressActor:
         """Update progress with completed samples."""
         self.samples_processed += samples
 
+        # Record this update in the sliding window
+        current_time = time.time()
+        self.sliding_window.append((current_time, self.samples_processed))
+
         if self.log_interval == 0:
             # Log every update (every batch)
             self._log_progress()
@@ -225,15 +234,33 @@ class ProgressActor:
 
     def _log_progress(self):
         """Log progress in a file-friendly format."""
-        throughput = self.samples_processed / (time.time() - self.start_time)
+        # Calculate overall throughput (from start)
+        overall_throughput = self.samples_processed / (time.time() - self.start_time)
+
+        # Calculate sliding window throughput (last 20 updates)
+        sliding_window_throughput = None
+        if len(self.sliding_window) >= 2:
+            oldest_time, oldest_samples = self.sliding_window[0]
+            latest_time, latest_samples = self.sliding_window[-1]
+            time_diff = latest_time - oldest_time
+            if time_diff > 0:
+                samples_diff = latest_samples - oldest_samples
+                sliding_window_throughput = samples_diff / time_diff
+
+        # Format throughput message
+        if sliding_window_throughput is not None:
+            throughput_msg = f"Overall: {overall_throughput:.2f} samples/s, Recent (last {len(self.sliding_window)} updates): {sliding_window_throughput:.2f} samples/s"
+        else:
+            throughput_msg = f"{overall_throughput:.2f} samples/s"
+
         if self.total:
             percentage = (self.samples_processed / self.total) * 100
             self.logger.info(
-                f"{self.samples_processed:,}/{self.total:,} samples ({percentage:.1f}%) - [Throughput: {throughput:.2f} samples/s]"
+                f"{self.samples_processed:,}/{self.total:,} samples ({percentage:.1f}%) - [Throughput: {throughput_msg}]"
             )
         else:
             # Streaming mode: no percentage
-            self.logger.info(f"{self.samples_processed:,} samples [Throughput: {throughput:.2f} samples/s]")
+            self.logger.info(f"{self.samples_processed:,} samples [Throughput: {throughput_msg}]")
 
     def close(self):
         """Close the progress tracker and return total processed samples."""
