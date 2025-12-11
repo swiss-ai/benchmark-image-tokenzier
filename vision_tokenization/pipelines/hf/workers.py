@@ -62,7 +62,7 @@ class ShardQueue:
 
 
 from vision_tokenization.pipelines.base import BaseTokenizerWorker
-from vision_tokenization.pipelines.hf.dataset_loader import load_hf_dataset
+from vision_tokenization.pipelines.hf.dataset_loader import load_hf_dataset, log_hf_environment_info
 from vision_tokenization.vokenizers.transforms import TransformError, TransformPipeline
 
 
@@ -122,6 +122,9 @@ class Worker(BaseTokenizerWorker):
 
         # Store output directory for per-shard files
         self.output_dir = output_dir
+
+        # Log HuggingFace environment info (once per worker at initialization)
+        log_hf_environment_info(self.logger, worker_id=self.worker_id)
 
     def process_shard(self, shard_id: int, dataset_info: Dict, num_shards: int, progress_actor=None) -> Dict:
         """

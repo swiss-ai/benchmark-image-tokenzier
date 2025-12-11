@@ -1,6 +1,6 @@
 {
-  "tokenizer_path": "/capstor/store/cscs/swissai/infra01/MLLM/apertus_emu3.5_tokenizer",
-  "output_dir": "/capstor/store/cscs/swissai/infra01/vision-datasets/LLaVA-OneVision-1.5-Mid-Training/tokenized_apertus_emu3_5_image_only/first_part",
+  "tokenizer_path": "/capstor/store/cscs/swissai/infra01/MLLM/apertus_emu3_tokenizer",
+  "output_dir": "/capstor/store/cscs/swissai/infra01/vision-datasets/LLaVA-OneVision-1.5-Mid-Training/tokenized_apertus_emu3_test",
   "dataset_name": "mvp-lab/LLaVA-OneVision-1.5-Mid-Training-85M",
   "dataset_split": "train[:70%]",
   "mode": "image_only",

@@ -1,6 +1,6 @@
 {
   "random_augment": {
-    "probability": 1.0,
+    "probability": 0.6,
     "transforms": [
       {
         "__class_fullname__": "Affine",

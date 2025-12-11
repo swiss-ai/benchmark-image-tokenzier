@@ -51,7 +51,7 @@ class Emu3VisionTokenizer(Tokenizer):
             self.model = AutoModel.from_pretrained(self.model_path, trust_remote_code=True).eval().to(self.device)
 
             self.processor = Emu3VisionVQImageProcessor.from_pretrained(
-                self.model_path, local_files_only=True, min_pixels=self.min_pixels, max_pixels=self.max_pixels
+                self.model_path, local_files_only=False, min_pixels=self.min_pixels, max_pixels=self.max_pixels
             )
 
             # Get codebook size and dimension from model config
