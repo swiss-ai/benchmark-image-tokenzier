@@ -41,20 +41,22 @@ Examples:
   # Basic usage with defaults (Emu3VisionTokenizer)
   sbatch run_batch_reconstruct.slurm
 
-  # With Emu3.5 IBQ tokenizer
-  sbatch run_batch_reconstruct.slurm \\
-      --tokenizer Emu3_5_IBQ \\
-      --tokenizer-path /capstor/store/cscs/swissai/infra01/MLLM/Emu3.5-VisionTokenizer
+  # With Emu3.5 IBQ tokenizer & custom paths
+  sbatch run_batch_reconstruct.slurm \
+      --tokenizer Emu3_5_IBQ \
+      --tokenizer-path /capstor/store/cscs/swissai/infra01/MLLM/Emu3.5-VisionTokenizer \
+      --input assets/original/spectrum25m \
+      --output assets/EMU3.5/spectrum25m
+
+  # With Emu3 tokenizer & custom paths
+  sbatch run_batch_reconstruct.slurm \
+      --input assets/original/spectrum25m \
+      --output assets/EMU3VisionTokenizer/spectrum25m
 
   # Custom resolution
-  sbatch run_batch_reconstruct.slurm \\
-      --min-pixels 131072 \\
+  sbatch run_batch_reconstruct.slurm \
+      --min-pixels 131072 \
       --max-pixels 524288
-
-  # Custom paths
-  sbatch run_batch_reconstruct.slurm \\
-      --input /custom/path/to/images \\
-      --output /custom/output/path
 
   # Debug mode
   sbatch run_batch_reconstruct.slurm --debug
@@ -166,6 +168,9 @@ CMD="$CMD --max-pixels ${MAX_PIXELS}"
 if [ -n "$TOKENIZER_PATH" ]; then
     CMD="$CMD --tokenizer-path ${TOKENIZER_PATH}"
 fi
+
+# Install requirements
+pip install -q omegaconf
 
 # Run reconstruction
 echo ""

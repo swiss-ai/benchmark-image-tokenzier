@@ -5,7 +5,7 @@
   "dataset_split": "train",
   "mode": "image2text",
   "dataset_load_method": "default",
-  "dataset_streamed": true,
+  "dataset_streamed": false,
   "num_gpus": 4,
   "num_shards": 2000,
   "device": "cuda",

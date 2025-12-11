@@ -8,12 +8,47 @@ virtual memory -> Works even if dataset exceeds limits of memory mapping.
 """
 
 import logging
+import os
 import re
 from typing import Optional, Tuple, Dict
 
 from datasets import Dataset, load_dataset, load_dataset_builder
 
 logger = logging.getLogger(__name__)
+
+
+def log_hf_environment_info(logger_instance, worker_id: Optional[int] = None):
+    """
+    Log HuggingFace environment configuration at WARNING level.
+
+    Logs:
+    - HF_HUB_CACHE location (or HF_HOME fallback)
+    - HF_DATASETS_OFFLINE status
+
+    Args:
+        logger_instance: Logger instance to use
+        worker_id: Optional worker ID for worker context logging
+    """
+    # Determine prefix for worker context
+    prefix = f"[Worker {worker_id}] " if worker_id is not None else ""
+
+    # Check HF_HUB_CACHE (primary) or HF_HOME (fallback)
+    hf_cache = os.environ.get("HF_HUB_CACHE")
+    if hf_cache:
+        logger_instance.warning(f"{prefix}HF Hub Cache: {hf_cache}")
+    else:
+        hf_home = os.environ.get("HF_HOME")
+        if hf_home:
+            logger_instance.warning(f"{prefix}HF Hub Cache: {hf_home} (via HF_HOME)")
+        else:
+            logger_instance.warning(f"{prefix}HF Hub Cache: Using HuggingFace default cache location")
+
+    # Check HF_DATASETS_OFFLINE
+    offline_mode = os.environ.get("HF_DATASETS_OFFLINE", "0")
+    if offline_mode == "1":
+        logger_instance.warning(f"{prefix}HF Datasets Offline Mode: ENABLED (will only use cached datasets)")
+    else:
+        logger_instance.warning(f"{prefix}HF Datasets Offline Mode: DISABLED (will download from Hub if needed)")
 
 
 def get_system_max_map_count() -> Optional[int]:

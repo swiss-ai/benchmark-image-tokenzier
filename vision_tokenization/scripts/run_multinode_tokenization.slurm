@@ -2,11 +2,11 @@
 #SBATCH --account=a-infra01
 #SBATCH --job-name=multinode-tok
 #SBATCH --environment=emu3
-#SBATCH --nodes=4
+#SBATCH --nodes=8
 #SBATCH --exclusive
 #SBATCH --partition=normal
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=72
+#SBATCH --cpus-per-task=285
 #SBATCH --time=12:00:00
 #SBATCH --output=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/multinode_tok_%j.out
 #SBATCH --error=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/multinode_tok_%j.err
@@ -19,6 +19,7 @@
 #   TOKENIZATION_MODE=image_only sbatch --nodes=4 run_multinode_tokenization.slurm
 #   TOKENIZATION_MODE=instruct sbatch --nodes=8 run_multinode_tokenization.slurm --debug
 #   TOKENIZATION_MODE=paired sbatch --nodes=2 run_multinode_tokenization.slurm --resume
+#   TOKENIZATION_MODE=paired sbatch --nodes=2 run_multinode_tokenization.slurm --offline
 #
 # Environment Variables:
 #   TOKENIZATION_MODE - Required: image_only, instruct, or paired
@@ -26,6 +27,7 @@
 # Optional Arguments (passed to wrapped script):
 #   --debug          - Run in debug mode (small dataset)
 #   --resume         - Resume from checkpoint
+#   --offline        - Enable HF datasets offline mode (only use cached datasets)
 #############################################################################
 
 # Get the project root directory
@@ -72,6 +74,18 @@ case ${TOKENIZATION_MODE} in
         ;;
 esac
 
+export ARGS="$@"
+
+# Check for --offline flag and enable offline mode for all nodes
+OFFLINE_MODE=false
+for arg in "$@"; do
+    if [ "$arg" = "--offline" ]; then
+        OFFLINE_MODE=true
+        export HF_DATASETS_OFFLINE=1
+        break
+    fi
+done
+
 echo "=================================================================================="
 echo "Multi-Node Tokenization - Ray Distributed Processing"
 echo "=================================================================================="
@@ -82,14 +96,21 @@ echo "GPUs/node:    ${GPUS_PER_NODE}"
 echo "Total GPUs:   ${TOTAL_GPUS}"
 echo "Master node:  ${MASTER_NODE} (${MASTER_NODE_IP})"
 echo "Job ID:       ${SLURM_JOB_ID}"
+echo "Offline mode: ${OFFLINE_MODE}"
 echo "Arguments:    $@"
 echo "=================================================================================="
+
+if [ "$OFFLINE_MODE" = true ]; then
+    echo "OFFLINE mode enabled - HF_DATASETS_OFFLINE=1 exported to all nodes"
+fi
 
 # Execute on all nodes
 srun -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=1 -u bash -c '
     # Python path setup
     export PYTHONPATH='"${PROJECT_ROOT}"':$PYTHONPATH
     pip install -q omegaconf
+    export HF_DATASETS_OFFLINE
+    export HF_HUB_CACHE
 
     if [[ $SLURM_PROCID = 0 ]]; then
         echo "=================================================================================="
@@ -121,8 +142,8 @@ srun -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=1 -u bash -c '
 
         # Execute the wrapped script with all arguments passed through
         echo "[Master] Executing wrapped script: '"${WRAPPED_SCRIPT}"'"
-        echo "[Master] With arguments: $@"
-        bash '"${SCRIPT_DIR}"'/'"${WRAPPED_SCRIPT}"' "$@"
+        echo "[Master] With arguments: $ARGS"
+        bash '"${SCRIPT_DIR}"'/'"${WRAPPED_SCRIPT}"' $ARGS
 
         EXITCODE=$?
 

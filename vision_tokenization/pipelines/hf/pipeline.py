@@ -15,6 +15,7 @@ from vision_tokenization.pipelines.hf.dataset_loader import (
     load_hf_dataset,
     get_builder_split_info,
     check_memory_mapping_limits,
+    log_hf_environment_info,
     _parse_split_slice,
     _convert_percentage_to_absolute,
 )
@@ -194,6 +195,9 @@ class HFDatasetPipeline(BasePipeline):
                 # Local mode: Start new cluster with explicit resources
                 self.logger.info(f"Starting local Ray cluster with {self.num_gpus} GPUs")
                 ray.init(num_cpus=self.num_gpus + 2, num_gpus=self.num_gpus)
+
+        # Log HuggingFace environment configuration
+        log_hf_environment_info(self.logger)
 
         # Get dataset size without loading the full dataset
         if self.dataset_streamed:
