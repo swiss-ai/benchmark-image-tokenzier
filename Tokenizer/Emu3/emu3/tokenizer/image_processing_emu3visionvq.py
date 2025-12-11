@@ -19,7 +19,6 @@ import math
 from typing import Dict, List, Optional, Union
 
 import numpy as np
-
 from transformers.image_processing_utils import BaseImageProcessor, BatchFeature
 from transformers.image_transforms import (
     convert_to_rgb,
@@ -42,7 +41,6 @@ from transformers.image_utils import (
 )
 from transformers.utils import TensorType, is_vision_available, logging
 
-
 logger = logging.get_logger(__name__)
 
 
@@ -50,9 +48,7 @@ if is_vision_available():
     from PIL import Image
 
 
-def smart_resize(
-    height: int, width: int, factor: int = 8, min_pixels: int = 512 * 512, max_pixels: int = 1024 * 1024
-):
+def smart_resize(height: int, width: int, factor: int = 8, min_pixels: int = 512 * 512, max_pixels: int = 1024 * 1024):
     """Rescales the image so that the following conditions are met:
 
     1. Both dimensions (height and width) are divisible by 'factor'.
@@ -232,9 +228,7 @@ class Emu3VisionVQImageProcessor(BaseImageProcessor):
                 image = self.rescale(image, scale=rescale_factor, input_data_format=input_data_format)
 
             if do_normalize:
-                image = self.normalize(
-                    image=image, mean=image_mean, std=image_std, input_data_format=input_data_format
-                )
+                image = self.normalize(image=image, mean=image_mean, std=image_std, input_data_format=input_data_format)
 
             image = to_channel_dimension_format(image, output_data_format, input_channel_dim=input_data_format)
             processed_images.append(image)

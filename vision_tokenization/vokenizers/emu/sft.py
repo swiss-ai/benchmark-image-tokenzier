@@ -4,9 +4,11 @@ EMU tokenizer for SFT (Supervised Fine-Tuning) data.
 Handles conversations with single images and text.
 """
 
-import torch
-from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Dict, List
+
+import torch
+
 from .image_only import EMUImageOnlyTokenizer
 
 
@@ -67,11 +69,7 @@ class EMUSftTokenizer(EMUImageOnlyTokenizer):
         return torch.cat(parts)
 
     @torch.inference_mode()
-    def tokenize_conversation(
-        self,
-        messages: List[Dict[str, Any]],
-        image: Any = None
-    ) -> torch.Tensor:
+    def tokenize_conversation(self, messages: List[Dict[str, Any]], image: Any = None) -> torch.Tensor:
         """
         Tokenize a conversation with a single image and text.
         Uses parallel processing: text on CPU, image on GPU.
@@ -84,16 +82,14 @@ class EMUSftTokenizer(EMUImageOnlyTokenizer):
         Returns:
             Token tensor with <|image|> placeholder replaced by Emu3 vision tokens
         """
+
         def tokenize_text_cpu():
             """CPU thread for text tokenization."""
             # Force text operations to CPU
             with torch.cuda.device(-1):  # Use CPU
                 # Apply chat template and tokenize in one step
                 text_tokens = self.text_tokenizer.apply_chat_template(
-                    messages,
-                    tokenize=True,
-                    add_generation_prompt=False,
-                    return_tensors="pt"
+                    messages, tokenize=True, add_generation_prompt=False, return_tensors="pt"
                 )
                 text_tokens = text_tokens.squeeze(0)  # Remove batch dimension
 
@@ -101,7 +97,7 @@ class EMUSftTokenizer(EMUImageOnlyTokenizer):
                 text_tokens = self._add_special_tokens(text_tokens)
 
                 # Step 3: Find image position
-                image_mask = (text_tokens == self.image_token_id)
+                image_mask = text_tokens == self.image_token_id
                 num_images = image_mask.sum().item()
 
                 if num_images == 1:
@@ -134,19 +130,12 @@ class EMUSftTokenizer(EMUImageOnlyTokenizer):
         text_tokens = text_tokens.to(image_tokens.device)
 
         # Replace <|image|> placeholder with actual vision tokens
-        final_tokens = self._replace_single_image(
-            text_tokens,
-            image_position,
-            image_tokens
-        )
+        final_tokens = self._replace_single_image(text_tokens, image_position, image_tokens)
 
         return final_tokens
 
     def _replace_single_image(
-        self,
-        text_tokens: torch.Tensor,
-        image_position: int,
-        image_tokens: torch.Tensor
+        self, text_tokens: torch.Tensor, image_position: int, image_tokens: torch.Tensor
     ) -> torch.Tensor:
         """
         Replace single <|image|> placeholder with vision tokens.
@@ -172,7 +161,7 @@ class EMUSftTokenizer(EMUImageOnlyTokenizer):
 
         # Text after image placeholder
         if image_position + 1 < len(text_tokens):
-            parts.append(text_tokens[image_position + 1:])
+            parts.append(text_tokens[image_position + 1 :])
 
         return torch.cat(parts, dim=0)
 
@@ -192,24 +181,14 @@ class EMUSftTokenizer(EMUImageOnlyTokenizer):
             # Add user message
             if i == 0:
                 # First message gets the image placeholder
-                messages.append({
-                    "role": "user",
-                    "content": [
-                        {"type": "image"},
-                        {"type": "text", "text": conv['user']}
-                    ]
-                })
+                messages.append(
+                    {"role": "user", "content": [{"type": "image"}, {"type": "text", "text": conv["user"]}]}
+                )
             else:
-                messages.append({
-                    "role": "user",
-                    "content": conv['user']
-                })
+                messages.append({"role": "user", "content": conv["user"]})
 
             # Add assistant message
-            messages.append({
-                "role": "assistant",
-                "content": conv['assistant']
-            })
+            messages.append({"role": "assistant", "content": conv["assistant"]})
 
         return messages
 

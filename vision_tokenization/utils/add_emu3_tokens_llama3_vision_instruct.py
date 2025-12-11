@@ -37,16 +37,19 @@ The tokenizer vocabulary size must remain EXACTLY the same as the original.
 
 import json
 import os
+
 from transformers import AutoTokenizer
 
 
 class Llama32VisionEmu3Adapter:
     """Ensure Llama3-Emu3 tokenizer works with Llama 3.2 Vision chat templates."""
 
-    def __init__(self,
-                 tokenizer_path: str = "/capstor/store/cscs/swissai/infra01/MLLM/llama3_emu3_tokenizer",
-                 vision_instruct_path: str = "meta-llama/Llama-3.2-11B-Vision-Instruct",
-                 output_path: str = None):
+    def __init__(
+        self,
+        tokenizer_path: str = "/capstor/store/cscs/swissai/infra01/MLLM/llama3_emu3_tokenizer",
+        vision_instruct_path: str = "meta-llama/Llama-3.2-11B-Vision-Instruct",
+        output_path: str = None,
+    ):
         """
         Initialize the adapter.
 
@@ -69,10 +72,7 @@ class Llama32VisionEmu3Adapter:
         """Load tokenizer and verify it's a Llama3-Emu3 tokenizer."""
         print(f"Loading tokenizer from {self.tokenizer_path}...")
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.tokenizer_path,
-            trust_remote_code=True
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path, trust_remote_code=True)
 
         self.original_vocab = self.tokenizer.get_vocab().copy()
         self.original_size = len(self.original_vocab)
@@ -87,73 +87,81 @@ class Llama32VisionEmu3Adapter:
         """Dynamically retrieve all Emu3 tokens and their positions from the tokenizer."""
         print("\nRetrieving Emu3 tokens from tokenizer...")
 
-        self.emu3_tokens = {
-            'structure': {},
-            'reserved': {},
-            'visual': {},
-            'llama_special': {}
-        }
+        self.emu3_tokens = {"structure": {}, "reserved": {}, "visual": {}, "llama_special": {}}
 
         # Scan vocabulary to find all special tokens
         for token, token_id in self.original_vocab.items():
             # Structure tokens
-            if token in ["<|img_start|>", "<|img_end|>", "<|img_token_start|>",
-                        "<|img_end_of_row|>", "<|img_end_of_frame|>"]:
-                self.emu3_tokens['structure'][token] = token_id
+            if token in [
+                "<|img_start|>",
+                "<|img_end|>",
+                "<|img_token_start|>",
+                "<|img_end_of_row|>",
+                "<|img_end_of_frame|>",
+            ]:
+                self.emu3_tokens["structure"][token] = token_id
 
             # Reserved tokens
             elif token.startswith("<|RESERVED_") and token.endswith("|>"):
-                self.emu3_tokens['reserved'][token] = token_id
+                self.emu3_tokens["reserved"][token] = token_id
 
             # Visual tokens
             elif token.startswith("<|visual token ") and token.endswith("|>"):
-                self.emu3_tokens['visual'][token] = token_id
+                self.emu3_tokens["visual"][token] = token_id
 
             # Llama special tokens needed for chat template
-            elif token in ["<|begin_of_text|>", "<|end_of_text|>",
-                          "<|start_header_id|>", "<|end_header_id|>",
-                          "<|eot_id|>", "<|image|>", "<|python_tag|>",
-                          "<|finetune_right_pad_id|>", "<|eom_id|>", "<|step_id|>"]:
-                self.emu3_tokens['llama_special'][token] = token_id
+            elif token in [
+                "<|begin_of_text|>",
+                "<|end_of_text|>",
+                "<|start_header_id|>",
+                "<|end_header_id|>",
+                "<|eot_id|>",
+                "<|image|>",
+                "<|python_tag|>",
+                "<|finetune_right_pad_id|>",
+                "<|eom_id|>",
+                "<|step_id|>",
+            ]:
+                self.emu3_tokens["llama_special"][token] = token_id
 
         # Print summary
         print(f"\nFound tokens:")
         print(f"  Structure tokens: {len(self.emu3_tokens['structure'])}")
-        for token, token_id in list(self.emu3_tokens['structure'].items())[:5]:
+        for token, token_id in list(self.emu3_tokens["structure"].items())[:5]:
             print(f"    {token}: ID {token_id}")
 
         print(f"  Reserved tokens: {len(self.emu3_tokens['reserved'])}")
-        if self.emu3_tokens['reserved']:
-            sample = list(self.emu3_tokens['reserved'].items())
+        if self.emu3_tokens["reserved"]:
+            sample = list(self.emu3_tokens["reserved"].items())
             for token, token_id in sample[:2]:
                 print(f"    {token}: ID {token_id}")
             if len(sample) > 2:
                 print(f"    ... and {len(sample) - 2} more")
 
         print(f"  Visual tokens: {len(self.emu3_tokens['visual'])}")
-        if self.emu3_tokens['visual']:
-            sample = list(self.emu3_tokens['visual'].items())
+        if self.emu3_tokens["visual"]:
+            sample = list(self.emu3_tokens["visual"].items())
             for token, token_id in sample[:2]:
                 print(f"    {token}: ID {token_id}")
             if len(sample) > 2:
                 print(f"    ... and {len(sample) - 2} more")
 
         print(f"  Llama special tokens: {len(self.emu3_tokens['llama_special'])}")
-        for token, token_id in self.emu3_tokens['llama_special'].items():
+        for token, token_id in self.emu3_tokens["llama_special"].items():
             print(f"    {token}: ID {token_id}")
 
     def check_chat_template_compatibility(self):
         """Check if all tokens needed for Llama 3.2 Vision chat template are present."""
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("CHECKING CHAT TEMPLATE COMPATIBILITY")
-        print("="*60)
+        print("=" * 60)
 
         required_tokens = [
             "<|begin_of_text|>",
             "<|end_of_text|>",
             "<|start_header_id|>",
             "<|end_header_id|>",
-            "<|eot_id|>"
+            "<|eot_id|>",
         ]
 
         all_present = True
@@ -189,16 +197,15 @@ class Llama32VisionEmu3Adapter:
 
     def verify_token_positions(self):
         """Verify all Emu3 tokens are at their expected positions."""
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("VERIFYING TOKEN POSITIONS")
-        print("="*60)
+        print("=" * 60)
 
         all_correct = True
 
         # Verify a sample of visual tokens to ensure they're consecutive
-        if self.emu3_tokens['visual']:
-            visual_tokens = sorted(self.emu3_tokens['visual'].items(),
-                                 key=lambda x: x[1])
+        if self.emu3_tokens["visual"]:
+            visual_tokens = sorted(self.emu3_tokens["visual"].items(), key=lambda x: x[1])
 
             # Check visual tokens are at their expected positions
             print("\nChecking visual token positions...")
@@ -238,7 +245,7 @@ class Llama32VisionEmu3Adapter:
 
         # Verify structure tokens
         print("\nStructure tokens:")
-        for token, token_id in self.emu3_tokens['structure'].items():
+        for token, token_id in self.emu3_tokens["structure"].items():
             print(f"  {token}: ID {token_id}")
 
         if all_correct:
@@ -253,14 +260,14 @@ class Llama32VisionEmu3Adapter:
         # Modify tokenizer.json
         tokenizer_json_path = os.path.join(self.output_path, "tokenizer.json")
         if os.path.exists(tokenizer_json_path):
-            with open(tokenizer_json_path, 'r', encoding='utf-8') as f:
+            with open(tokenizer_json_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
             # Replace all occurrences of <|RESERVED_002|> with <|image|>
             content = content.replace('"<|RESERVED_002|>"', '"<|image|>"')
-            content = content.replace('<|RESERVED_002|>', '<|image|>')
+            content = content.replace("<|RESERVED_002|>", "<|image|>")
 
-            with open(tokenizer_json_path, 'w', encoding='utf-8') as f:
+            with open(tokenizer_json_path, "w", encoding="utf-8") as f:
                 f.write(content)
 
             print(f"  ✅ Replaced <|RESERVED_002|> with <|image|> (ID {reserved_002_id}) in tokenizer.json")
@@ -268,7 +275,7 @@ class Llama32VisionEmu3Adapter:
         # Also modify tokenizer_config.json to update token and add chat template
         config_path = os.path.join(self.output_path, "tokenizer_config.json")
         if os.path.exists(config_path):
-            with open(config_path, 'r', encoding='utf-8') as f:
+            with open(config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
 
             # Replace RESERVED_002 with image
@@ -278,20 +285,20 @@ class Llama32VisionEmu3Adapter:
                 elif isinstance(obj, list):
                     return [replace_in_dict(item) for item in obj]
                 elif isinstance(obj, str):
-                    return obj.replace('<|RESERVED_002|>', '<|image|>')
+                    return obj.replace("<|RESERVED_002|>", "<|image|>")
                 return obj
 
             config = replace_in_dict(config)
 
             # Load the Llama 3.2 Vision Instruct chat template and fix it
-            if hasattr(self, 'chat_template') and self.chat_template:
+            if hasattr(self, "chat_template") and self.chat_template:
                 # Simple fix: Only show system prompt if user explicitly provides one
                 # This removes the automatic system prompt with dates
                 fixed_template = self.chat_template.replace(
-                    '{%- if user_supplied_system_message or not image_ns.has_images %}',
-                    '{%- if user_supplied_system_message %}'
+                    "{%- if user_supplied_system_message or not image_ns.has_images %}",
+                    "{%- if user_supplied_system_message %}",
                 )
-                config['chat_template'] = fixed_template
+                config["chat_template"] = fixed_template
                 print(f"  ✅ Added Llama 3.2 Vision chat template")
                 print(f"     Fixed: System prompt only appears when explicitly provided by user")
             else:
@@ -302,26 +309,15 @@ class Llama32VisionEmu3Adapter:
             print("  Adding SFT sequences for Megatron-LM...")
 
             # Tokenize the sequences
-            config['sft_user_begin_sequence'] = self.tokenizer.encode(
-                '<|start_header_id|>user<|end_header_id|>',
-                add_special_tokens=False
+            config["sft_user_begin_sequence"] = self.tokenizer.encode(
+                "<|start_header_id|>user<|end_header_id|>", add_special_tokens=False
             )
-            config['sft_assistant_begin_sequence'] = self.tokenizer.encode(
-                '<|start_header_id|>assistant<|end_header_id|>',
-                add_special_tokens=False
+            config["sft_assistant_begin_sequence"] = self.tokenizer.encode(
+                "<|start_header_id|>assistant<|end_header_id|>", add_special_tokens=False
             )
-            config['sft_eot_token'] = self.tokenizer.encode(
-                '<|eot_id|>',
-                add_special_tokens=False
-            )
-            config['img_begin_token'] = self.tokenizer.encode(
-                '<|img_start|>',
-                add_special_tokens=False
-            )
-            config['img_end_token'] = self.tokenizer.encode(
-                '<|img_end|>',
-                add_special_tokens=False
-            )
+            config["sft_eot_token"] = self.tokenizer.encode("<|eot_id|>", add_special_tokens=False)
+            config["img_begin_token"] = self.tokenizer.encode("<|img_start|>", add_special_tokens=False)
+            config["img_end_token"] = self.tokenizer.encode("<|img_end|>", add_special_tokens=False)
 
             print(f"  ✅ Added SFT sequences:")
             print(f"     - sft_user_begin_sequence: {config['sft_user_begin_sequence']}")
@@ -330,7 +326,7 @@ class Llama32VisionEmu3Adapter:
             print(f"     - img_begin_token: {config['img_begin_token']}")
             print(f"     - img_end_token: {config['img_end_token']}")
 
-            with open(config_path, 'w', encoding='utf-8') as f:
+            with open(config_path, "w", encoding="utf-8") as f:
                 json.dump(config, f, indent=2)
 
             print(f"  ✅ Replaced <|RESERVED_002|> with <|image|> in tokenizer_config.json")
@@ -354,21 +350,21 @@ class Llama32VisionEmu3Adapter:
             "original_tokenizer": self.tokenizer_path,
             "vocabulary_size": len(self.tokenizer.get_vocab()),
             "emu3_tokens": {
-                "structure_count": len(self.emu3_tokens['structure']),
-                "reserved_count": len(self.emu3_tokens['reserved']),
-                "visual_count": len(self.emu3_tokens['visual']),
-                "structure_tokens": self.emu3_tokens['structure'],
-                "llama_special_tokens": self.emu3_tokens['llama_special']
+                "structure_count": len(self.emu3_tokens["structure"]),
+                "reserved_count": len(self.emu3_tokens["reserved"]),
+                "visual_count": len(self.emu3_tokens["visual"]),
+                "structure_tokens": self.emu3_tokens["structure"],
+                "llama_special_tokens": self.emu3_tokens["llama_special"],
             },
             "notes": [
                 "This tokenizer maintains exact compatibility with Emu3-tokenized data",
                 "All visual tokens remain at their original positions",
-                f"Total vocabulary size: {len(self.tokenizer.get_vocab())}"
-            ]
+                f"Total vocabulary size: {len(self.tokenizer.get_vocab())}",
+            ],
         }
 
         info_path = os.path.join(self.output_path, "tokenizer_info.json")
-        with open(info_path, 'w') as f:
+        with open(info_path, "w") as f:
             json.dump(token_info, f, indent=2)
 
         print(f"✅ Tokenizer saved to {self.output_path}")
@@ -376,9 +372,9 @@ class Llama32VisionEmu3Adapter:
 
     def load_vision_instruct_template(self):
         """Load Llama-3.2-Vision-Instruct tokenizer to get chat template."""
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("LOADING VISION-INSTRUCT CHAT TEMPLATE")
-        print("="*60)
+        print("=" * 60)
 
         try:
             print(f"Loading Vision-Instruct tokenizer from {self.vision_instruct_path}...")
@@ -386,33 +382,31 @@ class Llama32VisionEmu3Adapter:
             if os.path.exists(self.vision_instruct_path):
                 # Local path
                 self.vision_tokenizer = AutoTokenizer.from_pretrained(
-                    self.vision_instruct_path,
-                    trust_remote_code=True,
-                    local_files_only=True
+                    self.vision_instruct_path, trust_remote_code=True, local_files_only=True
                 )
             else:
                 # HuggingFace model ID
-                self.vision_tokenizer = AutoTokenizer.from_pretrained(
-                    self.vision_instruct_path,
-                    trust_remote_code=True
-                )
+                self.vision_tokenizer = AutoTokenizer.from_pretrained(self.vision_instruct_path, trust_remote_code=True)
             print("✅ Loaded Vision-Instruct tokenizer")
 
             # Get chat template from the tokenizer
             self.chat_template = None
 
             # Try different ways to get the chat template
-            if hasattr(self.vision_tokenizer, 'chat_template') and self.vision_tokenizer.chat_template:
+            if hasattr(self.vision_tokenizer, "chat_template") and self.vision_tokenizer.chat_template:
                 self.chat_template = self.vision_tokenizer.chat_template
                 print("✅ Got chat template from tokenizer.chat_template")
-            elif hasattr(self.vision_tokenizer, '_tokenizer_config') and 'chat_template' in self.vision_tokenizer._tokenizer_config:
-                self.chat_template = self.vision_tokenizer._tokenizer_config['chat_template']
+            elif (
+                hasattr(self.vision_tokenizer, "_tokenizer_config")
+                and "chat_template" in self.vision_tokenizer._tokenizer_config
+            ):
+                self.chat_template = self.vision_tokenizer._tokenizer_config["chat_template"]
                 print("✅ Got chat template from tokenizer._tokenizer_config")
             else:
                 # Try to get from the tokenizer's internal config
                 try:
                     # Access the tokenizer's config directly
-                    self.chat_template = self.vision_tokenizer.tokenizer_config.get('chat_template', None)
+                    self.chat_template = self.vision_tokenizer.tokenizer_config.get("chat_template", None)
                     if self.chat_template:
                         print("✅ Got chat template from tokenizer.tokenizer_config")
                 except:
@@ -425,7 +419,7 @@ class Llama32VisionEmu3Adapter:
                 print(f"Template preview: {preview}")
 
                 # Check format
-                if '<|start_header_id|>' in self.chat_template:
+                if "<|start_header_id|>" in self.chat_template:
                     print("✅ Template uses Llama Instruct format with header IDs")
                 else:
                     print("⚠️  Template does not use Llama Instruct format")
@@ -438,9 +432,9 @@ class Llama32VisionEmu3Adapter:
 
     def setup_reserved_token_mapping(self):
         """Setup mapping for reserved tokens as placeholders."""
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("SETTING UP RESERVED TOKEN MAPPING")
-        print("="*60)
+        print("=" * 60)
 
         # Check available reserved tokens
         reserved_001_id = self.tokenizer.convert_tokens_to_ids("<|RESERVED_001|>")
@@ -468,9 +462,9 @@ class Llama32VisionEmu3Adapter:
 
     def run(self):
         """Run the complete verification and adaptation process."""
-        print("="*60)
+        print("=" * 60)
         print("LLAMA3-EMU3 TOKENIZER VERIFICATION")
-        print("="*60)
+        print("=" * 60)
 
         try:
             # Step 1: Load tokenizer
@@ -493,9 +487,9 @@ class Llama32VisionEmu3Adapter:
 
             # Step 7: Final size check
             final_size = len(self.tokenizer.get_vocab())
-            print("\n" + "="*60)
+            print("\n" + "=" * 60)
             print("FINAL STATUS")
-            print("="*60)
+            print("=" * 60)
             print(f"Original size: {self.original_size:,}")
             print(f"Final size: {final_size:,}")
 
@@ -529,21 +523,13 @@ def main():
         "--tokenizer-path",
         type=str,
         default="/capstor/store/cscs/swissai/infra01/MLLM/llama3_emu3_tokenizer",
-        help="Path to Llama3-Emu3 tokenizer"
+        help="Path to Llama3-Emu3 tokenizer",
     )
-    parser.add_argument(
-        "--output-path",
-        type=str,
-        default=None,
-        help="Output path for verified tokenizer"
-    )
+    parser.add_argument("--output-path", type=str, default=None, help="Output path for verified tokenizer")
 
     args = parser.parse_args()
 
-    adapter = Llama32VisionEmu3Adapter(
-        tokenizer_path=args.tokenizer_path,
-        output_path=args.output_path
-    )
+    adapter = Llama32VisionEmu3Adapter(tokenizer_path=args.tokenizer_path, output_path=args.output_path)
 
     adapter.run()
 

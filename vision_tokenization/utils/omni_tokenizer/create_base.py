@@ -22,8 +22,8 @@ Usage:
 """
 
 import argparse
-import sys
 import os
+import sys
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -58,39 +58,26 @@ Examples:
     Available vision tokenizers:
     - Emu3 (32K codebook)
     - Emu3.5 (131K codebook)
-        """
+        """,
     )
 
     parser.add_argument(
         "--text-tokenizer-path",
         type=str,
         required=True,
-        help="Path to base text tokenizer (e.g., meta-llama/Llama-3-8B)"
+        help="Path to base text tokenizer (e.g., meta-llama/Llama-3-8B)",
     )
-    parser.add_argument(
-        "--vision-tokenizer-path",
-        type=str,
-        required=True,
-        help="Path to vision tokenizer model"
-    )
+    parser.add_argument("--vision-tokenizer-path", type=str, required=True, help="Path to vision tokenizer model")
     parser.add_argument(
         "--vision-tokenizer",
         type=str,
         required=True,
         choices=["Emu3", "Emu3.5"],
-        help="Vision tokenizer type (Emu3 or Emu3.5)"
+        help="Vision tokenizer type (Emu3 or Emu3.5)",
     )
+    parser.add_argument("--output-path", type=str, required=True, help="Path to save omni-tokenizer")
     parser.add_argument(
-        "--output-path",
-        type=str,
-        required=True,
-        help="Path to save omni-tokenizer"
-    )
-    parser.add_argument(
-        "--num-reserved-tokens",
-        type=int,
-        default=200,
-        help="Number of RESERVED_OMNI tokens to add (default: 200)"
+        "--num-reserved-tokens", type=int, default=200, help="Number of RESERVED_OMNI tokens to add (default: 200)"
     )
 
     args = parser.parse_args()
@@ -101,12 +88,12 @@ Examples:
         output_path=args.output_path,
         vision_tokenizer_path=args.vision_tokenizer_path,
         vision_tokenizer=args.vision_tokenizer,
-        num_reserved_tokens=args.num_reserved_tokens
+        num_reserved_tokens=args.num_reserved_tokens,
     )
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("OMNI-TOKENIZER CREATION SUMMARY")
-    print("="*60)
+    print("=" * 60)
     print(f"Text tokenizer:           {stats['text_tokenizer']}")
     print(f"Vision tokenizer:         {stats['vision_tokenizer']}")
     print(f"Tokenizer type:           {stats['tokenizer_type']}")
@@ -116,7 +103,7 @@ Examples:
     print(f"Visual tokens added:      {stats['visual_tokens_added']:,}")
     print(f"Final vocabulary size:    {stats['final_vocab_size']:,}")
     print(f"Total tokens added:       {stats['final_vocab_size'] - stats['original_vocab_size']:,}")
-    print("="*60)
+    print("=" * 60)
     print("\n✅ Base omni-tokenizer created successfully!")
     print(f"   Saved to: {args.output_path}")
 

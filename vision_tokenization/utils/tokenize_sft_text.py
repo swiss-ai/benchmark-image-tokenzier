@@ -32,6 +32,7 @@ Example usage:
 """
 
 import argparse
+
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
@@ -60,16 +61,11 @@ def main():
     # Load dataset (download full dataset for faster processing)
     if args.config:
         dataset = load_dataset(
-            args.dataset,
-            args.config,
-            split=args.split,
-            num_proc=args.num_proc  # Use parallel processing if specified
+            args.dataset, args.config, split=args.split, num_proc=args.num_proc  # Use parallel processing if specified
         )
     else:
         dataset = load_dataset(
-            args.dataset,
-            split=args.split,
-            num_proc=args.num_proc  # Use parallel processing if specified
+            args.dataset, split=args.split, num_proc=args.num_proc  # Use parallel processing if specified
         )
 
     print(f"Loading tokenizer: {args.tokenizer_path}")
@@ -105,11 +101,7 @@ def main():
             messages = example[args.message_column]
 
             # Apply chat template
-            formatted_text = tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=False
-            )
+            formatted_text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
 
             # Add BOS/EOS if requested
             if args.add_bos and bos_token and not formatted_text.startswith(bos_token):
@@ -128,16 +120,14 @@ def main():
     # Process dataset in parallel using map
     print(f"\nApplying chat template to dataset...")
     processed_dataset = dataset.map(
-        apply_chat_template_to_sample,
-        num_proc=args.num_proc if args.num_proc else 1,
-        desc="Applying chat template"
+        apply_chat_template_to_sample, num_proc=args.num_proc if args.num_proc else 1, desc="Applying chat template"
     )
 
     # Save to appropriate format based on file extension
     print(f"\nSaving to {args.output_file}...")
-    if args.output_file.endswith('.parquet'):
+    if args.output_file.endswith(".parquet"):
         processed_dataset.to_parquet(args.output_file)
-    elif args.output_file.endswith('.jsonl') or args.output_file.endswith('.json'):
+    elif args.output_file.endswith(".jsonl") or args.output_file.endswith(".json"):
         processed_dataset.to_json(args.output_file, orient="records", lines=True)
     else:
         # Default to parquet for preprocess_megatron compatibility
@@ -159,7 +149,9 @@ def main():
 
     print(f"\n{'='*60}")
     print(f"Next step - tokenize with datatrove:")
-    print(f"python3 /iopsstor/scratch/cscs/xyixuan/data-pipeline-pretrain/examples/tokenize_megatron/preprocess_megatron.py \\")
+    print(
+        f"python3 /iopsstor/scratch/cscs/xyixuan/data-pipeline-pretrain/examples/tokenize_megatron/preprocess_megatron.py \\"
+    )
     print(f"    --tokenizer-name-or-path {args.tokenizer_path} \\")
     print(f"    --output-folder <output_folder> \\")
     print(f"    --n-tasks 16 \\")

@@ -50,7 +50,9 @@ class Emu3FeatureDataset(Dataset):
 
         labels = sample["input_ids"]
         if self.args.apply_loss_on_only_vision:
-            labels = torch.where(torch.logical_and(labels >= self.bov, labels <= self.eov), labels, self.args.ignore_index)
+            labels = torch.where(
+                torch.logical_and(labels >= self.bov, labels <= self.eov), labels, self.args.ignore_index
+            )
 
         sample["labels"] = labels
         for k, v in sample.items():
@@ -63,26 +65,22 @@ class Emu3FeatureDataset(Dataset):
         imgstr = self.to_imgstr(image_tokens)
 
         image_prompt = (
-            self.tokenizer.boi_token +
-            f"{h}*{w}" +
-            self.tokenizer.img_token +
-            imgstr +
-            self.tokenizer.eol_token +
-            self.tokenizer.eof_token +
-            self.tokenizer.eoi_token
+            self.tokenizer.boi_token
+            + f"{h}*{w}"
+            + self.tokenizer.img_token
+            + imgstr
+            + self.tokenizer.eol_token
+            + self.tokenizer.eof_token
+            + self.tokenizer.eoi_token
         )
 
         return image_prompt
 
     def to_imgstr(self, image_tokens):
         image_token_str = [
-            [
-                self.args.visual_token_pattern.format(token_id=token_id)
-                for token_id in token_row
-            ]
+            [self.args.visual_token_pattern.format(token_id=token_id) for token_id in token_row]
             for token_row in image_tokens
         ]
         image_row_str = ["".join(token_row) for token_row in image_token_str]
         imgstr = self.tokenizer.eol_token.join(image_row_str)
         return imgstr
-

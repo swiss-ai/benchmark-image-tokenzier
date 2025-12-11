@@ -5,25 +5,26 @@ Core utilities for creating omni-tokenizers.
 Shared functions for adding vision tokens to text tokenizers.
 """
 
-from transformers import AutoTokenizer
 import json
 import os
 import sys
-from typing import Optional, Tuple, Dict, Any
+from typing import Any, Dict, Optional, Tuple
+
+from transformers import AutoTokenizer
 
 # Add Tokenizer directory to path for importing vision tokenizers
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
 
 
 # Vision tokenizer mapping - maps user-friendly names to implementation classes
 VISION_TOKENIZER_MAP = {
-    'Emu3': {
-        'class': 'Emu3VisionTokenizer',
-        'module': 'Tokenizer.Emu3VisionTokenizer',
+    "Emu3": {
+        "class": "Emu3VisionTokenizer",
+        "module": "Tokenizer.Emu3VisionTokenizer",
     },
-    'Emu3.5': {
-        'class': 'Emu3_5_IBQ',
-        'module': 'Tokenizer.Emu3_5_IBQ',
+    "Emu3.5": {
+        "class": "Emu3_5_IBQ",
+        "module": "Tokenizer.Emu3_5_IBQ",
     },
 }
 
@@ -34,7 +35,7 @@ def save_tokenizer_with_correct_vocab_size(
     original_vocab_size: int,
     vision_tokenizer_type: str,
     vision_tokenizer_path: str,
-    codebook_size: int
+    codebook_size: int,
 ) -> None:
     """
     Save tokenizer with correct vocab_size and vision tokenizer info in config.
@@ -56,22 +57,22 @@ def save_tokenizer_with_correct_vocab_size(
 
     # Update tokenizer_config.json with correct vocab_size
     config_path = os.path.join(save_path, "tokenizer_config.json")
-    with open(config_path, 'r') as f:
+    with open(config_path, "r") as f:
         config = json.load(f)
 
     # Set vocab_size to actual size for model.resize_token_embeddings() etc.
-    config['vocab_size'] = actual_vocab_size
-    config['base_vocab_size'] = base_vocab_size
-    config['added_tokens_count'] = actual_vocab_size - base_vocab_size
+    config["vocab_size"] = actual_vocab_size
+    config["base_vocab_size"] = base_vocab_size
+    config["added_tokens_count"] = actual_vocab_size - base_vocab_size
 
     # Add vision tokenizer configuration
-    config['vision_tokenizer'] = {
-        'type': vision_tokenizer_type,
-        'path': vision_tokenizer_path,
-        'codebook_size': codebook_size
+    config["vision_tokenizer"] = {
+        "type": vision_tokenizer_type,
+        "path": vision_tokenizer_path,
+        "codebook_size": codebook_size,
     }
 
-    with open(config_path, 'w') as f:
+    with open(config_path, "w") as f:
         json.dump(config, f, indent=2)
 
     print(f"✓ Updated tokenizer_config.json:")
@@ -101,14 +102,14 @@ def rename_reserved_token(save_path: str, tokenizer, old_token: str, new_token: 
     # Modify tokenizer.json
     tokenizer_json_path = os.path.join(save_path, "tokenizer.json")
     if os.path.exists(tokenizer_json_path):
-        with open(tokenizer_json_path, 'r', encoding='utf-8') as f:
+        with open(tokenizer_json_path, "r", encoding="utf-8") as f:
             content = f.read()
 
         # Replace all occurrences
         content = content.replace(f'"{old_token}"', f'"{new_token}"')
         content = content.replace(old_token, new_token)
 
-        with open(tokenizer_json_path, 'w', encoding='utf-8') as f:
+        with open(tokenizer_json_path, "w", encoding="utf-8") as f:
             f.write(content)
 
         print(f"  ✅ Renamed {old_token} to {new_token} (ID {token_id}) in tokenizer.json")
@@ -116,7 +117,7 @@ def rename_reserved_token(save_path: str, tokenizer, old_token: str, new_token: 
     # Also modify tokenizer_config.json
     config_path = os.path.join(save_path, "tokenizer_config.json")
     if os.path.exists(config_path):
-        with open(config_path, 'r', encoding='utf-8') as f:
+        with open(config_path, "r", encoding="utf-8") as f:
             config = json.load(f)
 
         # Replace in all config values
@@ -131,7 +132,7 @@ def rename_reserved_token(save_path: str, tokenizer, old_token: str, new_token: 
 
         config = replace_in_dict(config)
 
-        with open(config_path, 'w', encoding='utf-8') as f:
+        with open(config_path, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2)
 
         print(f"  ✅ Renamed {old_token} to {new_token} in tokenizer_config.json")
@@ -195,9 +196,7 @@ def add_tokens_with_feedback(tokenizer, tokens, token_type="special"):
             print(f"  - {token}")
 
     # Add tokens to tokenizer
-    num_added = tokenizer.add_special_tokens({
-        "additional_special_tokens": tokens
-    })
+    num_added = tokenizer.add_special_tokens({"additional_special_tokens": tokens})
 
     print(f"Successfully added {num_added} new tokens")
     return num_added
@@ -216,10 +215,7 @@ def load_vision_tokenizer(vision_tokenizer_path: str, vision_tokenizer: str):
     """
     if vision_tokenizer not in VISION_TOKENIZER_MAP:
         available = list(VISION_TOKENIZER_MAP.keys())
-        raise ValueError(
-            f"Unknown vision tokenizer: '{vision_tokenizer}'. "
-            f"Available: {available}"
-        )
+        raise ValueError(f"Unknown vision tokenizer: '{vision_tokenizer}'. " f"Available: {available}")
 
     print(f"Loading vision tokenizer metadata ({vision_tokenizer})...")
     try:
@@ -227,8 +223,8 @@ def load_vision_tokenizer(vision_tokenizer_path: str, vision_tokenizer: str):
         config = VISION_TOKENIZER_MAP[vision_tokenizer]
 
         # Import only the needed class
-        module = __import__(config['module'], fromlist=[config['class']])
-        TokenizerClass = getattr(module, config['class'])
+        module = __import__(config["module"], fromlist=[config["class"]])
+        TokenizerClass = getattr(module, config["class"])
 
         # Load metadata only (fast, no model weights)
         vision_tok = TokenizerClass(model_path=vision_tokenizer_path, metadata_only=True)
@@ -250,7 +246,7 @@ def create_base_tokenizer(
     output_path: str,
     vision_tokenizer_path: str,
     vision_tokenizer: str,
-    num_reserved_tokens: int = 200
+    num_reserved_tokens: int = 200,
 ) -> Tuple[Any, Dict[str, int]]:
     """
     Create an omnimodal base tokenizer by adding vision tokens to a text tokenizer.
@@ -277,18 +273,16 @@ def create_base_tokenizer(
         - vision_token_mapping.json (mapping from vision indices to token IDs)
     """
 
-    print("="*60)
+    print("=" * 60)
     print("CREATING OMNI-TOKENIZER (BASE)")
-    print("="*60)
+    print("=" * 60)
 
     # Load vision tokenizer to auto-detect codebook size
-    _, visual_vocab_size, vision_tokenizer_name = load_vision_tokenizer(
-        vision_tokenizer_path, vision_tokenizer
-    )
+    _, visual_vocab_size, vision_tokenizer_name = load_vision_tokenizer(vision_tokenizer_path, vision_tokenizer)
 
     print(f"\nText tokenizer: {text_tokenizer_path}")
     print(f"Visual vocab size: {visual_vocab_size:,} (auto-detected)")
-    print("="*60 + "\n")
+    print("=" * 60 + "\n")
 
     # Load the text tokenizer
     print(f"Loading text tokenizer from {text_tokenizer_path}...")
@@ -307,7 +301,7 @@ def create_base_tokenizer(
         "visual_tokens_added": 0,
         "structure_tokens_added": 0,
         "reserved_tokens_added": 0,
-        "final_vocab_size": 0
+        "final_vocab_size": 0,
     }
 
     # Collect all special tokens to add
@@ -357,7 +351,7 @@ def create_base_tokenizer(
         original_vocab_size,
         vision_tokenizer_type=vision_tokenizer,
         vision_tokenizer_path=vision_tokenizer_path,
-        codebook_size=visual_vocab_size
+        codebook_size=visual_vocab_size,
     )
 
     # Rename RESERVED_OMNI tokens to image structure tokens
@@ -387,27 +381,31 @@ def create_base_tokenizer(
 
     # Save public mapping file
     mapping_path = os.path.join(output_path, "vision_token_mapping.json")
-    with open(mapping_path, 'w') as f:
-        json.dump({
-            "tokenizer_type": "base",
-            "vision_tokenizer": vision_tokenizer_name,
-            "vision_tokenizer_type": vision_tokenizer,
-            "vision_tokenizer_path": vision_tokenizer_path,
-            "vision_token_ids": vision_mapping,
-            "visual_vocab_size": visual_vocab_size,
-            "vision_token_format": f"<|visual token {{:0{padding}d}}|>",
-            "num_reserved_tokens": num_reserved_tokens,
-            "original_vocab_size": original_vocab_size,
-            "structure_tokens_added": stats["structure_tokens_added"],
-            "reserved_tokens_added": stats["reserved_tokens_added"],
-            "final_vocab_size": stats["final_vocab_size"]
-        }, f, indent=2)
+    with open(mapping_path, "w") as f:
+        json.dump(
+            {
+                "tokenizer_type": "base",
+                "vision_tokenizer": vision_tokenizer_name,
+                "vision_tokenizer_type": vision_tokenizer,
+                "vision_tokenizer_path": vision_tokenizer_path,
+                "vision_token_ids": vision_mapping,
+                "visual_vocab_size": visual_vocab_size,
+                "vision_token_format": f"<|visual token {{:0{padding}d}}|>",
+                "num_reserved_tokens": num_reserved_tokens,
+                "original_vocab_size": original_vocab_size,
+                "structure_tokens_added": stats["structure_tokens_added"],
+                "reserved_tokens_added": stats["reserved_tokens_added"],
+                "final_vocab_size": stats["final_vocab_size"],
+            },
+            f,
+            indent=2,
+        )
     print(f"Saved vision token mapping to {mapping_path}")
 
     # Verification - show some token IDs
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("VERIFICATION - Sample Token IDs")
-    print("="*60)
+    print("=" * 60)
 
     # Check boundary marker
     print("\nBoundary marker:")
@@ -417,8 +415,7 @@ def create_base_tokenizer(
 
     # Check image structure tokens
     print("\nImage structure tokens:")
-    for token in ["<|img_start|>", "<|img_end|>", "<|img_token_start|>",
-                  "<|img_end_of_row|>", "<|img_end_of_frame|>"]:
+    for token in ["<|img_start|>", "<|img_end|>", "<|img_token_start|>", "<|img_end_of_row|>", "<|img_end_of_frame|>"]:
         if token in tokenizer.get_vocab():
             token_id = tokenizer.convert_tokens_to_ids(token)
             print(f"  {token}: ID {token_id}")
@@ -441,7 +438,7 @@ def create_base_tokenizer(
         token_id = tokenizer.convert_tokens_to_ids(token)
         print(f"  {token}: ID {token_id}")
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
 
     return tokenizer, stats
 
@@ -458,7 +455,7 @@ def load_vision_token_mapping(tokenizer_path: str) -> Dict:
     """
     mapping_path = os.path.join(tokenizer_path, "vision_token_mapping.json")
     if os.path.exists(mapping_path):
-        with open(mapping_path, 'r') as f:
+        with open(mapping_path, "r") as f:
             return json.load(f)
     else:
         raise FileNotFoundError(f"Vision token mapping not found at {mapping_path}")

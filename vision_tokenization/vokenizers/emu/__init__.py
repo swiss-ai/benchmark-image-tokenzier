@@ -9,10 +9,11 @@ This module provides tokenizers for different data types:
 Supports both Emu3 and Emu3.5 vision tokenizers.
 """
 
+from typing import Union
+
 from .image_only import EMUImageOnlyTokenizer
 from .image_text_pair import EMUImageTextPairTokenizer
 from .sft import EMUSftTokenizer
-from typing import Union
 
 
 def create_tokenizer(
@@ -21,7 +22,7 @@ def create_tokenizer(
     device: str = "cuda",
     min_pixels: int = 512 * 512,
     max_pixels: int = 1024 * 1024,
-    **kwargs
+    **kwargs,
 ) -> Union[EMUImageOnlyTokenizer, EMUImageTextPairTokenizer, EMUSftTokenizer]:
     """
     Factory function to create the appropriate EMU tokenizer based on mode.
@@ -44,29 +45,17 @@ def create_tokenizer(
         "image_only": EMUImageOnlyTokenizer,
         "image2text": EMUImageTextPairTokenizer,  # image->text (captioning)
         "text2image": EMUImageTextPairTokenizer,  # text->image (generation)
-        "sft": EMUSftTokenizer
+        "sft": EMUSftTokenizer,
     }
 
     if mode not in tokenizers:
-        raise ValueError(
-            f"Unknown tokenizer mode: {mode}. "
-            f"Must be one of: {', '.join(tokenizers.keys())}"
-        )
+        raise ValueError(f"Unknown tokenizer mode: {mode}. " f"Must be one of: {', '.join(tokenizers.keys())}")
 
     tokenizer_class = tokenizers[mode]
 
     return tokenizer_class(
-        text_tokenizer_path=text_tokenizer_path,
-        device=device,
-        min_pixels=min_pixels,
-        max_pixels=max_pixels,
-        **kwargs
+        text_tokenizer_path=text_tokenizer_path, device=device, min_pixels=min_pixels, max_pixels=max_pixels, **kwargs
     )
 
 
-__all__ = [
-    'EMUImageOnlyTokenizer',
-    'EMUImageTextPairTokenizer',
-    'EMUSftTokenizer',
-    'create_tokenizer'
-]
+__all__ = ["EMUImageOnlyTokenizer", "EMUImageTextPairTokenizer", "EMUSftTokenizer", "create_tokenizer"]

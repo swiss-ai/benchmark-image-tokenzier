@@ -2,31 +2,28 @@
 # https://cog.run/python
 
 import os
-import time
 import subprocess
+import time
+
+import torch
+from cog import BasePredictor, Input, Path
+from emu3.mllm.processing_emu3 import Emu3Processor
 from PIL import Image
 from transformers import (
-    AutoTokenizer,
-    AutoModel,
     AutoImageProcessor,
+    AutoModel,
     AutoModelForCausalLM,
+    AutoTokenizer,
 )
-from transformers.generation.configuration_utils import GenerationConfig
 from transformers.generation import (
     LogitsProcessorList,
     PrefixConstrainedLogitsProcessor,
     UnbatchedClassifierFreeGuidanceLogitsProcessor,
 )
-import torch
-from cog import BasePredictor, Input, Path
-
-from emu3.mllm.processing_emu3 import Emu3Processor
-
+from transformers.generation.configuration_utils import GenerationConfig
 
 MODEL_CACHE = "model_cache"
-MODEL_URL = (
-    f"https://weights.replicate.delivery/default/baaivision/Emu3/{MODEL_CACHE}.tar"
-)
+MODEL_URL = f"https://weights.replicate.delivery/default/baaivision/Emu3/{MODEL_CACHE}.tar"
 os.environ["HF_DATASETS_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 os.environ["HF_HOME"] = MODEL_CACHE
@@ -63,9 +60,7 @@ class Predictor(BasePredictor):
             trust_remote_code=True,
         )
 
-        tokenizer = AutoTokenizer.from_pretrained(
-            f"{MODEL_CACHE}/Emu3-Gen", trust_remote_code=True
-        )  # "BAAI/Emu3-Gen"
+        tokenizer = AutoTokenizer.from_pretrained(f"{MODEL_CACHE}/Emu3-Gen", trust_remote_code=True)  # "BAAI/Emu3-Gen"
         image_processor = AutoImageProcessor.from_pretrained(
             f"{MODEL_CACHE}/Emu3-VisionTokenizer", trust_remote_code=True
         )  # "BAAI/Emu3-VisionTokenizer"
@@ -106,15 +101,11 @@ class Predictor(BasePredictor):
             description="Specify things to not see in the output",
             default="lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry.",
         ),
-        guidance_scale: float = Input(
-            description="Scale for classifier-free guidance", ge=1, le=20, default=3
-        ),
+        guidance_scale: float = Input(description="Scale for classifier-free guidance", ge=1, le=20, default=3),
     ) -> Path:
         """Run a single prediction on the model"""
 
-        pos_inputs = self.processor(
-            text=prompt + " " + positive_prompt.strip(), **self.kwargs
-        )
+        pos_inputs = self.processor(text=prompt + " " + positive_prompt.strip(), **self.kwargs)
         neg_inputs = self.processor(text=negative_prompt, **self.kwargs)
 
         h, w = pos_inputs.image_size[0]
