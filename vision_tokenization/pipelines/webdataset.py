@@ -63,12 +63,12 @@ class WebDatasetPipeline(BasePipeline):
         # Initialize Ray
         # Check if Ray should connect to existing cluster or start local
         if not ray.is_initialized():
-            ray_address = os.environ.get('RAY_ADDRESS', None)
+            ray_address = os.environ.get("RAY_ADDRESS", None)
 
             if ray_address:
                 # Multi-node mode: Connect to existing cluster
                 self.logger.info(f"Connecting to existing Ray cluster at {ray_address}")
-                ray.init(address='auto')  # Auto-detect from environment
+                ray.init(address="auto")  # Auto-detect from environment
             else:
                 # Local mode: Start new cluster with explicit resources
                 self.logger.info(f"Starting local Ray cluster with {self.num_workers} workers")

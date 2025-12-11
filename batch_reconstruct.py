@@ -30,62 +30,74 @@ def get_tokenizer_class(tokenizer_name: str):
     """Dynamically import and return the tokenizer class"""
     if tokenizer_name == "Emu3VisionTokenizer":
         from Tokenizer.Emu3VisionTokenizer import Emu3VisionTokenizer
+
         return Emu3VisionTokenizer
     elif tokenizer_name == "Emu3_5_IBQ":
         from Tokenizer.Emu3_5_IBQ import Emu3_5_IBQ
+
         return Emu3_5_IBQ
     elif tokenizer_name == "Cosmos":
         from Tokenizer.Cosmos import CosmosTokenizer
+
         return CosmosTokenizer
     elif tokenizer_name == "UniTok":
         from Tokenizer.UniTok import UniTok
+
         return UniTok
     elif tokenizer_name == "TokenFlow":
         from Tokenizer.TokenFlow_tiler import TokenFlowTokenizer
+
         return TokenFlowTokenizer
     elif tokenizer_name == "TokenFlow_molmo":
         from Tokenizer.TokenFlow_molmo import TokenFlowTokenizerMolmo
+
         return TokenFlowTokenizerMolmo
     elif tokenizer_name == "Selftok":
         from Tokenizer.Selftok import SelftokTokenizer
+
         return SelftokTokenizer
     elif tokenizer_name == "Selftok_molmo":
         from Tokenizer.Selftok_molmo import SelftokTokenizerMolmo
+
         return SelftokTokenizerMolmo
     elif tokenizer_name == "DetailFlow":
         from Tokenizer.DetailFlow import DetailFlowTokenizer
+
         return DetailFlowTokenizer
     elif tokenizer_name == "FlowMoTok":
         from Tokenizer.FlowMoTok import FlowMoTokTokenizer
+
         return FlowMoTokTokenizer
     elif tokenizer_name == "LlamaGenTok":
         from Tokenizer.LlamaGenTok import LlamaGenTokTokenizer
+
         return LlamaGenTokTokenizer
     elif tokenizer_name == "OpenMAGViT2":
         from Tokenizer.OpenMAGViT2 import OpenMAGViT2Tokenizer
+
         return OpenMAGViT2Tokenizer
     elif tokenizer_name == "FQGAN":
         from Tokenizer.fqgan import FQGANTokenizer
+
         return FQGANTokenizer
     elif tokenizer_name == "VILA":
         from Tokenizer.vila import VILATokenizer
+
         return VILATokenizer
     elif tokenizer_name == "VQGAN":
         from Tokenizer.vqgan import VQGANTokenizer
+
         return VQGANTokenizer
     elif tokenizer_name == "IBQ":
         from Tokenizer.IBQ import IBQTokenizer
+
         return IBQTokenizer
     else:
         raise ValueError(f"Unknown tokenizer: {tokenizer_name}")
 
 
 def batch_reconstruct(
-    input_folder: str,
-    output_folder: str,
-    tokenizer_name: str,
-    tokenizer_path: Optional[str] = None,
-    **tokenizer_kwargs
+    input_folder: str, output_folder: str, tokenizer_name: str, tokenizer_path: Optional[str] = None, **tokenizer_kwargs
 ):
     """
     Batch process images through tokenizer reconstruction
@@ -187,49 +199,31 @@ Notes:
   - For Emu3_5_IBQ: requires --tokenizer-path to model checkpoint directory
   - min-pixels and max-pixels enable smart resizing (e.g., 262144 = 512*512, 1048576 = 1024*1024)
   - Without min/max pixels, images are processed at original resolution
-        """
+        """,
     )
 
-    parser.add_argument(
-        "--tokenizer",
-        type=str,
-        required=True,
-        help="Name of the tokenizer to use"
-    )
+    parser.add_argument("--tokenizer", type=str, required=True, help="Name of the tokenizer to use")
+
+    parser.add_argument("--input", type=str, required=True, help="Input folder containing original images")
+
+    parser.add_argument("--output", type=str, required=True, help="Output folder for reconstructed images")
 
     parser.add_argument(
-        "--input",
-        type=str,
-        required=True,
-        help="Input folder containing original images"
-    )
-
-    parser.add_argument(
-        "--output",
-        type=str,
-        required=True,
-        help="Output folder for reconstructed images"
-    )
-
-    parser.add_argument(
-        "--tokenizer-path",
-        type=str,
-        default=None,
-        help="Optional path to tokenizer model (if required)"
+        "--tokenizer-path", type=str, default=None, help="Optional path to tokenizer model (if required)"
     )
 
     parser.add_argument(
         "--min-pixels",
         type=int,
         default=None,
-        help="Minimum number of pixels after resizing (e.g., 262144 for 512*512)"
+        help="Minimum number of pixels after resizing (e.g., 262144 for 512*512)",
     )
 
     parser.add_argument(
         "--max-pixels",
         type=int,
         default=None,
-        help="Maximum number of pixels after resizing (e.g., 1048576 for 1024*1024)"
+        help="Maximum number of pixels after resizing (e.g., 1048576 for 1024*1024)",
     )
 
     args = parser.parse_args()
@@ -258,7 +252,7 @@ Notes:
         output_folder=args.output,
         tokenizer_name=args.tokenizer,
         tokenizer_path=args.tokenizer_path,
-        **tokenizer_kwargs
+        **tokenizer_kwargs,
     )
 
 

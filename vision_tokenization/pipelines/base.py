@@ -3,8 +3,8 @@
 Base pipeline class for tokenization and shared utilities.
 """
 
-import time
 import logging
+import time
 from abc import ABC, abstractmethod
 from collections import deque
 from typing import Any, Dict, Optional
@@ -159,10 +159,10 @@ def setup_logger_basic(loglevel, loggerName, formatter):
     # Get the root logger
     logger = logging.getLogger(loggerName)
     logger.setLevel(loglevel)
-    
+
     # Remove existing handlers to avoid duplicates
     logger.handlers.clear()
-    
+
     # Add a console handler (stderr)
     handler = logging.StreamHandler()
     handler.setFormatter(formatter)
@@ -170,17 +170,16 @@ def setup_logger_basic(loglevel, loggerName, formatter):
     return logger
 
 
-def setup_worker_logging(loglevel = logging.INFO):
+def setup_worker_logging(loglevel=logging.INFO):
     """Configure logging for Ray workers with worker identification."""
     worker_id = ray.get_runtime_context().get_worker_id()
     node_id = ray.get_runtime_context().get_node_id()
-    
+
     # Create a custom formatter that includes worker info
     formatter = logging.Formatter(
-        f'%(asctime)s - [Worker:{worker_id[:8]} / Node:{node_id[:8]}] - '
-        f'%(name)s - %(levelname)s - %(message)s'
+        f"%(asctime)s - [Worker:{worker_id[:8]} / Node:{node_id[:8]}] - " f"%(name)s - %(levelname)s - %(message)s"
     )
-    
+
     return setup_logger_basic(loglevel, loggerName=f"RayWorker[{worker_id}]", formatter=formatter)
 
 
@@ -210,7 +209,7 @@ class ProgressActor:
         # Each entry is (timestamp, cumulative_samples_at_that_time)
         self.sliding_window = deque(maxlen=20)
 
-        logFmt = logging.Formatter(f'%(asctime)s ::: [%(name)s] - %(levelname)s -> %(message)s')
+        logFmt = logging.Formatter(f"%(asctime)s ::: [%(name)s] - %(levelname)s -> %(message)s")
         self.logger = setup_logger_basic(logging.INFO, loggerName="ProgressActor", formatter=logFmt)
 
         self.logger.warning(f"Log every {self.log_interval} steps!")
