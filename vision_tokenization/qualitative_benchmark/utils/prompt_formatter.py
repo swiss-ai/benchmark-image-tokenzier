@@ -46,8 +46,7 @@ def to_llama_format(text: str, img_right: bool = False) -> List[dict]:
 
 
 # Mapper methods to convert standard prompts to format needed by chat template of models tokenizer
-CHAT_TRANFORMS = {"to_apertus": to_apertus_format,
-                  "to_llama": to_llama_format}
+CHAT_TRANFORMS = {"to_apertus": to_apertus_format, "to_llama": to_llama_format}
 
 
 class PromptFormatter:

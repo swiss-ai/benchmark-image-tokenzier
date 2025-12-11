@@ -491,10 +491,7 @@ class RandomAugment(ImageTransform):
     name = "random_augment"
 
     def __init__(
-        self,
-        probability: float = 1.0,
-        transforms: List[Dict[str, Any]] = None,
-        config_path: Optional[str] = None
+        self, probability: float = 1.0, transforms: List[Dict[str, Any]] = None, config_path: Optional[str] = None
     ):
         """
         Initialize random augmentation transform.
@@ -514,8 +511,8 @@ class RandomAugment(ImageTransform):
             ValueError: If probability is not in [0, 1] or transforms is empty
             FileNotFoundError: If config_path provided but file doesn't exist
         """
-        from pathlib import Path
         import json
+        from pathlib import Path
 
         # Load from external config file if path provided
         if config_path is not None:
@@ -531,7 +528,7 @@ class RandomAugment(ImageTransform):
                 )
 
             try:
-                with open(path, 'r') as f:
+                with open(path, "r") as f:
                     aug_config = json.load(f)
             except json.JSONDecodeError as e:
                 raise ValueError(
@@ -540,15 +537,15 @@ class RandomAugment(ImageTransform):
                 )
 
             # Validate structure
-            if 'random_augment' not in aug_config:
+            if "random_augment" not in aug_config:
                 raise ValueError(
                     f"Invalid augmentation config structure: {path}\n"
                     f"  Expected top-level key 'random_augment'\n"
                     f"  Found keys: {list(aug_config.keys())}"
                 )
 
-            random_augment_config = aug_config['random_augment']
-            required_keys = ['probability', 'transforms']
+            random_augment_config = aug_config["random_augment"]
+            required_keys = ["probability", "transforms"]
             missing_keys = [k for k in required_keys if k not in random_augment_config]
 
             if missing_keys:
@@ -559,8 +556,8 @@ class RandomAugment(ImageTransform):
                 )
 
             # Extract from config file (overrides inline params)
-            probability = random_augment_config['probability']
-            transforms = random_augment_config['transforms']
+            probability = random_augment_config["probability"]
+            transforms = random_augment_config["transforms"]
 
             logger.info(f"✓ Loaded augmentation config from: {path}")
 
@@ -578,8 +575,7 @@ class RandomAugment(ImageTransform):
             import albumentations as A
         except ImportError:
             raise ImportError(
-                "albumentations is required for random_augment transform. "
-                "Install with: pip install albumentations"
+                "albumentations is required for random_augment transform. " "Install with: pip install albumentations"
             )
 
         # Build albumentations pipeline from transform configs
@@ -596,8 +592,7 @@ class RandomAugment(ImageTransform):
             self.pipeline = A.from_dict(pipeline_dict)
         except Exception as e:
             raise ValueError(
-                f"Failed to create albumentations pipeline from config: {e}\n"
-                f"Transforms config: {transforms}"
+                f"Failed to create albumentations pipeline from config: {e}\n" f"Transforms config: {transforms}"
             )
 
         # Build detailed pipeline information for logging
@@ -608,7 +603,7 @@ class RandomAugment(ImageTransform):
             # Collect other params (excluding __class_fullname__ and p)
             other_params = {k: v for k, v in t.items() if k not in ["__class_fullname__", "p"]}
             if other_params:
-                params_str = ', '.join(f'{k}={v}' for k, v in other_params.items())
+                params_str = ", ".join(f"{k}={v}" for k, v in other_params.items())
                 transform_details.append(f"{name}(p={prob}, {params_str})")
             else:
                 transform_details.append(f"{name}(p={prob})")

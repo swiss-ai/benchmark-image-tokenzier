@@ -393,7 +393,7 @@ def setup_vlm_inferencer(args):
         max_new_tokens=args.max_new_tokens,
         max_emu_aspect_ratio=max_pixels,
         min_emu_aspect_ratio=min_pixels,
-        chat_transform=args.chat_format or None
+        chat_transform=args.chat_format or None,
     )
 
     # Create VLM with pluggable components

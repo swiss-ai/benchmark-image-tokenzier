@@ -173,84 +173,84 @@ def calculate_metrics(original_path="assets/original", comparison_path="assets",
     results = []
 
     for folder_name, folder_path in folders_to_process:
-            print(f"\nCalculating metrics for folder: {folder_name}")
-            generated_images, numbers = load_images_from_folder(folder_path)
+        print(f"\nCalculating metrics for folder: {folder_name}")
+        generated_images, numbers = load_images_from_folder(folder_path)
 
-            if len(original_images) != len(generated_images):
-                print(f"  Skipping folder {folder_name}: mismatched image counts.")
-                continue
+        if len(original_images) != len(generated_images):
+            print(f"  Skipping folder {folder_name}: mismatched image counts.")
+            continue
 
-            psnr_values = []
-            ssim_values = []
-            lpips_values = []
-            used_tokens = []
+        psnr_values = []
+        ssim_values = []
+        lpips_values = []
+        used_tokens = []
 
-            original_images_resized = []
-            generated_images_resized = []
+        original_images_resized = []
+        generated_images_resized = []
 
-            for orig, gen in zip(original_images, generated_images):
-                ow, oh = orig.size
-                gw, gh = gen.size
+        for orig, gen in zip(original_images, generated_images):
+            ow, oh = orig.size
+            gw, gh = gen.size
 
-                # Determine target size
-                target_w = min(ow, gw)
-                target_h = min(oh, gh)
+            # Determine target size
+            target_w = min(ow, gw)
+            target_h = min(oh, gh)
 
-                # Resize whichever image is larger
-                if (ow, oh) != (target_w, target_h):
-                    orig = orig.resize((target_w, target_h), Image.BICUBIC)
-                if (gw, gh) != (target_w, target_h):
-                    gen = gen.resize((target_w, target_h), Image.BICUBIC)
+            # Resize whichever image is larger
+            if (ow, oh) != (target_w, target_h):
+                orig = orig.resize((target_w, target_h), Image.BICUBIC)
+            if (gw, gh) != (target_w, target_h):
+                gen = gen.resize((target_w, target_h), Image.BICUBIC)
 
-                original_images_resized.append(orig)
-                generated_images_resized.append(gen)
+            original_images_resized.append(orig)
+            generated_images_resized.append(gen)
 
-            for orig_resized, gen_resized, tokens in zip(original_images_resized, generated_images_resized, numbers):
-                # Convert to numpy arrays for PSNR and SSIM
-                orig_np = np.array(orig_resized)
-                gen_np = np.array(gen_resized)
-                if "unitok" in folder_name:
-                    tokens = tokens / 8
-                used_tokens.append(tokens)
-                # PSNR
-                psnr_values.append(psnr(orig_np, gen_np))
-                # SSIM
-                ssim_values.append(ssim(orig_np, gen_np, channel_axis=-1))
-                # LPIPS
-                orig_tensor = lpips_transform(orig_resized).unsqueeze(0).to(device)
-                gen_tensor = lpips_transform(gen_resized).unsqueeze(0).to(device)
-                lpips_score = lpips_model(orig_tensor, gen_tensor).item()
-                lpips_values.append(lpips_score)
+        for orig_resized, gen_resized, tokens in zip(original_images_resized, generated_images_resized, numbers):
+            # Convert to numpy arrays for PSNR and SSIM
+            orig_np = np.array(orig_resized)
+            gen_np = np.array(gen_resized)
+            if "unitok" in folder_name:
+                tokens = tokens / 8
+            used_tokens.append(tokens)
+            # PSNR
+            psnr_values.append(psnr(orig_np, gen_np))
+            # SSIM
+            ssim_values.append(ssim(orig_np, gen_np, channel_axis=-1))
+            # LPIPS
+            orig_tensor = lpips_transform(orig_resized).unsqueeze(0).to(device)
+            gen_tensor = lpips_transform(gen_resized).unsqueeze(0).to(device)
+            lpips_score = lpips_model(orig_tensor, gen_tensor).item()
+            lpips_values.append(lpips_score)
 
-            avg_psnr = np.mean(psnr_values)
-            avg_ssim = np.mean(ssim_values)
-            avg_lpips = np.mean(lpips_values)
-            avg_tokens = np.mean(used_tokens)
+        avg_psnr = np.mean(psnr_values)
+        avg_ssim = np.mean(ssim_values)
+        avg_lpips = np.mean(lpips_values)
+        avg_tokens = np.mean(used_tokens)
 
-            # FID remains unchanged, original and generated images as is
-            fid_value = calculate_fid(original_images_resized, generated_images_resized)
+        # FID remains unchanged, original and generated images as is
+        fid_value = calculate_fid(original_images_resized, generated_images_resized)
 
-            # Round ratio values in folder name for consistent display
-            display_folder_name = round_ratio_in_name(folder_name)
+        # Round ratio values in folder name for consistent display
+        display_folder_name = round_ratio_in_name(folder_name)
 
-            results.append(
-                {
-                    "Folder": display_folder_name,
-                    "PSNR": avg_psnr,
-                    "SSIM": avg_ssim,
-                    "LPIPS": avg_lpips,
-                    "#Tokens": avg_tokens,
-                }
-            )
+        results.append(
+            {
+                "Folder": display_folder_name,
+                "PSNR": avg_psnr,
+                "SSIM": avg_ssim,
+                "LPIPS": avg_lpips,
+                "#Tokens": avg_tokens,
+            }
+        )
 
-            # Results
-            print(f"  Average PSNR:  {avg_psnr:.2f}")
-            print(f"  Average SSIM:  {avg_ssim:.4f}")
-            print(f"  Average LPIPS: {avg_lpips:.4f}")
-            print(f"  FID:           {fid_value:.2f}")
-            print(
-                "We currently do not have enough data to calculate the true FID or rFID. Do not use this value for any serious evaluation."
-            )
+        # Results
+        print(f"  Average PSNR:  {avg_psnr:.2f}")
+        print(f"  Average SSIM:  {avg_ssim:.4f}")
+        print(f"  Average LPIPS: {avg_lpips:.4f}")
+        print(f"  FID:           {fid_value:.2f}")
+        print(
+            "We currently do not have enough data to calculate the true FID or rFID. Do not use this value for any serious evaluation."
+        )
 
     # Save results to CSV
     if results:

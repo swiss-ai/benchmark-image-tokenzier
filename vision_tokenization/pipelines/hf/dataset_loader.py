@@ -10,7 +10,7 @@ virtual memory -> Works even if dataset exceeds limits of memory mapping.
 import logging
 import os
 import re
-from typing import Optional, Tuple, Dict
+from typing import Dict, Optional, Tuple
 
 from datasets import Dataset, load_dataset, load_dataset_builder
 
@@ -57,7 +57,7 @@ def get_system_max_map_count() -> Optional[int]:
     return None if not found!
     """
     try:
-        with open('/proc/sys/vm/max_map_count', 'r') as f:
+        with open("/proc/sys/vm/max_map_count", "r") as f:
             max_map_count = int(f.read().strip())
             return max_map_count
     except (FileNotFoundError, PermissionError, ValueError) as e:
@@ -98,9 +98,7 @@ def get_builder_split_info(
     logger.info(f"Loading builder for: {dataset_name}{config_info}")
 
     if cache_dir is None:
-        logger.warning(
-            "No explicit cache_dir provided. " "Will use default: ~/.cache/huggingface/datasets"
-        )
+        logger.warning("No explicit cache_dir provided. " "Will use default: ~/.cache/huggingface/datasets")
 
     builder = load_dataset_builder(dataset_name, name=config_name, cache_dir=cache_dir)
     info = builder.info
@@ -111,7 +109,7 @@ def get_builder_split_info(
     for split_name, split_data in info.splits.items():
         # Extract num_examples, num_shards, and shard_lengths
         num_examples = split_data.num_examples
-        shard_lengths = getattr(split_data, 'shard_lengths', [])
+        shard_lengths = getattr(split_data, "shard_lengths", [])
         num_shards = len(shard_lengths) if shard_lengths else None
 
         split_info[split_name] = {
@@ -128,7 +126,9 @@ def get_builder_split_info(
     return split_info
 
 
-def check_memory_mapping_limits(split_info: Dict[str, Dict[str, int]], split: str, dataset_streamed: bool = False) -> None:
+def check_memory_mapping_limits(
+    split_info: Dict[str, Dict[str, int]], split: str, dataset_streamed: bool = False
+) -> None:
     """
     Check if system memory mapping limits are sufficient for the dataset.
     Accounts for split slicing to accurately estimate required memory maps.
@@ -173,9 +173,7 @@ def check_memory_mapping_limits(split_info: Dict[str, Dict[str, int]], split: st
             abs_end = abs_end if abs_end is not None else num_examples
 
             # Calculate which shards overlap with slice range
-            first_shard, last_shard, shards_needed = _calculate_shard_overlap(
-                abs_start, abs_end, shard_lengths
-            )
+            first_shard, last_shard, shards_needed = _calculate_shard_overlap(abs_start, abs_end, shard_lengths)
 
             logger.info(
                 f"Split slice '{split}' requires shards [{first_shard}, {last_shard}] "
@@ -216,10 +214,8 @@ def check_memory_mapping_limits(split_info: Dict[str, Dict[str, int]], split: st
             logger.error(error_msg)
             raise RuntimeError(error_msg)
     else:
-        logger.info(
-            f"✓ System max memory mappings ({max_map_count:,}) sufficient "
-            f"for {shards_needed} shard(s)"
-        )
+        logger.info(f"✓ System max memory mappings ({max_map_count:,}) sufficient " f"for {shards_needed} shard(s)")
+
 
 def _parse_split_slice(split: str) -> Tuple[str, Optional[int], Optional[int], bool, bool]:
     """
@@ -246,9 +242,9 @@ def _parse_split_slice(split: str) -> Tuple[str, Optional[int], Optional[int], b
 
     base_split = match.group(1)
     start_str = match.group(2)
-    start_pct = match.group(3) == '%'
+    start_pct = match.group(3) == "%"
     end_str = match.group(4)
-    end_pct = match.group(5) == '%'
+    end_pct = match.group(5) == "%"
 
     # Convert to int if present, otherwise None
     start = int(start_str) if start_str else None
@@ -332,14 +328,14 @@ def _calculate_shard_overlap(
     # Find first shard containing slice_start
     first_shard = 0
     for i in range(len(shard_lengths)):
-        if cumulative[i+1] > slice_start:
+        if cumulative[i + 1] > slice_start:
             first_shard = i
             break
 
     # Find last shard containing data before slice_end
     last_shard = len(shard_lengths) - 1
     for i in range(len(shard_lengths)):
-        if cumulative[i+1] >= slice_end:
+        if cumulative[i + 1] >= slice_end:
             last_shard = i
             break
 
@@ -391,8 +387,7 @@ def _load_with_builder_method(
 
     if cache_dir is None:
         logger.warning(
-            "Using 'builder_load' without explicit cache_dir. "
-            "Will use default: ~/.cache/huggingface/datasets"
+            "Using 'builder_load' without explicit cache_dir. " "Will use default: ~/.cache/huggingface/datasets"
         )
 
     builder = load_dataset_builder(dataset_name, name=config_name, cache_dir=cache_dir)
@@ -407,9 +402,11 @@ def _load_with_builder_method(
         return dataset
 
     except FileNotFoundError as e:
-        error_msg = (f"Dataset '{dataset_name}' is not prepared. "
+        error_msg = (
+            f"Dataset '{dataset_name}' is not prepared. "
             f"When using 'builder_load', run download_and_prepare() first."
-            f"Dataset not prepared. Use method='default' or prepare dataset first.")
+            f"Dataset not prepared. Use method='default' or prepare dataset first."
+        )
         logger.error(error_msg)
         raise FileNotFoundError(error_msg) from e
 
@@ -470,7 +467,7 @@ def load_hf_dataset(
 
     # Parse split once for all cases (with percentage support)
     base_split, start, end, start_is_pct, end_is_pct = _parse_split_slice(split)
-    has_slice = (start is not None or end is not None)
+    has_slice = start is not None or end is not None
 
     # Determine actual split to load
     if streaming and has_slice:
@@ -492,7 +489,9 @@ def load_hf_dataset(
             streaming=streaming,
         )
     else:  # builder_load
-        logger.info(f"[MODE: builder_load] Loading dataset using builder method: {dataset_name}{config_info}/{actual_split}")
+        logger.info(
+            f"[MODE: builder_load] Loading dataset using builder method: {dataset_name}{config_info}/{actual_split}"
+        )
         dataset = _load_with_builder_method(
             dataset_name=dataset_name,
             config_name=config_name,
@@ -514,10 +513,7 @@ def load_hf_dataset(
             )
 
             if base_split not in split_info:
-                raise ValueError(
-                    f"Cannot convert percentage slice for streaming: "
-                    f"split '{base_split}' not found"
-                )
+                raise ValueError(f"Cannot convert percentage slice for streaming: " f"split '{base_split}' not found")
 
             num_examples = split_info[base_split]["num_examples"]
             abs_start = _convert_percentage_to_absolute(start, start_is_pct, num_examples)

@@ -12,12 +12,12 @@ import ray
 
 from vision_tokenization.pipelines.base import BasePipeline, ProgressActor
 from vision_tokenization.pipelines.hf.dataset_loader import (
-    load_hf_dataset,
-    get_builder_split_info,
-    check_memory_mapping_limits,
-    log_hf_environment_info,
-    _parse_split_slice,
     _convert_percentage_to_absolute,
+    _parse_split_slice,
+    check_memory_mapping_limits,
+    get_builder_split_info,
+    load_hf_dataset,
+    log_hf_environment_info,
 )
 from vision_tokenization.pipelines.hf.workers import ShardQueue, Worker
 from vision_tokenization.vokenizers.transforms import create_transform_pipeline
@@ -185,12 +185,12 @@ class HFDatasetPipeline(BasePipeline):
         # Initialize Ray with GPU support
         # Check if Ray should connect to existing cluster or start local
         if not ray.is_initialized():
-            ray_address = os.environ.get('RAY_ADDRESS', None)
+            ray_address = os.environ.get("RAY_ADDRESS", None)
 
             if ray_address:
                 # Multi-node mode: Connect to existing cluster
                 self.logger.info(f"Connecting to existing Ray cluster at {ray_address}")
-                ray.init(address='auto')  # Auto-detect from environment
+                ray.init(address="auto")  # Auto-detect from environment
             else:
                 # Local mode: Start new cluster with explicit resources
                 self.logger.info(f"Starting local Ray cluster with {self.num_gpus} GPUs")
@@ -220,10 +220,7 @@ class HFDatasetPipeline(BasePipeline):
             # Check if base split exists in split_info
             if base_split not in split_info:
                 available_splits = list(split_info.keys())
-                raise ValueError(
-                    f"Split '{base_split}' not found in dataset. "
-                    f"Available splits: {available_splits}"
-                )
+                raise ValueError(f"Split '{base_split}' not found in dataset. " f"Available splits: {available_splits}")
 
             # Get total number of examples for this split
             num_examples = split_info[base_split]["num_examples"]
