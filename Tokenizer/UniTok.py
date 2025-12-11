@@ -1,44 +1,42 @@
-import torch
-import numpy as np
-from PIL import Image
-from typing import Tuple, Any
-from torchvision import transforms
 import os
 import sys
+from typing import Any, Tuple
 
-base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+import numpy as np
+import torch
+from PIL import Image
+from torchvision import transforms
+
+base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(base_dir)
 sys.path.insert(0, os.path.join(base_dir, "repos", "UniTok"))
 
 
 from pathlib import Path
+
+from models.unitok import UniTok
+from utils.config import Args
+from utils.data import normalize_01_into_pm1
+
 from Tiler import Tiler
 from Tokenizer.base import Tokenizer
 
 # os.chdir('/users/nirmiger/UniTok')
 # sys.path.append('/users/nirmiger/UniTok')
 
-from models.unitok import UniTok
-from utils.config import Args
-from utils.data import normalize_01_into_pm1
 
-TOKENIZER_PATH = '/iopsstor/scratch/cscs/nirmiger/unitok_tokenizer.pth'
-TOKENIZER = 'unitok'
+TOKENIZER_PATH = "/iopsstor/scratch/cscs/nirmiger/unitok_tokenizer.pth"
+TOKENIZER = "unitok"
 IMAGE_SIZE = 256
 TILE_SIZE = 412
 
-RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}_ratio_{(IMAGE_SIZE/TILE_SIZE)*(IMAGE_SIZE/TILE_SIZE)}'
+RECONSTRUCTION_PATH = f"/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}_ratio_{(IMAGE_SIZE/TILE_SIZE)*(IMAGE_SIZE/TILE_SIZE)}"
 
 
 class UniTokTokenizer(Tokenizer):
     """UniTok tokenizer implementation"""
 
-    def __init__(self,
-                 ckpt_path: str,
-                 device: str = "cuda",
-                 image_size: int = 256,
-                 seed: int = 0,
-                 **kwargs):
+    def __init__(self, ckpt_path: str, device: str = "cuda", image_size: int = 256, seed: int = 0, **kwargs):
         self.ckpt_path = ckpt_path
         self.device = device
         self.image_size = image_size
@@ -51,21 +49,23 @@ class UniTokTokenizer(Tokenizer):
 
     def _load_model(self) -> None:
         """Load UniTok model from checkpoint"""
-        ckpt = torch.load(self.ckpt_path, map_location='cpu')
+        ckpt = torch.load(self.ckpt_path, map_location="cpu")
         unitok_cfg = Args()
-        unitok_cfg.load_state_dict(ckpt['args'])
+        unitok_cfg.load_state_dict(ckpt["args"])
 
         self.model = UniTok(unitok_cfg)
-        self.model.load_state_dict(ckpt['trainer']['unitok'])
+        self.model.load_state_dict(ckpt["trainer"]["unitok"])
         self.model.to(self.device)
         self.model.eval()
 
     def preprocess(self, image: Image.Image) -> torch.Tensor:
         """Preprocess PIL image to tensor format expected by UniTok"""
-        preprocess = transforms.Compose([
-            transforms.ToTensor(),
-            normalize_01_into_pm1,
-        ])
+        preprocess = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                normalize_01_into_pm1,
+            ]
+        )
 
         tensor = preprocess(image).unsqueeze(0).to(self.device)  # Shape: (1, 3, H, W)
         return tensor
@@ -91,21 +91,21 @@ class UniTokTokenizer(Tokenizer):
     def get_num_tokens(self, indices: torch.Tensor) -> int:
         """Get total number of tokens"""
         return indices.numel()
-    
+
 
 if __name__ == "__main__":
     from utils_benchmark import load_all_images
 
     # Example usage
-    tokenizer = UniTokTokenizer(ckpt_path=TOKENIZER_PATH, device='cuda', image_size=256)
+    tokenizer = UniTokTokenizer(ckpt_path=TOKENIZER_PATH, device="cuda", image_size=256)
     tiler = Tiler(tile_size=TILE_SIZE, pad_value=-1.0, tile_resize=IMAGE_SIZE)
-    images, _, image_paths = load_all_images('/users/nirmiger/benchmark-image-tokenzier/assets/original')
+    images, _, image_paths = load_all_images("/users/nirmiger/benchmark-image-tokenzier/assets/original")
     batch_size = 8  # Adjust based on GPU memory
     os.makedirs(RECONSTRUCTION_PATH, exist_ok=True)
     for idx, image_path in enumerate(image_paths):
         name = Path(image_path).name
         print(f"\nProcessing image {idx+1}: {name}")
-        
+
         # Load and normalize image manually
         image = Image.open(image_path).convert("RGB")
         image_tensor = tokenizer.preprocess(image).squeeze(0)  # Shape: (3, H, W)
@@ -113,8 +113,8 @@ if __name__ == "__main__":
 
         # Tile the image
         result = tiler(image_tensor)
-        tiles = result['tiles']  # (N, C, H, W)
-        metadata = result['metadata']
+        tiles = result["tiles"]  # (N, C, H, W)
+        metadata = result["metadata"]
         print(f"Number of tiles: {tiles.shape[0]} | Tile shape: {tiles.shape[1:]}")
 
         total_tiles = tiles.shape[0]
@@ -155,13 +155,13 @@ if __name__ == "__main__":
         compression_ratio = original_pixels / total_tokens
 
         metrics = {
-            'input_shape': image_tensor.shape,
-            'num_tokens': total_tokens,
-            'original_pixels': original_pixels,
-            'compression_ratio': compression_ratio,
-            'indices_shape': all_indices_tensor.shape,
-            'num_tiles': total_tiles,
-            'tile_size': tiler.tile_size
+            "input_shape": image_tensor.shape,
+            "num_tokens": total_tokens,
+            "original_pixels": original_pixels,
+            "compression_ratio": compression_ratio,
+            "indices_shape": all_indices_tensor.shape,
+            "num_tiles": total_tiles,
+            "tile_size": tiler.tile_size,
         }
 
         # Log

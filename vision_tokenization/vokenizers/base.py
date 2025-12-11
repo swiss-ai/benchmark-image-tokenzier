@@ -5,6 +5,7 @@ Base tokenizer class for unified tokenization interface.
 
 from abc import ABC, abstractmethod
 from typing import Optional, Union
+
 import torch
 
 

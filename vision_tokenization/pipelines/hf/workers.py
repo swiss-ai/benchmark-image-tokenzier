@@ -6,6 +6,7 @@ Handles all tokenization modes with a single flexible worker class.
 
 import time
 from typing import Dict, Optional
+
 import ray
 
 
@@ -52,11 +53,11 @@ class ShardQueue:
     def get_status(self) -> Dict:
         """Get current processing status."""
         return {
-            'processed': self.next_shard,
-            'total': self.num_shards,
-            'in_progress': len(self.in_progress),
-            'completed': len(self.completed),
-            'failed': len(self.failed)
+            "processed": self.next_shard,
+            "total": self.num_shards,
+            "in_progress": len(self.in_progress),
+            "completed": len(self.completed),
+            "failed": len(self.failed),
         }
 
 
@@ -81,7 +82,7 @@ class Worker(BaseTokenizerWorker):
         image_field: str = "image",
         text_field: str = "text",
         min_image_pixels: Optional[int] = None,
-        max_image_pixels: Optional[int] = None
+        max_image_pixels: Optional[int] = None,
     ):
         """
         Initialize HF worker with tokenizer and output configuration.
@@ -108,13 +109,11 @@ class Worker(BaseTokenizerWorker):
             image_field=image_field,
             text_field=text_field,
             min_image_pixels=min_image_pixels,
-            max_image_pixels=max_image_pixels
+            max_image_pixels=max_image_pixels,
         )
 
         # Store output directory for per-shard files
         self.output_dir = output_dir
-
-
 
     def process_shard(self, shard_id: int, dataset_info: Dict, num_shards: int) -> Dict:
         """
@@ -133,35 +132,36 @@ class Worker(BaseTokenizerWorker):
 
         # Load the shard using HuggingFace's efficient shard method
         from datasets import load_dataset
+
         dataset = load_dataset(
-            dataset_info['name'],
-            name=dataset_info.get('config'),
-            split=dataset_info['split'],
-            cache_dir=dataset_info.get('cache_dir')
+            dataset_info["name"],
+            name=dataset_info.get("config"),
+            split=dataset_info["split"],
+            cache_dir=dataset_info.get("cache_dir"),
         )
 
         # Get this specific shard
         shard = dataset.shard(num_shards=num_shards, index=shard_id)
 
         # Create per-shard output file with total shards in filename
-        from vision_tokenization.pipelines.indexed_dataset_megatron import DType, IndexedDatasetBuilder
         from pathlib import Path
+
+        from vision_tokenization.pipelines.indexed_dataset_megatron import DType, IndexedDatasetBuilder
 
         shard_output_path = Path(self.output_dir) / f"rank_{self.worker_id}_shard_{shard_id}_{num_shards}"
         builder = IndexedDatasetBuilder(
-            f"{shard_output_path}.bin",
-            dtype=DType.optimal_dtype(len(self.tokenizer.text_tokenizer))
+            f"{shard_output_path}.bin", dtype=DType.optimal_dtype(len(self.tokenizer.text_tokenizer))
         )
 
         # Process all samples in the shard
         stats = {
-            'samples': 0,
-            'tokens': 0,
-            'image_tokens': 0,
-            'text_tokens': 0,
-            'errors': 0,
-            'skipped': 0,
-            'resolution_skipped': 0
+            "samples": 0,
+            "tokens": 0,
+            "image_tokens": 0,
+            "text_tokens": 0,
+            "errors": 0,
+            "skipped": 0,
+            "resolution_skipped": 0,
         }
 
         for sample in shard:
@@ -171,11 +171,11 @@ class Worker(BaseTokenizerWorker):
             # Check sample status
             status = self.get_sample_status(image, text)
 
-            if status == 'resolution_skip':
-                stats['resolution_skipped'] += 1
+            if status == "resolution_skip":
+                stats["resolution_skipped"] += 1
                 continue
-            elif status == 'data_skip':
-                stats['skipped'] += 1
+            elif status == "data_skip":
+                stats["skipped"] += 1
                 continue
 
             # Tokenize and save
@@ -183,12 +183,13 @@ class Worker(BaseTokenizerWorker):
                 tokens_np = self.tokenize_sample(image, text)
                 if tokens_np is not None:
                     builder.add_document(tokens_np, [len(tokens_np)])
-                    stats['samples'] += 1
-                    stats['tokens'] += len(tokens_np)
+                    stats["samples"] += 1
+                    stats["tokens"] += len(tokens_np)
 
                     # Count image vs text tokens for SFT mode
                     if self.mode == "sft" and self.img_end_id is not None:
                         import torch
+
                         if torch.is_tensor(tokens_np):
                             tokens_list = tokens_np.cpu().numpy().tolist()
                         else:
@@ -196,28 +197,23 @@ class Worker(BaseTokenizerWorker):
 
                         if self.img_end_id in tokens_list:
                             img_end_idx = tokens_list.index(self.img_end_id)
-                            stats['image_tokens'] += img_end_idx + 1
-                            stats['text_tokens'] += len(tokens_list) - (img_end_idx + 1)
+                            stats["image_tokens"] += img_end_idx + 1
+                            stats["text_tokens"] += len(tokens_list) - (img_end_idx + 1)
                 else:
-                    stats['errors'] += 1
+                    stats["errors"] += 1
             except Exception as e:
                 self.logger.warning(f"Failed to process sample: {e}")
-                stats['errors'] += 1
+                stats["errors"] += 1
 
         # Finalize the shard file
         builder.finalize(f"{shard_output_path}.idx")
 
         elapsed = time.time() - start_time
         self.logger.info(
-            f"Completed shard {shard_id}: {stats['samples']} samples, "
-            f"{stats['tokens']} tokens in {elapsed:.1f}s"
+            f"Completed shard {shard_id}: {stats['samples']} samples, " f"{stats['tokens']} tokens in {elapsed:.1f}s"
         )
 
-        return {
-            'shard_id': shard_id,
-            'time': elapsed,
-            **stats
-        }
+        return {"shard_id": shard_id, "time": elapsed, **stats}
 
     def run_shards(self, shard_queue, dataset_info, num_shards, progress_actor=None) -> Dict:
         """
@@ -249,17 +245,17 @@ class Worker(BaseTokenizerWorker):
 
                 # Report progress if actor provided
                 if progress_actor:
-                    progress_actor.update.remote(result['samples'])
+                    progress_actor.update.remote(result["samples"])
 
                 # Update global statistics
                 self.update_stats(
-                    samples=result['samples'],
-                    tokens=result['tokens'],
-                    errors=result['errors'],
-                    skipped=result.get('skipped', 0),
-                    resolution_skipped=result.get('resolution_skipped', 0),
-                    image_tokens=result.get('image_tokens', 0),
-                    text_tokens=result.get('text_tokens', 0)
+                    samples=result["samples"],
+                    tokens=result["tokens"],
+                    errors=result["errors"],
+                    skipped=result.get("skipped", 0),
+                    resolution_skipped=result.get("resolution_skipped", 0),
+                    image_tokens=result.get("image_tokens", 0),
+                    text_tokens=result.get("text_tokens", 0),
                 )
 
             except Exception as e:
@@ -268,4 +264,3 @@ class Worker(BaseTokenizerWorker):
 
         # Return final statistics
         return self.get_final_stats()
-

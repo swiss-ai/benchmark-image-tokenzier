@@ -2,19 +2,20 @@ import os
 import sys
 
 # Add base directory to path
-base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(base_dir)
 
 # Add Emu3.5 submodule to path
-emu3_path = os.path.join(os.path.dirname(__file__), 'submodules', 'Emu3.5', 'src')
+emu3_path = os.path.join(os.path.dirname(__file__), "submodules", "Emu3.5", "src")
 sys.path.insert(0, emu3_path)
 
-import torch
-import numpy as np
 import math
-from typing import Tuple, Dict, Any, Optional
-from PIL import Image
+from typing import Any, Dict, Optional, Tuple
+
+import numpy as np
+import torch
 from omegaconf import OmegaConf
+from PIL import Image
 
 # Import from Emu3.5 submodule
 from vision_tokenizer.ibq import IBQ as Emu3IBQModel
@@ -26,12 +27,14 @@ from Tokenizer.base import Tokenizer
 class Emu3_5_IBQ(Tokenizer):
     """Emu3.5 IBQ discrete image tokenizer"""
 
-    def __init__(self,
-                 model_path: str,
-                 min_pixels: Optional[int] = None,
-                 max_pixels: Optional[int] = None,
-                 metadata_only: bool = False,
-                 **kwargs):
+    def __init__(
+        self,
+        model_path: str,
+        min_pixels: Optional[int] = None,
+        max_pixels: Optional[int] = None,
+        metadata_only: bool = False,
+        **kwargs,
+    ):
         """
         Initialize Emu3.5 IBQ tokenizer
 
@@ -56,11 +59,11 @@ class Emu3_5_IBQ(Tokenizer):
 
             cfg = OmegaConf.load(config_path)
 
-            if 'n_embed' not in cfg or 'embed_dim' not in cfg:
+            if "n_embed" not in cfg or "embed_dim" not in cfg:
                 raise ValueError(f"Config must contain 'n_embed' and 'embed_dim'. Found keys: {list(cfg.keys())}")
 
-            self.codebook_size = cfg['n_embed']
-            self.codebook_dim = cfg['embed_dim']
+            self.codebook_size = cfg["n_embed"]
+            self.codebook_dim = cfg["embed_dim"]
             return
 
         super().__init__(**kwargs)
@@ -135,11 +138,11 @@ class Emu3_5_IBQ(Tokenizer):
             print(f"Model device: {self.device}")
 
             # Get codebook size and embedding dimension from config
-            if 'n_embed' not in cfg or 'embed_dim' not in cfg:
+            if "n_embed" not in cfg or "embed_dim" not in cfg:
                 raise ValueError(f"Config must contain 'n_embed' and 'embed_dim'. Found keys: {list(cfg.keys())}")
 
-            self.codebook_size = cfg['n_embed']
-            self.codebook_dim = cfg['embed_dim']
+            self.codebook_size = cfg["n_embed"]
+            self.codebook_dim = cfg["embed_dim"]
             print(f"Codebook size: {self.codebook_size}")
             print(f"Codebook dimension: {self.codebook_dim}")
 
@@ -167,8 +170,10 @@ class Emu3_5_IBQ(Tokenizer):
             # Only resize if dimensions changed
             if (new_height, new_width) != (height, width):
                 image = image.resize((new_width, new_height), Image.BICUBIC)
-                print(f"Resized image from {width}x{height} to {new_width}x{new_height} "
-                      f"({width*height} -> {new_width*new_height} pixels)")
+                print(
+                    f"Resized image from {width}x{height} to {new_width}x{new_height} "
+                    f"({width*height} -> {new_width*new_height} pixels)"
+                )
 
         # Get model's dtype for consistency with Emu3.5 source
         dtype = next(self.model.parameters()).dtype
@@ -233,8 +238,8 @@ class Emu3_5_IBQ(Tokenizer):
 
             # Store additional info needed for decoding
             additional_info = {
-                'latent_shape': quant.shape,  # Shape of the latent representation [B, C, H, W]
-                'original_shape': tensor.shape
+                "latent_shape": quant.shape,  # Shape of the latent representation [B, C, H, W]
+                "original_shape": tensor.shape,
             }
 
             return indices, additional_info
@@ -252,8 +257,8 @@ class Emu3_5_IBQ(Tokenizer):
         """
         with torch.no_grad():
             # Get the shape for proper reconstruction
-            if additional_info and 'latent_shape' in additional_info:
-                latent_shape = additional_info['latent_shape']
+            if additional_info and "latent_shape" in additional_info:
+                latent_shape = additional_info["latent_shape"]
                 # latent_shape is (B, C, H, W) format
                 # decode_code expects shape as (batch, height, width, channel)
                 shape = (latent_shape[0], latent_shape[2], latent_shape[3], latent_shape[1])
@@ -297,7 +302,8 @@ class Emu3_5_IBQ(Tokenizer):
 
 if __name__ == "__main__":
     import sys
-    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
     from utils_benchmark import load_all_images
 
@@ -313,23 +319,23 @@ if __name__ == "__main__":
     # Initialize the Emu3.5 IBQ tokenizer with smart resizing
     print("Initializing Emu3.5 IBQ tokenizer...")
     tokenizer = Emu3_5_IBQ(
-        model_path=model_path,
-        min_pixels=512 * 512,    # Same as Emu3
-        max_pixels=1024 * 1024   # Same as Emu3
+        model_path=model_path, min_pixels=512 * 512, max_pixels=1024 * 1024  # Same as Emu3  # Same as Emu3
     )
 
     # Get model parameters
     tokenizer.get_params()
 
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # Load images from original assets folder
-    images, image_names, image_paths = load_all_images('/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/original')
+    images, image_names, image_paths = load_all_images(
+        "/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/original"
+    )
 
     print(f"Found {len(images)} images to process")
 
     # Setup output path
-    RECONSTRUCTION_PATH = f'/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/{tokenizer.name}'
+    RECONSTRUCTION_PATH = f"/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/{tokenizer.name}"
     os.makedirs(RECONSTRUCTION_PATH, exist_ok=True)
 
     print(f"\n{'='*80}")
@@ -386,6 +392,7 @@ if __name__ == "__main__":
             except Exception as e:
                 print(f"  ❌ Error processing {name}: {e}")
                 import traceback
+
                 traceback.print_exc()
                 continue
 

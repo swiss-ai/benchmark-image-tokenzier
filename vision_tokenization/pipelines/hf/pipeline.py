@@ -5,7 +5,8 @@ Handles both image-only and SFT tokenization modes.
 """
 
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+
 import ray
 
 from vision_tokenization.pipelines.base import BasePipeline, ProgressActor
@@ -37,7 +38,7 @@ class HFDatasetPipeline(BasePipeline):
         image_field: str = "images",
         text_field: str = "texts",
         resume: bool = False,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(tokenizer_path, output_dir, num_gpus, device, **kwargs)
 
@@ -54,21 +55,15 @@ class HFDatasetPipeline(BasePipeline):
         if min_tokenizer_pixels is None:
             if min_image_pixels is not None:
                 min_tokenizer_pixels = min_image_pixels
-                self.logger.info(
-                    f"Using min_image_pixels ({min_image_pixels:,} pixels) as min_tokenizer_pixels"
-                )
+                self.logger.info(f"Using min_image_pixels ({min_image_pixels:,} pixels) as min_tokenizer_pixels")
             else:
                 min_tokenizer_pixels = 512 * 512
-                self.logger.warning(
-                    "No min_tokenizer_pixels provided, using default: 512*512 (262,144 pixels)"
-                )
+                self.logger.warning("No min_tokenizer_pixels provided, using default: 512*512 (262,144 pixels)")
 
         # Max tokenizer pixels always defaults to 1024*1024
         if max_tokenizer_pixels is None:
             max_tokenizer_pixels = 1024 * 1024
-            self.logger.warning(
-                "No max_tokenizer_pixels provided, using default: 1024*1024 (1,048,576 pixels)"
-            )
+            self.logger.warning("No max_tokenizer_pixels provided, using default: 1024*1024 (1,048,576 pixels)")
 
         self.min_tokenizer_pixels = min_tokenizer_pixels
         self.max_tokenizer_pixels = max_tokenizer_pixels
@@ -95,9 +90,9 @@ class HFDatasetPipeline(BasePipeline):
 
     def _get_completed_shards(self) -> set:
         """Get list of already completed shards by checking for .idx files."""
-        from pathlib import Path
         import re
         import sys
+        from pathlib import Path
 
         completed = set()
         output_path = Path(self.output_dir)
@@ -106,13 +101,13 @@ class HFDatasetPipeline(BasePipeline):
             return completed
 
         # Pattern: rank_X_shard_Y_Z.idx where Y is shard_id and Z is total_shards
-        pattern = re.compile(r'rank_\d+_shard_(\d+)_(\d+)\.idx')
+        pattern = re.compile(r"rank_\d+_shard_(\d+)_(\d+)\.idx")
 
         # Collect all shard counts found
         shard_counts_found = set()
         files_by_shard_count = {}
 
-        for idx_file in output_path.glob('*.idx'):
+        for idx_file in output_path.glob("*.idx"):
             match = pattern.match(idx_file.name)
             if match:
                 shard_id = int(match.group(1))
@@ -142,9 +137,7 @@ class HFDatasetPipeline(BasePipeline):
 
         if len(shard_counts_found) > 1:
             # Multiple different shard counts found
-            self.logger.error(
-                f"ERROR: Inconsistent total shard counts found: {sorted(shard_counts_found)}"
-            )
+            self.logger.error(f"ERROR: Inconsistent total shard counts found: {sorted(shard_counts_found)}")
             for count in sorted(shard_counts_found):
                 self.logger.error(f"  {count} total shards: {len(files_by_shard_count[count])} files")
             self.logger.error("Clean the output directory or use a different output path")
@@ -164,12 +157,13 @@ class HFDatasetPipeline(BasePipeline):
         config_info = f" (config: {self.config_name})" if self.config_name else ""
         self.logger.info(f"Loading dataset: {self.dataset_name}{config_info}/{self.dataset_split}")
         from datasets import load_dataset
+
         self.dataset = load_dataset(
             self.dataset_name,
             name=self.config_name,
             split=self.dataset_split,
             cache_dir=self.cache_dir,
-            num_proc=self.num_proc
+            num_proc=self.num_proc,
         )
 
         if self.max_samples:
@@ -182,8 +176,8 @@ class HFDatasetPipeline(BasePipeline):
             self.output_dir = str(Path(self.output_dir) / f"{self.config_name}_{self.mode}")
 
         # Add resolution subdirectory if filtering is enabled
-        min_dims = self.kwargs.get('min_image_dims')
-        max_dims = self.kwargs.get('max_image_dims')
+        min_dims = self.kwargs.get("min_image_dims")
+        max_dims = self.kwargs.get("max_image_dims")
         if min_dims or max_dims:
             parts = []
             if min_dims:
@@ -214,10 +208,14 @@ class HFDatasetPipeline(BasePipeline):
         if self.resume:
             completed_shards = self._get_completed_shards()
             if completed_shards:
-                self.logger.info(f"Resume mode: Found {len(completed_shards)} completed shards: {sorted(completed_shards)}")
+                self.logger.info(
+                    f"Resume mode: Found {len(completed_shards)} completed shards: {sorted(completed_shards)}"
+                )
                 # Create work queue with only uncompleted shards
                 uncompleted = [i for i in range(self.num_shards) if i not in completed_shards]
-                self.logger.info(f"Will process {len(uncompleted)} remaining shards: {uncompleted[:10]}{'...' if len(uncompleted) > 10 else ''}")
+                self.logger.info(
+                    f"Will process {len(uncompleted)} remaining shards: {uncompleted[:10]}{'...' if len(uncompleted) > 10 else ''}"
+                )
                 self.work_queue = ShardQueue.remote(self.num_shards, initial_shards=uncompleted)
             else:
                 self.logger.info("Resume mode: No completed shards found, starting from beginning")
@@ -239,7 +237,7 @@ class HFDatasetPipeline(BasePipeline):
                 image_field=self.image_field,
                 text_field=self.text_field,
                 min_image_pixels=self.min_image_pixels,
-                max_image_pixels=self.max_image_pixels
+                max_image_pixels=self.max_image_pixels,
             )
             self.workers.append(worker)
 
@@ -252,17 +250,18 @@ class HFDatasetPipeline(BasePipeline):
         """Process the dataset using shard-based approach."""
         # Create dataset info dict to pass to workers
         dataset_info = {
-            'name': self.dataset_name,
-            'config': self.config_name,
-            'split': self.dataset_split,
-            'cache_dir': self.cache_dir,
-            'total_samples': len(self.dataset)
+            "name": self.dataset_name,
+            "config": self.config_name,
+            "split": self.dataset_split,
+            "cache_dir": self.cache_dir,
+            "total_samples": len(self.dataset),
         }
 
         # Start workers processing shards
-        worker_futures = [worker.run_shards.remote(self.work_queue, dataset_info,
-                                                   self.num_shards, self.progress_actor)
-                         for worker in self.workers]
+        worker_futures = [
+            worker.run_shards.remote(self.work_queue, dataset_info, self.num_shards, self.progress_actor)
+            for worker in self.workers
+        ]
 
         # Wait for completion
         results = ray.get(worker_futures)
@@ -271,10 +270,10 @@ class HFDatasetPipeline(BasePipeline):
         total_processed = ray.get(self.progress_actor.close.remote())
 
         # Calculate summary statistics
-        total_samples_processed = sum(r['samples_processed'] for r in results)
-        total_tokens = sum(r['tokens_generated'] for r in results)
-        total_errors = sum(r['errors'] for r in results)
-        max_time = max(r['elapsed_time'] for r in results)
+        total_samples_processed = sum(r["samples_processed"] for r in results)
+        total_tokens = sum(r["tokens_generated"] for r in results)
+        total_errors = sum(r["errors"] for r in results)
+        max_time = max(r["elapsed_time"] for r in results)
 
         # Save metadata
         self._save_metadata(results, max_time)
@@ -291,7 +290,7 @@ class HFDatasetPipeline(BasePipeline):
             "workers": len(self.workers),
             "mode": self.mode,
             "output_dir": self.output_dir,
-            "metadata_file": str(Path(self.output_dir) / 'dataset_info.json')
+            "metadata_file": str(Path(self.output_dir) / "dataset_info.json"),
         }
 
     def _merge_results(self):
@@ -309,7 +308,7 @@ class HFDatasetPipeline(BasePipeline):
         metadata = self.generate_metadata(
             results=results,
             processing_time=processing_time,
-            dataset_type=f'{self.mode} tokenization',
+            dataset_type=f"{self.mode} tokenization",
             dataset_name=self.dataset_name,
             config_name=self.config_name,
             split=self.dataset_split,
@@ -318,19 +317,16 @@ class HFDatasetPipeline(BasePipeline):
             text_field=self.text_field,
             batch_size=self.batch_size,
             tokenizer={
-                'path': self.tokenizer_path,
-                'min_pixels': self.min_tokenizer_pixels,
-                'max_pixels': self.max_tokenizer_pixels
+                "path": self.tokenizer_path,
+                "min_pixels": self.min_tokenizer_pixels,
+                "max_pixels": self.max_tokenizer_pixels,
             },
-            image_filtering={
-                'min_pixels': self.min_image_pixels,
-                'max_pixels': self.max_image_pixels
-            }
+            image_filtering={"min_pixels": self.min_image_pixels, "max_pixels": self.max_image_pixels},
         )
 
         # Save to file
-        metadata_path = Path(self.output_dir) / 'dataset_info.json'
-        with open(metadata_path, 'w') as f:
+        metadata_path = Path(self.output_dir) / "dataset_info.json"
+        with open(metadata_path, "w") as f:
             json.dump(metadata, f, indent=2)
 
         self.logger.info(f"Saved metadata to {metadata_path}")

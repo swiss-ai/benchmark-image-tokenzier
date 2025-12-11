@@ -3,9 +3,10 @@
 Base pipeline class for tokenization and shared utilities.
 """
 
-from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
 import logging
+from abc import ABC, abstractmethod
+from typing import Any, Dict, Optional
+
 import ray
 import torch
 from tqdm import tqdm
@@ -14,14 +15,7 @@ from tqdm import tqdm
 class BasePipeline(ABC):
     """Abstract base class for tokenization pipelines."""
 
-    def __init__(
-        self,
-        tokenizer_path: str,
-        output_dir: str,
-        num_gpus: int,
-        device: str,
-        **kwargs
-    ):
+    def __init__(self, tokenizer_path: str, output_dir: str, num_gpus: int, device: str, **kwargs):
         """
         Initialize base pipeline.
 
@@ -71,52 +65,53 @@ class BasePipeline(ABC):
             Metadata dictionary
         """
         # Calculate aggregate statistics
-        total_samples = sum(r['samples_processed'] for r in results)
-        total_tokens = sum(r['tokens_generated'] for r in results)
-        total_errors = sum(r['errors'] for r in results)
-        total_skipped = sum(r.get('samples_skipped', 0) for r in results)
-        total_resolution_skipped = sum(r.get('resolution_skipped', 0) for r in results)
-        total_image_tokens = sum(r.get('image_tokens', 0) for r in results)
-        total_text_tokens = sum(r.get('text_tokens', 0) for r in results)
+        total_samples = sum(r["samples_processed"] for r in results)
+        total_tokens = sum(r["tokens_generated"] for r in results)
+        total_errors = sum(r["errors"] for r in results)
+        total_skipped = sum(r.get("samples_skipped", 0) for r in results)
+        total_resolution_skipped = sum(r.get("resolution_skipped", 0) for r in results)
+        total_image_tokens = sum(r.get("image_tokens", 0) for r in results)
+        total_text_tokens = sum(r.get("text_tokens", 0) for r in results)
 
         metadata = {
-            'statistics': {
-                'total_samples_processed': total_samples,
-                'samples_skipped': total_skipped,
-                'resolution_skipped': total_resolution_skipped,
-                'total_tokens': total_tokens,
-                'image_tokens': total_image_tokens,
-                'text_tokens': total_text_tokens,
-                'errors': total_errors
+            "statistics": {
+                "total_samples_processed": total_samples,
+                "samples_skipped": total_skipped,
+                "resolution_skipped": total_resolution_skipped,
+                "total_tokens": total_tokens,
+                "image_tokens": total_image_tokens,
+                "text_tokens": total_text_tokens,
+                "errors": total_errors,
             },
-            'averages': {
-                'tokens_per_sample': total_tokens / total_samples if total_samples > 0 else 0,
-                'image_tokens_per_sample': total_image_tokens / total_samples if total_samples > 0 else 0,
-                'text_tokens_per_sample': total_text_tokens / total_samples if total_samples > 0 else 0
+            "averages": {
+                "tokens_per_sample": total_tokens / total_samples if total_samples > 0 else 0,
+                "image_tokens_per_sample": total_image_tokens / total_samples if total_samples > 0 else 0,
+                "text_tokens_per_sample": total_text_tokens / total_samples if total_samples > 0 else 0,
             },
-            'token_distribution': {
-                'image_percentage': total_image_tokens / total_tokens * 100 if total_tokens > 0 else 0,
-                'text_percentage': total_text_tokens / total_tokens * 100 if total_tokens > 0 else 0
+            "token_distribution": {
+                "image_percentage": total_image_tokens / total_tokens * 100 if total_tokens > 0 else 0,
+                "text_percentage": total_text_tokens / total_tokens * 100 if total_tokens > 0 else 0,
             },
-            'processing': {
-                'num_gpus': len(results),
-                'processing_time_seconds': processing_time,
-                'samples_per_second': total_samples / processing_time if processing_time > 0 else 0,
-                'tokens_per_second': total_tokens / processing_time if processing_time > 0 else 0
+            "processing": {
+                "num_gpus": len(results),
+                "processing_time_seconds": processing_time,
+                "samples_per_second": total_samples / processing_time if processing_time > 0 else 0,
+                "tokens_per_second": total_tokens / processing_time if processing_time > 0 else 0,
             },
-            'worker_details': [
+            "worker_details": [
                 {
-                    'worker_id': i,
-                    'samples_processed': r['samples_processed'],
-                    'tokens_generated': r['tokens_generated'],
-                    'image_tokens': r.get('image_tokens', 0),
-                    'text_tokens': r.get('text_tokens', 0),
-                    'errors': r['errors'],
-                    'samples_skipped': r.get('samples_skipped', 0),
-                    'resolution_skipped': r.get('resolution_skipped', 0),
-                    'throughput': r.get('throughput', 0)
-                } for i, r in enumerate(results)
-            ]
+                    "worker_id": i,
+                    "samples_processed": r["samples_processed"],
+                    "tokens_generated": r["tokens_generated"],
+                    "image_tokens": r.get("image_tokens", 0),
+                    "text_tokens": r.get("text_tokens", 0),
+                    "errors": r["errors"],
+                    "samples_skipped": r.get("samples_skipped", 0),
+                    "resolution_skipped": r.get("resolution_skipped", 0),
+                    "throughput": r.get("throughput", 0),
+                }
+                for i, r in enumerate(results)
+            ],
         }
 
         # Add any additional kwargs to metadata
@@ -190,7 +185,7 @@ class BaseTokenizerWorker:
         text_field: str = "text",
         device: str = None,
         min_image_pixels: Optional[int] = None,  # For filtering images
-        max_image_pixels: Optional[int] = None  # For filtering images
+        max_image_pixels: Optional[int] = None,  # For filtering images
     ):
         self.worker_id = worker_id
         self.mode = mode
@@ -213,21 +208,22 @@ class BaseTokenizerWorker:
             text_tokenizer_path=tokenizer_path,
             device=self.device,
             min_pixels=min_pixels,
-            max_pixels=max_pixels
+            max_pixels=max_pixels,
         )
 
         # Initialize stats
         import time
+
         self.stats = {
-            'batches_processed': 0,
-            'samples_processed': 0,
-            'tokens_generated': 0,
-            'image_tokens': 0,  # Only for SFT mode
-            'text_tokens': 0,   # Only for SFT mode
-            'errors': 0,
-            'samples_skipped': 0,  # Samples skipped due to missing data
-            'resolution_skipped': 0,  # Samples skipped due to resolution filtering
-            'start_time': time.time()
+            "batches_processed": 0,
+            "samples_processed": 0,
+            "tokens_generated": 0,
+            "image_tokens": 0,  # Only for SFT mode
+            "text_tokens": 0,  # Only for SFT mode
+            "errors": 0,
+            "samples_skipped": 0,  # Samples skipped due to missing data
+            "resolution_skipped": 0,  # Samples skipped due to resolution filtering
+            "start_time": time.time(),
         }
 
         # Cache img_end token ID for SFT mode
@@ -276,17 +272,17 @@ class BaseTokenizerWorker:
         """
         # Check for missing image
         if image is None:
-            return 'data_skip'
+            return "data_skip"
 
         # Check if mode requires text and it's missing
         if self.mode in ["image2text", "text2image", "sft"] and not text:
-            return 'data_skip'
+            return "data_skip"
 
         # Check resolution filtering
         if not self.should_process_resolution(image):
-            return 'resolution_skip'
+            return "resolution_skip"
 
-        return 'ok'
+        return "ok"
 
     def tokenize_sample(self, image, text) -> Optional[Any]:
         """
@@ -334,26 +330,32 @@ class BaseTokenizerWorker:
         except KeyError as e:
             field = e.args[0]
             raise KeyError(
-                f"Required field '{field}' not found in sample. "
-                f"Available fields: {', '.join(sample.keys())}"
+                f"Required field '{field}' not found in sample. " f"Available fields: {', '.join(sample.keys())}"
             ) from None
 
-    def update_stats(self, samples: int = 0, tokens: int = 0, errors: int = 0,
-                     skipped: int = 0, resolution_skipped: int = 0,
-                     image_tokens: int = 0, text_tokens: int = 0):
+    def update_stats(
+        self,
+        samples: int = 0,
+        tokens: int = 0,
+        errors: int = 0,
+        skipped: int = 0,
+        resolution_skipped: int = 0,
+        image_tokens: int = 0,
+        text_tokens: int = 0,
+    ):
         """Update worker statistics."""
-        self.stats['samples_processed'] += samples
-        self.stats['tokens_generated'] += tokens
-        self.stats['image_tokens'] += image_tokens
-        self.stats['text_tokens'] += text_tokens
-        self.stats['errors'] += errors
-        self.stats['samples_skipped'] += skipped
-        self.stats['resolution_skipped'] += resolution_skipped
+        self.stats["samples_processed"] += samples
+        self.stats["tokens_generated"] += tokens
+        self.stats["image_tokens"] += image_tokens
+        self.stats["text_tokens"] += text_tokens
+        self.stats["errors"] += errors
+        self.stats["samples_skipped"] += skipped
+        self.stats["resolution_skipped"] += resolution_skipped
 
     def format_stats_message(self, prefix: str, stats: Dict, elapsed: float = None) -> str:
         """Format statistics into a clean log message."""
-        samples = stats.get('samples', stats.get('samples_processed', 0))
-        tokens = stats.get('tokens', stats.get('tokens_generated', 0))
+        samples = stats.get("samples", stats.get("samples_processed", 0))
+        tokens = stats.get("tokens", stats.get("tokens_generated", 0))
         avg_tokens = tokens / samples if samples > 0 else 0
 
         # Base message
@@ -365,16 +367,16 @@ class BaseTokenizerWorker:
 
         # Token breakdown (always show for non-image_only modes)
         if self.mode != "image_only":
-            img_tok = stats.get('image_tokens', 0)
-            txt_tok = stats.get('text_tokens', 0)
+            img_tok = stats.get("image_tokens", 0)
+            txt_tok = stats.get("text_tokens", 0)
             if img_tok > 0 or txt_tok > 0:
                 parts.append(f"[img: {img_tok}, txt: {txt_tok}]")
 
         # Skip counts
         skips = []
-        if stats.get('skipped', stats.get('samples_skipped', 0)) > 0:
+        if stats.get("skipped", stats.get("samples_skipped", 0)) > 0:
             skips.append(f"{stats.get('skipped', stats.get('samples_skipped', 0))} data_skip")
-        if stats.get('resolution_skipped', 0) > 0:
+        if stats.get("resolution_skipped", 0) > 0:
             skips.append(f"{stats['resolution_skipped']} res_skip")
         if skips:
             parts.append(f"({', '.join(skips)})")
@@ -385,9 +387,9 @@ class BaseTokenizerWorker:
         """Get final statistics for the worker."""
         import time
 
-        elapsed = time.time() - self.stats['start_time']
-        self.stats['elapsed_time'] = elapsed
-        self.stats['throughput'] = self.stats['tokens_generated'] / elapsed if elapsed > 0 else 0
+        elapsed = time.time() - self.stats["start_time"]
+        self.stats["elapsed_time"] = elapsed
+        self.stats["throughput"] = self.stats["tokens_generated"] / elapsed if elapsed > 0 else 0
 
         msg = self.format_stats_message(f"Worker {self.worker_id} finished", self.stats, elapsed)
         self.logger.info(msg)

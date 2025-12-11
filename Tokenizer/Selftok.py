@@ -1,52 +1,56 @@
-import torch
-import numpy as np
-from PIL import Image
-from typing import Tuple, Any
-from torchvision import transforms
 import os
 import sys
+from typing import Any, Tuple
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import numpy as np
+import torch
+from PIL import Image
+from torchvision import transforms
 
-from utils_benchmark import load_all_images
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from pathlib import Path
+
+from base import Tokenizer
 from torchvision.utils import make_grid
 
-
 from Tiler import Tiler
-from base import Tokenizer
+from utils_benchmark import load_all_images
 
-os.chdir('/users/nirmiger/SelftokTokenizer')
-sys.path.append('/users/nirmiger/SelftokTokenizer')
+os.chdir("/users/nirmiger/SelftokTokenizer")
+sys.path.append("/users/nirmiger/SelftokTokenizer")
 
-from mimogpt.infer.SelftokPipeline import SelftokPipeline, NormalizeToTensor
 from mimogpt.infer.infer_utils import parse_args_from_yaml
+from mimogpt.infer.SelftokPipeline import NormalizeToTensor, SelftokPipeline
 
-TOKENIZER = 'selftok_1024'
-if TOKENIZER == 'selftok_512':
-    TOKENIZER_PATH = '/iopsstor/scratch/cscs/nirmiger/renderer_512_ckpt.pth'
-    CONFIG_PATH = '/users/nirmiger/SelftokTokenizer/configs/renderer/renderer-eval.yml'
-elif TOKENIZER == 'selftok_1024':
-    TOKENIZER_PATH = '/iopsstor/scratch/cscs/nirmiger/renderer_1024_ckpt.pth'
-    CONFIG_PATH = '/users/nirmiger/SelftokTokenizer/configs/renderer/renderer-eval_1024.yml'
+TOKENIZER = "selftok_1024"
+if TOKENIZER == "selftok_512":
+    TOKENIZER_PATH = "/iopsstor/scratch/cscs/nirmiger/renderer_512_ckpt.pth"
+    CONFIG_PATH = "/users/nirmiger/SelftokTokenizer/configs/renderer/renderer-eval.yml"
+elif TOKENIZER == "selftok_1024":
+    TOKENIZER_PATH = "/iopsstor/scratch/cscs/nirmiger/renderer_1024_ckpt.pth"
+    CONFIG_PATH = "/users/nirmiger/SelftokTokenizer/configs/renderer/renderer-eval_1024.yml"
 
-SD3_PATH = '/iopsstor/scratch/cscs/nirmiger/models--stabilityai--stable-diffusion-3-medium-diffusers/snapshots/ea42f8cef0f178587cf766dc8129abd379c90671'
+SD3_PATH = "/iopsstor/scratch/cscs/nirmiger/models--stabilityai--stable-diffusion-3-medium-diffusers/snapshots/ea42f8cef0f178587cf766dc8129abd379c90671"
 IMAGE_SIZE = 256
 TILE_SIZE = 256
 
-RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}_ratio_{(IMAGE_SIZE/TILE_SIZE)*(IMAGE_SIZE/TILE_SIZE)}'
+RECONSTRUCTION_PATH = f"/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}_ratio_{(IMAGE_SIZE/TILE_SIZE)*(IMAGE_SIZE/TILE_SIZE)}"
+
 
 class SelftokTokenizer(Tokenizer):
     """Selftok tokenizer implementation"""
 
-    def __init__(self,
-                 yml_path: str,
-                 ckpt_path: str,
-                 sd3_path: str,
-                 device: str = "cuda",
-                 image_size: int = 256,
-                 seed: int = 0,
-                 **kwargs):
+    def __init__(
+        self,
+        yml_path: str,
+        ckpt_path: str,
+        sd3_path: str,
+        device: str = "cuda",
+        image_size: int = 256,
+        seed: int = 0,
+        **kwargs,
+    ):
         self.yml_path = yml_path
         self.ckpt_path = ckpt_path
         self.sd3_path = sd3_path
@@ -58,20 +62,20 @@ class SelftokTokenizer(Tokenizer):
         torch.set_grad_enabled(False)
 
         # Preprocessing transform
-        self.preprocess_transform = transforms.Compose([
-            NormalizeToTensor(),
-        ])
+        self.preprocess_transform = transforms.Compose(
+            [
+                NormalizeToTensor(),
+            ]
+        )
 
         super().__init__(**kwargs)
 
     def _load_model(self) -> None:
         """Load Selftok model from checkpoint"""
         cfg = parse_args_from_yaml(self.yml_path)
-        self.model = SelftokPipeline(cfg=cfg,
-                                     ckpt_path=self.ckpt_path,
-                                     sd3_path=self.sd3_path,
-                                     datasize=self.image_size,
-                                     device=self.device)
+        self.model = SelftokPipeline(
+            cfg=cfg, ckpt_path=self.ckpt_path, sd3_path=self.sd3_path, datasize=self.image_size, device=self.device
+        )
 
     def preprocess(self, image: Image.Image) -> torch.Tensor:
         """Preprocess image to tensor format"""
@@ -105,18 +109,21 @@ class SelftokTokenizer(Tokenizer):
         """Get total number of tokens"""
         return indices.numel()
 
+
 if __name__ == "__main__":
     # Example usage
-    tokenizer = SelftokTokenizer(yml_path=CONFIG_PATH, ckpt_path=TOKENIZER_PATH, sd3_path=SD3_PATH, device='cuda', image_size=256)
+    tokenizer = SelftokTokenizer(
+        yml_path=CONFIG_PATH, ckpt_path=TOKENIZER_PATH, sd3_path=SD3_PATH, device="cuda", image_size=256
+    )
 
     tiler = Tiler(tile_size=TILE_SIZE, pad_value=-1.0, tile_resize=IMAGE_SIZE)
-    images, _, image_paths = load_all_images('/users/nirmiger/benchmark-image-tokenzier/assets/original')
+    images, _, image_paths = load_all_images("/users/nirmiger/benchmark-image-tokenzier/assets/original")
     batch_size = 8  # Adjust based on GPU memory
     os.makedirs(RECONSTRUCTION_PATH, exist_ok=True)
     for idx, image_path in enumerate(image_paths):
         name = Path(image_path).name
         print(f"\nProcessing image {idx+1}: {name}")
-        
+
         # Load and normalize image manually
         image = Image.open(image_path).convert("RGB")
         image_tensor = tokenizer.preprocess(image).squeeze(0)  # Shape: (3, H, W)
@@ -124,8 +131,8 @@ if __name__ == "__main__":
 
         # Tile the image
         result = tiler(image_tensor)
-        tiles = result['tiles']  # (N, C, H, W)
-        metadata = result['metadata']
+        tiles = result["tiles"]  # (N, C, H, W)
+        metadata = result["metadata"]
         print(f"Number of tiles: {tiles.shape[0]} | Tile shape: {tiles.shape[1:]}")
 
         total_tiles = tiles.shape[0]
@@ -167,13 +174,13 @@ if __name__ == "__main__":
         compression_ratio = original_pixels / total_tokens
 
         metrics = {
-            'input_shape': image_tensor.shape,
-            'num_tokens': total_tokens,
-            'original_pixels': original_pixels,
-            'compression_ratio': compression_ratio,
-            'indices_shape': all_indices_tensor.shape,
-            'num_tiles': total_tiles,
-            'tile_size': tiler.tile_size
+            "input_shape": image_tensor.shape,
+            "num_tokens": total_tokens,
+            "original_pixels": original_pixels,
+            "compression_ratio": compression_ratio,
+            "indices_shape": all_indices_tensor.shape,
+            "num_tiles": total_tiles,
+            "tile_size": tiler.tile_size,
         }
 
         # Log
