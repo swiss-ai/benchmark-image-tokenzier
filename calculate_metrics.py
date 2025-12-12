@@ -234,7 +234,7 @@ def calculate_metrics(original_path="assets/original", comparison_path="assets",
         display_folder_name = round_ratio_in_name(folder_name)
 
         results.append(
-            {
+                {
                 "Folder": display_folder_name,
                 "PSNR": avg_psnr,
                 "SSIM": avg_ssim,
