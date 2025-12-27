@@ -5,7 +5,7 @@ Handles all tokenization modes with a single flexible worker class.
 """
 
 import time
-from typing import Dict, Optional
+from typing import Dict, Optional, Union, Tuple
 
 import ray
 
@@ -81,6 +81,10 @@ class Worker(BaseTokenizerWorker):
         mode: str,
         min_pixels: int,
         max_pixels: int,
+        batch_mode: Optional[str] = None,
+        batch_size: int = 1,
+        buffer_size: Optional[int] = None,
+        resize_size: Union[int, Tuple[int, int], str] = 'avg',
         image_field: str = "image",
         text_field: str = "text",
         min_image_pixels: Optional[int] = None,
@@ -105,13 +109,17 @@ class Worker(BaseTokenizerWorker):
             transform_pipeline: Transform pipeline for image/text transforms (optional)
             conversation_transform: Conversation transform for SFT mode (optional)
         """
-        # Initialize base tokenizer with resolution filtering parameters
+        # Initialize base tokenizer with resolution filtering and batching parameters
         super().__init__(
             tokenizer_path=tokenizer_path,
             worker_id=worker_id,
             mode=mode,
             min_pixels=min_pixels,
             max_pixels=max_pixels,
+            batch_mode=batch_mode,
+            batch_size=batch_size,
+            buffer_size=buffer_size,
+            resize_size=resize_size,
             image_field=image_field,
             text_field=text_field,
             min_image_pixels=min_image_pixels,
@@ -125,6 +133,59 @@ class Worker(BaseTokenizerWorker):
 
         # Log HuggingFace environment info (once per worker at initialization)
         log_hf_environment_info(self.logger, worker_id=self.worker_id)
+
+    def batch_iterable_shard(self, shard, stats: Dict):
+        """
+        A generator which acts as an iterator over batches of a shard.
+
+        Args:
+            shard: The dataset shard
+            stats (Dict): Stats tracker for tokenization
+
+        Yields:
+            Batch dictionaries with 'images', 'text', and 'resize_size' keys
+        """
+        buffer = []
+        for sample in shard:
+            # Extract data
+            image, text = self._extract_data(sample)
+
+            # Apply transforms if configured
+            try:
+                image, text = self.apply_transforms(image, text)
+            except TransformError as e:
+                self.logger.warning(f"Transform error: {e}")
+                stats["transform_errors"] += 1
+                continue
+            except Exception as e:
+                self.logger.error(f"Error applying transforms: {e}")
+                stats["errors"] += 1
+                continue
+
+            # Check sample status
+            status = self.get_sample_status(image, text)
+            if status == "resolution_skip":
+                stats["resolution_skipped"] += 1
+                continue
+            elif status == "data_skip":
+                stats["skipped"] += 1
+                continue
+
+            # Add sample to buffer
+            if text is None:
+                buffer.append({"image": image})
+            else:
+                buffer.append({"image": image, "text": text})
+
+            if len(buffer) == self.buffer_size:
+                for batch in self.batcher(buffer):
+                    yield batch
+                buffer.clear()
+
+        # Flush remaining samples
+        if buffer:
+            for batch in self.batcher(buffer):
+                yield batch
 
     def process_shard(self, shard_id: int, dataset_info: Dict, num_shards: int, progress_actor=None) -> Dict:
         """
@@ -182,68 +243,125 @@ class Worker(BaseTokenizerWorker):
             "transform_errors": 0,
         }
 
-        for sample in shard:
-            # Extract data
-            image, text = self._extract_data(sample)
+        # Use batching if configured, otherwise process samples individually
+        if self.batcher is not None:
+            # Batched processing
+            import torch
 
-            # Apply transforms if configured
-            try:
-                image, text = self.apply_transforms(image, text)
-            except TransformError as e:
-                self.logger.warning(f"Transform error: {e}")
-                stats["transform_errors"] += 1
-                continue
-            except Exception as e:
-                self.logger.error(f"Error applying transforms: {e}")
-                stats["errors"] += 1
-                continue
+            batch_loader = self.batch_iterable_shard(shard, stats)
 
-            # Check sample status
-            status = self.get_sample_status(image, text)
+            for batch in batch_loader:
+                try:
+                    images, text = batch["images"], batch["text"]
+                    # Tokenize the batch
+                    tokens_batched = self.tokenize_batch(images, batch["resize_size"], text if text else None)
 
-            if status == "resolution_skip":
-                stats["resolution_skipped"] += 1
-                continue
-            elif status == "data_skip":
-                stats["skipped"] += 1
-                continue
+                    if tokens_batched is not None:
+                        batch_size, token_length = tokens_batched.shape
 
-            # Tokenize and save
-            try:
-                tokens_np = self.tokenize_sample(image, text)
-                if tokens_np is not None:
-                    builder.add_document(tokens_np, [len(tokens_np)])
-                    stats["samples"] += 1
-                    stats["tokens"] += len(tokens_np)
-                    samples_since_update += 1
+                        tokens_np = tokens_batched.flatten()
+                        lengths_list = [token_length] * batch_size
+                        builder.add_document(tokens_np, lengths_list)
+                        stats["samples"] += batch_size
+                        stats["tokens"] += len(tokens_np)
+                        samples_since_update += batch_size
 
-                    # Send periodic progress updates during shard processing
-                    if progress_actor and samples_since_update >= update_interval:
-                        progress_actor.update.remote(samples_since_update)
-                        samples_since_update = 0  # Reset counter
+                        # Send periodic progress updates during shard processing
+                        if progress_actor and samples_since_update >= update_interval:
+                            progress_actor.update.remote(samples_since_update)
+                            samples_since_update = 0  # Reset counter
 
-                    # Count image vs text tokens for SFT mode
-                    if self.mode == "sft" and self.img_end_id is not None:
-                        import torch
+                        # Count image vs text tokens for SFT mode
+                        if self.mode == "sft" and self.img_end_id is not None:
+                            if torch.is_tensor(tokens_batched):
+                                tokens_list = tokens_batched.cpu().numpy().tolist()
+                            else:
+                                tokens_list = tokens_batched.tolist()
 
-                        if torch.is_tensor(tokens_np):
-                            tokens_list = tokens_np.cpu().numpy().tolist()
-                        else:
-                            tokens_list = tokens_np.tolist()
+                            first_sample_tokens = tokens_list[0]
+                            if self.img_end_id in first_sample_tokens:
+                                img_end_idx = first_sample_tokens.index(self.img_end_id)
+                                stats["image_tokens"] += (img_end_idx + 1) * batch_size
+                                stats["text_tokens"] += (len(first_sample_tokens) - (img_end_idx + 1)) * batch_size
 
-                        if self.img_end_id in tokens_list:
-                            img_end_idx = tokens_list.index(self.img_end_id)
-                            stats["image_tokens"] += img_end_idx + 1
-                            stats["text_tokens"] += len(tokens_list) - (img_end_idx + 1)
-                else:
+                        # Memory cleanup
+                        del tokens_batched, tokens_np, lengths_list
+                        if "tokens_list" in locals():
+                            del tokens_list
+                    else:
+                        stats["errors"] += 1
+
+                except Exception as e:
+                    import traceback
+
+                    error_msg = f"Failed to process batch: {e}\n{traceback.format_exc()}"
+                    self.logger.warning(error_msg)
+                    print(f"[Worker {self.worker_id}] {error_msg}", flush=True)
                     stats["errors"] += 1
-            except Exception as e:
-                import traceback
+        else:
+            # Sample-by-sample processing (original behavior)
+            for sample in shard:
+                # Extract data
+                image, text = self._extract_data(sample)
 
-                error_msg = f"Failed to process sample: {e}\n{traceback.format_exc()}"
-                self.logger.warning(error_msg)
-                print(f"[Worker {self.worker_id}] {error_msg}", flush=True)
-                stats["errors"] += 1
+                # Apply transforms if configured
+                try:
+                    image, text = self.apply_transforms(image, text)
+                except TransformError as e:
+                    self.logger.warning(f"Transform error: {e}")
+                    stats["transform_errors"] += 1
+                    continue
+                except Exception as e:
+                    self.logger.error(f"Error applying transforms: {e}")
+                    stats["errors"] += 1
+                    continue
+
+                # Check sample status
+                status = self.get_sample_status(image, text)
+
+                if status == "resolution_skip":
+                    stats["resolution_skipped"] += 1
+                    continue
+                elif status == "data_skip":
+                    stats["skipped"] += 1
+                    continue
+
+                # Tokenize and save
+                try:
+                    tokens_np = self.tokenize_sample(image, text)
+                    if tokens_np is not None:
+                        builder.add_document(tokens_np, [len(tokens_np)])
+                        stats["samples"] += 1
+                        stats["tokens"] += len(tokens_np)
+                        samples_since_update += 1
+
+                        # Send periodic progress updates during shard processing
+                        if progress_actor and samples_since_update >= update_interval:
+                            progress_actor.update.remote(samples_since_update)
+                            samples_since_update = 0  # Reset counter
+
+                        # Count image vs text tokens for SFT mode
+                        if self.mode == "sft" and self.img_end_id is not None:
+                            import torch
+
+                            if torch.is_tensor(tokens_np):
+                                tokens_list = tokens_np.cpu().numpy().tolist()
+                            else:
+                                tokens_list = tokens_np.tolist()
+
+                            if self.img_end_id in tokens_list:
+                                img_end_idx = tokens_list.index(self.img_end_id)
+                                stats["image_tokens"] += img_end_idx + 1
+                                stats["text_tokens"] += len(tokens_list) - (img_end_idx + 1)
+                    else:
+                        stats["errors"] += 1
+                except Exception as e:
+                    import traceback
+
+                    error_msg = f"Failed to process sample: {e}\n{traceback.format_exc()}"
+                    self.logger.warning(error_msg)
+                    print(f"[Worker {self.worker_id}] {error_msg}", flush=True)
+                    stats["errors"] += 1
 
         # Finalize the shard file
         builder.finalize(f"{shard_output_path}.idx")

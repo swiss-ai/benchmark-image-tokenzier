@@ -10,7 +10,7 @@ emu3_path = os.path.join(os.path.dirname(__file__), "submodules", "Emu3.5", "src
 sys.path.insert(0, emu3_path)
 
 import math
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -193,6 +193,33 @@ class Emu3_5_IBQ(Tokenizer):
         # Batch dimension will be added in encode() method when needed
 
         return image_tensor
+
+    def preprocess_batch(self, images: List[Image.Image], resize_size: Tuple[int, int]) -> torch.Tensor:
+        """
+        Preprocess batch of PIL images to tensor format with specific resize dimensions.
+
+        Args:
+            images: List of PIL Images
+            resize_size: Target (height, width) for resizing all images
+
+        Returns:
+            Batched tensor of shape [B, C, H, W]
+        """
+        batch_tensors = []
+        for image in images:
+            # Convert to RGB if needed
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+
+            # Resize to specified size
+            image = image.resize((resize_size[1], resize_size[0]), Image.BICUBIC)
+
+            # Convert to tensor and normalize
+            image_tensor = torch.tensor((np.array(image) / 127.5 - 1.0)).to(self.device, self.dtype).permute(2, 0, 1)
+            batch_tensors.append(image_tensor)
+
+        # Stack into batch
+        return torch.stack(batch_tensors, dim=0)
 
     def postprocess(self, tensor: torch.Tensor) -> Image.Image:
         """

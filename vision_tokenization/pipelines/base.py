@@ -7,7 +7,7 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from collections import deque
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union, Tuple
 
 import ray
 import torch
@@ -286,6 +286,10 @@ class BaseTokenizerWorker:
         mode: str,  # "image_only", "image2text", "text2image", or "sft"
         min_pixels: int,  # For tokenizer preprocessing
         max_pixels: int,  # For tokenizer preprocessing
+        batch_mode: Optional[str] = None,  # "simple", "sorted", "clustered"
+        batch_size: int = 1,
+        buffer_size: Optional[int] = None,
+        resize_size: Union[int, Tuple[int, int], str] = 'avg',
         image_field: str = "image",
         text_field: str = "text",
         device: str = None,
@@ -320,6 +324,28 @@ class BaseTokenizerWorker:
             conversation_transform=conversation_transform,
         )
 
+        # Initialize batching function if batch_mode is provided
+        if batch_mode is not None:
+            if batch_mode == "simple":
+                from vision_tokenization.pipelines.batching import SimpleBatcher
+                self.batcher = SimpleBatcher(batch_size, resize_size)
+                self.buffer_size = buffer_size or batch_size
+            elif batch_mode == "sorted":
+                from vision_tokenization.pipelines.batching import SortedBatcher
+                self.batcher = SortedBatcher(batch_size, resize_size)
+                self.buffer_size = buffer_size or batch_size * 8
+            elif batch_mode == "clustered":
+                from vision_tokenization.pipelines.batching import ClusteredBatcher
+                self.batcher = ClusteredBatcher(batch_size, resize_size, device=self.device)
+                self.buffer_size = buffer_size or batch_size * 8
+            else:
+                raise ValueError(f"Unrecognized batching mode {batch_mode}")
+
+            assert self.buffer_size >= batch_size, "Buffer size must be at least as big as batch size"
+        else:
+            self.batcher = None
+            self.buffer_size = None
+
         # Initialize stats
         import time
 
@@ -338,6 +364,7 @@ class BaseTokenizerWorker:
 
         # Cache img_end token ID for SFT mode
         if mode == "sft":
+            #TODO: Hardcoded img end token - might be changed in the future
             self.img_end_id = self.tokenizer.text_tokenizer.convert_tokens_to_ids("<|img_end|>")
         else:
             self.img_end_id = None
@@ -382,6 +409,7 @@ class BaseTokenizerWorker:
         """
         # Check for missing image
         if image is None:
+            # TODO: this will prevent txt-only sft tokenization form working!
             return "data_skip"
 
         # Check if mode requires text and it's missing
@@ -419,6 +447,34 @@ class BaseTokenizerWorker:
         except Exception as e:
             self.logger.warning(f"Error processing sample: {e}")
             return None
+
+    def tokenize_batch(self, images, resize_size, text=None) -> Optional[Any]:
+        """
+        Tokenize a batch of samples (shared logic for batching mode).
+
+        Args:
+            images: List of input images
+            resize_size: Target size for resizing images in the batch
+            text: Optional list of text (may be None for image-only mode)
+
+        Returns:
+            Tokens (as tensor or numpy array), or None if error
+        """
+        try:
+            import torch
+
+            # Use unified tokenize_images method (for batched processing)
+            tokens = self.tokenizer.tokenize_images(images, resize_size, text)
+
+            # Convert to numpy if needed
+            tokens_np = tokens.cpu().numpy() if torch.is_tensor(tokens) else tokens
+
+            return tokens_np
+
+        except Exception as e:
+            self.logger.warning(f"Error processing batch: {e}")
+            # TODO: might add error logging and error skip!
+            raise
 
     def _extract_data(self, sample: Dict) -> tuple:
         """
