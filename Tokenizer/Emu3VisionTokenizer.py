@@ -1,6 +1,6 @@
 import os
 import sys
-from typing import Any, Tuple
+from typing import Any, List, Tuple
 
 import matplotlib.pyplot as plt
 import torch
@@ -75,6 +75,11 @@ class Emu3VisionTokenizer(Tokenizer):
         # Convert single image to list format expected by processor
         image_tensor = self.processor([image], return_tensors="pt")["pixel_values"]
         return image_tensor.to(self.device)
+
+    def preprocess_batch(self, images: List[Image.Image], resize_size: Tuple[int, int]) -> torch.Tensor:
+        """Preprocess batch of PIL images using the Emu3 processor"""
+        images_tensors = self.processor(images, do_resize=True, resize_size=resize_size, return_tensors="pt")["pixel_values"]
+        return images_tensors.to(self.device)
 
     def postprocess(self, tensor: torch.Tensor) -> Image.Image:
         """Postprocess tensor back to PIL image using the Emu3 processor"""

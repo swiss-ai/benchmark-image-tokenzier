@@ -6,7 +6,7 @@ Handles both image-only and SFT tokenization modes.
 
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union, Tuple
 
 import ray
 
@@ -44,7 +44,10 @@ class HFDatasetPipeline(BasePipeline):
         min_image_pixels: Optional[int] = None,
         max_image_pixels: Optional[int] = None,
         max_samples: Optional[int] = None,
-        batch_size: Optional[int] = None,
+        batch_size: int = 64,
+        batch_mode: str = "sorted",
+        buffer_size: Optional[int] = None,
+        resize_size: Union[int, Tuple[int, int], str] = 'avg',
         image_field: str = "images",
         text_field: str = "texts",
         resume: bool = False,
@@ -89,6 +92,9 @@ class HFDatasetPipeline(BasePipeline):
         self.max_image_pixels = max_image_pixels
         self.max_samples = max_samples
         self.batch_size = batch_size
+        self.batch_mode = batch_mode
+        self.buffer_size = buffer_size
+        self.resize_size = resize_size
         self.image_field = image_field
         self.text_field = text_field
         self.resume = resume
@@ -322,6 +328,10 @@ class HFDatasetPipeline(BasePipeline):
                 mode=self.mode,
                 min_pixels=self.min_tokenizer_pixels,
                 max_pixels=self.max_tokenizer_pixels,
+                batch_mode=self.batch_mode,
+                batch_size=self.batch_size,
+                buffer_size=self.buffer_size,
+                resize_size=self.resize_size,
                 image_field=self.image_field,
                 text_field=self.text_field,
                 min_image_pixels=self.min_image_pixels,
