@@ -73,7 +73,7 @@ done
 
 # Set up Python path
 export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH}"
-pip install -q omegaconf
+pip install -q omegaconf fastkmeans
 
 echo "=================================================================================="
 echo "LLaVA-OneVision Mid-Training Image-Only Tokenization"
