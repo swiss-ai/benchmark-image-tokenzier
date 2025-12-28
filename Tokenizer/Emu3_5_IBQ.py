@@ -211,8 +211,9 @@ class Emu3_5_IBQ(Tokenizer):
             if image.mode != "RGB":
                 image = image.convert("RGB")
 
-            # Resize to specified size
-            image = image.resize((resize_size[1], resize_size[0]), Image.BICUBIC)
+            # Resize to specified size (also check min or max pixels if set)
+            new_height, new_width = self.smart_resize(resize_size[1], resize_size[0])
+            image = image.resize((new_height, new_width), Image.BICUBIC)
 
             # Convert to tensor and normalize
             image_tensor = torch.tensor((np.array(image) / 127.5 - 1.0)).to(self.device, self.dtype).permute(2, 0, 1)
