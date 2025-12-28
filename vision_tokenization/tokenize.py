@@ -167,6 +167,11 @@ def parse_args():
         default=1000,
         help="Log progress every N samples when output is piped to file (default: 1000, 0 = log every batch)",
     )
+    parser.add_argument(
+        "--slurm-time-limit",
+        type=str,
+        help='Override SLURM time limit detection (e.g., "12:00:00" or "43200" for 12 hours)',
+    )
 
     # Subparsers for different data formats
     subparsers = parser.add_subparsers(dest="data_format", help="Data format to process", required=True)
@@ -222,6 +227,25 @@ def main():
         if isinstance(value, dict):
             config[key] = value["pixels"]
             parsed_resolutions[key] = value["dims"]
+
+    # Parse SLURM time limit if provided
+    slurm_time_limit = None
+    if config.get("slurm_time_limit"):
+        from vision_tokenization.utils.time_utils import parse_slurm_time_limit
+
+        value = config["slurm_time_limit"]
+        # Accept both raw seconds (int) and time string
+        if isinstance(value, int):
+            slurm_time_limit = value
+        else:
+            slurm_time_limit = parse_slurm_time_limit(value)
+            if slurm_time_limit is None:
+                logger.warning(f"Invalid SLURM time limit format: {value}")
+
+        if slurm_time_limit is not None:
+            config["slurm_time_limit"] = slurm_time_limit
+        else:
+            config.pop("slurm_time_limit", None)
 
     # Pretty print final config
     logger.info("=" * 80)
