@@ -13,8 +13,12 @@ from PIL import Image
 class Tokenizer(ABC):
     """Abstract base class for discrete image tokenizers"""
 
-    def __init__(self, **kwargs):
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    def __init__(self, device: str = None, **kwargs):
+        # Use provided device, or default to "cuda" if available
+        if device is not None:
+            self.device = torch.device(device)
+        else:
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = None
         self.config = kwargs
         self._load_model()

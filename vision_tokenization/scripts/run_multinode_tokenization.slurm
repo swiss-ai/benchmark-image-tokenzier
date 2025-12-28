@@ -105,12 +105,23 @@ if [ "$OFFLINE_MODE" = true ]; then
 fi
 
 # Execute on all nodes
-srun -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=1 -u bash -c '
-    # Python path setup
+srun -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=1 -u --export=ALL bash -c '
+    # Python path setup and critical variables
     export PYTHONPATH='"${PROJECT_ROOT}"':$PYTHONPATH
     pip install -q omegaconf
     export HF_DATASETS_OFFLINE
     export HF_HUB_CACHE
+
+    export RAY_ADDRESS='"${MASTER_NODE_IP}"':'"${RAY_PORT}"'
+    export PROJECT_ROOT='"${PROJECT_ROOT}"'
+    export SCRIPT_DIR='"${SCRIPT_DIR}"'
+    export WRAPPED_SCRIPT='"${WRAPPED_SCRIPT}"'
+    export ARGS='"${ARGS}"'
+    export GPUS_PER_NODE='"${GPUS_PER_NODE}"'
+    export TOTAL_GPUS='"${TOTAL_GPUS}"'
+    export REDIS_PASSWORD='"${REDIS_PASSWORD}"'
+    export MASTER_NODE_IP='"${MASTER_NODE_IP}"'
+    export RAY_PORT='"${RAY_PORT}"'
 
     if [[ $SLURM_PROCID = 0 ]]; then
         echo "=================================================================================="

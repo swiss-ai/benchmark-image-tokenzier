@@ -188,6 +188,12 @@ class HFDatasetPipeline(BasePipeline):
         """Setup Ray and load dataset."""
         self.logger.info(f"Initializing Ray with {self.num_gpus} workers")
 
+        # DEBUG: Log environment
+        self.logger.info(f"DEBUG: RAY_ADDRESS env var = {os.environ.get('RAY_ADDRESS', 'NOT SET')}")
+        self.logger.info(f"DEBUG: CUDA_VISIBLE_DEVICES = {os.environ.get('CUDA_VISIBLE_DEVICES', 'NOT SET')}")
+        self.logger.info(f"DEBUG: NUM_GPUS env var = {os.environ.get('NUM_GPUS', 'NOT SET')}")
+        self.logger.info(f"DEBUG: self.num_gpus = {self.num_gpus}")
+
         # Initialize Ray with GPU support
         # Check if Ray should connect to existing cluster or start local
         if not ray.is_initialized():
@@ -196,11 +202,23 @@ class HFDatasetPipeline(BasePipeline):
             if ray_address:
                 # Multi-node mode: Connect to existing cluster
                 self.logger.info(f"Connecting to existing Ray cluster at {ray_address}")
+                self.logger.info(f"DEBUG: Using multinode mode - will call ray.init(address='auto')")
                 ray.init(address="auto")  # Auto-detect from environment
+                self.logger.info(f"DEBUG: Connected to Ray cluster")
             else:
                 # Local mode: Start new cluster with explicit resources
                 self.logger.info(f"Starting local Ray cluster with {self.num_gpus} GPUs")
+                self.logger.info(f"DEBUG: Using local mode - will call ray.init(num_gpus={self.num_gpus})")
                 ray.init(num_cpus=self.num_gpus + 2, num_gpus=self.num_gpus)
+                self.logger.info(f"DEBUG: Started local Ray cluster")
+
+        # DEBUG: Log Ray cluster state
+        resources = ray.cluster_resources()
+        available = ray.available_resources()
+        self.logger.info(f"DEBUG: Ray cluster resources: {resources}")
+        self.logger.info(f"DEBUG: Ray available resources: {available}")
+        self.logger.info(f"DEBUG: Total GPUs in cluster: {resources.get('GPU', 0)}")
+        self.logger.info(f"DEBUG: Available GPUs: {available.get('GPU', 0)}")
 
         # Log HuggingFace environment configuration
         log_hf_environment_info(self.logger)
@@ -418,7 +436,12 @@ class HFDatasetPipeline(BasePipeline):
             mode=self.mode,
             image_field=self.image_field,
             text_field=self.text_field,
-            batch_size=self.batch_size,
+            batching={
+                "batch_size": self.batch_size,
+                "batch_mode": self.batch_mode,
+                "buffer_size": self.buffer_size,
+                "resize_size": self.resize_size,
+            },
             tokenizer={
                 "path": self.tokenizer_path,
                 "min_pixels": self.min_tokenizer_pixels,
