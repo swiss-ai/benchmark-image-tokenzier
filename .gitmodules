@@ -1,3 +1,6 @@
 [submodule "submodules/Emu3.5"]
 	path = Tokenizer/submodules/Emu3.5
 	url = https://github.com/baaivision/Emu3.5.git
+[submodule "/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/Tokenizer/submodules/VTP"]
+	path = /iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/Tokenizer/submodules/VTP
+	url = https://github.com/MiniMax-AI/VTP.git
