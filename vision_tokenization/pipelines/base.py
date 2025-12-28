@@ -13,6 +13,7 @@ import ray
 import torch
 from tqdm import tqdm
 
+from vision_tokenization.utils.time_utils import format_duration, get_slurm_time_limit
 from vision_tokenization.vokenizers.transforms import TransformPipeline
 
 
@@ -187,7 +188,13 @@ def setup_worker_logging(loglevel=logging.INFO):
 class ProgressActor:
     """Lightweight actor for collecting progress updates without polling."""
 
-    def __init__(self, total_samples: int, log_interval: Optional[int] = None, desc: str = "Samples processed"):
+    def __init__(
+        self,
+        total_samples: int,
+        log_interval: Optional[int] = None,
+        desc: str = "Samples processed",
+        slurm_time_limit: Optional[int] = None,
+    ):
         """
         Initialize progress tracker.
 
@@ -195,6 +202,7 @@ class ProgressActor:
             total_samples: Total number of samples to process (-1 for streaming/unknown)
             log_interval: Log progress every N samples when output is piped to file (None = log every update)
             desc: Description for progress bar
+            slurm_time_limit: SLURM time limit in seconds (None = auto-detect)
         """
         # Detect if output is being piped to a file
         self.log_interval = log_interval if log_interval is not None else 1000
@@ -216,6 +224,18 @@ class ProgressActor:
         if self.total:
             self.logger.warning(f"Total samples to process: {self.total:,}")
 
+        # SLURM time limit detection
+        if slurm_time_limit is not None:
+            self.slurm_time_limit = slurm_time_limit
+            self.logger.info(f"SLURM time limit override: {format_duration(slurm_time_limit)}")
+        else:
+            self.slurm_time_limit = get_slurm_time_limit()
+            if self.slurm_time_limit:
+                self.logger.info(
+                    f"SLURM time limit detected: {format_duration(self.slurm_time_limit)} "
+                    f"({self.slurm_time_limit} seconds)"
+                )
+
     def update(self, samples: int):
         """Update progress with completed samples."""
         self.samples_processed += samples
@@ -231,8 +251,60 @@ class ProgressActor:
             self._log_progress()
             self.last_logged = self.samples_processed
 
+    def _calculate_remaining_time(self) -> Optional[float]:
+        """
+        Calculate estimated remaining time based on overall throughput.
+
+        Returns:
+            Estimated seconds remaining, or None if cannot estimate
+            (streaming mode or insufficient data)
+        """
+        # Cannot estimate in streaming mode
+        if self.total is None:
+            return None
+
+        # Calculate remaining samples
+        remaining_samples = self.total - self.samples_processed
+        if remaining_samples <= 0:
+            return 0.0
+
+        # Calculate overall throughput
+        elapsed = time.time() - self.start_time
+        if elapsed <= 0:
+            return None
+
+        overall_throughput = self.samples_processed / elapsed
+
+        # Need meaningful throughput (avoid division by zero or very small values)
+        if overall_throughput < 0.01:  # Less than 0.01 samples/sec
+            return None
+
+        # Estimate remaining time
+        estimated_seconds = remaining_samples / overall_throughput
+        return estimated_seconds
+
+    def _check_timeout_risk(self, estimated_remaining: float) -> bool:
+        """
+        Check if job is at risk of timeout.
+
+        Args:
+            estimated_remaining: Estimated seconds remaining
+
+        Returns:
+            True if timeout risk detected, False otherwise
+        """
+        if self.slurm_time_limit is None:
+            return False
+
+        elapsed = time.time() - self.start_time
+        slurm_remaining = self.slurm_time_limit - elapsed
+
+        # Risk if estimated time exceeds remaining SLURM time
+        # Add 5% buffer for safety margin (1.05x)
+        return estimated_remaining > (slurm_remaining / 1.05)
+
     def _log_progress(self):
-        """Log progress in a file-friendly format."""
+        """Log progress in a file-friendly format with runtime estimation."""
         # Calculate overall throughput (from start)
         overall_throughput = self.samples_processed / (time.time() - self.start_time)
 
@@ -252,13 +324,27 @@ class ProgressActor:
         else:
             throughput_msg = f"{overall_throughput:.2f} samples/s"
 
+        # Calculate estimated remaining time
+        estimated_remaining = self._calculate_remaining_time()
+
+        # Build time estimation message
+        time_msg = ""
+        timeout_risk = False
+        if estimated_remaining is not None:
+            time_msg = f" - [Est. remaining: {format_duration(estimated_remaining)}]"
+            timeout_risk = self._check_timeout_risk(estimated_remaining)
+
+        # Add timeout risk marker
+        risk_msg = " [TIMEOUT_RISK]" if timeout_risk else ""
+
         if self.total:
             percentage = (self.samples_processed / self.total) * 100
             self.logger.info(
-                f"{self.samples_processed:,}/{self.total:,} samples ({percentage:.1f}%) - [Throughput: {throughput_msg}]"
+                f"{self.samples_processed:,}/{self.total:,} samples ({percentage:.1f}%) - "
+                f"[Throughput: {throughput_msg}]{time_msg}{risk_msg}"
             )
         else:
-            # Streaming mode: no percentage
+            # Streaming mode: no percentage or time estimation
             self.logger.info(f"{self.samples_processed:,} samples [Throughput: {throughput_msg}]")
 
     def close(self):

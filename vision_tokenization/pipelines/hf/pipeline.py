@@ -314,7 +314,12 @@ class HFDatasetPipeline(BasePipeline):
         """
         # Create progress tracker using dataset_size calculated in setup()
         log_interval = self.kwargs.get("log_interval", 1000)
-        self.progress_actor = ProgressActor.remote(self.dataset_size, log_interval=log_interval)
+        slurm_time_limit = self.kwargs.get("slurm_time_limit", None)
+        self.progress_actor = ProgressActor.remote(
+            self.dataset_size,
+            log_interval=log_interval,
+            slurm_time_limit=slurm_time_limit,
+        )
 
         # Check for existing completed shards if resuming
         if self.resume:
