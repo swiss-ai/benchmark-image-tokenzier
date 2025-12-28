@@ -127,7 +127,7 @@ srun -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=1 -u --export=ALL bash -c '
         echo "=================================================================================="
         echo "[Master] Starting Ray head on ${MASTER_NODE_IP}:${RAY_PORT}"
         echo "=================================================================================="
-
+        ray enable-usage-stats
         # Start Ray head with redis password
         ray start --head \
             --node-ip-address=$MASTER_NODE_IP \

@@ -108,7 +108,7 @@ if [ "$DEBUG_MODE" = true ]; then
 else
     echo "Running in NORMAL mode (full dataset)"
     echo "=================================================================================="
-
+    ray enable-usage-stats
     # Normal mode: use config file as-is
     python -m vision_tokenization.tokenize ${GPU_FLAG} hf \
         --config "${CONFIG_PATH}" \
