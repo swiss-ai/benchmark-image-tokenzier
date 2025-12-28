@@ -9,22 +9,16 @@
   "num_gpus": 4,
   "num_shards": 5000,
   "batch_mode": "clustered",
-  "batch_size": 8,
+  "batch_size": 6,
   "buffer_size": null,
   "resize_size": "avg",
   "device": "cuda",
   "num_proc": 4,
   "cache_dir": "/capstor/store/cscs/swissai/infra01/vision-datasets/hf_datasets_cache",
-  "min_tokenizer_pixels": "256*256",
+  "min_tokenizer_pixels": "128*128",
   "max_tokenizer_pixels": "1024*1024",
   "min_image_pixels": "64*128",
   "max_image_pixels": "2048*2048",
   "image_field": "image",
-  "image_transforms": "random_augment",
-  "transform_params": {
-    "random_augment": {
-      "config_path": "vision_tokenization/examples/augmentation_config.json"
-    }
-  },
   "log_interval": 500
 }

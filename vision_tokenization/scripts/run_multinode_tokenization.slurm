@@ -16,10 +16,10 @@
 # multiple nodes using Ray for distributed processing.
 #
 # Usage:
-#   TOKENIZATION_MODE=image_only sbatch --nodes=4 run_multinode_tokenization.slurm
-#   TOKENIZATION_MODE=instruct sbatch --nodes=8 run_multinode_tokenization.slurm --debug
-#   TOKENIZATION_MODE=paired sbatch --nodes=2 run_multinode_tokenization.slurm --resume
-#   TOKENIZATION_MODE=paired sbatch --nodes=2 run_multinode_tokenization.slurm --offline
+#   TOKENIZATION_MODE=image_only sbatch run_multinode_tokenization.slurm
+#   TOKENIZATION_MODE=instruct sbatch run_multinode_tokenization.slurm --debug
+#   TOKENIZATION_MODE=paired sbatch run_multinode_tokenization.slurm --resume
+#   TOKENIZATION_MODE=paired sbatch run_multinode_tokenization.slurm --offline
 #
 # Environment Variables:
 #   TOKENIZATION_MODE - Required: image_only, instruct, or paired
@@ -108,7 +108,7 @@ fi
 srun -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=1 -u --export=ALL bash -c '
     # Python path setup and critical variables
     export PYTHONPATH='"${PROJECT_ROOT}"':$PYTHONPATH
-    pip install -q omegaconf
+    pip install -q omegaconf fastkmeans
     export HF_DATASETS_OFFLINE
     export HF_HUB_CACHE
 

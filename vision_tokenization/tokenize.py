@@ -91,7 +91,6 @@ def create_hf_parser(subparsers):
             "(requires pre-prepared dataset, no hub cache needed)"
         ),
     )
-    parser.add_argument("--image-field", type=str, default="images", help="Name of image field in dataset")
     parser.add_argument(
         "--conversation-transform",
         type=str,

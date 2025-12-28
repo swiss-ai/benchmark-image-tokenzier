@@ -6,7 +6,7 @@
 #SBATCH --exclusive
 #SBATCH --partition=normal
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=72
+#SBATCH --cpus-per-task=285
 #SBATCH --time=12:00:00
 #SBATCH --output=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/paired_tok_%j.out
 #SBATCH --error=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/paired_tok_%j.err
@@ -16,6 +16,7 @@
 #   sbatch run_paired_tokenization.slurm              # Normal mode
 #   sbatch run_paired_tokenization.slurm --debug      # Debug mode (small dataset)
 #   sbatch run_paired_tokenization.slurm --resume     # Resume from checkpoint
+#   sbatch run_paired_tokenization.slurm --config /path/to/config.json  # Custom config
 #   sbatch run_paired_tokenization.slurm --debug --resume  # Debug + resume
 
 # Get the project root directory
@@ -33,9 +34,14 @@ NUM_GPUS="${NUM_GPUS:-}"
 # Parse command-line arguments
 DEBUG_MODE=false
 RESUME_MODE=false
+OFFLINE_MODE=false
 
-for arg in "$@"; do
-    case $arg in
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --config)
+            CONFIG_PATH="$2"
+            shift 2
+            ;;
         --debug)
             DEBUG_MODE=true
             shift
@@ -44,16 +50,23 @@ for arg in "$@"; do
             RESUME_MODE=true
             shift
             ;;
+        --offline)
+            OFFLINE_MODE=true
+            shift
+            ;;
         -h|--help)
-            echo "Usage: sbatch $0 [--debug] [--resume]"
+            echo "Usage: sbatch $0 [--config <path>] [--debug] [--resume] [--offline]"
             echo ""
             echo "Options:"
-            echo "  --debug     Run with small dataset (100 samples, 1 GPU, 1 shard)"
-            echo "  --resume    Resume from checkpoint (skip completed shards)"
+            echo "  --config <path>  Path to config JSON file (overrides default)"
+            echo "  --debug          Run with small dataset (1000 samples, 2 GPUs, 2 shards)"
+            echo "  --resume         Resume from checkpoint (skip completed shards)"
+            echo "  --offline        Enable HF datasets offline mode (only use cached datasets)"
             echo ""
             exit 0
             ;;
         *)
+            shift
             ;;
     esac
 done
@@ -69,6 +82,7 @@ echo "Project root: ${PROJECT_ROOT}"
 echo "Config:       ${CONFIG_PATH}"
 echo "Debug mode:   ${DEBUG_MODE}"
 echo "Resume mode:  ${RESUME_MODE}"
+echo "Offline mode: ${OFFLINE_MODE}"
 echo "Job ID:       ${SLURM_JOB_ID}"
 echo "HF HUB CACHE  ${HF_HUB_CACHE}"
 echo "Node:         $(hostname)"
@@ -90,6 +104,12 @@ fi
 
 # Export HF_HUB_CACHE so Python scripts inherit it (important to set in case of central cache location in distributed envs and using default load method)
 export HF_HUB_CACHE
+
+# Enable offline mode if requested
+if [ "$OFFLINE_MODE" = true ]; then
+    export HF_DATASETS_OFFLINE=1
+    echo "OFFLINE mode enabled - will only use cached datasets (HF_DATASETS_OFFLINE=1)"
+fi
 
 if [ "$DEBUG_MODE" = true ]; then
     echo "Running in DEBUG mode (small dataset for testing)"
