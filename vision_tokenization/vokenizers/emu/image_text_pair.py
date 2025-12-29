@@ -133,11 +133,11 @@ class EMUImageTextPairTokenizer(EMUImageOnlyTokenizer):
                     text,
                     truncation=False,
                     add_special_tokens=False,
-                    return_tensors="pt",
+                    return_tensors=None,  # Don't return tensors - sequences have different lengths
                     padding=False  # Don't pad - we want individual sequences
                 )
-                # Returns dict with "input_ids" as list of tensors (one per text)
-                return text_tokens_dict["input_ids"]
+                # Manually convert each sequence to tensor (they have different lengths)
+                return [torch.tensor(ids) for ids in text_tokens_dict["input_ids"]]
 
         # Submit both tasks to executor for parallel processing
         # Image tokenization on GPU (bottleneck)
