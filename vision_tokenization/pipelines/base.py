@@ -76,6 +76,7 @@ class BasePipeline(ABC):
         total_skipped = sum(r.get("samples_skipped", 0) for r in results)
         total_resolution_skipped = sum(r.get("resolution_skipped", 0) for r in results)
         total_transform_errors = sum(r.get("transform_errors", 0) for r in results)
+        total_cuda_oom_errors = sum(r.get("cuda_oom_errors", 0) for r in results)
         total_image_tokens = sum(r.get("image_tokens", 0) for r in results)
         total_text_tokens = sum(r.get("text_tokens", 0) for r in results)
 
@@ -89,6 +90,7 @@ class BasePipeline(ABC):
                 "image_tokens": total_image_tokens,
                 "text_tokens": total_text_tokens,
                 "errors": total_errors,
+                "cuda_oom_errors": total_cuda_oom_errors,
             },
             "averages": {
                 "tokens_per_sample": total_tokens / total_samples if total_samples > 0 else 0,
@@ -116,6 +118,7 @@ class BasePipeline(ABC):
                     "samples_skipped": r.get("samples_skipped", 0),
                     "resolution_skipped": r.get("resolution_skipped", 0),
                     "transform_errors": r.get("transform_errors", 0),
+                    "cuda_oom_errors": r.get("cuda_oom_errors", 0),
                     "throughput_tokens": r.get("throughput_tokens", r.get("throughput", 0)),
                     "throughput_samples": r.get("throughput_samples", 0),
                 }
@@ -445,6 +448,7 @@ class BaseTokenizerWorker:
             "samples_skipped": 0,  # Samples skipped due to missing data
             "resolution_skipped": 0,  # Samples skipped due to resolution filtering
             "transform_errors": 0,  # Samples skipped due to transform errors
+            "cuda_oom_errors": 0,  # CUDA Out-Of-Memory errors
             "start_time": time.time(),
         }
 
@@ -607,6 +611,35 @@ class BaseTokenizerWorker:
             return image, text
         return self.transform_pipeline.apply(image, text)
 
+    def _is_cuda_oom_error(self, exception: Exception) -> bool:
+        """
+        Check if an exception is a CUDA Out-Of-Memory error.
+
+        Args:
+            exception: The exception to check
+
+        Returns:
+            True if this is a CUDA OOM error, False otherwise
+        """
+        import torch
+
+        # Check if it's the explicit CUDA OOM exception type
+        if isinstance(exception, torch.cuda.OutOfMemoryError):
+            return True
+
+        # Check if it's a RuntimeError with OOM in the message
+        if isinstance(exception, RuntimeError):
+            error_str = str(exception).lower()
+            # Common CUDA OOM error message patterns
+            oom_patterns = [
+                "out of memory",
+                "cuda out of memory",
+                "cuda error: out of memory",
+            ]
+            return any(pattern in error_str for pattern in oom_patterns)
+
+        return False
+
     def update_stats(
         self,
         samples: int = 0,
@@ -615,6 +648,7 @@ class BaseTokenizerWorker:
         skipped: int = 0,
         resolution_skipped: int = 0,
         transform_errors: int = 0,
+        cuda_oom_errors: int = 0,
         image_tokens: int = 0,
         text_tokens: int = 0,
     ):
@@ -627,6 +661,7 @@ class BaseTokenizerWorker:
         self.stats["samples_skipped"] += skipped
         self.stats["resolution_skipped"] += resolution_skipped
         self.stats["transform_errors"] += transform_errors
+        self.stats["cuda_oom_errors"] += cuda_oom_errors
 
     def format_stats_message(self, prefix: str, stats: Dict, elapsed: float = None) -> str:
         """Format statistics into a clean log message."""
@@ -658,6 +693,8 @@ class BaseTokenizerWorker:
             skips.append(f"{stats['resolution_skipped']} res_skip")
         if stats.get("transform_errors", 0) > 0:
             skips.append(f"{stats['transform_errors']} transform_err")
+        if stats.get("cuda_oom_errors", 0) > 0:
+            skips.append(f"{stats['cuda_oom_errors']} cuda_oom")
         if skips:
             parts.append(f"({', '.join(skips)})")
 

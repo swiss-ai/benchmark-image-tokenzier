@@ -147,22 +147,15 @@ class Worker(BaseTokenizerWorker):
         """
         buffer = []
         for sample in shard:
-            # Extract data
             image, text = self._extract_data(sample)
-
-            # Apply transforms if configured
             try:
                 image, text = self.apply_transforms(image, text)
-            except TransformError as e:
+            except Exception as e:
                 self.logger.warning(f"Transform error: {e}")
                 stats["transform_errors"] += 1
                 continue
-            except Exception as e:
-                self.logger.error(f"Error applying transforms: {e}")
-                stats["errors"] += 1
-                continue
 
-            # Check sample status
+            # Check sample status and skip if necessary (missing field, out of range distribution)
             status = self.get_sample_status(image, text)
             if status == "resolution_skip":
                 stats["resolution_skipped"] += 1
@@ -241,6 +234,7 @@ class Worker(BaseTokenizerWorker):
             "skipped": 0,
             "resolution_skipped": 0,
             "transform_errors": 0,
+            "cuda_oom_errors": 0,
         }
 
         # Use batching if configured, otherwise process samples individually
@@ -297,23 +291,19 @@ class Worker(BaseTokenizerWorker):
                     error_msg = f"Failed to process batch: {e}\n{traceback.format_exc()}"
                     self.logger.warning(error_msg)
                     print(f"[Worker {self.worker_id}] {error_msg}", flush=True)
-                    stats["errors"] += 1
+                    if self._is_cuda_oom_error(e):
+                        stats["cuda_oom_errors"] += 1
+                    else:
+                        stats["errors"] += 1
         else:
             # Sample-by-sample processing (original behavior)
             for sample in shard:
-                # Extract data
                 image, text = self._extract_data(sample)
-
-                # Apply transforms if configured
                 try:
                     image, text = self.apply_transforms(image, text)
-                except TransformError as e:
+                except Exception as e:
                     self.logger.warning(f"Transform error: {e}")
                     stats["transform_errors"] += 1
-                    continue
-                except Exception as e:
-                    self.logger.error(f"Error applying transforms: {e}")
-                    stats["errors"] += 1
                     continue
 
                 # Check sample status
@@ -357,11 +347,13 @@ class Worker(BaseTokenizerWorker):
                         stats["errors"] += 1
                 except Exception as e:
                     import traceback
-
                     error_msg = f"Failed to process sample: {e}\n{traceback.format_exc()}"
                     self.logger.warning(error_msg)
                     print(f"[Worker {self.worker_id}] {error_msg}", flush=True)
-                    stats["errors"] += 1
+                    if self._is_cuda_oom_error(e):
+                        stats["cuda_oom_errors"] += 1
+                    else:
+                        stats["errors"] += 1
 
         # Finalize the shard file
         builder.finalize(f"{shard_output_path}.idx")
@@ -413,6 +405,7 @@ class Worker(BaseTokenizerWorker):
                     skipped=result.get("skipped", 0),
                     resolution_skipped=result.get("resolution_skipped", 0),
                     transform_errors=result.get("transform_errors", 0),
+                    cuda_oom_errors=result.get("cuda_oom_errors", 0),
                     image_tokens=result.get("image_tokens", 0),
                     text_tokens=result.get("text_tokens", 0),
                 )
