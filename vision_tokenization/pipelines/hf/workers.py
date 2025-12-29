@@ -247,14 +247,26 @@ class Worker(BaseTokenizerWorker):
             for batch in batch_loader:
                 try:
                     images, text = batch["images"], batch["text"]
-                    # Tokenize the batch
+                    # Tokenize the batch - returns a list of variable-length sequences
                     tokens_batched = self.tokenize_batch(images, batch["resize_size"], text if text else None)
 
                     if tokens_batched is not None:
-                        batch_size, token_length = tokens_batched.shape
+                        # Process list of sequences (works for both image-only and image-text pairs)
+                        batch_size = len(tokens_batched)
 
-                        tokens_np = tokens_batched.flatten()
-                        lengths_list = [token_length] * batch_size
+                        # Collect all tokens and their lengths
+                        all_tokens = []
+                        lengths_list = []
+                        for seq in tokens_batched:
+                            seq_np = seq.cpu().numpy() if torch.is_tensor(seq) else seq
+                            all_tokens.append(seq_np)
+                            lengths_list.append(len(seq_np))
+
+                        # Concatenate all sequences
+                        import numpy as np
+                        tokens_np = np.concatenate(all_tokens)
+
+                        # Add to builder with individual lengths
                         builder.add_document(tokens_np, lengths_list)
                         stats["samples"] += batch_size
                         stats["tokens"] += len(tokens_np)
@@ -266,22 +278,17 @@ class Worker(BaseTokenizerWorker):
                             samples_since_update = 0  # Reset counter
 
                         # Count image vs text tokens for SFT mode
+                        # Note: Each sample may have different numbers of image/text tokens
                         if self.mode == "sft" and self.img_end_id is not None:
-                            if torch.is_tensor(tokens_batched):
-                                tokens_list = tokens_batched.cpu().numpy().tolist()
-                            else:
-                                tokens_list = tokens_batched.tolist()
-
-                            first_sample_tokens = tokens_list[0]
-                            if self.img_end_id in first_sample_tokens:
-                                img_end_idx = first_sample_tokens.index(self.img_end_id)
-                                stats["image_tokens"] += (img_end_idx + 1) * batch_size
-                                stats["text_tokens"] += (len(first_sample_tokens) - (img_end_idx + 1)) * batch_size
+                            for sample_tokens in all_tokens:
+                                sample_tokens_list = sample_tokens.tolist()
+                                if self.img_end_id in sample_tokens_list:
+                                    img_end_idx = sample_tokens_list.index(self.img_end_id)
+                                    stats["image_tokens"] += img_end_idx + 1
+                                    stats["text_tokens"] += len(sample_tokens_list) - (img_end_idx + 1)
 
                         # Memory cleanup
-                        del tokens_batched, tokens_np, lengths_list
-                        if "tokens_list" in locals():
-                            del tokens_list
+                        del tokens_batched, tokens_np, all_tokens, lengths_list
                     else:
                         stats["errors"] += 1
 

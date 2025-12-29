@@ -394,7 +394,7 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
 
         return result
 
-    def tokenize_images(self, images, resize_size, text=None) -> torch.Tensor:
+    def tokenize_images(self, images, resize_size, text=None):
         """
         Unified tokenization interface for batched image-only mode.
 
@@ -404,8 +404,12 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
             text: Ignored for image-only tokenization
 
         Returns:
-            Tokenized images as tensor
+            List of tokenized image tensors (one per image)
         """
         # Images are required for image-only tokenizer
         # Ignore text parameter, only process images
-        return self.tokenize_batch(images, resize_size)
+        batched_tokens = self.tokenize_batch(images, resize_size)  # [B, seq_len]
+
+        # Convert batched tensor to list of individual sequences
+        # This provides a uniform interface with image-text pair tokenizer
+        return [batched_tokens[i] for i in range(len(batched_tokens))]
