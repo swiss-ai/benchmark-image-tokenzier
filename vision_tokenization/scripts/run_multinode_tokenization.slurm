@@ -105,7 +105,7 @@ if [ "$OFFLINE_MODE" = true ]; then
 fi
 
 # Execute on all nodes
-srun -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=1 -u --export=ALL bash -c '
+srun -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=1 --cpus-per-task=${SLURM_CPUS_PER_TASK} -u --export=ALL bash -c '
     # Python path setup and critical variables
     export PYTHONPATH='"${PROJECT_ROOT}"':$PYTHONPATH
     pip install -q omegaconf fastkmeans
@@ -116,7 +116,8 @@ srun -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=1 -u --export=ALL bash -c '
     export PROJECT_ROOT='"${PROJECT_ROOT}"'
     export SCRIPT_DIR='"${SCRIPT_DIR}"'
     export WRAPPED_SCRIPT='"${WRAPPED_SCRIPT}"'
-    export ARGS='"${ARGS}"'
+    # ARGS is already exported via --export=ALL and contains space-separated arguments
+    # Don'\''t re-export it to avoid word-splitting issues with flags like --resume
     export GPUS_PER_NODE='"${GPUS_PER_NODE}"'
     export TOTAL_GPUS='"${TOTAL_GPUS}"'
     export REDIS_PASSWORD='"${REDIS_PASSWORD}"'
