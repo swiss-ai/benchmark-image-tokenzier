@@ -312,14 +312,9 @@ class HFDatasetPipeline(BasePipeline):
         Creates a work queue that distributes shards to workers. Each shard
         will be processed completely by a worker and saved as a separate output file.
         """
-        # Create progress tracker using dataset_size calculated in setup()
-        log_interval = self.kwargs.get("log_interval", 1000)
-        slurm_time_limit = self.kwargs.get("slurm_time_limit", None)
-        self.progress_actor = ProgressActor.remote(
-            self.dataset_size,
-            log_interval=log_interval,
-            slurm_time_limit=slurm_time_limit,
-        )
+        # Calculate remaining samples if resuming
+        total_samples = self.dataset_size
+        completed_samples = 0
 
         # Check for existing completed shards if resuming
         if self.resume:
@@ -328,6 +323,28 @@ class HFDatasetPipeline(BasePipeline):
                 self.logger.info(
                     f"[RESUME]: Found {len(completed_shards)} completed shards: {sorted(completed_shards)}"
                 )
+
+                # Count samples in completed shards by reading .idx files
+                import re
+                output_path = Path(self.output_dir)
+                from vision_tokenization.pipelines.indexed_dataset_megatron import get_num_sequences
+
+                for idx_file in output_path.glob("*.idx"):
+                    # Match pattern: rank_X_shard_Y_Z.idx
+                    match = re.match(r"rank_\d+_shard_(\d+)_\d+\.idx", idx_file.name)
+                    if match:
+                        shard_id = int(match.group(1))
+                        if shard_id in completed_shards:
+                            num_sequences = get_num_sequences(str(idx_file))
+                            completed_samples += num_sequences
+
+                remaining_samples = self.dataset_size - completed_samples
+                self.logger.info(
+                    f"[RESUME]: Already processed {completed_samples:,} samples in {len(completed_shards)} shards. "
+                    f"Remaining: {remaining_samples:,} samples"
+                )
+                total_samples = remaining_samples
+
                 # Create work queue with only uncompleted shards
                 uncompleted = [i for i in range(self.num_shards) if i not in completed_shards]
                 self.logger.info(
@@ -340,6 +357,15 @@ class HFDatasetPipeline(BasePipeline):
         else:
             # Create work queue for shard distribution
             self.work_queue = ShardQueue.remote(self.num_shards)
+
+        # Create progress tracker with adjusted sample count
+        log_interval = self.kwargs.get("log_interval", 1000)
+        slurm_time_limit = self.kwargs.get("slurm_time_limit", None)
+        self.progress_actor = ProgressActor.remote(
+            total_samples,  # Now uses remaining samples in resume mode
+            log_interval=log_interval,
+            slurm_time_limit=slurm_time_limit,
+        )
 
         # Start unified workers
         self.workers = []
