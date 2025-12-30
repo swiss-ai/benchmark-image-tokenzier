@@ -269,6 +269,39 @@ def get_bin_path(path_prefix: str) -> str:
     return path_prefix + ".bin"
 
 
+def get_num_sequences(idx_path: str) -> int:
+    """Read number of sequences from .idx file without loading the full dataset.
+
+    This is useful for checking dataset size or calculating remaining work when resuming.
+
+    Args:
+        idx_path: Path to the .idx file (including .idx extension)
+
+    Returns:
+        Number of sequences in the dataset
+
+    Raises:
+        FileNotFoundError: If the .idx file doesn't exist
+        AssertionError: If the file header is invalid
+    """
+    with open(idx_path, 'rb') as f:
+        # Read header (9 bytes): MMIDIDX\x00\x00
+        header = f.read(9)
+        assert header == _INDEX_HEADER, f"Invalid header: {header}"
+
+        # Read version (8 bytes)
+        version = struct.unpack('<Q', f.read(8))[0]
+        assert version == 1, f"Unsupported version: {version}"
+
+        # Read dtype code (1 byte)
+        dtype_code = struct.unpack('<B', f.read(1))[0]
+
+        # Read sequence count (8 bytes)
+        num_sequences = struct.unpack('<Q', f.read(8))[0]
+
+    return num_sequences
+
+
 # Convenience wrapper for our use case
 class VisionTokenIndexedDatasetBuilder:
     """
