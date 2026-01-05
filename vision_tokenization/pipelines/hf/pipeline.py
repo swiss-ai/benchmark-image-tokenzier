@@ -530,9 +530,9 @@ class HFDatasetPipeline(BasePipeline):
 
         return {
             "total_processed": total_processed,
-            "total_samples": total_samples_processed,
-            "total_tokens": total_tokens,
-            "total_errors": total_errors,
+            "total_samples": all_shard_stats['samples_processed'],
+            "total_tokens": all_shard_stats['tokens_generated'],
+            "total_errors": all_shard_stats['errors'],
             "processing_time": max_time,
             "workers": len(self.workers),
             "mode": self.mode,
