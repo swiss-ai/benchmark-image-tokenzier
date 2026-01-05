@@ -184,6 +184,83 @@ class HFDatasetPipeline(BasePipeline):
 
         return completed
 
+    def _load_completed_shard_stats(self) -> Dict[str, Any]:
+        """Load statistics from completed shards in shard_stats/ subfolder.
+
+        Returns:
+            Dictionary with aggregated stats from all completed shards
+        """
+        import json
+        import re
+        from pathlib import Path
+
+        stats_dir = Path(self.output_dir) / "shard_stats"
+
+        # Initialize aggregated stats
+        aggregated = {
+            "samples_processed": 0,
+            "tokens_generated": 0,
+            "image_tokens": 0,
+            "text_tokens": 0,
+            "errors": 0,
+            "samples_skipped": 0,
+            "resolution_skipped": 0,
+            "transform_errors": 0,
+            "cuda_oom_errors": 0,
+            "shard_count": 0,
+            "per_shard": [],  # Keep individual shard stats
+        }
+
+        # If shard_stats directory doesn't exist, no stats to load
+        if not stats_dir.exists():
+            return aggregated
+
+        # Pattern: shard_Y.json where Y is shard_id
+        pattern = re.compile(r"shard_(\d+)\.json")
+
+        for stats_file in stats_dir.glob("shard_*.json"):
+            match = pattern.match(stats_file.name)
+            if match:
+                shard_id = int(match.group(1))
+
+                try:
+                    with open(stats_file, "r") as f:
+                        shard_stats = json.load(f)
+
+                    # Validate shard count matches (if present in stats)
+                    if "num_shards" in shard_stats and shard_stats["num_shards"] != self.num_shards:
+                        self.logger.warning(
+                            f"Skipping {stats_file.name}: shard count mismatch "
+                            f"(expected {self.num_shards}, got {shard_stats['num_shards']})"
+                        )
+                        continue
+
+                    # Aggregate
+                    aggregated["samples_processed"] += shard_stats.get("samples", 0)
+                    aggregated["tokens_generated"] += shard_stats.get("tokens", 0)
+                    aggregated["image_tokens"] += shard_stats.get("image_tokens", 0)
+                    aggregated["text_tokens"] += shard_stats.get("text_tokens", 0)
+                    aggregated["errors"] += shard_stats.get("errors", 0)
+                    aggregated["samples_skipped"] += shard_stats.get("skipped", 0)
+                    aggregated["resolution_skipped"] += shard_stats.get("resolution_skipped", 0)
+                    aggregated["transform_errors"] += shard_stats.get("transform_errors", 0)
+                    aggregated["cuda_oom_errors"] += shard_stats.get("cuda_oom_errors", 0)
+                    aggregated["shard_count"] += 1
+                    aggregated["per_shard"].append(shard_stats)
+
+                except (json.JSONDecodeError, IOError) as e:
+                    self.logger.warning(f"Failed to load {stats_file}: {e}")
+
+        if aggregated["shard_count"] > 0:
+            self.logger.info(
+                f"Loaded statistics from {aggregated['shard_count']} completed shards:\n"
+                f"  - Samples: {aggregated['samples_processed']:,}\n"
+                f"  - Tokens: {aggregated['tokens_generated']:,}\n"
+                f"  - Errors: {aggregated['errors']}"
+            )
+
+        return aggregated
+
     def setup(self):
         """Setup Ray and load dataset."""
         self.logger.info(f"Initializing Ray with {self.num_gpus} workers")
@@ -421,14 +498,23 @@ class HFDatasetPipeline(BasePipeline):
         # Get final progress
         total_processed = ray.get(self.progress_actor.close.remote())
 
-        # Calculate summary statistics
-        total_samples_processed = sum(r["samples_processed"] for r in results)
-        total_tokens = sum(r["tokens_generated"] for r in results)
-        total_errors = sum(r["errors"] for r in results)
-        max_time = max(r["elapsed_time"] for r in results)
+        # At the end, read ALL shard stats from shard_stats/ directory
+        # This accumulates stats from both old shards (if resumed) and newly completed shards
+        self.logger.info("Reading all shard statistics files...")
+        all_shard_stats = self._load_completed_shard_stats()
 
-        # Save metadata
-        self._save_metadata(results, max_time)
+        self.logger.info(
+            f"Accumulated statistics from {all_shard_stats['shard_count']} total shards:\n"
+            f"  - Total samples: {all_shard_stats['samples_processed']:,}\n"
+            f"  - Total tokens: {all_shard_stats['tokens_generated']:,}\n"
+            f"  - Total errors: {all_shard_stats['errors']}"
+        )
+
+        # Calculate max time from worker results for overall timing
+        max_time = max(r["elapsed_time"] for r in results) if results else 0
+
+        # Save final metadata with complete accumulated statistics
+        self._save_metadata(all_shard_stats, results, max_time)
 
         # Merge index files if needed
         self._merge_results()
@@ -451,14 +537,43 @@ class HFDatasetPipeline(BasePipeline):
         # This would merge the individual worker outputs
         self.logger.info(f"Merging results in {self.output_dir}")
 
-    def _save_metadata(self, results: list, processing_time: float):
-        """Save dataset processing metadata to JSON file."""
+    def _save_metadata(self, shard_stats: Dict[str, Any], worker_results: list, processing_time: float):
+        """Save dataset processing metadata to JSON file.
+
+        Args:
+            shard_stats: Accumulated statistics from all shard_stats/*.json files
+            worker_results: Results from workers (for additional context)
+            processing_time: Overall processing time
+        """
         import json
         from pathlib import Path
 
-        # Generate metadata using base pipeline method
+        # Use accumulated shard statistics for the metadata
+        total_samples = shard_stats["samples_processed"]
+        total_tokens = shard_stats["tokens_generated"]
+        total_errors = shard_stats["errors"]
+
+        # Create synthetic "results" format that generate_metadata expects
+        # with a single aggregated entry from all shards
+        aggregated_result = {
+            "worker_id": -1,  # Special marker for aggregated stats
+            "samples_processed": total_samples,
+            "tokens_generated": total_tokens,
+            "image_tokens": shard_stats["image_tokens"],
+            "text_tokens": shard_stats["text_tokens"],
+            "errors": total_errors,
+            "samples_skipped": shard_stats["samples_skipped"],
+            "resolution_skipped": shard_stats["resolution_skipped"],
+            "transform_errors": shard_stats["transform_errors"],
+            "cuda_oom_errors": shard_stats["cuda_oom_errors"],
+            "elapsed_time": processing_time,
+            "throughput_samples": total_samples / processing_time if processing_time > 0 else 0,
+            "throughput_tokens": total_tokens / processing_time if processing_time > 0 else 0,
+        }
+
+        # Generate metadata using base pipeline method with aggregated stats
         metadata = self.generate_metadata(
-            results=results,
+            results=[aggregated_result],
             processing_time=processing_time,
             dataset_type=f"{self.mode} tokenization",
             dataset_name=self.dataset_name,
@@ -481,12 +596,17 @@ class HFDatasetPipeline(BasePipeline):
             image_filtering={"min_pixels": self.min_image_pixels, "max_pixels": self.max_image_pixels},
         )
 
+        # Add per-shard details to metadata
+        metadata["per_shard_details"] = shard_stats["per_shard"]
+        metadata["processing"]["num_shards"] = self.num_shards
+        metadata["processing"]["shards_completed"] = shard_stats["shard_count"]
+
         # Save to file
         metadata_path = Path(self.output_dir) / "dataset_info.json"
         with open(metadata_path, "w") as f:
             json.dump(metadata, f, indent=2)
 
-        self.logger.info(f"Saved metadata to {metadata_path}")
+        self.logger.info(f"Saved complete metadata to {metadata_path}")
 
     def cleanup(self):
         """Cleanup Ray resources."""

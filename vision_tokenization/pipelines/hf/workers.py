@@ -376,6 +376,51 @@ class Worker(BaseTokenizerWorker):
 
         return {"shard_id": shard_id, "time": elapsed, **stats}
 
+    def save_shard_stats(self, shard_id: int, num_shards: int, stats: Dict, output_dir: str):
+        """Save statistics for a completed shard.
+
+        Args:
+            shard_id: The shard ID that was processed
+            num_shards: Total number of shards
+            stats: Statistics dictionary from process_shard()
+            output_dir: Output directory (stats saved to output_dir/shard_stats/)
+        """
+        import json
+        from pathlib import Path
+        from datetime import datetime
+
+        # Create shard_stats subdirectory
+        stats_dir = Path(output_dir) / "shard_stats"
+        stats_dir.mkdir(parents=True, exist_ok=True)
+
+        stats_file = stats_dir / f"shard_{shard_id}.json"
+
+        # Prepare stats with metadata
+        shard_stats = {
+            "shard_id": shard_id,
+            "worker_id": self.worker_id,
+            "num_shards": num_shards,
+            "samples": stats.get("samples", 0),
+            "tokens": stats.get("tokens", 0),
+            "image_tokens": stats.get("image_tokens", 0),
+            "text_tokens": stats.get("text_tokens", 0),
+            "errors": stats.get("errors", 0),
+            "skipped": stats.get("skipped", 0),
+            "resolution_skipped": stats.get("resolution_skipped", 0),
+            "transform_errors": stats.get("transform_errors", 0),
+            "cuda_oom_errors": stats.get("cuda_oom_errors", 0),
+            "processing_time": stats.get("time", 0),  # 'time' from process_shard return
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        # Write atomically (write to temp file, then rename)
+        temp_file = stats_file.with_suffix(".tmp")
+        with open(temp_file, "w") as f:
+            json.dump(shard_stats, f, indent=2)
+        temp_file.rename(stats_file)
+
+        self.logger.debug(f"Saved shard {shard_id} statistics to {stats_file}")
+
     def run_shards(self, shard_queue, dataset_info, num_shards, progress_actor=None) -> Dict:
         """
         Main worker loop for shard-based processing.
@@ -403,6 +448,11 @@ class Worker(BaseTokenizerWorker):
             try:
                 result = self.process_shard(shard_id, dataset_info, num_shards, progress_actor)
                 ray.get(shard_queue.mark_completed.remote(shard_id, result))
+
+                # Save shard statistics immediately
+                self.save_shard_stats(
+                    shard_id=shard_id, num_shards=num_shards, stats=result, output_dir=self.output_dir
+                )
 
                 # Update global statistics
                 self.update_stats(

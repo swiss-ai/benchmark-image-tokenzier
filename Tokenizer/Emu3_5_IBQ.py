@@ -167,11 +167,9 @@ class Emu3_5_IBQ(Tokenizer):
         Following Emu3.5's preprocessing from src/utils/input_utils.py
         Optionally applies smart resizing if min_pixels/max_pixels are set
         """
-        # Convert to RGB if needed
         if image.mode != "RGB":
             image = image.convert("RGB")
 
-        # Apply smart resize if pixel bounds are set (following Emu3's approach)
         if self.min_pixels is not None and self.max_pixels is not None:
             width, height = image.size
             new_height, new_width = self.smart_resize(height, width)
@@ -191,7 +189,6 @@ class Emu3_5_IBQ(Tokenizer):
 
         # Note: NOT adding batch dimension here to be consistent with other tokenizers
         # Batch dimension will be added in encode() method when needed
-
         return image_tensor
 
     def preprocess_batch(self, images: List[Image.Image], resize_size: Tuple[int, int]) -> torch.Tensor:
@@ -207,7 +204,6 @@ class Emu3_5_IBQ(Tokenizer):
         """
         batch_tensors = []
         for image in images:
-            # Convert to RGB if needed
             if image.mode != "RGB":
                 image = image.convert("RGB")
 
@@ -219,7 +215,6 @@ class Emu3_5_IBQ(Tokenizer):
             image_tensor = torch.tensor((np.array(image) / 127.5 - 1.0)).to(self.device, self.dtype).permute(2, 0, 1)
             batch_tensors.append(image_tensor)
 
-        # Stack into batch
         return torch.stack(batch_tensors, dim=0)
 
     def postprocess(self, tensor: torch.Tensor) -> Image.Image:
