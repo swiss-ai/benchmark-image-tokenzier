@@ -128,7 +128,7 @@ class HFDatasetPipeline(BasePipeline):
             self.logger.info(f"Conversation transform configured: '{conversation_transform}'")
 
     def _get_completed_shards(self) -> set:
-        """Get list of already completed shards by checking for .idx files."""
+        """Get list of already completed shards by checking for BOTH .bin and .idx files."""
         import re
         import sys
         from pathlib import Path
@@ -151,6 +151,15 @@ class HFDatasetPipeline(BasePipeline):
             if match:
                 shard_id = int(match.group(1))
                 total_shards = int(match.group(2))
+
+                # Check if corresponding .bin file also exists
+                bin_file = idx_file.with_suffix(".bin")
+                if not bin_file.exists():
+                    self.logger.warning(
+                        f"Found {idx_file.name} but missing corresponding .bin file - "
+                        f"shard {shard_id} will be reprocessed"
+                    )
+                    continue
 
                 shard_counts_found.add(total_shards)
                 if total_shards not in files_by_shard_count:
