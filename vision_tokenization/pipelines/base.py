@@ -195,7 +195,6 @@ class ProgressActor:
         self,
         total_samples: int,
         log_interval: Optional[int] = None,
-        desc: str = "Samples processed",
         slurm_time_limit: Optional[int] = None,
     ):
         """
@@ -442,8 +441,8 @@ class BaseTokenizerWorker:
             "batches_processed": 0,
             "samples_processed": 0,
             "tokens_generated": 0,
-            "image_tokens": 0,  # Only for SFT mode
-            "text_tokens": 0,  # Only for SFT mode
+            "image_tokens": 0,  # For multimodal modes (sft, image2text, text2image)
+            "text_tokens": 0,  # For multimodal modes (sft, image2text, text2image)
             "errors": 0,
             "samples_skipped": 0,  # Samples skipped due to missing data
             "resolution_skipped": 0,  # Samples skipped due to resolution filtering
@@ -451,13 +450,6 @@ class BaseTokenizerWorker:
             "cuda_oom_errors": 0,  # CUDA Out-Of-Memory errors
             "start_time": time.time(),
         }
-
-        # Cache img_end token ID for SFT mode
-        if mode == "sft":
-            #TODO: Hardcoded img end token - might be changed in the future
-            self.img_end_id = self.tokenizer.text_tokenizer.convert_tokens_to_ids("<|img_end|>")
-        else:
-            self.img_end_id = None
 
         self.logger.warning(f"Worker {worker_id} initialized on {self.device} in {mode} mode")
 
@@ -554,9 +546,7 @@ class BaseTokenizerWorker:
             import torch
 
             # Use unified tokenize_images method (for batched processing)
-            tokens = self.tokenizer.tokenize_images(images, resize_size, text)
-
-            # Convert to numpy if needed
+            tokens = self.tokenizer.tokenize_batch(images, resize_size, text)
             tokens_np = tokens.cpu().numpy() if torch.is_tensor(tokens) else tokens
 
             return tokens_np
