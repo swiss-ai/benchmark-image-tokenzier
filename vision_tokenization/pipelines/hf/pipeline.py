@@ -306,12 +306,10 @@ class HFDatasetPipeline(BasePipeline):
         self.logger.info(f"DEBUG: Total GPUs in cluster: {resources.get('GPU', 0)}")
         self.logger.info(f"DEBUG: Available GPUs: {available.get('GPU', 0)}")
 
-        # Log HuggingFace environment configuration
         log_hf_environment_info(self.logger)
 
         # Get dataset size without loading the full dataset
         if self.dataset_streamed:
-            # For streaming datasets, we don't know the size upfront
             self.logger.info("Processing dataset in streaming mode (size unknown upfront)")
             self.dataset_size = -1
         else:
@@ -360,11 +358,9 @@ class HFDatasetPipeline(BasePipeline):
                         f"(dataset has {original_num:,} samples)"
                     )
 
-            # Run memory mapping limits check
             self.logger.info("Checking system memory mapping limits...")
             check_memory_mapping_limits(split_info, self.dataset_split, self.dataset_streamed)
 
-            # Store dataset size for later use
             self.dataset_size = num_examples
             self.logger.info(f"Will process {num_examples:,} samples")
 
@@ -385,11 +381,8 @@ class HFDatasetPipeline(BasePipeline):
             self.output_dir = str(Path(self.output_dir) / res_dir)
 
         self.logger.info(f"Output directory: {self.output_dir}")
-
-        # Create output directory
         Path(self.output_dir).mkdir(parents=True, exist_ok=True)
 
-        # Setup workers
         self._setup_workers()
 
     def _setup_workers(self):
@@ -525,9 +518,6 @@ class HFDatasetPipeline(BasePipeline):
         # Save final metadata with complete accumulated statistics
         self._save_metadata(all_shard_stats, results, max_time)
 
-        # Merge index files if needed
-        self._merge_results()
-
         return {
             "total_processed": total_processed,
             "total_samples": all_shard_stats['samples_processed'],
@@ -539,12 +529,6 @@ class HFDatasetPipeline(BasePipeline):
             "output_dir": self.output_dir,
             "metadata_file": str(Path(self.output_dir) / "dataset_info.json"),
         }
-
-    def _merge_results(self):
-        """Merge results from all workers."""
-        # Implementation depends on the specific format
-        # This would merge the individual worker outputs
-        self.logger.info(f"Merging results in {self.output_dir}")
 
     def _save_metadata(self, shard_stats: Dict[str, Any], worker_results: list, processing_time: float):
         """Save dataset processing metadata to JSON file.

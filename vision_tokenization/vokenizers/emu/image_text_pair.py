@@ -90,7 +90,7 @@ class EMUImageTextPairTokenizer(EMUImageOnlyTokenizer):
 
     def tokenize(self, image: Image, text: str) -> torch.Tensor:
         """
-        Unified tokenization interface for image-text pair mode.
+        Tokenize one image-text pair with one image per pair.
 
         Args:
             image: PIL Image to tokenize (required)
@@ -102,7 +102,7 @@ class EMUImageTextPairTokenizer(EMUImageOnlyTokenizer):
         # Both image and text are required for image-text pair tokenizer
         return self.tokenize_image_text_pair(image, text)
 
-    def tokenize_images(self, images, resize_size, text=None):
+    def tokenize_batch(self, images, resize_size, text=None):
         """
         Batched tokenization interface for image-text pair mode.
 
@@ -111,9 +111,9 @@ class EMUImageTextPairTokenizer(EMUImageOnlyTokenizer):
         corresponding text. Returns a list of variable-length token sequences.
 
         Args:
-            images: List of PIL Images to tokenize
-            resize_size: Target size for resizing images
-            text: List of text strings (required for image-text pair mode)
+            images: List of PIL Images to tokenize (one per sample)
+            resize_size: Target size for resizing images (batch wide size)
+            text: List of text strings (required for image-text pair mode) - one per image
 
         Returns:
             List of token tensors, one per image-text pair (variable lengths)
@@ -139,11 +139,8 @@ class EMUImageTextPairTokenizer(EMUImageOnlyTokenizer):
                 # Manually convert each sequence to tensor (they have different lengths)
                 return [torch.tensor(ids) for ids in text_tokens_dict["input_ids"]]
 
-        # Submit both tasks to executor for parallel processing
-        # Image tokenization on GPU (bottleneck)
-        image_future = self.executor.submit(self.tokenize_batch, images, resize_size)
-
-        # Text tokenization on CPU (fast, runs in parallel)
+        # Image tokenization on GPU (bottleneck), text on CPU
+        image_future = self.executor.submit(self.tokenize_images, images, resize_size)
         text_future = self.executor.submit(tokenize_texts_cpu)
 
         # Wait for both and get results

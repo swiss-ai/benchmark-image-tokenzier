@@ -365,36 +365,34 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
         return self.tokenize_image(image)
 
     @torch.inference_mode()
-    def tokenize_batch(self, images: List, resize_size: int) -> torch.Tensor:
+    def tokenize_images(self, images: List, resize_size: int) -> torch.Tensor:
         """
-        Complete pipeline: PIL image → vision indices → EMU3 encapsulated tokens.
+        Batched tokenization of images.
+        As a batch is resized to have similar shape, output num tokens is equal.
 
         Args:
             images: List [PIL Image]
             resize_size: Target size for resizing images
 
         Returns:
-            Token sequence with EMU3 structure tokens (BOS, img_start, dims, EOL, EOS, etc.)
+            Batch of encoded images: B x num_img_tokens
         """
         assert self.image_tokenizer is not None, "Image tokenizer required for processing images"
         # Step 1: Preprocess image (PIL → tensor)
         img_tensors = self.image_tokenizer.preprocess_batch(images, resize_size)
         # Step 2: Encode to vision indices
         indices, _ = self.image_tokenizer.encode(img_tensors)
-
         # Step 3: Get dimensions and flatten
         batch_size, height, width = indices.shape
-        # print(batch_size, height, width)
         image_indices = indices.flatten(start_dim=1)
         del img_tensors, indices
-
         # Step 4: Encapsulate with EMU3 structure tokens
         result = self.encapsulate_batch(image_indices, height, width)
         del image_indices
 
         return result
 
-    def tokenize_images(self, images, resize_size, text=None):
+    def tokenize_batch(self, images, resize_size, text=None):
         """
         Unified tokenization interface for batched image-only mode.
 

@@ -136,7 +136,9 @@ class Worker(BaseTokenizerWorker):
 
     def batch_iterable_shard(self, shard, stats: Dict):
         """
-        A generator which acts as an iterator over batches of a shard.
+        Extracts image and text data from a shards samples, applies transformations, checks if skip, and adds them to
+        buffer afterwards. The batcher then batches the buffer.
+        This method can be used as a generator for batches!
 
         Args:
             shard: The dataset shard
@@ -201,7 +203,7 @@ class Worker(BaseTokenizerWorker):
         update_interval = max(log_interval // 2, 10)
         samples_since_update = 0  # Track samples since last progress update
 
-        # Load the shard using HuggingFace's efficient shard method
+        # Load dataset shard
         dataset = load_hf_dataset(
             dataset_name=dataset_info["name"],
             config_name=dataset_info.get("config"),
@@ -210,13 +212,10 @@ class Worker(BaseTokenizerWorker):
             method=dataset_info.get("load_method", "default"),
             streaming=dataset_info["dataset_streamed"],
         )
-
-        # Get this specific shard
         shard = dataset.shard(num_shards=num_shards, index=shard_id)
 
         # Create per-shard output file with total shards in filename
         from pathlib import Path
-
         from vision_tokenization.pipelines.indexed_dataset_megatron import DType, IndexedDatasetBuilder
 
         shard_output_path = Path(self.output_dir) / f"rank_{self.worker_id}_shard_{shard_id}_{num_shards}"
@@ -239,9 +238,7 @@ class Worker(BaseTokenizerWorker):
 
         # Use batching if configured, otherwise process samples individually
         if self.batcher is not None:
-            # Batched processing
             import torch
-
             batch_loader = self.batch_iterable_shard(shard, stats)
 
             for batch in batch_loader:
@@ -262,7 +259,6 @@ class Worker(BaseTokenizerWorker):
                             all_tokens.append(seq_np)
                             lengths_list.append(len(seq_np))
 
-                        # Concatenate all sequences
                         import numpy as np
                         tokens_np = np.concatenate(all_tokens)
 
@@ -277,17 +273,14 @@ class Worker(BaseTokenizerWorker):
                             progress_actor.update.remote(samples_since_update)
                             samples_since_update = 0  # Reset counter
 
-                        # Count image vs text tokens for SFT mode
-                        # Note: Each sample may have different numbers of image/text tokens
-                        if self.mode == "sft" and self.img_end_id is not None:
-                            for sample_tokens in all_tokens:
-                                sample_tokens_list = sample_tokens.tolist()
-                                if self.img_end_id in sample_tokens_list:
-                                    img_end_idx = sample_tokens_list.index(self.img_end_id)
-                                    stats["image_tokens"] += img_end_idx + 1
-                                    stats["text_tokens"] += len(sample_tokens_list) - (img_end_idx + 1)
+                        # Count image vs text tokens separately for multimodal tokenization
+                        # Text tokens: all tokens including special tokens that are < first vision token ID
+                        # Image tokens: vision tokens and image-specific special tokens (>= first vision token ID)
+                        if self.mode in ["sft", "image2text", "text2image"]:
+                            text_mask = tokens_np < self.tokenizer.vision_token_offset
+                            stats["text_tokens"] += int(text_mask.sum())
+                            stats["image_tokens"] += int((~text_mask).sum())
 
-                        # Memory cleanup
                         del tokens_batched, tokens_np, all_tokens, lengths_list
                     else:
                         stats["errors"] += 1
@@ -337,19 +330,13 @@ class Worker(BaseTokenizerWorker):
                             progress_actor.update.remote(samples_since_update)
                             samples_since_update = 0  # Reset counter
 
-                        # Count image vs text tokens for SFT mode
-                        if self.mode == "sft" and self.img_end_id is not None:
-                            import torch
-
-                            if torch.is_tensor(tokens_np):
-                                tokens_list = tokens_np.cpu().numpy().tolist()
-                            else:
-                                tokens_list = tokens_np.tolist()
-
-                            if self.img_end_id in tokens_list:
-                                img_end_idx = tokens_list.index(self.img_end_id)
-                                stats["image_tokens"] += img_end_idx + 1
-                                stats["text_tokens"] += len(tokens_list) - (img_end_idx + 1)
+                        # Count image vs text tokens separately for multimodal tokenization
+                        # Text tokens: all tokens including special tokens that are < first vision token ID
+                        # Image tokens: vision tokens and image-specific special tokens (>= first vision token ID)
+                        if self.mode in ["sft", "image2text", "text2image"]:
+                            text_mask = tokens_np < self.tokenizer.vision_token_offset
+                            stats["text_tokens"] += int(text_mask.sum())
+                            stats["image_tokens"] += int((~text_mask).sum())
                     else:
                         stats["errors"] += 1
                 except Exception as e:
