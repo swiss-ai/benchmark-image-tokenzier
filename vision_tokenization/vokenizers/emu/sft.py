@@ -17,44 +17,62 @@ from vision_tokenization.vokenizers.conversation_transforms import (
 from .image_only import EMUImageOnlyTokenizer
 
 
-def _replace_single_image(text_tokens: torch.Tensor, image_position: int, image_tokens: torch.Tensor) -> torch.Tensor:
+def _replace_images(
+    text_tokens: torch.Tensor, image_positions: List[int], image_tokens_list: List[torch.Tensor]
+) -> torch.Tensor:
     """
-    Replace single <|image|> placeholder with vision tokens. # TODO: In future might want to support multiple images for multi-turn
+    Replace multiple <|image|> placeholders with vision tokens in order.
     Optimized using torch.cat for better memory efficiency.
 
     Args:
-        text_tokens: Original tokens with <|image|> placeholder
-        image_position: Position of <|image|> token
-        image_tokens: Tokenized image (without BOS/EOS)
+        text_tokens: Original tokens with <|image|> placeholders
+        image_positions: List of positions of <|image|> tokens (must be sorted)
+        image_tokens_list: List of tokenized images (without BOS/EOS), one per placeholder
 
     Returns:
-        Final token tensor with image inserted
+        Final token tensor with all images inserted
+
+    Raises:
+        ValueError: If number of positions doesn't match number of image tokens
     """
-    # Use torch.cat which is optimized at C++ level
+    if len(image_positions) != len(image_tokens_list):
+        raise ValueError(
+            f"Number of image positions ({len(image_positions)}) must match "
+            f"number of image tokens ({len(image_tokens_list)})"
+        )
+
+    # Handle empty case
+    if len(image_positions) == 0:
+        return text_tokens
+
+    # Build parts list by iterating through positions
     parts = []
+    last_pos = 0
 
-    # Text before image
-    if image_position > 0:
-        parts.append(text_tokens[:image_position])
+    for i, pos in enumerate(image_positions):
+        # Add text before this image (skip placeholder token at pos)
+        if pos > last_pos:
+            parts.append(text_tokens[last_pos:pos])
 
-    # Image tokens
-    parts.append(image_tokens)
+        # Add image tokens
+        parts.append(image_tokens_list[i])
 
-    # Text after image placeholder
-    if image_position + 1 < len(text_tokens):
-        parts.append(text_tokens[image_position + 1 :])
+        # Update last_pos to skip the placeholder token
+        last_pos = pos + 1
 
-    return torch.cat(parts, dim=0)
+    # Add remaining text after last image
+    if last_pos < len(text_tokens):
+        parts.append(text_tokens[last_pos:])
+
+    # Use torch.cat which is optimized at C++ level
+    return torch.cat(parts, dim=0) if parts else torch.tensor([], dtype=text_tokens.dtype, device=text_tokens.device)
 
 
 class EMUSftTokenizer(EMUImageOnlyTokenizer):
     """
-    Tokenizer for SFT (Supervised Fine-Tuning) data with a single image and text.
-    Optimized for single image per conversation (most common case).
-    Replaces <|image|> placeholder with actual EMU vision tokens.
-
-    Designed for SFT/pretraining with FineVision-style data where conversations
-    already include assistant responses.
+    Tokenizer for SFT (Supervised Fine-Tuning) data.
+    Supports non batched tokenization: supports >=1 images per conversation
+    Supports batched tokenization: only supports 1 image per conversation
     """
 
     def __init__(self, *args, conversation_transform: Optional[str] = None, **kwargs):
@@ -154,55 +172,64 @@ class EMUSftTokenizer(EMUImageOnlyTokenizer):
             return text_tokens, num_images, image_positions
 
     @torch.inference_mode()
-    def tokenize_conversation(self, messages: List[Dict[str, Any]], image: Any = None) -> torch.Tensor:
+    def tokenize_conversation(self, messages: List[Dict[str, Any]], images: List[Any]) -> torch.Tensor:
         """
-        Tokenize ONE conversation. Potentially supports multiple images per conversation.
-        Uses parallel processing: text on CPU, image on GPU.
+        Tokenize ONE conversation with one or multiple images.
+        Uses parallel processing: text on CPU, all images on GPU.
 
         Args:
             messages: List of message dicts with role and content. Assumed to be in correct format for tokenizers chat template.
-            image: Single PIL image corresponding to <|image|> placeholder
+            images: List of PIL images corresponding to <|image|> placeholders in order
 
         Returns:
-            Token tensor with <|image|> placeholder replaced by Emu3 vision tokens
+            Token tensor with <|image|> placeholders replaced by Emu3 vision tokens
+
+        Raises:
+            ValueError: If images list is empty or number of images doesn't match number of placeholders
         """
-        # TODO: this check must be removed to support text-only sft
-        if image is None:
-            print("Warning: No image provided to tokenize_conversation")
-            return torch.tensor([], dtype=torch.long)
+        if not images:
+            raise ValueError("images list cannot be empty")
 
-        # Submit both tasks in parallel using common tokenization method
+        # Submit text tokenization on CPU
         text_future = self.executor.submit(self._tokenize_conversation_text_cpu, messages)
-        image_future = self.executor.submit(lambda: self.tokenize_image(image)[1:-1])  # GPU thread
 
+        # Submit all image tokenizations in parallel on GPU (strip BOS/EOS) -> Dont batch here as setup and VRAm and tokenizer not dynamically analyzed.
+        image_futures = [self.executor.submit(lambda img=img: self.tokenize_image(img)[1:-1]) for img in images]
+
+        # Get text tokenization results
         text_tokens, num_images, image_positions = text_future.result()
 
-        if num_images != 1:
-            # Only single image samples are supported
-            print(f"Warning: Found {num_images} image placeholders, expected 1. Skipping sample.")
-            return torch.tensor([], dtype=torch.long)
+        # Validate image count matches placeholders
+        if len(images) != num_images:
+            raise ValueError(
+                f"Number of images ({len(images)}) must match number of <|image|> placeholders ({num_images})"
+            )
 
-        image_tokens = image_future.result()
+        # Collect all image tokens
+        image_tokens_list = [future.result() for future in image_futures]
 
         # Move text tokens to same device as image tokens for final assembly
-        text_tokens = text_tokens.to(image_tokens.device)
+        if image_tokens_list:
+            text_tokens = text_tokens.to(image_tokens_list[0].device)
 
-        # Replace <|image|> placeholder with actual vision tokens
-        # For single image case, use the first (and only) position
-        final_tokens = _replace_single_image(text_tokens, image_positions[0], image_tokens)
+        # Replace all <|image|> placeholders with actual vision tokens
+        final_tokens = _replace_images(text_tokens, image_positions, image_tokens_list)
 
         return final_tokens
 
-    def tokenize(self, image, text) -> torch.Tensor:
+    def tokenize(self, images, text) -> torch.Tensor:
         """
         Unified tokenization interface for SFT mode. One sample, non batched processing.
 
         Args:
-            image: PIL Image (required)
+            images: List of PIL Images (required, one or more images)
             text: Dataset-specific conversation format.
 
         Returns:
             Tokenized tensor ready for model input
+
+        Raises:
+            ValueError: If images list is empty or number of images doesn't match placeholders
         """
         # Apply conversation transform if configured (goal: bring read text data from dataset in correct format for selected tokenizer chat template)
         if self.conversation_transform is not None:
@@ -210,7 +237,7 @@ class EMUSftTokenizer(EMUImageOnlyTokenizer):
         else:
             messages = text
 
-        return self.tokenize_conversation(messages, image)
+        return self.tokenize_conversation(messages, images)
 
     def tokenize_batch(self, images, resize_size, text=None):
         """
@@ -272,7 +299,7 @@ class EMUSftTokenizer(EMUImageOnlyTokenizer):
 
             # Replace <|image|> placeholder with actual vision tokens
             # For single image case, use the first (and only) position
-            final_tokens = _replace_single_image(text_tokens, image_positions[0], image_tokens_no_special)
+            final_tokens = _replace_images(text_tokens, image_positions, image_tokens_no_special)
 
             combined_batch.append(final_tokens)
 
