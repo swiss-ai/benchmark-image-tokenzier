@@ -22,9 +22,12 @@ MODEL_PATH="$DEFAULT_MODEL_PATH"
 TOKENIZER_PATH="$DEFAULT_TOKENIZER_PATH"
 APPLY_CHAT_TEMPLATE=""
 CHAT_FORMAT=""
+IMAGE_COMPLETION=""
+COMPLETION_PERCENTAGES=""
+STRICT_ROW_COUNT=""
 
 usage() {
-    echo "Usage: $0 --experiment_name <name> [--model_path <path>] [--tokenizer_path <path>] [--chat-format <format>] [--no_chat_template]"
+    echo "Usage: $0 --experiment_name <name> [OPTIONS]"
     echo ""
     echo "Required arguments:"
     echo "  --experiment_name <name>    Name of the experiment"
@@ -34,6 +37,14 @@ usage() {
     echo "  --tokenizer_path <path>     Path to tokenizer (default: $DEFAULT_TOKENIZER_PATH)"
     echo "  --chat-format <format>      Chat format to use (e.g., llama, apertus)"
     echo "  --no_chat_template          Do not apply chat template to prompts"
+    echo ""
+    echo "Image completion benchmark options:"
+    echo "  --image-completion                      Run image completion benchmark instead of VLM Q&A"
+    echo "  --completion-percentages <percentages>  Comma-separated completion percentages (default: 20,40,60,80)"
+    echo "  --strict-row-count                      Require exact row count match for validity"
+    echo ""
+    echo "Example - Image completion benchmark:"
+    echo "  sbatch vision_tokenization/scripts/run_qualitative_benchmarks.sh --experiment_name completion_30_60_80_90_20260122 --model_path /capstor/store/cscs/swissai/infra01/vision-ckpts/llama3-3b-15n-8192sl-120gbsz-0.9i-0.1t-long-run-0063500/HF --image-completion --completion-percentages 30,60,80,90"
     echo ""
     exit 1
 }
@@ -60,6 +71,18 @@ while [[ $# -gt 0 ]]; do
             APPLY_CHAT_TEMPLATE="--no_chat_template"
             shift
             ;;
+        --image-completion)
+            IMAGE_COMPLETION="--image-completion"
+            shift
+            ;;
+        --completion-percentages)
+            COMPLETION_PERCENTAGES="$2"
+            shift 2
+            ;;
+        --strict-row-count)
+            STRICT_ROW_COUNT="--strict-row-count"
+            shift
+            ;;
         -h|--help)
             usage
             ;;
@@ -80,19 +103,31 @@ cd /iopsstor/scratch/cscs/$USER/benchmark-image-tokenizer/vision_tokenization/qu
 export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH}"
 
 echo "=================================================================================="
-echo "Running qualitative benchmark with:"
-echo "  Experiment name: $EXPERIMENT_NAME"
-echo "  Model path:      $MODEL_PATH"
-echo "  Tokenizer path:  $TOKENIZER_PATH"
-echo "  Chat format:     $([ -z "$CHAT_FORMAT" ] && echo "None" || echo "$CHAT_FORMAT")"
-echo "  Apply chat template: $([ -z "$APPLY_CHAT_TEMPLATE" ] && echo "Yes" || echo "No")"
+if [ -n "$IMAGE_COMPLETION" ]; then
+    echo "Running IMAGE COMPLETION benchmark with:"
+    echo "  Experiment name:        $EXPERIMENT_NAME"
+    echo "  Model path:             $MODEL_PATH"
+    echo "  Tokenizer path:         $TOKENIZER_PATH"
+    echo "  Completion percentages: $([ -z "$COMPLETION_PERCENTAGES" ] && echo "20,40,60,80 (default)" || echo "$COMPLETION_PERCENTAGES")"
+    echo "  Strict row count:       $([ -z "$STRICT_ROW_COUNT" ] && echo "No" || echo "Yes")"
+else
+    echo "Running VLM Q&A benchmark with:"
+    echo "  Experiment name:     $EXPERIMENT_NAME"
+    echo "  Model path:          $MODEL_PATH"
+    echo "  Tokenizer path:      $TOKENIZER_PATH"
+    echo "  Chat format:         $([ -z "$CHAT_FORMAT" ] && echo "None" || echo "$CHAT_FORMAT")"
+    echo "  Apply chat template: $([ -z "$APPLY_CHAT_TEMPLATE" ] && echo "Yes" || echo "No")"
+fi
 echo "=================================================================================="
 
 python vlm_benchmark.py --tokenizer_path "$TOKENIZER_PATH" \
                         --model_path "$MODEL_PATH" \
                         --experiment_name "$EXPERIMENT_NAME" \
                         $([ -n "$CHAT_FORMAT" ] && echo "--chat-format $CHAT_FORMAT") \
-                        $APPLY_CHAT_TEMPLATE
+                        $([ -n "$COMPLETION_PERCENTAGES" ] && echo "--completion-percentages $COMPLETION_PERCENTAGES") \
+                        $APPLY_CHAT_TEMPLATE \
+                        $IMAGE_COMPLETION \
+                        $STRICT_ROW_COUNT
 
 echo "=================================================================================="
 echo "Job completed at $(date)"

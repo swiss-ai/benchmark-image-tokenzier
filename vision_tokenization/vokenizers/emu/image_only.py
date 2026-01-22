@@ -218,22 +218,23 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
         batch_size, num_tokens_input = image_indices.shape
         num_tokens_needed = height * width
 
-        assert num_tokens_input == num_tokens_needed, \
-            f"Dimension mismatch: {height}x{width} needs {num_tokens_needed} indices per image, got {num_tokens_input}"
+        assert (
+            num_tokens_input == num_tokens_needed
+        ), f"Dimension mismatch: {height}x{width} needs {num_tokens_needed} indices per image, got {num_tokens_input}"
 
         # 1. Calculate the length of the structural tokens (non-image tokens)
         # Total structural tokens per image (T_struct)
         dim_tokens = self._get_dim_tokens(height, width)
 
         T_struct = (
-            1 +  # BOS
-            1 +  # img_start
-            len(dim_tokens) +  # dimension tokens
-            1 +  # img_token_start
-            height +  # EOL after each row
-            1 +  # EOF
-            1 +  # img_end
-            1    # EOS
+            1  # BOS
+            + 1  # img_start
+            + len(dim_tokens)  # dimension tokens
+            + 1  # img_token_start
+            + height  # EOL after each row
+            + 1  # EOF
+            + 1  # img_end
+            + 1  # EOS
         )
 
         # 2. Calculate the total length of the final token sequence (T_total)
@@ -250,7 +251,9 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
 
         # Create the vision part with EOL tokens for the whole batch
         # Shape: [B, H, W + 1] (W + 1 for the EOL token)
-        vision_part_batched = torch.empty((batch_size, height, width + 1), dtype=torch.long, device=image_indices.device)
+        vision_part_batched = torch.empty(
+            (batch_size, height, width + 1), dtype=torch.long, device=image_indices.device
+        )
         vision_part_batched[:, :, :width] = vision_tokens_with_offset
         # Add EOL token at the end of each row for all batches
         vision_part_batched[:, :, width] = self.eol_id
@@ -268,17 +271,13 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
             self.bos_id,
             self.img_start_id,
             *dim_tokens,  # Insert dynamic dimension tokens
-            self.img_token_start_id
+            self.img_token_start_id,
         ]
         prefix_tensor = torch.tensor(prefix_tokens, dtype=torch.long, device=image_indices.device)
         prefix_len = len(prefix_tokens)
 
         # Create the structural suffix template.
-        suffix_tokens = [
-            self.eof_id,
-            self.img_end_id,
-            self.eos_id
-        ]
+        suffix_tokens = [self.eof_id, self.img_end_id, self.eos_id]
         suffix_tensor = torch.tensor(suffix_tokens, dtype=torch.long, device=image_indices.device)
         suffix_len = len(suffix_tokens)
 
@@ -289,16 +288,16 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
         # Fill Prefix
         # output[:, 0:prefix_len] = prefix_tensor
         # output.shape[1] should be: B, T_total
-        output[:, 0:prefix_len] = prefix_tensor.unsqueeze(0) # [1, prefix_len] broadcasted to [B, prefix_len]
+        output[:, 0:prefix_len] = prefix_tensor.unsqueeze(0)  # [1, prefix_len] broadcasted to [B, prefix_len]
 
         # Fill Vision Tokens
         vision_start = prefix_len
         vision_end = vision_start + vision_part_flat.shape[1]
-        output[:, vision_start:vision_end] = vision_part_flat # [B, H*(W+1)]
+        output[:, vision_start:vision_end] = vision_part_flat  # [B, H*(W+1)]
 
         # Fill Suffix
         suffix_start = vision_end
-        output[:, suffix_start:] = suffix_tensor.unsqueeze(0) # [1, suffix_len] broadcasted to [B, suffix_len]
+        output[:, suffix_start:] = suffix_tensor.unsqueeze(0)  # [1, suffix_len] broadcasted to [B, suffix_len]
 
         return output
 

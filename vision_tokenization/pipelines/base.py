@@ -7,7 +7,7 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from collections import deque
-from typing import Any, Dict, Optional, Union, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 
 import ray
 import torch
@@ -377,7 +377,7 @@ class BaseTokenizerWorker:
         batch_mode: Optional[str] = None,  # "simple", "sorted", "clustered"
         batch_size: int = 1,
         buffer_size: Optional[int] = None,
-        resize_size: Union[int, Tuple[int, int], str] = 'avg',
+        resize_size: Union[int, Tuple[int, int], str] = "avg",
         image_field: str = "image",
         text_field: str = "text",
         device: str = None,
@@ -416,14 +416,17 @@ class BaseTokenizerWorker:
         if batch_mode is not None:
             if batch_mode == "simple":
                 from vision_tokenization.pipelines.batching import SimpleBatcher
+
                 self.batcher = SimpleBatcher(batch_size, resize_size)
                 self.buffer_size = buffer_size or batch_size
             elif batch_mode == "sorted":
                 from vision_tokenization.pipelines.batching import SortedBatcher
+
                 self.batcher = SortedBatcher(batch_size, resize_size)
                 self.buffer_size = buffer_size or batch_size * 8
             elif batch_mode == "clustered":
                 from vision_tokenization.pipelines.batching import ClusteredBatcher
+
                 self.batcher = ClusteredBatcher(batch_size, resize_size, device=self.device)
                 self.buffer_size = buffer_size or batch_size * 8
             else:

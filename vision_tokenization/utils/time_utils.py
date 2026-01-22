@@ -75,7 +75,7 @@ def parse_slurm_time_limit(time_string: str) -> Optional[int]:
     try:
         # Pattern: DD-HH:MM:SS or DD-HH:MM
         if "-" in time_string:
-            match = re.match(r'^(\d+)-(\d+):(\d+)(?::(\d+))?$', time_string)
+            match = re.match(r"^(\d+)-(\d+):(\d+)(?::(\d+))?$", time_string)
             if match:
                 days = int(match.group(1))
                 hours = int(match.group(2))
@@ -138,7 +138,7 @@ def get_slurm_time_limit() -> Optional[int]:
 
         # Parse output for TimeLimit
         output = result.stdout
-        match = re.search(r'TimeLimit=([^\s]+)', output)
+        match = re.search(r"TimeLimit=([^\s]+)", output)
         if not match:
             logger.debug("Could not find TimeLimit in scontrol output")
             return None

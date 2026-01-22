@@ -6,7 +6,7 @@ Handles both image-only and SFT tokenization modes.
 
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional, Union, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 
 import ray
 
@@ -47,7 +47,7 @@ class HFDatasetPipeline(BasePipeline):
         batch_size: int = 64,
         batch_mode: str = "sorted",
         buffer_size: Optional[int] = None,
-        resize_size: Union[int, Tuple[int, int], str] = 'avg',
+        resize_size: Union[int, Tuple[int, int], str] = "avg",
         image_field: str = "images",
         text_field: str = "texts",
         resume: bool = False,
@@ -405,6 +405,7 @@ class HFDatasetPipeline(BasePipeline):
 
                 # Count samples in completed shards by reading .idx files
                 import re
+
                 output_path = Path(self.output_dir)
                 from vision_tokenization.pipelines.indexed_dataset_megatron import get_num_sequences
 
@@ -520,9 +521,9 @@ class HFDatasetPipeline(BasePipeline):
 
         return {
             "total_processed": total_processed,
-            "total_samples": all_shard_stats['samples_processed'],
-            "total_tokens": all_shard_stats['tokens_generated'],
-            "total_errors": all_shard_stats['errors'],
+            "total_samples": all_shard_stats["samples_processed"],
+            "total_tokens": all_shard_stats["tokens_generated"],
+            "total_errors": all_shard_stats["errors"],
             "processing_time": max_time,
             "workers": len(self.workers),
             "mode": self.mode,
