@@ -55,7 +55,9 @@ def get_all_tags(results):
 
     for run in results.get("runs", []):
         image_tags.update(run["image"].get("tags", []))
-        prompt_tags.update(run["prompt"].get("tags", []))
+        # For image completion mode, there are no prompts
+        if "prompt" in run:
+            prompt_tags.update(run["prompt"].get("tags", []))
 
     return {"image_tags": sorted(list(image_tags)), "prompt_tags": sorted(list(prompt_tags))}
 
@@ -75,19 +77,30 @@ def view_experiment(experiment_name):
     if results is None:
         return "Experiment not found", 404
 
+    # Detect if this is an image completion benchmark
+    is_completion = results.get("mode") == "image_completion"
+
     # Get filter parameters
     image_tag_filter = request.args.get("image_tag", None)
-    prompt_tag_filter = request.args.get("prompt_tag", None)
+    prompt_tag_filter = request.args.get("prompt_tag", None) if not is_completion else None
+    percentage_filter = request.args.get("percentage", None) if is_completion else None
 
     # Filter results if requested
     filtered_runs = results.get("runs", [])
     if image_tag_filter:
         filtered_runs = [r for r in filtered_runs if image_tag_filter in r["image"].get("tags", [])]
     if prompt_tag_filter:
-        filtered_runs = [r for r in filtered_runs if prompt_tag_filter in r["prompt"].get("tags", [])]
+        filtered_runs = [r for r in filtered_runs if prompt_tag_filter in r.get("prompt", {}).get("tags", [])]
+    if percentage_filter:
+        try:
+            percentage = int(percentage_filter)
+            filtered_runs = [r for r in filtered_runs if r.get("completion_percentage") == percentage]
+        except ValueError:
+            pass
 
-    # Get all available tags for filtering UI
+    # Get all available tags and percentages for filtering UI
     all_tags = get_all_tags(results)
+    all_percentages = sorted(list(set(results.get("completion_percentages", [])))) if is_completion else []
 
     return render_template(
         "experiment.html",
@@ -95,8 +108,11 @@ def view_experiment(experiment_name):
         results=results,
         filtered_runs=filtered_runs,
         all_tags=all_tags,
+        all_percentages=all_percentages,
         current_image_tag=image_tag_filter,
         current_prompt_tag=prompt_tag_filter,
+        current_percentage=percentage_filter,
+        is_completion=is_completion,
     )
 
 
@@ -211,6 +227,12 @@ def api_experiment_results(experiment_name):
 def serve_asset(filename):
     """Serve image assets."""
     return send_from_directory(ASSETS_BASE_DIR, filename)
+
+
+@app.route("/results/<path:filename>")
+def serve_result(filename):
+    """Serve result images (e.g., completion images from experiments)."""
+    return send_from_directory(RESULTS_BASE_DIR, filename)
 
 
 def parse_args():
