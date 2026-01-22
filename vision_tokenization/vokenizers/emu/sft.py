@@ -277,11 +277,13 @@ class EMUSftTokenizer(EMUImageOnlyTokenizer):
             return text_results
 
         # Img tokenization on GPU and text tokenization on CPU!
-        image_future = self.executor.submit(self.tokenize_images, images, resize_size) # [B, num-tokens]
+        image_future = self.executor.submit(self.tokenize_images, images, resize_size)  # [B, num-tokens]
         text_future = self.executor.submit(tokenize_conversation_texts_cpu)
 
-        image_tokens_batch = image_future.result()  # [B, image_seq_len] same seq len as img in one batch are resized to same size.
-        text_results_batch = text_future.result()   # List of (text_tokens, num_images, image_position)
+        image_tokens_batch = (
+            image_future.result()
+        )  # [B, image_seq_len] same seq len as img in one batch are resized to same size.
+        text_results_batch = text_future.result()  # List of (text_tokens, num_images, image_position)
 
         # Combine each image-conversation pair
         combined_batch = []

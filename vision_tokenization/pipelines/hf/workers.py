@@ -5,7 +5,7 @@ Handles all tokenization modes with a single flexible worker class.
 """
 
 import time
-from typing import Dict, Optional, Union, Tuple
+from typing import Dict, Optional, Tuple, Union
 
 import ray
 
@@ -84,7 +84,7 @@ class Worker(BaseTokenizerWorker):
         batch_mode: Optional[str] = None,
         batch_size: int = 1,
         buffer_size: Optional[int] = None,
-        resize_size: Union[int, Tuple[int, int], str] = 'avg',
+        resize_size: Union[int, Tuple[int, int], str] = "avg",
         image_field: str = "image",
         text_field: str = "text",
         min_image_pixels: Optional[int] = None,
@@ -216,6 +216,7 @@ class Worker(BaseTokenizerWorker):
 
         # Create per-shard output file with total shards in filename
         from pathlib import Path
+
         from vision_tokenization.pipelines.indexed_dataset_megatron import DType, IndexedDatasetBuilder
 
         shard_output_path = Path(self.output_dir) / f"rank_{self.worker_id}_shard_{shard_id}_{num_shards}"
@@ -239,6 +240,7 @@ class Worker(BaseTokenizerWorker):
         # Use batching if configured, otherwise process samples individually
         if self.batcher is not None:
             import torch
+
             batch_loader = self.batch_iterable_shard(shard, stats)
 
             for batch in batch_loader:
@@ -260,6 +262,7 @@ class Worker(BaseTokenizerWorker):
                             lengths_list.append(len(seq_np))
 
                         import numpy as np
+
                         tokens_np = np.concatenate(all_tokens)
 
                         # Add to builder with individual lengths
@@ -341,6 +344,7 @@ class Worker(BaseTokenizerWorker):
                         stats["errors"] += 1
                 except Exception as e:
                     import traceback
+
                     error_msg = f"Failed to process sample: {e}\n{traceback.format_exc()}"
                     self.logger.warning(error_msg)
                     print(f"[Worker {self.worker_id}] {error_msg}", flush=True)
@@ -373,8 +377,8 @@ class Worker(BaseTokenizerWorker):
             output_dir: Output directory (stats saved to output_dir/shard_stats/)
         """
         import json
-        from pathlib import Path
         from datetime import datetime
+        from pathlib import Path
 
         # Create shard_stats subdirectory
         stats_dir = Path(output_dir) / "shard_stats"

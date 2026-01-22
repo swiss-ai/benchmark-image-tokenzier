@@ -134,7 +134,7 @@ class EMUImageTextPairTokenizer(EMUImageOnlyTokenizer):
                     truncation=False,
                     add_special_tokens=False,
                     return_tensors=None,  # Don't return tensors - sequences have different lengths
-                    padding=False  # Don't pad - we want individual sequences
+                    padding=False,  # Don't pad - we want individual sequences
                 )
                 # Manually convert each sequence to tensor (they have different lengths)
                 return [torch.tensor(ids) for ids in text_tokens_dict["input_ids"]]
@@ -145,7 +145,7 @@ class EMUImageTextPairTokenizer(EMUImageOnlyTokenizer):
 
         # Wait for both and get results
         image_tokens_batch = image_future.result()  # [B, image_seq_len] - each image encapsulated with BOS/EOS
-        text_tokens_batch = text_future.result()    # List of [text_seq_len] tensors
+        text_tokens_batch = text_future.result()  # List of [text_seq_len] tensors
 
         # Move text tokens to same device as image tokens for concatenation
         text_tokens_batch = [t.to(image_tokens_batch.device) for t in text_tokens_batch]
@@ -154,22 +154,26 @@ class EMUImageTextPairTokenizer(EMUImageOnlyTokenizer):
         combined_batch = []
         for i in range(len(images)):
             image_tokens = image_tokens_batch[i]  # [image_seq_len]
-            text_tokens = text_tokens_batch[i]    # [text_seq_len]
+            text_tokens = text_tokens_batch[i]  # [text_seq_len]
 
             if self.mode == "text2image":
                 # Text first, then image: [BOS] + [text] + [image without BOS]
-                combined = torch.cat([
-                    image_tokens[:1],     # BOS token
-                    text_tokens,          # Text tokens
-                    image_tokens[1:],     # Image tokens (including EOS)
-                ])
+                combined = torch.cat(
+                    [
+                        image_tokens[:1],  # BOS token
+                        text_tokens,  # Text tokens
+                        image_tokens[1:],  # Image tokens (including EOS)
+                    ]
+                )
             elif self.mode == "image2text":
                 # Image first, then text: [image without EOS] + [text] + [EOS]
-                combined = torch.cat([
-                    image_tokens[:-1],    # Image tokens without EOS
-                    text_tokens,          # Text tokens
-                    image_tokens[-1:],    # EOS token
-                ])
+                combined = torch.cat(
+                    [
+                        image_tokens[:-1],  # Image tokens without EOS
+                        text_tokens,  # Text tokens
+                        image_tokens[-1:],  # EOS token
+                    ]
+                )
             else:
                 raise ValueError(f"Invalid mode for image_text_pair tokenizer: {self.mode}")
 
