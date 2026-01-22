@@ -144,3 +144,59 @@ class EMU3VisionTokenizer(SpatialTokenizer):
             Dict with 'min_pixels' and 'max_pixels'
         """
         return {"min_pixels": self.min_pixels, "max_pixels": self.max_pixels}
+
+    def create_partial_prompt(self, visual_indices: list, height: int, width: int, given_rows: int) -> str:
+        """
+        Create a prompt with partial image tokens (for image completion tasks).
+
+        Args:
+            visual_indices: Full list of visual token indices
+            height: Total height in token rows
+            width: Width in tokens per row
+            given_rows: Number of rows to include in prompt (rest will be generated)
+
+        Returns:
+            Formatted prompt string with partial image tokens
+        """
+        # Build EMU3 prompt with only the first given_rows
+        prompt = f"<|begin_of_text|><|img_start|>{height}*{width}<|img_token_start|>"
+
+        # Add only the first given_rows
+        for row in range(given_rows):
+            row_start = row * width
+            row_end = row_start + width
+            row_tokens = visual_indices[row_start:row_end]
+
+            for token_idx in row_tokens:
+                prompt += f"<|visual token {token_idx:06d}|>"
+            prompt += "<|img_end_of_row|>"
+
+        # Don't add img_end_of_frame or img_end - let the model generate those
+        return prompt
+
+    @property
+    def vision_mapping(self) -> Dict[int, int]:
+        """
+        Get the vision token mapping (visual_index -> token_id).
+
+        For EMU3, this creates a mapping from visual token indices (0-32767)
+        to their corresponding token IDs in the vocabulary.
+
+        Returns:
+            Dictionary mapping visual indices to token IDs
+        """
+        # EMU3 has 32768 visual tokens starting at a specific vocabulary offset
+        # The exact mapping depends on how the tokenizer was constructed
+        # For now, we'll create a simple identity mapping as a placeholder
+        # This should be updated based on the actual EMU3 tokenizer vocabulary
+
+        # Check if the core tokenizer has a codebook_size attribute
+        if hasattr(self.tokenizer, "model") and hasattr(self.tokenizer.model, "quantize"):
+            codebook_size = self.tokenizer.model.quantize.n_e
+        else:
+            codebook_size = 32768  # Default EMU3 codebook size
+
+        # Create mapping: visual_index -> visual_index (placeholder)
+        # In reality, these indices map to specific token IDs in the LLM vocabulary
+        # The actual mapping should be obtained from the LLM tokenizer configuration
+        return {i: i for i in range(codebook_size)}

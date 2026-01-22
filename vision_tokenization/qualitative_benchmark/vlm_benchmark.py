@@ -175,6 +175,216 @@ class VLM(object):
         )
         return result["generated_text"]
 
+    def generate_image_completion(
+        self, image_path: str, given_percentage: int, strict_row_count: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Generate image completion from partial image tokens.
+
+        Args:
+            image_path: Path to the image file
+            given_percentage: Percentage of image rows to provide as context (e.g., 20, 40, 60, 80)
+            strict_row_count: If True, require exact row count match for validity
+
+        Returns:
+            Dictionary with:
+                - given_indices: List of token indices provided as context
+                - generated_indices: List of generated token indices
+                - original_image_rows: Total rows in original image
+                - given_rows: Number of rows given as context
+                - generated_rows: Number of rows generated
+                - expected_rows: Number of rows expected
+                - is_valid: Whether generation is valid
+                - validation: Detailed validation breakdown
+                - statistics: Token counts and special token counts
+                - metadata: Image token dimensions
+        """
+        # 1. Load and tokenize full image to get ground truth dimensions
+        img = self._load_image(image_path)
+        indices, metadata = self.vision_tokenizer.encode_for_vlm(img)
+
+        # Get token dimensions
+        height = metadata["height"]
+        width = metadata["width"]
+        visual_indices = indices[0].flatten().tolist() if hasattr(indices[0], "flatten") else list(indices[0])
+
+        print(f"   Original image tokenized: {height}×{width} = {len(visual_indices)} tokens")
+
+        # 2. Calculate given_rows from percentage
+        given_rows = max(1, int(height * given_percentage / 100))
+        expected_rows = height - given_rows
+
+        print(f"   Using {given_percentage}%: {given_rows} given rows, {expected_rows} expected rows")
+
+        # 3. Create prompt with first given_rows of tokens
+        prompt = self._create_partial_image_prompt(visual_indices, height, width, given_rows)
+
+        # 4. Generate completion
+        max_tokens = expected_rows * width + 200  # Extra tokens for structure tokens
+        result = self.inferencer.run_inference(
+            prompt,
+            return_text=False,  # We need token IDs, not text
+            sampling_tmp=self.inf_args.temperature,
+            sampling_topp=self.inf_args.top_p,
+            sampling_max_tok=max_tokens,
+            sampling_min_tok=1,
+            sampling_stop_token_ids=self.inf_args.stop_token_ids,
+        )
+
+        generated_token_ids = result["generated_token_ids"]
+        print(f"   Generated {len(generated_token_ids)} tokens")
+
+        # 5. Extract and validate generated tokens
+        from emu3_reconstruct_helper import extract_visual_tokens_by_row
+
+        # Get special token IDs from inferencer
+        special_token_ids = self._get_special_token_ids()
+
+        # Extract tokens by row
+        rows_generated, stats = extract_visual_tokens_by_row(
+            generated_token_ids, self.vision_tokenizer.vision_mapping, special_token_ids
+        )
+
+        # Flatten generated indices
+        generated_indices = [idx for row in rows_generated for idx in row]
+
+        # Get given indices
+        given_indices = visual_indices[: given_rows * width]
+
+        # 6. Validate the completion
+        validation_result = self._validate_completion(
+            generated_token_ids, special_token_ids, expected_rows, len(rows_generated), strict_row_count
+        )
+
+        return {
+            "given_indices": given_indices,
+            "generated_indices": generated_indices,
+            "original_image_rows": height,
+            "original_image_width": width,
+            "given_rows": given_rows,
+            "generated_rows": len(rows_generated),
+            "expected_rows": expected_rows,
+            "is_valid": validation_result["is_valid"],
+            "validation": validation_result["validation"],
+            "statistics": {
+                "given_tokens": len(given_indices),
+                "generated_tokens": len(generated_indices),
+                "expected_tokens": expected_rows * width,
+                "total_tokens": len(given_indices) + len(generated_indices),
+                "unique_generated_tokens": len(set(generated_indices)),
+                **validation_result["statistics"],
+            },
+            "metadata": metadata,
+        }
+
+    def _create_partial_image_prompt(self, visual_indices: List[int], height: int, width: int, given_rows: int) -> str:
+        """
+        Create a prompt with partial image tokens.
+
+        Args:
+            visual_indices: Full list of visual token indices
+            height: Height in tokens
+            width: Width in tokens
+            given_rows: Number of rows to include in prompt
+
+        Returns:
+            Formatted prompt string
+        """
+        # Format depends on vision tokenizer type
+        return self.vision_tokenizer.create_partial_prompt(visual_indices, height, width, given_rows)
+
+    def _get_special_token_ids(self) -> Dict[str, int]:
+        """Get special token IDs from the inferencer."""
+        # This will vary by tokenizer, but for EMU3:
+        tokenizer = self.inferencer.txt_tokenizer
+        special_tokens = {}
+
+        # Try to get EMU3-specific tokens
+        token_names = ["img_start", "img_end", "img_token_start", "img_end_of_row", "img_end_of_frame"]
+        for token_name in token_names:
+            token_str = f"<|{token_name}|>"
+            if hasattr(tokenizer, "convert_tokens_to_ids"):
+                token_id = tokenizer.convert_tokens_to_ids(token_str)
+                if isinstance(token_id, int) and token_id != tokenizer.unk_token_id:
+                    special_tokens[token_name] = token_id
+
+        return special_tokens
+
+    def _validate_completion(
+        self,
+        generated_token_ids: List[int],
+        special_token_ids: Dict[str, int],
+        expected_rows: int,
+        generated_rows: int,
+        strict_row_count: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Validate image completion generation.
+
+        Args:
+            generated_token_ids: Generated token IDs
+            special_token_ids: Dictionary of special token IDs
+            expected_rows: Expected number of rows
+            generated_rows: Actually generated number of rows
+            strict_row_count: If True, require exact row count match
+
+        Returns:
+            Dictionary with validation results
+        """
+        from emu3_reconstruct_helper import extract_visual_tokens_by_row
+
+        # Extract tokens by row to check consistency
+        rows, stats = extract_visual_tokens_by_row(
+            generated_token_ids, self.vision_tokenizer.vision_mapping, special_token_ids
+        )
+
+        # Count special tokens
+        eol_count = generated_token_ids.count(special_token_ids.get("img_end_of_row", -1))
+        eof_count = generated_token_ids.count(special_token_ids.get("img_end_of_frame", -1))
+        eoi_count = generated_token_ids.count(special_token_ids.get("img_end", -1))
+
+        # Check all criteria
+        structure_consistent = stats["consistent"]  # All rows same width
+        has_proper_eol = eol_count == generated_rows
+        has_eof = eof_count >= 1
+        has_eoi = eoi_count >= 1
+        row_count_match = generated_rows == expected_rows
+
+        # Check token order (EOF before EOI)
+        eof_idx = -1
+        eoi_idx = -1
+        try:
+            if eof_count > 0:
+                eof_idx = generated_token_ids.index(special_token_ids["img_end_of_frame"])
+            if eoi_count > 0:
+                eoi_idx = generated_token_ids.index(special_token_ids["img_end"])
+        except (ValueError, KeyError):
+            pass
+
+        proper_order = (eof_idx < eoi_idx) if (eof_idx >= 0 and eoi_idx >= 0) else False
+
+        # Build list of required checks
+        required_checks = [structure_consistent, has_proper_eol, has_eof, has_eoi, proper_order]
+
+        # Only require row count match if strict_row_count flag is set
+        if strict_row_count:
+            required_checks.append(row_count_match)
+
+        is_valid = all(required_checks)
+
+        return {
+            "is_valid": is_valid,
+            "validation": {
+                "structure_consistent": structure_consistent,
+                "has_proper_eol_tokens": has_proper_eol,
+                "has_eof_token": has_eof,
+                "has_eoi_token": has_eoi,
+                "proper_token_order": proper_order,
+                "row_count_match": row_count_match,  # Always recorded
+            },
+            "statistics": {"eol_count": eol_count, "eof_count": eof_count, "eoi_count": eoi_count},
+        }
+
 
 class VLMBenchmark:
     """Scaffolding for running qualitative VLM benchmarks with images and prompts."""
@@ -281,6 +491,210 @@ class VLMBenchmark:
         return results
 
 
+class ImageCompletionBenchmark:
+    """Scaffolding for running image completion benchmarks."""
+
+    def __init__(self, images_config_path: str, vlm: VLM, results_dir: str = "results"):
+        """
+        Initialize the image completion benchmark system.
+
+        Args:
+            images_config_path: Path to JSON file containing image configurations
+            vlm: VLM instance for running completion
+            results_dir: Directory where results will be stored
+        """
+        self.images = self._load_json(images_config_path)
+        self.results_dir = Path(results_dir)
+        self.vlm = vlm
+        print(f"Loaded {len(self.images)} images for completion benchmark.")
+
+    def _load_json(self, path: str) -> List[Dict[str, Any]]:
+        """Load JSON configuration file."""
+        with open(path, "r") as f:
+            return json.load(f)
+
+    def run_completion_benchmark(
+        self, percentages: List[int], output_filename: str, strict_row_count: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Run image completion benchmark for all images and percentages.
+
+        Args:
+            percentages: List of completion percentages (e.g., [20, 40, 60, 80])
+            output_filename: Filename for results JSON
+            strict_row_count: If True, require exact row count match for validity
+
+        Returns:
+            Dictionary containing all benchmark results
+        """
+        # Serialize inference args
+        inference_args_dict = {
+            "apply_chat_template": self.vlm.inf_args.apply_chat_template,
+            "temperature": self.vlm.inf_args.temperature,
+            "top_p": self.vlm.inf_args.top_p,
+            "max_new_tokens": self.vlm.inf_args.max_new_tokens,
+            "max_emu_aspect_ratio": self.vlm.inf_args.max_emu_aspect_ratio,
+            "min_emu_aspect_ratio": self.vlm.inf_args.min_emu_aspect_ratio,
+            "stop_token_ids": self.vlm.inf_args.stop_token_ids,
+        }
+
+        results = {
+            "timestamp": datetime.now().isoformat(),
+            "mode": "image_completion",
+            "model_path": self.vlm.model_path,
+            "tokenizer_path": self.vlm.tokenizer_path,
+            "vision_tokenizer": self.vlm.vision_tokenizer.name,
+            "completion_percentages": percentages,
+            "strict_row_count": strict_row_count,
+            "inference_args": inference_args_dict,
+            "total_runs": 0,
+            "runs": [],
+        }
+
+        # Create completion_images subdirectory
+        experiment_name = Path(output_filename).stem
+        images_dir = self.results_dir / experiment_name / "completion_images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+
+        # Run completion for each image and percentage
+        for image_config in tqdm(self.images, desc="Processing images"):
+            image_path = image_config["path"]
+            image_tags = image_config.get("tags", [])
+
+            for percentage in percentages:
+                print(f"\n{'='*60}")
+                print(f"Image: {Path(image_path).name}, Completion: {percentage}%")
+                print(f"{'='*60}")
+
+                try:
+                    # Generate completion
+                    completion_result = self.vlm.generate_image_completion(image_path, percentage, strict_row_count)
+
+                    # Prepare result entry
+                    result_entry = {
+                        "image": {
+                            "path": image_path,
+                            "tags": image_tags,
+                            "token_dimensions": {
+                                "height": completion_result["original_image_rows"],
+                                "width": completion_result["original_image_width"],
+                            },
+                        },
+                        "completion_percentage": percentage,
+                        "original_image_rows": completion_result["original_image_rows"],
+                        "given_rows": completion_result["given_rows"],
+                        "generated_rows": completion_result["generated_rows"],
+                        "expected_rows": completion_result["expected_rows"],
+                        "is_valid": completion_result["is_valid"],
+                        "validation": completion_result["validation"],
+                        "statistics": completion_result["statistics"],
+                    }
+
+                    # If valid, reconstruct and save result image
+                    if completion_result["is_valid"]:
+                        result_image_path = self._save_result_image(
+                            completion_result,
+                            image_path,
+                            percentage,
+                            images_dir,
+                        )
+                        result_entry["result_image_path"] = str(
+                            Path(experiment_name) / "completion_images" / Path(result_image_path).name
+                        )
+                        print(f"   ✓ Valid completion - image saved")
+                    else:
+                        result_entry["result_image_path"] = None
+                        failed_checks = [k for k, v in completion_result["validation"].items() if not v]
+                        print(f"   ✗ Invalid completion - failed checks: {', '.join(failed_checks)}")
+
+                except Exception as e:
+                    print(f"   ✗ Error during completion: {e}")
+                    import traceback
+
+                    traceback.print_exc()
+
+                    # Store error result
+                    result_entry = {
+                        "image": {"path": image_path, "tags": image_tags},
+                        "completion_percentage": percentage,
+                        "is_valid": False,
+                        "error": str(e),
+                    }
+
+                results["runs"].append(result_entry)
+                results["total_runs"] += 1
+
+        # Save results
+        output_path = self.results_dir / output_filename
+        with open(output_path, "w") as f:
+            json.dump(results, f, indent=2)
+
+        print(f"\n{'='*60}")
+        print(f"Benchmark complete! {results['total_runs']} runs saved to {output_path}")
+        valid_count = sum(1 for r in results["runs"] if r.get("is_valid", False))
+        print(f"Valid completions: {valid_count}/{results['total_runs']}")
+        print(f"{'='*60}")
+
+        return results
+
+    def _save_result_image(
+        self, completion_result: Dict[str, Any], original_image_path: str, percentage: int, images_dir: Path
+    ) -> Path:
+        """
+        Reconstruct image and save with red boundary line.
+
+        Args:
+            completion_result: Result from generate_image_completion()
+            original_image_path: Path to original image
+            percentage: Completion percentage
+            images_dir: Directory to save result images
+
+        Returns:
+            Path to saved result image
+        """
+        from PIL import ImageDraw
+
+        # Combine given and generated indices
+        given_indices = completion_result["given_indices"]
+        generated_indices = completion_result["generated_indices"]
+        height = completion_result["original_image_rows"]
+        width = completion_result["original_image_width"]
+        given_rows = completion_result["given_rows"]
+
+        # Ensure we have the right number of tokens
+        expected_total = height * width
+        all_indices = given_indices + generated_indices
+        if len(all_indices) < expected_total:
+            # Pad with zeros if needed
+            all_indices = all_indices + [0] * (expected_total - len(all_indices))
+        all_indices = all_indices[:expected_total]
+
+        # Reconstruct image using vision tokenizer
+        tokenizer = self.vlm.vision_tokenizer.tokenizer
+        indices_tensor = torch.tensor(all_indices, dtype=torch.long, device=tokenizer.device)
+        indices_tensor = indices_tensor.reshape(1, height, width)
+
+        with torch.no_grad():
+            reconstructed_tensor = tokenizer.decode(indices_tensor)
+
+        reconstructed_pil = tokenizer.postprocess(reconstructed_tensor)
+
+        # Draw red line at boundary
+        # Each token is 8x8 pixels in EMU3
+        boundary_y = given_rows * 8
+        draw = ImageDraw.Draw(reconstructed_pil)
+        img_width = reconstructed_pil.width
+        draw.line([(0, boundary_y), (img_width, boundary_y)], fill="red", width=3)
+
+        # Save image
+        image_stem = Path(original_image_path).stem
+        result_filename = f"{image_stem}_{percentage}pct.png"
+        result_path = images_dir / result_filename
+        reconstructed_pil.save(result_path)
+
+        return result_path
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Run VLM benchmark with configurable vision v_tokenizers and utils")
 
@@ -300,6 +714,24 @@ def parse_args():
     parser.add_argument("--image_list", type=str, default="images.json", help="Path to image list JSON")
     parser.add_argument("--prompt_list", type=str, default="prompts.json", help="Path to prompt list JSON")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing results file if it exists")
+
+    # Image completion benchmark arguments
+    parser.add_argument(
+        "--image-completion", action="store_true", help="Run image completion benchmark instead of VLM Q&A"
+    )
+    parser.add_argument(
+        "--completion-percentages",
+        type=str,
+        default="20,40,60,80",
+        help="Comma-separated percentages of image rows to provide as context. "
+        "Model will complete the remaining rows. E.g., '20,40,60,80' means give 20%%, 40%%, 60%%, 80%% of rows "
+        "and generate the rest (default: 20,40,60,80)",
+    )
+    parser.add_argument(
+        "--strict-row-count",
+        action="store_true",
+        help="Require exact row count match for completion to be valid (default: False)",
+    )
 
     # Vision tokenizer arguments
     tokenizer_group = parser.add_argument_group("vision tokenizer arguments", "Configuration for vision tokenizer")
@@ -431,8 +863,28 @@ if __name__ == "__main__":
 
     vlm = setup_vlm_inferencer(args)
 
-    benchmark = VLMBenchmark(
-        images_config_path=args.image_list, prompts_config_path=args.prompt_list, vlm=vlm, results_dir=str(results_dir)
-    )
-    results = benchmark.run_benchmark(output_filename=f"{args.experiment_name}.json")
+    # Check if running image completion benchmark
+    if args.image_completion:
+        # Parse percentages
+        percentages = [int(p.strip()) for p in args.completion_percentages.split(",")]
+        print(f"Running image completion benchmark with percentages: {percentages}")
+        print(f"Strict row count: {args.strict_row_count}")
+
+        # Create and run image completion benchmark
+        benchmark = ImageCompletionBenchmark(images_config_path=args.image_list, vlm=vlm, results_dir=str(results_dir))
+        results = benchmark.run_completion_benchmark(
+            percentages=percentages,
+            output_filename=f"{args.experiment_name}.json",
+            strict_row_count=args.strict_row_count,
+        )
+    else:
+        # Run standard VLM Q&A benchmark
+        benchmark = VLMBenchmark(
+            images_config_path=args.image_list,
+            prompts_config_path=args.prompt_list,
+            vlm=vlm,
+            results_dir=str(results_dir),
+        )
+        results = benchmark.run_benchmark(output_filename=f"{args.experiment_name}.json")
+
     print("Done!")
