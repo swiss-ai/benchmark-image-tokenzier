@@ -3,6 +3,8 @@
 
 import json
 import os
+from pathlib import Path
+import sys
 from typing import Any, Dict, Tuple
 
 import torch
@@ -10,6 +12,10 @@ from PIL import Image
 
 from .base import SpatialTokenizer
 
+# repo base
+base_dir = Path(__file__).parent.parent.parent
+sys.path.append(str(base_dir))
+sys.path.append(str(base_dir / "Tokenizer"))
 
 class EMU35IBQVisionTokenizer(SpatialTokenizer):
     """
@@ -34,7 +40,7 @@ class EMU35IBQVisionTokenizer(SpatialTokenizer):
 
     def __init__(
         self,
-        model_path: str,
+        model_path: str = (base_dir / "Tokenizer" / "submodules" / "Emu3.5").resolve(), # default to repo submodule
         min_pixels: int = 256 * 256,
         max_pixels: int = 512 * 512,
         device: str = "cuda",
