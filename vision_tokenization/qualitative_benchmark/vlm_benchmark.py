@@ -162,7 +162,7 @@ class VLM(object):
         formatted_prompt_str = self._prepare_final_prompt(img_tokens_str, prompt)
         return formatted_prompt_str  # Return string, not token IDs
 
-    def generate(self, prompt_string: str):
+    def generate(self, prompt_string: str, debug: bool = False):
         """Run VLM inference on formatted prompt string."""
         result = self.inferencer.run_inference(
             prompt_string,
@@ -172,11 +172,12 @@ class VLM(object):
             sampling_max_tok=self.inf_args.max_new_tokens,
             sampling_min_tok=1,
             sampling_stop_token_ids=self.inf_args.stop_token_ids,
+            debug=debug,
         )
         return result["generated_text"]
 
     def generate_image_completion(
-        self, image_path: str, given_percentage: int, strict_row_count: bool = False
+        self, image_path: str, given_percentage: int, strict_row_count: bool = False, debug: bool = False
     ) -> Dict[str, Any]:
         """
         Generate image completion from partial image tokens.
@@ -185,6 +186,7 @@ class VLM(object):
             image_path: Path to the image file
             given_percentage: Percentage of image rows to provide as context (e.g., 20, 40, 60, 80)
             strict_row_count: If True, require exact row count match for validity
+            debug: If True, print detailed token information
 
         Returns:
             Dictionary with:
@@ -199,24 +201,28 @@ class VLM(object):
                 - statistics: Token counts and special token counts
                 - metadata: Image token dimensions
         """
-        # 1. Load and tokenize full image to get ground truth dimensions
         img = self._load_image(image_path)
         indices, metadata = self.vision_tokenizer.encode_for_vlm(img)
 
-        # Get token dimensions
         height = metadata["height"]
         width = metadata["width"]
         visual_indices = indices[0].flatten().tolist() if hasattr(indices[0], "flatten") else list(indices[0])
 
         print(f"   Original image tokenized: {height}×{width} = {len(visual_indices)} tokens")
 
-        # 2. Calculate given_rows from percentage
         given_rows = max(1, int(height * given_percentage / 100))
         expected_rows = height - given_rows
 
         print(f"   Using {given_percentage}%: {given_rows} given rows, {expected_rows} expected rows")
 
-        # 3. Create prompt with first given_rows of tokens
+        # Get given indices for debug
+        given_indices = visual_indices[: given_rows * width]
+
+        # Debug: Print last few tokens of given rows
+        if debug:
+            print(f"\n   [DEBUG] Given rows: {given_rows}")
+            print(f"   [DEBUG] Last 10 tokens of given rows: {given_indices[-10:]}")
+
         prompt = self._create_partial_image_prompt(visual_indices, height, width, given_rows)
 
         # 4. Generate completion
@@ -229,10 +235,22 @@ class VLM(object):
             sampling_max_tok=max_tokens,
             sampling_min_tok=1,
             sampling_stop_token_ids=self.inf_args.stop_token_ids,
+            debug=debug,
         )
 
-        generated_token_ids = result["generated_token_ids"]
+        generated_token_ids = result["generated_ids"]
         print(f"   Generated {len(generated_token_ids)} tokens")
+
+        # Debug: Print generated token IDs and text
+        if debug:
+            # Decode tokens to text
+            decoded_text = self.inferencer.txt_tokenizer.decode(
+                generated_token_ids, skip_special_tokens=False
+            )
+            print(f"\n   [DEBUG] First 10 generated token IDs: {generated_token_ids[:10]}")
+            print(f"   [DEBUG] First 100 text characters: {decoded_text[:100]}")
+            print(f"   [DEBUG] Last 10 generated token IDs: {generated_token_ids[-10:]}")
+            print(f"   [DEBUG] Last 100 generated textcharacters: {decoded_text[-100:]}")
 
         # 5. Extract and validate generated tokens
         from emu3_reconstruct_helper import extract_visual_tokens_by_row
@@ -248,8 +266,11 @@ class VLM(object):
         # Flatten generated indices
         generated_indices = [idx for row in rows_generated for idx in row]
 
-        # Get given indices
-        given_indices = visual_indices[: given_rows * width]
+        # Debug: Print extracted visual indices
+        if debug:
+            print(f"\n   [DEBUG] Number of rows extracted: {len(rows_generated)}")
+            print(f"   [DEBUG] First 20 extracted visual indices: {generated_indices[:20]}")
+            print(f"   [DEBUG] Last 20 extracted visual indices: {generated_indices[-20:]}")
 
         # 6. Validate the completion
         validation_result = self._validate_completion(
@@ -290,7 +311,6 @@ class VLM(object):
         Returns:
             Formatted prompt string
         """
-        # Format depends on vision tokenizer type
         return self.vision_tokenizer.create_partial_prompt(visual_indices, height, width, given_rows)
 
     def _get_special_token_ids(self) -> Dict[str, int]:
@@ -494,7 +514,7 @@ class VLMBenchmark:
 class ImageCompletionBenchmark:
     """Scaffolding for running image completion benchmarks."""
 
-    def __init__(self, images_config_path: str, vlm: VLM, results_dir: str = "results"):
+    def __init__(self, images_config_path: str, vlm: VLM, results_dir: str = "results", debug: bool = False):
         """
         Initialize the image completion benchmark system.
 
@@ -502,10 +522,12 @@ class ImageCompletionBenchmark:
             images_config_path: Path to JSON file containing image configurations
             vlm: VLM instance for running completion
             results_dir: Directory where results will be stored
+            debug: Enable debug mode for detailed output
         """
         self.images = self._load_json(images_config_path)
         self.results_dir = Path(results_dir)
         self.vlm = vlm
+        self.debug = debug
         print(f"Loaded {len(self.images)} images for completion benchmark.")
 
     def _load_json(self, path: str) -> List[Dict[str, Any]]:
@@ -556,19 +578,28 @@ class ImageCompletionBenchmark:
         images_dir = self.results_dir / experiment_name / "completion_images"
         images_dir.mkdir(parents=True, exist_ok=True)
 
+        # Track sample number for debug mode (only first 3 samples)
+        sample_num = 0
+
         # Run completion for each image and percentage
         for image_config in tqdm(self.images, desc="Processing images"):
             image_path = image_config["path"]
             image_tags = image_config.get("tags", [])
 
             for percentage in percentages:
+                sample_num += 1
                 print(f"\n{'='*60}")
-                print(f"Image: {Path(image_path).name}, Completion: {percentage}%")
+                print(f"Sample {sample_num}: Image: {Path(image_path).name}, Completion: {percentage}%")
                 print(f"{'='*60}")
+
+                # Enable debug for first 3 samples
+                debug_this_sample = self.debug and sample_num <= 3
 
                 try:
                     # Generate completion
-                    completion_result = self.vlm.generate_image_completion(image_path, percentage, strict_row_count)
+                    completion_result = self.vlm.generate_image_completion(
+                        image_path, percentage, strict_row_count, debug=debug_this_sample
+                    )
 
                     # Prepare result entry
                     result_entry = {
@@ -714,6 +745,9 @@ def parse_args():
     parser.add_argument("--image_list", type=str, default="images.json", help="Path to image list JSON")
     parser.add_argument("--prompt_list", type=str, default="prompts.json", help="Path to prompt list JSON")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing results file if it exists")
+    parser.add_argument(
+        "--debug", action="store_true", help="Enable debug mode (prints tokens for first 3 samples)"
+    )
 
     # Image completion benchmark arguments
     parser.add_argument(
@@ -797,6 +831,7 @@ def setup_vlm_inferencer(args):
         "min_pixels": min_pixels,
         "max_pixels": max_pixels,
         "device": "cuda:1" if torch.cuda.is_available() else "cpu",
+        "tokenizer_path": args.tokenizer_path,  # Pass text tokenizer path for vision mapping
     }
 
     # Add model_path for v_tokenizers that need it
@@ -871,7 +906,9 @@ if __name__ == "__main__":
         print(f"Strict row count: {args.strict_row_count}")
 
         # Create and run image completion benchmark
-        benchmark = ImageCompletionBenchmark(images_config_path=args.image_list, vlm=vlm, results_dir=str(results_dir))
+        benchmark = ImageCompletionBenchmark(
+            images_config_path=args.image_list, vlm=vlm, results_dir=str(results_dir), debug=args.debug
+        )
         results = benchmark.run_completion_benchmark(
             percentages=percentages,
             output_filename=f"{args.experiment_name}.json",
