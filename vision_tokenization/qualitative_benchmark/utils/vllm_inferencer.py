@@ -62,12 +62,23 @@ class VLLMInferencer:
         sampling_max_tok: int = 500,
         sampling_min_tok: int = 3,
         sampling_stop_token_ids: List[int] = None,
+        debug: bool = False,
     ) -> dict:
         """
         Takes a string/token ids as input and runs inference on it. No chat template is applied.
         If return_text is True, tries to decode the output tokens to text before return.
         If no txt tokenizer given always returns only generated ids.
         Can only work with one sample currently!
+
+        Args:
+            prompt: Input prompt as string or list of token IDs
+            return_text: Whether to decode output tokens to text
+            sampling_tmp: Sampling temperature
+            sampling_topp: Top-p sampling parameter
+            sampling_max_tok: Maximum tokens to generate
+            sampling_min_tok: Minimum tokens to generate
+            sampling_stop_token_ids: Token IDs that stop generation
+            debug: If True, print prompt token IDs and decoded text
         """
         sampling_params = SamplingParams(
             temperature=sampling_tmp,
@@ -80,11 +91,41 @@ class VLLMInferencer:
 
         if isinstance(prompt, str):
             if self.txt_tokenizer is not None:
-                prompt = self.txt_tokenizer.encode(prompt, add_special_tokens=False)
+                # Check if prompt already has special tokens (from chat template)
+                # Chat templates include BOS token as text like "<|begin_of_text|>"
+                has_special_tokens = (
+                    self.txt_tokenizer.bos_token is not None and prompt.startswith(self.txt_tokenizer.bos_token)
+                )
+
+                if has_special_tokens:
+                    # Chat template already added special tokens, don't add again
+                    prompt = self.txt_tokenizer.encode(prompt, add_special_tokens=False)
+                else:
+                    # No chat template used, add BOS but strip EOS since we're generating
+                    prompt = self.txt_tokenizer.encode(prompt, add_special_tokens=True)
+                    # Remove EOS token if present at the end
+                # sanity check: remove eod token if exists as we want to generate
+                if prompt and prompt[-1] == self.txt_tokenizer.eos_token_id:
+                    prompt = prompt[:-1]
             else:
                 logger.warning(
                     "Specific Tokenizer(VLLMInferencer.txt_tokenizer) not given, vllm will try to use default model tokenizer which might be unintended or fail!"
                 )
+
+        # Debug: Print prompt token IDs and text
+        if debug and isinstance(prompt, list) and self.txt_tokenizer is not None:
+            print("\n" + "=" * 80)
+            print("[VLLM INFERENCER DEBUG] Prompt Token IDs:")
+            print(f"  Total prompt length: {len(prompt)} tokens")
+            print(f"  First 10 token IDs: {prompt[:10]}")
+            print(f"  Last 10 token IDs: {prompt[-10:]}")
+
+            # Decode first and last 10 tokens
+            first_10_text = self.txt_tokenizer.decode(prompt[:10], skip_special_tokens=False)
+            last_10_text = self.txt_tokenizer.decode(prompt[-10:], skip_special_tokens=False)
+            print(f"\n  First 10 tokens as text:\n    {repr(first_10_text)}")
+            print(f"\n  Last 10 tokens as text:\n    {repr(last_10_text)}")
+            print("=" * 80 + "\n")
 
         # Wrap token IDs in TokensPrompt for vLLM
         if isinstance(prompt, list):

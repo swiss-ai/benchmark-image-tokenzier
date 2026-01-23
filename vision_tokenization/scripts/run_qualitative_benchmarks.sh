@@ -25,6 +25,7 @@ CHAT_FORMAT=""
 IMAGE_COMPLETION=""
 COMPLETION_PERCENTAGES=""
 STRICT_ROW_COUNT=""
+DEBUG=""
 
 usage() {
     echo "Usage: $0 --experiment_name <name> [OPTIONS]"
@@ -42,9 +43,10 @@ usage() {
     echo "  --image-completion                      Run image completion benchmark instead of VLM Q&A"
     echo "  --completion-percentages <percentages>  Comma-separated completion percentages (default: 20,40,60,80)"
     echo "  --strict-row-count                      Require exact row count match for validity"
+    echo "  --debug                                 Enable debug mode (prints tokens for first 3 samples)"
     echo ""
-    echo "Example - Image completion benchmark:"
-    echo "  sbatch vision_tokenization/scripts/run_qualitative_benchmarks.sh --experiment_name completion_30_60_80_90_20260122 --model_path /capstor/store/cscs/swissai/infra01/vision-ckpts/llama3-3b-15n-8192sl-120gbsz-0.9i-0.1t-long-run-0063500/HF --image-completion --completion-percentages 30,60,80,90"
+    echo "Example - Image completion benchmark with llama3 emu3:"
+    echo "  sbatch vision_tokenization/scripts/run_qualitative_benchmarks.sh --experiment_name completion_30_60_80_90_20260122 --model_path /capstor/store/cscs/swissai/infra01/vision-ckpts/llama3-3b-15n-8192sl-120gbsz-0.9i-0.1t-long-run-0063500/HF --image-completion --completion-percentages 80,90 --tokenizer_path /capstor/store/cscs/swissai/infra01/MLLM/llama3_emu3_tokenizer"
     echo ""
     exit 1
 }
@@ -83,6 +85,10 @@ while [[ $# -gt 0 ]]; do
             STRICT_ROW_COUNT="--strict-row-count"
             shift
             ;;
+        --debug)
+            DEBUG="--debug"
+            shift
+            ;;
         -h|--help)
             usage
             ;;
@@ -110,6 +116,7 @@ if [ -n "$IMAGE_COMPLETION" ]; then
     echo "  Tokenizer path:         $TOKENIZER_PATH"
     echo "  Completion percentages: $([ -z "$COMPLETION_PERCENTAGES" ] && echo "20,40,60,80 (default)" || echo "$COMPLETION_PERCENTAGES")"
     echo "  Strict row count:       $([ -z "$STRICT_ROW_COUNT" ] && echo "No" || echo "Yes")"
+    echo "  Debug mode:             $([ -z "$DEBUG" ] && echo "No" || echo "Yes")"
 else
     echo "Running VLM Q&A benchmark with:"
     echo "  Experiment name:     $EXPERIMENT_NAME"
@@ -127,7 +134,8 @@ python vlm_benchmark.py --tokenizer_path "$TOKENIZER_PATH" \
                         $([ -n "$COMPLETION_PERCENTAGES" ] && echo "--completion-percentages $COMPLETION_PERCENTAGES") \
                         $APPLY_CHAT_TEMPLATE \
                         $IMAGE_COMPLETION \
-                        $STRICT_ROW_COUNT
+                        $STRICT_ROW_COUNT \
+                        $DEBUG
 
 echo "=================================================================================="
 echo "Job completed at $(date)"

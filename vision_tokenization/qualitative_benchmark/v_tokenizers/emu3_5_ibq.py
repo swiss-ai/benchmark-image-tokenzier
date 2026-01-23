@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """EMU3.5 IBQ vision tokenizer wrapper for VLM benchmarking."""
 
+import json
+import os
 from typing import Any, Dict, Tuple
 
 import torch
@@ -36,6 +38,7 @@ class EMU35IBQVisionTokenizer(SpatialTokenizer):
         min_pixels: int = 256 * 256,
         max_pixels: int = 512 * 512,
         device: str = "cuda",
+        tokenizer_path: str = None,
     ):
         """
         Initialize EMU3.5 IBQ vision tokenizer.
@@ -45,6 +48,7 @@ class EMU35IBQVisionTokenizer(SpatialTokenizer):
             min_pixels: Minimum pixel count for aspect ratio
             max_pixels: Maximum pixel count for aspect ratio
             device: Device to load model on ('cuda' or 'cpu')
+            tokenizer_path: Path to text tokenizer (needed for vision token mapping)
         """
         from Tokenizer.Emu3_5_IBQ import Emu3_5_IBQ
 
@@ -52,9 +56,13 @@ class EMU35IBQVisionTokenizer(SpatialTokenizer):
         self.min_pixels = min_pixels
         self.max_pixels = max_pixels
         self.device = device
+        self.tokenizer_path = tokenizer_path
 
         # Initialize core EMU3.5 IBQ tokenizer
         self.tokenizer = Emu3_5_IBQ(model_path=model_path, min_pixels=min_pixels, max_pixels=max_pixels, device=device)
+
+        # Load vision token mapping
+        self._vision_mapping = self._load_vision_mapping()
 
     @property
     def name(self) -> str:
@@ -97,6 +105,41 @@ class EMU35IBQVisionTokenizer(SpatialTokenizer):
 
         return indices, metadata
 
+    def _format_image_tokens_rows(
+        self, visual_indices: list, height: int, width: int, num_rows: int, include_end_tokens: bool = True
+    ) -> str:
+        """
+        Helper method to format image tokens into EMU3.5 string format.
+
+        Args:
+            visual_indices: List of visual token indices
+            height: Total image height in token rows
+            width: Width in tokens per row
+            num_rows: Number of rows to include in output
+            include_end_tokens: If True, add <|img_end_of_frame|><|img_end|> at the end
+
+        Returns:
+            Formatted token string
+        """
+        # Build EMU3.5 format (same as EMU3)
+        img_tokens_str = f"<|img_start|>{height}*{width}<|img_token_start|>"
+
+        # Add image tokens row by row
+        for row in range(num_rows):
+            row_start = row * width
+            row_end = row_start + width
+            row_tokens = visual_indices[row_start:row_end]
+
+            for token_idx in row_tokens:
+                img_tokens_str += f"<|visual token {token_idx:06d}|>"
+            img_tokens_str += "<|img_end_of_row|>"
+
+        # Optionally add end tokens
+        if include_end_tokens:
+            img_tokens_str += "<|img_end_of_frame|><|img_end|>"
+
+        return img_tokens_str
+
     def format_tokens_for_chat(
         self, indices: torch.Tensor, metadata: Dict[str, Any], special_tokens: Dict[str, int]
     ) -> str:
@@ -128,23 +171,8 @@ class EMU35IBQVisionTokenizer(SpatialTokenizer):
         else:
             raise ValueError(f"Unexpected indices shape: {indices.shape}")
 
-        # Build token string with EMU3 format (same as EMU3)
-        img_tokens_str = f"<|img_start|>{h}*{w}<|img_token_start|>"
-
-        # Add all image tokens row by row
-        for row in range(h):
-            row_start = row * w
-            row_end = row_start + w
-            row_tokens = visual_indices[row_start:row_end]
-
-            for token_idx in row_tokens:
-                img_tokens_str += f"<|visual token {token_idx:06d}|>"
-            img_tokens_str += "<|img_end_of_row|>"
-
-        # End image
-        img_tokens_str += "<|img_end_of_frame|><|img_end|>"
-
-        return img_tokens_str
+        # Use helper to format all rows with end tokens
+        return self._format_image_tokens_rows(visual_indices, h, w, h, include_end_tokens=True)
 
     def get_resolution_params(self) -> Dict[str, Any]:
         """
@@ -154,3 +182,51 @@ class EMU35IBQVisionTokenizer(SpatialTokenizer):
             Dict with 'min_pixels' and 'max_pixels'
         """
         return {"min_pixels": self.min_pixels, "max_pixels": self.max_pixels, "model_path": self.model_path}
+
+    def create_partial_prompt(self, visual_indices: list, height: int, width: int, given_rows: int) -> str:
+        """
+        Create a prompt with partial image tokens (for image completion tasks).
+
+        Args:
+            visual_indices: Full list of visual token indices
+            height: Total height in token rows
+            width: Width in tokens per row
+            given_rows: Number of rows to include in prompt (rest will be generated)
+
+        Returns:
+            Formatted prompt string with partial image tokens
+
+        Note:
+            BOS token is automatically added by the inferencer during tokenization.
+        """
+        # Use helper to format only the given rows, without end tokens
+        return self._format_image_tokens_rows(visual_indices, height, width, given_rows, include_end_tokens=False)
+
+    def _load_vision_mapping(self) -> Dict[int, int]:
+        """Load vision token mapping (visual_index -> token_id) from tokenizer path."""
+        if not self.tokenizer_path:
+            print("Warning: No tokenizer_path provided, vision_mapping will be empty")
+            return {}
+
+        mapping_path = os.path.join(self.tokenizer_path, "vision_token_mapping.json")
+        if os.path.exists(mapping_path):
+            with open(mapping_path, "r") as f:
+                data = json.load(f)
+                # Convert string keys to integers
+                return {int(k): v for k, v in data.get("vision_token_ids", {}).items()}
+        else:
+            print(f"Warning: Vision token mapping not found at {mapping_path}")
+            return {}
+
+    @property
+    def vision_mapping(self) -> Dict[int, int]:
+        """
+        Get the vision token mapping (visual_index -> token_id).
+
+        For EMU3.5, this maps visual token indices to their
+        corresponding token IDs in the LLM vocabulary.
+
+        Returns:
+            Dictionary mapping visual indices to token IDs
+        """
+        return self._vision_mapping
