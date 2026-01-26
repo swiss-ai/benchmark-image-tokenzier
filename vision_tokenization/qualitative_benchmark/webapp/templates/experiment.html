@@ -28,6 +28,9 @@
         {% if results.tokenizer_path %}
         <p><strong>Tokenizer Path:</strong> <code>{{ results.tokenizer_path }}</code></p>
         {% endif %}
+        {% if results.caption_init_phrase %}
+        <p><strong>Caption Init Phrase:</strong> "{{ results.caption_init_phrase }}"</p>
+        {% endif %}
     </div>
     {% endif %}
     {% if results.inference_args %}
@@ -59,6 +62,7 @@
             </select>
         </div>
 
+        {% if not is_completion and not is_captioning %}
         <div class="filter-group">
             <label for="prompt_tag">Prompt Tag:</label>
             <select name="prompt_tag" id="prompt_tag" onchange="this.form.submit()">
@@ -68,6 +72,7 @@
                 {% endfor %}
             </select>
         </div>
+        {% endif %}
 
         <button type="submit" class="btn btn-primary">Apply Filters</button>
         <a href="/experiment/{{ experiment_name }}" class="btn btn-secondary">Clear Filters</a>
@@ -99,6 +104,7 @@
                         <p class="image-path">{{ run.image.path }}</p>
                     </div>
 
+                    {% if not is_captioning %}
                     <div class="result-prompt">
                         <h4>Prompt</h4>
                         <p class="prompt-text">{{ run.prompt.text }}</p>
@@ -108,12 +114,23 @@
                             {% endfor %}
                         </div>
                     </div>
+                    {% elif run.init_phrase %}
+                    <div class="result-prompt">
+                        <h4>Init Phrase</h4>
+                        <p class="prompt-text">{{ run.init_phrase }}</p>
+                    </div>
+                    {% endif %}
                 </div>
 
                 <!-- Right Column: Output -->
                 <div class="result-output">
+                    {% if is_captioning %}
+                    <h4>Generated Caption</h4>
+                    <div class="output-text">{{ run.caption }}</div>
+                    {% else %}
                     <h4>Model Output</h4>
                     <div class="output-text">{{ run.output }}</div>
+                    {% endif %}
                 </div>
             </div>
         </div>
