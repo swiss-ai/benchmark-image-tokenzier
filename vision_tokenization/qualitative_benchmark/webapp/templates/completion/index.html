@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}Image Completion Experiments - Benchmark Viewer{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Image Completion Experiments</h1>
+    <p class="subtitle">Select an experiment to view completion results</p>
+</div>
+
+{% if experiments %}
+<div class="experiments-grid">
+    {% for experiment in experiments %}
+    <div class="experiment-card completion-experiment-card">
+        <h2>{{ experiment.name }}</h2>
+        <p class="experiment-info">
+            <strong>Result file:</strong> <span class="file-badge">{{ experiment.file }}</span>
+        </p>
+
+        <!-- Completion percentages -->
+        <div class="completion-percentages">
+            {% for pct in experiment.completion_percentages %}
+            <span class="percentage-badge">{{ pct }}%</span>
+            {% endfor %}
+        </div>
+
+        <!-- Summary stats -->
+        <div class="completion-summary-mini">
+            <div class="summary-stat">
+                <span class="stat-value">{{ experiment.summary.total_runs }}</span>
+                <span class="stat-label">Total Runs</span>
+            </div>
+            <div class="summary-stat valid">
+                <span class="stat-value">{{ experiment.summary.valid_runs }}</span>
+                <span class="stat-label">Valid</span>
+            </div>
+            <div class="summary-stat invalid">
+                <span class="stat-value">{{ experiment.summary.invalid_runs }}</span>
+                <span class="stat-label">Invalid</span>
+            </div>
+            <div class="summary-stat success-rate">
+                <span class="stat-value">{{ "%.1f"|format(experiment.summary.success_rate) }}%</span>
+                <span class="stat-label">Success Rate</span>
+            </div>
+        </div>
+
+        <a href="/completion/{{ experiment.name }}" class="btn btn-primary">View Results</a>
+    </div>
+    {% endfor %}
+</div>
+
+{% if experiments|length > 1 %}
+<div class="compare-link-section">
+    <a href="/completion/compare" class="btn btn-secondary">Compare Experiments</a>
+</div>
+{% endif %}
+{% else %}
+<div class="empty-state">
+    <h2>No image completion experiments found</h2>
+    <p>Run the image completion benchmark to generate results:</p>
+    <pre><code>python vision_tokenization/qualitative_benchmark/vlm_benchmark.py \
+    --mode image_completion \
+    --tokenizer_path /path/to/tokenizer \
+    --model_path /path/to/model \
+    --experiment_name my_completion_experiment \
+    --completion_percentages 30 60 80 90 \
+    --results_folder results/</code></pre>
+</div>
+{% endif %}
+{% endblock %}

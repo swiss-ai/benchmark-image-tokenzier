@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{% block title %}Compare Image Completion Experiments - Benchmark Viewer{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Compare Image Completion Experiments</h1>
+    <p class="subtitle">Select experiments to compare completion results side-by-side</p>
+</div>
+
+<!-- Experiment Selection Form -->
+<div class="compare-selection">
+    <h2>Select Experiments to Compare</h2>
+    <form method="get" action="/completion/compare">
+        <div class="checkbox-grid">
+            {% for experiment in experiments %}
+            <label class="checkbox-item">
+                <input type="checkbox" name="experiments" value="{{ experiment.name }}"
+                    {% if experiment.name in selected_experiments %}checked{% endif %}>
+                <span>{{ experiment.name }}</span>
+            </label>
+            {% endfor %}
+        </div>
+
+        <div class="compare-actions">
+            <button type="submit" class="btn btn-primary">Compare Selected</button>
+            <a href="/completion/compare" class="btn btn-secondary">Clear Selection</a>
+        </div>
+    </form>
+</div>
+
+<!-- Error Message -->
+{% if error %}
+<div class="error-message">
+    <p>{{ error }}</p>
+</div>
+{% endif %}
+
+<!-- Comparison Results -->
+{% if comparison_data %}
+<div class="comparison-section">
+    <div class="comparison-header">
+        <h2>Comparison Results</h2>
+        <p><strong>Experiments:</strong>
+            {% for exp_name in selected_experiments %}
+            <span class="experiment-badge">{{ exp_name }}</span>
+            {% endfor %}
+        </p>
+        <p><strong>Common (image, percentage) combinations:</strong> {{ comparison_data|length }}</p>
+
+        <!-- Summary comparison -->
+        <div class="experiments-info">
+            {% for exp_name in selected_experiments %}
+            {% if exp_name in experiment_summaries %}
+            <div class="experiment-info-card completion-info-card">
+                <h3>{{ exp_name }}</h3>
+                <div class="mini-summary-grid">
+                    <div class="mini-summary-item">
+                        <span class="label">Total</span>
+                        <span class="value">{{ experiment_summaries[exp_name].total_runs }}</span>
+                    </div>
+                    <div class="mini-summary-item valid">
+                        <span class="label">Valid</span>
+                        <span class="value">{{ experiment_summaries[exp_name].valid_runs }}</span>
+                    </div>
+                    <div class="mini-summary-item invalid">
+                        <span class="label">Invalid</span>
+                        <span class="value">{{ experiment_summaries[exp_name].invalid_runs }}</span>
+                    </div>
+                    <div class="mini-summary-item success">
+                        <span class="label">Success</span>
+                        <span class="value">{{ "%.1f"|format(experiment_summaries[exp_name].success_rate) }}%</span>
+                    </div>
+                </div>
+                {% if exp_name in experiment_results %}
+                {% if experiment_results[exp_name].model_path %}
+                <p class="model-path"><strong>Model:</strong> <code>{{ experiment_results[exp_name].model_path }}</code></p>
+                {% endif %}
+                {% endif %}
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+
+    {% if comparison_data|length == 0 %}
+    <div class="empty-state">
+        <p>No common (image, percentage) combinations found across all selected experiments.</p>
+        <p>Make sure the selected experiments were run with overlapping images and completion percentages.</p>
+    </div>
+    {% else %}
+    <div class="comparison-list">
+        {% for item in comparison_data %}
+        <div class="comparison-card completion-comparison-card">
+            <div class="comparison-card-header">
+                <h3>{{ item.image_path.split('/')[-1] }} @ {{ item.completion_percentage }}%</h3>
+                <div class="tags">
+                    {% for tag in item.image_tags %}
+                    <span class="tag tag-image">{{ tag }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="completion-comparison-content">
+                <!-- Original Image -->
+                <div class="original-image-column">
+                    <h4>Original</h4>
+                    <img src="/{{ item.image_path }}" alt="Original image" loading="lazy">
+                </div>
+
+                <!-- Completed Images from each experiment -->
+                <div class="completed-images-grid">
+                    {% for exp_name in selected_experiments %}
+                    {% set run = item.runs[exp_name] %}
+                    <div class="completed-image-item {% if run.is_valid %}valid{% else %}invalid{% endif %}">
+                        <h5>
+                            {{ exp_name }}
+                            <span class="validity-badge {% if run.is_valid %}valid{% else %}invalid{% endif %}">
+                                {% if run.is_valid %}Valid{% else %}Invalid{% endif %}
+                            </span>
+                        </h5>
+                        {% if run.result_image_path %}
+                        <img src="/results/{{ run.result_image_path }}" alt="Completed by {{ exp_name }}" loading="lazy">
+                        {% else %}
+                        <div class="no-image-placeholder">
+                            <p>No image</p>
+                        </div>
+                        {% endif %}
+                        <div class="completion-mini-stats">
+                            <span>{{ run.generated_rows }}/{{ run.expected_rows }} rows</span>
+                            <span>{{ run.statistics.generated_tokens }} tokens</span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% elif selected_experiments|length >= 2 %}
+<div class="info-message">
+    <p>Click "Compare Selected" to view the comparison.</p>
+</div>
+{% elif selected_experiments|length == 1 %}
+<div class="info-message">
+    <p>Please select at least 2 experiments to compare.</p>
+</div>
+{% endif %}
+{% endblock %}

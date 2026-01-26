@@ -5,13 +5,14 @@ This webapp provides an interface to:
 1. Browse multiple experiments
 2. View results with images, prompts, and model outputs
 3. Filter results by tags
+4. Separate views for VLM, Captioning, and Image Completion benchmarks
 """
 
 import argparse
 import json
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request, send_from_directory
+from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, url_for
 
 app = Flask(__name__)
 
@@ -34,6 +35,27 @@ def get_experiments():
             experiments.append({"name": experiment_name, "path": str(item), "file": item.name})
 
     return experiments
+
+
+def get_experiments_by_type():
+    """Separate experiments into VLM, captioning, and completion types."""
+    all_experiments = get_experiments()
+    vlm_experiments = []
+    captioning_experiments = []
+    completion_experiments = []
+
+    for exp in all_experiments:
+        results = load_experiment_results(exp["name"])
+        if results:
+            mode = results.get("mode")
+            if mode == "image_completion":
+                completion_experiments.append(exp)
+            elif mode == "captioning":
+                captioning_experiments.append(exp)
+            else:
+                vlm_experiments.append(exp)
+
+    return vlm_experiments, captioning_experiments, completion_experiments
 
 
 def load_experiment_results(experiment_name):
@@ -62,108 +84,39 @@ def get_all_tags(results):
     return {"image_tags": sorted(list(image_tags)), "prompt_tags": sorted(list(prompt_tags))}
 
 
-@app.route("/")
-def index():
-    """Home page showing list of experiments."""
-    experiments = get_experiments()
-    return render_template("index.html", experiments=experiments)
+def calculate_completion_summary(results):
+    """Calculate summary stats for completion benchmark: total/valid/invalid runs, success rate by percentage."""
+    runs = results.get("runs", [])
+    total_runs = len(runs)
+    valid_runs = sum(1 for r in runs if r.get("is_valid", False))
+    invalid_runs = total_runs - valid_runs
 
+    # Calculate success rate by percentage
+    percentages = results.get("completion_percentages", [])
+    stats_by_percentage = {}
+    for pct in percentages:
+        pct_runs = [r for r in runs if r.get("completion_percentage") == pct]
+        pct_valid = sum(1 for r in pct_runs if r.get("is_valid", False))
+        pct_total = len(pct_runs)
+        stats_by_percentage[pct] = {
+            "total": pct_total,
+            "valid": pct_valid,
+            "invalid": pct_total - pct_valid,
+            "success_rate": (pct_valid / pct_total * 100) if pct_total > 0 else 0,
+        }
 
-@app.route("/experiment/<experiment_name>")
-def view_experiment(experiment_name):
-    """View results for a specific experiment."""
-    results = load_experiment_results(experiment_name)
-
-    if results is None:
-        return "Experiment not found", 404
-
-    # Detect benchmark mode
-    mode_type = results.get("mode")  # None for VLM Q&A, "image_completion", or "captioning"
-    is_completion = mode_type == "image_completion"
-    is_captioning = mode_type == "captioning"
-
-    # Get filter parameters
-    image_tag_filter = request.args.get("image_tag", None)
-    prompt_tag_filter = request.args.get("prompt_tag", None) if not is_completion and not is_captioning else None
-    percentage_filter = request.args.get("percentage", None) if is_completion else None
-
-    # Filter results if requested
-    filtered_runs = results.get("runs", [])
-    if image_tag_filter:
-        filtered_runs = [r for r in filtered_runs if image_tag_filter in r["image"].get("tags", [])]
-    if prompt_tag_filter:
-        filtered_runs = [r for r in filtered_runs if prompt_tag_filter in r.get("prompt", {}).get("tags", [])]
-    if percentage_filter:
-        try:
-            percentage = int(percentage_filter)
-            filtered_runs = [r for r in filtered_runs if r.get("completion_percentage") == percentage]
-        except ValueError:
-            pass
-
-    # Get all available tags and percentages for filtering UI
-    all_tags = get_all_tags(results)
-    all_percentages = sorted(list(set(results.get("completion_percentages", [])))) if is_completion else []
-
-    return render_template(
-        "experiment.html",
-        experiment_name=experiment_name,
-        results=results,
-        filtered_runs=filtered_runs,
-        all_tags=all_tags,
-        all_percentages=all_percentages,
-        current_image_tag=image_tag_filter,
-        current_prompt_tag=prompt_tag_filter,
-        current_percentage=percentage_filter,
-        is_completion=is_completion,
-        is_captioning=is_captioning,
-    )
-
-
-@app.route("/compare")
-def compare_experiments():
-    """Compare multiple experiments side-by-side."""
-    all_experiments = get_experiments()
-
-    # Get selected experiments from query parameters
-    selected_experiments = request.args.getlist("experiments")
-
-    if not selected_experiments or len(selected_experiments) < 2:
-        # Show experiment selection page
-        return render_template(
-            "compare.html", experiments=all_experiments, selected_experiments=selected_experiments, comparison_data=None
-        )
-
-    # Load results for all selected experiments
-    experiment_results = {}
-    for exp_name in selected_experiments:
-        results = load_experiment_results(exp_name)
-        if results:
-            experiment_results[exp_name] = results
-
-    if len(experiment_results) < 2:
-        return render_template(
-            "compare.html",
-            experiments=all_experiments,
-            selected_experiments=selected_experiments,
-            comparison_data=None,
-            error="Could not load results for selected experiments",
-        )
-
-    # Find common image-prompt combinations
-    comparison_data = find_common_runs(experiment_results)
-
-    return render_template(
-        "compare.html",
-        experiments=all_experiments,
-        selected_experiments=selected_experiments,
-        experiment_results=experiment_results,
-        comparison_data=comparison_data,
-    )
+    return {
+        "total_runs": total_runs,
+        "valid_runs": valid_runs,
+        "invalid_runs": invalid_runs,
+        "success_rate": (valid_runs / total_runs * 100) if total_runs > 0 else 0,
+        "stats_by_percentage": stats_by_percentage,
+    }
 
 
 def find_common_runs(experiment_results):
     """
-    Find image-prompt combinations that exist in all experiments.
+    Find image-prompt combinations that exist in all experiments (for VLM benchmarks).
 
     Returns a list of dicts with structure:
     {
@@ -211,6 +164,393 @@ def find_common_runs(experiment_results):
     return common_runs
 
 
+def find_common_completion_runs(experiment_results):
+    """
+    Find common (image_path, completion_percentage) across experiments for completion comparison.
+
+    Returns a list of dicts with structure:
+    {
+        'image_path': 'assets/image.jpg',
+        'image_tags': ['tag1', 'tag2'],
+        'completion_percentage': 30,
+        'runs': {
+            'experiment1': {run_data},
+            'experiment2': {run_data},
+            ...
+        }
+    }
+    """
+    if not experiment_results:
+        return []
+
+    exp_names = list(experiment_results.keys())
+
+    # Build mapping of (image_path, percentage) -> experiment runs
+    combinations = {}
+
+    for exp_name, results in experiment_results.items():
+        for run in results.get("runs", []):
+            key = (run["image"]["path"], run.get("completion_percentage", 0))
+
+            if key not in combinations:
+                combinations[key] = {
+                    "image": run["image"],
+                    "completion_percentage": run.get("completion_percentage", 0),
+                    "runs": {},
+                }
+
+            combinations[key]["runs"][exp_name] = run
+
+    # Filter to only include combinations present in ALL experiments
+    common_runs = []
+    for key, data in combinations.items():
+        if len(data["runs"]) == len(exp_names):
+            common_runs.append(
+                {
+                    "image_path": data["image"]["path"],
+                    "image_tags": data["image"].get("tags", []),
+                    "completion_percentage": data["completion_percentage"],
+                    "runs": data["runs"],
+                }
+            )
+
+    # Sort by image path then by percentage
+    common_runs.sort(key=lambda x: (x["image_path"], x["completion_percentage"]))
+
+    return common_runs
+
+
+# =============================================================================
+# Landing Page
+# =============================================================================
+
+
+@app.route("/")
+def index():
+    """Landing page with links to VLM, Captioning, and Completion benchmarks."""
+    vlm_experiments, captioning_experiments, completion_experiments = get_experiments_by_type()
+    return render_template(
+        "index.html",
+        vlm_experiments=vlm_experiments,
+        captioning_experiments=captioning_experiments,
+        completion_experiments=completion_experiments,
+    )
+
+
+# =============================================================================
+# VLM Benchmark Routes
+# =============================================================================
+
+
+@app.route("/vlm")
+def vlm_index():
+    """VLM experiments list page."""
+    vlm_experiments, _, _ = get_experiments_by_type()
+    return render_template("vlm/index.html", experiments=vlm_experiments)
+
+
+@app.route("/vlm/<experiment_name>")
+def vlm_experiment(experiment_name):
+    """View results for a specific VLM experiment."""
+    results = load_experiment_results(experiment_name)
+
+    if results is None:
+        return "Experiment not found", 404
+
+    # Verify this is a VLM experiment (mode is None or not set)
+    mode = results.get("mode")
+    if mode == "image_completion":
+        return redirect(url_for("completion_experiment", experiment_name=experiment_name))
+    if mode == "captioning":
+        return redirect(url_for("captioning_experiment", experiment_name=experiment_name))
+
+    # Get filter parameters
+    image_tag_filter = request.args.get("image_tag", None)
+    prompt_tag_filter = request.args.get("prompt_tag", None)
+
+    # Filter results if requested
+    filtered_runs = results.get("runs", [])
+    if image_tag_filter:
+        filtered_runs = [r for r in filtered_runs if image_tag_filter in r["image"].get("tags", [])]
+    if prompt_tag_filter:
+        filtered_runs = [r for r in filtered_runs if prompt_tag_filter in r.get("prompt", {}).get("tags", [])]
+
+    # Get all available tags for filtering UI
+    all_tags = get_all_tags(results)
+
+    return render_template(
+        "vlm/experiment.html",
+        experiment_name=experiment_name,
+        results=results,
+        filtered_runs=filtered_runs,
+        all_tags=all_tags,
+        current_image_tag=image_tag_filter,
+        current_prompt_tag=prompt_tag_filter,
+    )
+
+
+@app.route("/vlm/compare")
+def vlm_compare():
+    """Compare multiple VLM experiments side-by-side."""
+    vlm_experiments, _, _ = get_experiments_by_type()
+
+    # Get selected experiments from query parameters
+    selected_experiments = request.args.getlist("experiments")
+
+    if not selected_experiments or len(selected_experiments) < 2:
+        # Show experiment selection page
+        return render_template(
+            "vlm/compare.html",
+            experiments=vlm_experiments,
+            selected_experiments=selected_experiments,
+            comparison_data=None,
+        )
+
+    # Load results for all selected experiments
+    experiment_results = {}
+    for exp_name in selected_experiments:
+        results = load_experiment_results(exp_name)
+        if results and results.get("mode") is None:
+            experiment_results[exp_name] = results
+
+    if len(experiment_results) < 2:
+        return render_template(
+            "vlm/compare.html",
+            experiments=vlm_experiments,
+            selected_experiments=selected_experiments,
+            comparison_data=None,
+            error="Could not load results for selected experiments",
+        )
+
+    # Find common image-prompt combinations
+    comparison_data = find_common_runs(experiment_results)
+
+    return render_template(
+        "vlm/compare.html",
+        experiments=vlm_experiments,
+        selected_experiments=selected_experiments,
+        experiment_results=experiment_results,
+        comparison_data=comparison_data,
+    )
+
+
+# =============================================================================
+# Captioning Benchmark Routes
+# =============================================================================
+
+
+@app.route("/captioning")
+def captioning_index():
+    """Captioning experiments list page."""
+    _, captioning_experiments, _ = get_experiments_by_type()
+    return render_template("captioning/index.html", experiments=captioning_experiments)
+
+
+@app.route("/captioning/<experiment_name>")
+def captioning_experiment(experiment_name):
+    """View results for a specific captioning experiment."""
+    results = load_experiment_results(experiment_name)
+
+    if results is None:
+        return "Experiment not found", 404
+
+    # Verify this is a captioning experiment
+    if results.get("mode") != "captioning":
+        mode = results.get("mode")
+        if mode == "image_completion":
+            return redirect(url_for("completion_experiment", experiment_name=experiment_name))
+        return redirect(url_for("vlm_experiment", experiment_name=experiment_name))
+
+    # Get filter parameters
+    image_tag_filter = request.args.get("image_tag", None)
+
+    # Filter results if requested
+    filtered_runs = results.get("runs", [])
+    if image_tag_filter:
+        filtered_runs = [r for r in filtered_runs if image_tag_filter in r["image"].get("tags", [])]
+
+    # Get all available tags for filtering UI
+    all_tags = get_all_tags(results)
+
+    return render_template(
+        "captioning/experiment.html",
+        experiment_name=experiment_name,
+        results=results,
+        filtered_runs=filtered_runs,
+        all_tags=all_tags,
+        current_image_tag=image_tag_filter,
+    )
+
+
+# =============================================================================
+# Image Completion Benchmark Routes
+# =============================================================================
+
+
+@app.route("/completion")
+def completion_index():
+    """Completion experiments list page."""
+    _, _, completion_experiments = get_experiments_by_type()
+
+    # Load summary stats for each experiment
+    experiments_with_stats = []
+    for exp in completion_experiments:
+        results = load_experiment_results(exp["name"])
+        if results:
+            summary = calculate_completion_summary(results)
+            experiments_with_stats.append(
+                {
+                    **exp,
+                    "summary": summary,
+                    "completion_percentages": results.get("completion_percentages", []),
+                }
+            )
+
+    return render_template("completion/index.html", experiments=experiments_with_stats)
+
+
+@app.route("/completion/<experiment_name>")
+def completion_experiment(experiment_name):
+    """View results for a specific completion experiment."""
+    results = load_experiment_results(experiment_name)
+
+    if results is None:
+        return "Experiment not found", 404
+
+    # Verify this is a completion experiment
+    if results.get("mode") != "image_completion":
+        mode = results.get("mode")
+        if mode == "captioning":
+            return redirect(url_for("captioning_experiment", experiment_name=experiment_name))
+        return redirect(url_for("vlm_experiment", experiment_name=experiment_name))
+
+    # Get filter parameters
+    image_tag_filter = request.args.get("image_tag", None)
+    percentage_filter = request.args.get("percentage", None)
+    validity_filter = request.args.get("validity", None)
+
+    # Filter results if requested
+    filtered_runs = results.get("runs", [])
+    if image_tag_filter:
+        filtered_runs = [r for r in filtered_runs if image_tag_filter in r["image"].get("tags", [])]
+    if percentage_filter:
+        try:
+            percentage = int(percentage_filter)
+            filtered_runs = [r for r in filtered_runs if r.get("completion_percentage") == percentage]
+        except ValueError:
+            pass
+    if validity_filter:
+        if validity_filter == "valid":
+            filtered_runs = [r for r in filtered_runs if r.get("is_valid", False)]
+        elif validity_filter == "invalid":
+            filtered_runs = [r for r in filtered_runs if not r.get("is_valid", False)]
+
+    # Get all available tags and percentages for filtering UI
+    all_tags = get_all_tags(results)
+    all_percentages = sorted(list(set(results.get("completion_percentages", []))))
+
+    # Calculate summary statistics
+    summary = calculate_completion_summary(results)
+
+    return render_template(
+        "completion/experiment.html",
+        experiment_name=experiment_name,
+        results=results,
+        filtered_runs=filtered_runs,
+        all_tags=all_tags,
+        all_percentages=all_percentages,
+        current_image_tag=image_tag_filter,
+        current_percentage=percentage_filter,
+        current_validity=validity_filter,
+        summary=summary,
+    )
+
+
+@app.route("/completion/compare")
+def completion_compare():
+    """Compare multiple completion experiments side-by-side."""
+    _, _, completion_experiments = get_experiments_by_type()
+
+    # Get selected experiments from query parameters
+    selected_experiments = request.args.getlist("experiments")
+
+    if not selected_experiments or len(selected_experiments) < 2:
+        # Show experiment selection page
+        return render_template(
+            "completion/compare.html",
+            experiments=completion_experiments,
+            selected_experiments=selected_experiments,
+            comparison_data=None,
+        )
+
+    # Load results for all selected experiments
+    experiment_results = {}
+    for exp_name in selected_experiments:
+        results = load_experiment_results(exp_name)
+        if results and results.get("mode") == "image_completion":
+            experiment_results[exp_name] = results
+
+    if len(experiment_results) < 2:
+        return render_template(
+            "completion/compare.html",
+            experiments=completion_experiments,
+            selected_experiments=selected_experiments,
+            comparison_data=None,
+            error="Could not load results for selected experiments",
+        )
+
+    # Find common (image, percentage) combinations
+    comparison_data = find_common_completion_runs(experiment_results)
+
+    # Calculate summaries for each experiment
+    experiment_summaries = {}
+    for exp_name, results in experiment_results.items():
+        experiment_summaries[exp_name] = calculate_completion_summary(results)
+
+    return render_template(
+        "completion/compare.html",
+        experiments=completion_experiments,
+        selected_experiments=selected_experiments,
+        experiment_results=experiment_results,
+        experiment_summaries=experiment_summaries,
+        comparison_data=comparison_data,
+    )
+
+
+# =============================================================================
+# Legacy Routes (redirect based on type)
+# =============================================================================
+
+
+@app.route("/experiment/<experiment_name>")
+def view_experiment(experiment_name):
+    """Legacy route: redirect to appropriate section based on experiment type."""
+    results = load_experiment_results(experiment_name)
+
+    if results is None:
+        return "Experiment not found", 404
+
+    mode = results.get("mode")
+    if mode == "image_completion":
+        return redirect(url_for("completion_experiment", experiment_name=experiment_name))
+    elif mode == "captioning":
+        return redirect(url_for("captioning_experiment", experiment_name=experiment_name))
+    else:
+        return redirect(url_for("vlm_experiment", experiment_name=experiment_name))
+
+
+@app.route("/compare")
+def compare_experiments():
+    """Legacy route: redirect to VLM compare page."""
+    # Pass through query parameters
+    return redirect(url_for("vlm_compare", **request.args))
+
+
+# =============================================================================
+# API Routes
+# =============================================================================
+
+
 @app.route("/api/experiments")
 def api_experiments():
     """API endpoint to get list of experiments."""
@@ -226,6 +566,11 @@ def api_experiment_results(experiment_name):
     return jsonify(results)
 
 
+# =============================================================================
+# Static File Routes
+# =============================================================================
+
+
 @app.route("/assets/<path:filename>")
 def serve_asset(filename):
     """Serve image assets."""
@@ -236,6 +581,11 @@ def serve_asset(filename):
 def serve_result(filename):
     """Serve result images (e.g., completion images from experiments)."""
     return send_from_directory(RESULTS_BASE_DIR, filename)
+
+
+# =============================================================================
+# Main
+# =============================================================================
 
 
 def parse_args():

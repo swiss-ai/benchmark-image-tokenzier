@@ -1,36 +1,94 @@
 {% extends "base.html" %}
 
-{% block title %}Experiments - VLM Benchmark Viewer{% endblock %}
+{% block title %}Benchmark Viewer{% endblock %}
 
 {% block content %}
 <div class="page-header">
-    <h1>VLM Benchmark Experiments</h1>
-    <p class="subtitle">Select an experiment to view results</p>
+    <h1>Qualitative Benchmark Explorer</h1>
+    <p class="subtitle">Select a benchmark type to view experiments</p>
 </div>
 
-{% if experiments %}
-<div class="experiments-grid">
-    {% for experiment in experiments %}
-    <div class="experiment-card">
-        <h2>{{ experiment.name }}</h2>
-        <p class="experiment-info">
-            <strong>Result file:</strong> <span class="file-badge">{{ experiment.file }}</span>
-        </p>
-        <a href="/experiment/{{ experiment.name }}" class="btn btn-primary">View Results</a>
+<div class="landing-cards">
+    <div class="landing-card vlm-card">
+        <div class="landing-card-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                <polyline points="21 15 16 10 5 21"></polyline>
+            </svg>
+        </div>
+        <h2>VLM Benchmarks</h2>
+        <p class="landing-card-description">Vision-Language Model benchmarks with image + prompt to text output evaluations.</p>
+        <div class="landing-card-stats">
+            <span class="stat-badge">{{ vlm_experiments|length }} experiments</span>
+        </div>
+        <a href="/vlm" class="btn btn-primary">View VLM Benchmarks</a>
+        {% if vlm_experiments|length > 1 %}
+        <a href="/vlm/compare" class="btn btn-secondary">Compare Experiments</a>
+        {% endif %}
     </div>
-    {% endfor %}
+
+    <div class="landing-card captioning-card">
+        <div class="landing-card-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="9" y1="15" x2="15" y2="15"></line>
+                <line x1="7" y1="19" x2="17" y2="19"></line>
+            </svg>
+        </div>
+        <h2>Captioning</h2>
+        <p class="landing-card-description">Image captioning benchmarks generating descriptions from images.</p>
+        <div class="landing-card-stats">
+            <span class="stat-badge">{{ captioning_experiments|length }} experiments</span>
+        </div>
+        <a href="/captioning" class="btn btn-primary">View Captioning</a>
+    </div>
+
+    <div class="landing-card completion-card">
+        <div class="landing-card-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="12" y1="3" x2="12" y2="21"></line>
+                <path d="M3 12h9"></path>
+                <path d="M12 12l3 3"></path>
+                <path d="M12 12l3 -3"></path>
+            </svg>
+        </div>
+        <h2>Image Completion</h2>
+        <p class="landing-card-description">Image reconstruction benchmarks showing original vs. completed images with validation metrics.</p>
+        <div class="landing-card-stats">
+            <span class="stat-badge">{{ completion_experiments|length }} experiments</span>
+        </div>
+        <a href="/completion" class="btn btn-primary">View Image Completion</a>
+        {% if completion_experiments|length > 1 %}
+        <a href="/completion/compare" class="btn btn-secondary">Compare Experiments</a>
+        {% endif %}
+    </div>
 </div>
-{% else %}
+
+{% if vlm_experiments|length == 0 and captioning_experiments|length == 0 and completion_experiments|length == 0 %}
 <div class="empty-state">
     <h2>No experiments found</h2>
-    <p>Run the VLM benchmark script to generate results:</p>
-    <pre><code>python vision_tokenization/qualitative_benchmark/vlm_benchmark.py \
+    <p>Run the benchmark scripts to generate results:</p>
+    <pre><code># VLM Benchmark
+python vision_tokenization/qualitative_benchmark/vlm_benchmark.py \
     --tokenizer_path /path/to/tokenizer \
     --model_path /path/to/model \
-    --experiment_name my_experiment \
-    --image_list images.json \
-    --prompt_list prompts.json \
-    --results_folder results/</code></pre>
+    --experiment_name my_experiment
+
+# Captioning Benchmark
+python vision_tokenization/qualitative_benchmark/vlm_benchmark.py \
+    --mode captioning \
+    --tokenizer_path /path/to/tokenizer \
+    --model_path /path/to/model \
+    --experiment_name my_captioning_experiment
+
+# Image Completion Benchmark
+python vision_tokenization/qualitative_benchmark/vlm_benchmark.py \
+    --mode image_completion \
+    --tokenizer_path /path/to/tokenizer \
+    --model_path /path/to/model \
+    --experiment_name my_completion_experiment</code></pre>
 </div>
 {% endif %}
 {% endblock %}

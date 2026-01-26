@@ -3,16 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}VLM Benchmark Viewer{% endblock %}</title>
+    <title>{% block title %}Benchmark Viewer{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <nav class="navbar">
         <div class="container">
-            <a href="/" class="nav-brand">VLM Benchmark Viewer</a>
+            <a href="/" class="nav-brand">Benchmark Viewer</a>
             <div class="nav-links">
-                <a href="/">Experiments</a>
-                <a href="/compare">Compare</a>
+                <a href="/vlm">VLM</a>
+                <a href="/captioning">Captioning</a>
+                <a href="/completion">Image Completion</a>
             </div>
         </div>
     </nav>
@@ -23,7 +24,7 @@
 
     <footer>
         <div class="container">
-            <p>VLM Qualitative Benchmark Explorer</p>
+            <p>Qualitative Benchmark Explorer</p>
         </div>
     </footer>
 </body>
