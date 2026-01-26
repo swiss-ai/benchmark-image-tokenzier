@@ -77,12 +77,14 @@ def view_experiment(experiment_name):
     if results is None:
         return "Experiment not found", 404
 
-    # Detect if this is an image completion benchmark
-    is_completion = results.get("mode") == "image_completion"
+    # Detect benchmark mode
+    mode_type = results.get("mode")  # None for VLM Q&A, "image_completion", or "captioning"
+    is_completion = mode_type == "image_completion"
+    is_captioning = mode_type == "captioning"
 
     # Get filter parameters
     image_tag_filter = request.args.get("image_tag", None)
-    prompt_tag_filter = request.args.get("prompt_tag", None) if not is_completion else None
+    prompt_tag_filter = request.args.get("prompt_tag", None) if not is_completion and not is_captioning else None
     percentage_filter = request.args.get("percentage", None) if is_completion else None
 
     # Filter results if requested
@@ -113,6 +115,7 @@ def view_experiment(experiment_name):
         current_prompt_tag=prompt_tag_filter,
         current_percentage=percentage_filter,
         is_completion=is_completion,
+        is_captioning=is_captioning,
     )
 
 

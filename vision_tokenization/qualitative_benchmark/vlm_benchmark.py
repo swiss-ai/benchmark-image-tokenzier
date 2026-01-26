@@ -729,6 +729,87 @@ class ImageCompletionBenchmark:
         return result_path
 
 
+class CaptioningBenchmark:
+    """Scaffolding for running image captioning benchmarks."""
+
+    def __init__(self, images_config_path: str, vlm: VLM, results_dir: str = "results", init_phrase: str = None):
+        """
+        Initialize the captioning benchmark system.
+
+        Args:
+            images_config_path: Path to JSON file containing image configurations
+            vlm: VLM instance for running captioning
+            results_dir: Directory where results will be stored
+            init_phrase: Optional initialization phrase for caption generation
+        """
+        self.images = self._load_json(images_config_path)
+        self.results_dir = Path(results_dir)
+        self.vlm = vlm
+        self.init_phrase = init_phrase or ""
+        print(f"Loaded {len(self.images)} images for captioning benchmark.")
+        if self.init_phrase:
+            print(f"Using init phrase: '{self.init_phrase}'")
+
+    def _load_json(self, path: str) -> List[Dict[str, Any]]:
+        """Load JSON configuration file."""
+        with open(path, "r") as f:
+            return json.load(f)
+
+    def run_captioning_benchmark(self, output_filename: str) -> Dict[str, Any]:
+        """
+        Run captioning benchmark for all images.
+
+        Args:
+            output_filename: Filename for results JSON
+
+        Returns:
+            Dictionary containing all benchmark results
+        """
+        # Serialize inference args
+        inference_args_dict = {
+            "apply_chat_template": self.vlm.inf_args.apply_chat_template,
+            "temperature": self.vlm.inf_args.temperature,
+            "top_p": self.vlm.inf_args.top_p,
+            "max_new_tokens": self.vlm.inf_args.max_new_tokens,
+            "max_emu_aspect_ratio": self.vlm.inf_args.max_emu_aspect_ratio,
+            "min_emu_aspect_ratio": self.vlm.inf_args.min_emu_aspect_ratio,
+            "stop_token_ids": self.vlm.inf_args.stop_token_ids,
+        }
+
+        results = {
+            "timestamp": datetime.now().isoformat(),
+            "mode": "captioning",
+            "model_path": self.vlm.model_path,
+            "tokenizer_path": self.vlm.tokenizer_path,
+            "vision_tokenizer": self.vlm.vision_tokenizer.name,
+            "inferencer": type(self.vlm.inferencer).__name__,
+            "caption_init_phrase": self.init_phrase if self.init_phrase else None,
+            "inference_args": inference_args_dict,
+            "total_runs": 0,
+            "runs": [],
+        }
+
+        for image in tqdm(self.images, desc="Generating captions"):
+            final_prompt = self.vlm.preprocess(image["path"], self.init_phrase)
+            caption = self.vlm.generate(final_prompt)
+
+            result_entry = {
+                "image": {"path": image["path"], "tags": image.get("tags", [])},
+                "init_phrase": self.init_phrase,
+                "caption": caption,
+            }
+
+            results["runs"].append(result_entry)
+            results["total_runs"] += 1
+
+        output_path = self.results_dir / output_filename
+        with open(output_path, "w") as f:
+            json.dump(results, f, indent=2)
+
+        print(f"Captioning benchmark complete! {results['total_runs']} captions saved to {output_path}")
+        return results
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Run VLM benchmark with configurable vision v_tokenizers and utils")
 
@@ -759,15 +840,28 @@ def parse_args():
     parser.add_argument(
         "--completion-percentages",
         type=str,
-        default="20,40,60,80",
-        help="Comma-separated percentages of image rows to provide as context. "
+        default=None,
+        help="Comma-separated percentages of image rows to provide as context (required for --image-completion). "
         "Model will complete the remaining rows. E.g., '20,40,60,80' means give 20%%, 40%%, 60%%, 80%% of rows "
-        "and generate the rest (default: 20,40,60,80)",
+        "and generate the rest.",
     )
     parser.add_argument(
         "--strict-row-count",
         action="store_true",
         help="Require exact row count match for completion to be valid (default: False)",
+    )
+
+    # Captioning benchmark arguments
+    parser.add_argument(
+        "--captioning",
+        action="store_true",
+        help="Run captioning benchmark instead of VLM Q&A",
+    )
+    parser.add_argument(
+        "--caption-init-phrase",
+        type=str,
+        default=None,
+        help="Optional initialization phrase for caption generation (e.g., 'The image shows')",
     )
 
     # Vision tokenizer arguments
@@ -813,6 +907,60 @@ def parse_args():
         help="Inference backend: 'vllm' (faster) or 'hf' (HuggingFace, more compatible) (default: vllm)",
     )
     return parser.parse_args()
+
+
+def validate_args(args):
+    """
+    Validate argument combinations for benchmark modes.
+
+    Ensures only one mode is selected, required args are provided, and warns about unused args.
+    """
+    # Check that only one mode is selected
+    modes_selected = []
+    if args.image_completion:
+        modes_selected.append("--image-completion")
+    if args.captioning:
+        modes_selected.append("--captioning")
+
+    if len(modes_selected) > 1:
+        print(f"ERROR: Multiple benchmark modes selected: {', '.join(modes_selected)}")
+        print("Please select only one mode: --image-completion, --captioning, or neither for VLM Q&A")
+        sys.exit(1)
+
+    # Determine current mode
+    if args.image_completion:
+        current_mode = "image-completion"
+    elif args.captioning:
+        current_mode = "captioning"
+    else:
+        current_mode = "vlm-qa"
+
+    # Check required arguments for each mode
+    if current_mode == "image-completion":
+        if args.completion_percentages is None:
+            print("ERROR: --completion-percentages is required when using --image-completion")
+            print("Example: --completion-percentages 20,40,60,80")
+            sys.exit(1)
+
+    # Check for unused mode-specific arguments and warn
+    # Image completion specific args
+    if current_mode != "image-completion":
+        if args.completion_percentages is not None:
+            print(f"WARNING: --completion-percentages ignored in {current_mode} mode")
+        if args.strict_row_count:
+            print(f"WARNING: --strict-row-count ignored in {current_mode} mode")
+
+    # Captioning specific args
+    if current_mode != "captioning":
+        if args.caption_init_phrase is not None:
+            print(f"WARNING: --caption-init-phrase ignored in {current_mode} mode")
+
+    # VLM Q&A specific args
+    if current_mode != "vlm-qa":
+        if args.prompt_list != "prompts.json":
+            print(f"WARNING: --prompt_list ignored in {current_mode} mode")
+
+    return current_mode
 
 
 def setup_vlm_inferencer(args):
@@ -878,8 +1026,15 @@ def setup_vlm_inferencer(args):
         raise ValueError(f"Unknown inferencer type: {inferencer_type}")
 
     # Create inference args
+    # For captioning mode, disable chat template by default (unless explicitly enabled)
+    apply_chat = not args.no_chat_template
+    if args.captioning and not args.no_chat_template:
+        # Captioning mode defaults to no chat template
+        apply_chat = False
+        print("Note: Chat template disabled for captioning mode (use explicit prompts if needed)")
+
     inference_args = InferenceArgs(
-        apply_chat_template=not args.no_chat_template,
+        apply_chat_template=apply_chat,
         temperature=args.temperature,
         top_p=args.top_p,
         stop_token_ids=[],  # Will be set by VLM __init__
@@ -908,6 +1063,9 @@ if __name__ == "__main__":
     """
     args = parse_args()
 
+    # Validate argument combinations
+    validate_args(args)
+
     # Setup results directory and output file path
     results_dir = Path(args.results_folder)
     results_dir.mkdir(exist_ok=True, parents=True)
@@ -924,7 +1082,7 @@ if __name__ == "__main__":
 
     vlm = setup_vlm_inferencer(args)
 
-    # Check if running image completion benchmark
+    # Check which benchmark mode to run
     if args.image_completion:
         # Parse percentages
         percentages = [int(p.strip()) for p in args.completion_percentages.split(",")]
@@ -940,6 +1098,19 @@ if __name__ == "__main__":
             output_filename=f"{args.experiment_name}.json",
             strict_row_count=args.strict_row_count,
         )
+    elif args.captioning:
+        print("Running captioning benchmark")
+        if args.caption_init_phrase:
+            print(f"Init phrase: '{args.caption_init_phrase}'")
+
+        # Create and run captioning benchmark
+        benchmark = CaptioningBenchmark(
+            images_config_path=args.image_list,
+            vlm=vlm,
+            results_dir=str(results_dir),
+            init_phrase=args.caption_init_phrase,
+        )
+        results = benchmark.run_captioning_benchmark(output_filename=f"{args.experiment_name}.json")
     else:
         # Run standard VLM Q&A benchmark
         benchmark = VLMBenchmark(
