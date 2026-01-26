@@ -78,7 +78,9 @@ class Emu3VisionTokenizer(Tokenizer):
 
     def preprocess_batch(self, images: List[Image.Image], resize_size: Tuple[int, int]) -> torch.Tensor:
         """Preprocess batch of PIL images using the Emu3 processor"""
-        images_tensors = self.processor(images, do_resize=True, resize_size=resize_size, return_tensors="pt")["pixel_values"]
+        images_tensors = self.processor(images, do_resize=True, resize_size=resize_size, return_tensors="pt")[
+            "pixel_values"
+        ]
         return images_tensors.to(self.device)
 
     def postprocess(self, tensor: torch.Tensor) -> Image.Image:
