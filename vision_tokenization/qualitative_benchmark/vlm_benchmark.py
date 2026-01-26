@@ -102,7 +102,9 @@ class VLM(object):
             stop_tokens.append(self.inferencer.txt_tokenizer.eos_token_id)
         self.inf_args.stop_token_ids = stop_tokens
 
-        print(f"VLM initialized with {self.vision_tokenizer.name} tokenizer and vLLM inferencer")
+        # Determine inferencer name for logging
+        inferencer_name = type(self.inferencer).__name__
+        print(f"VLM initialized with {self.vision_tokenizer.name} tokenizer and {inferencer_name}")
 
     def _load_image(self, image_path: str, resize: Tuple[int, int] = None):
         """Load image from path."""
@@ -473,7 +475,7 @@ class VLMBenchmark:
             "model_path": self.vlm.model_path,
             "tokenizer_path": self.vlm.tokenizer_path,
             "vision_tokenizer": self.vlm.vision_tokenizer.name,
-            "inferencer": "vllm",
+            "inferencer": type(self.vlm.inferencer).__name__,
             "inference_args": inference_args_dict,
             "total_runs": 0,
             "runs": [],
@@ -711,8 +713,9 @@ class ImageCompletionBenchmark:
         reconstructed_pil = tokenizer.postprocess(reconstructed_tensor)
 
         # Draw red line at boundary
-        # Each token is 8x8 pixels in EMU3
-        boundary_y = given_rows * 8
+        # Calculate pixels per token row dynamically (varies by tokenizer, e.g., 8 for emu3, 16 for emu3.5)
+        pixels_per_row = reconstructed_pil.height / height
+        boundary_y = int(given_rows * pixels_per_row)
         draw = ImageDraw.Draw(reconstructed_pil)
         img_width = reconstructed_pil.width
         draw.line([(0, boundary_y), (img_width, boundary_y)], fill="red", width=3)
@@ -802,6 +805,13 @@ def parse_args():
     inference_group.add_argument(
         "--max_new_tokens", type=int, default=300, help="Maximum number of tokens to generate (default: 300)"
     )
+    inference_group.add_argument(
+        "--inferencer-type",
+        type=str,
+        default="vllm",
+        choices=["vllm", "hf"],
+        help="Inference backend: 'vllm' (faster) or 'hf' (HuggingFace, more compatible) (default: vllm)",
+    )
     return parser.parse_args()
 
 
@@ -836,20 +846,36 @@ def setup_vlm_inferencer(args):
 
     # Add model_path for v_tokenizers that need it
     if args.vision_tokenizer_type in ["emu3.5", "emu3.5-ibq"]:
-        if not args.vision_tokenizer_path:
-            raise ValueError(f"--vision-tokenizer-path is required for {args.vision_tokenizer_type}")
-        vision_tokenizer_kwargs["model_path"] = args.vision_tokenizer_path
+        if args.vision_tokenizer_path:
+            vision_tokenizer_kwargs["model_path"] = args.vision_tokenizer_path
+        else:
+            # Will use default path from EMU35IBQVisionTokenizer.DEFAULT_MODEL_PATH
+            print("WARNING: vision tokenizer path not given, using default path...")
     elif args.vision_tokenizer_path:
         # Optional for emu3
         vision_tokenizer_kwargs["model_path"] = args.vision_tokenizer_path
 
     vision_tokenizer = create_vision_tokenizer(args.vision_tokenizer_type, **vision_tokenizer_kwargs)
 
-    # Create inferencer
-    print(f"Creating inferencer: vllm")
-    inferencer = VLLMInferencer(
-        model_path=args.model_path, tokenizer_path=args.tokenizer_path, tp_size=1, max_seq_len=8192
-    )
+    # Create inferencer based on selected backend
+    inferencer_type = getattr(args, "inferencer_type", "vllm")
+    print(f"Creating inferencer: {inferencer_type}")
+
+    if inferencer_type == "vllm":
+        inferencer = VLLMInferencer(
+            model_path=args.model_path, tokenizer_path=args.tokenizer_path, tp_size=1, max_seq_len=8192
+        )
+    elif inferencer_type == "hf":
+        from vision_tokenization.qualitative_benchmark.utils.hf_inferencer import HFInferencer
+
+        inferencer = HFInferencer(
+            model_path=args.model_path,
+            tokenizer_path=args.tokenizer_path,
+            max_seq_len=8192,
+            device="cuda:0",
+        )
+    else:
+        raise ValueError(f"Unknown inferencer type: {inferencer_type}")
 
     # Create inference args
     inference_args = InferenceArgs(

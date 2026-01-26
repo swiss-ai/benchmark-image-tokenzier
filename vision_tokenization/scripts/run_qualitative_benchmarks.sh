@@ -6,7 +6,7 @@
 #SBATCH --exclusive
 #SBATCH --partition=normal
 #SBATCH --ntasks-per-node=1
-#SBATCH --time=0:30:00
+#SBATCH --time=1:30:00
 #SBATCH --output=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/qualitative_bench%j.out
 #SBATCH --error=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/qualitative_bench%j.err
 
@@ -26,6 +26,9 @@ IMAGE_COMPLETION=""
 COMPLETION_PERCENTAGES=""
 STRICT_ROW_COUNT=""
 DEBUG=""
+VISION_TOKENIZER_TYPE=""
+VISION_TOKENIZER_PATH=""
+INFERENCER_TYPE=""
 
 usage() {
     echo "Usage: $0 --experiment_name <name> [OPTIONS]"
@@ -39,6 +42,13 @@ usage() {
     echo "  --chat-format <format>      Chat format to use (e.g., llama, apertus)"
     echo "  --no_chat_template          Do not apply chat template to prompts"
     echo ""
+    echo "Vision tokenizer options:"
+    echo "  --vision-tokenizer-type <type>  Vision tokenizer type: emu3, emu3.5, emu3.5-ibq (default: emu3)"
+    echo "  --vision-tokenizer-path <path>  Path to vision tokenizer model (required for emu3.5)"
+    echo ""
+    echo "Inference backend options:"
+    echo "  --inferencer-type <type>        Inference backend: vllm (faster) or hf (HuggingFace, more compatible - needed for apertus) (default: vllm)"
+    echo ""
     echo "Image completion benchmark options:"
     echo "  --image-completion                      Run image completion benchmark instead of VLM Q&A"
     echo "  --completion-percentages <percentages>  Comma-separated completion percentages (default: 20,40,60,80)"
@@ -46,8 +56,10 @@ usage() {
     echo "  --debug                                 Enable debug mode (prints tokens for first 3 samples)"
     echo ""
     echo "Example - Image completion benchmark with llama3 emu3:"
-    echo "  sbatch vision_tokenization/scripts/run_qualitative_benchmarks.sh --experiment_name completion_30_60_80_90_20260122 --model_path /capstor/store/cscs/swissai/infra01/vision-ckpts/llama3-3b-15n-8192sl-120gbsz-0.9i-0.1t-long-run-0063500/HF --image-completion --completion-percentages 80,90 --tokenizer_path /capstor/store/cscs/swissai/infra01/MLLM/llama3_emu3_tokenizer"
+    echo "  sbatch vision_tokenization/scripts/run_qualitative_benchmarks.sh --experiment_name completion_30_60_80_90_llama3_emu3 --model_path /capstor/store/cscs/swissai/infra01/vision-ckpts/llama3-3b-15n-8192sl-120gbsz-0.9i-0.1t-long-run-0063500/HF --image-completion --completion-percentages 80,90 --tokenizer_path /capstor/store/cscs/swissai/infra01/MLLM/llama3_emu3_tokenizer"
     echo ""
+    echo "Example - Image completion benchmark with apertus8b emu3.5:"
+    echo "  sbatch vision_tokenization/scripts/run_qualitative_benchmarks.sh --experiment_name completion_30_60_80_90_apertus_emu3_5 --model_path /users/rkreft/megatron-repo/logs/Meg-Runs/apertus_image_extension/apertus-8b-img-pretrain-64nodes-gbs1024-mbs1-steps7003-img0.9-text0.1-seqlen8192/HF --vision-tokenizer-type emu3.5 --image-completion --completion-percentages 30,60,80,90 --tokenizer_path /capstor/store/cscs/swissai/infra01/MLLM/apertus_emu3.5_tokenizer --vision-tokenizer-type emu3.5 --inferencer-type hf"
     exit 1
 }
 
@@ -89,6 +101,18 @@ while [[ $# -gt 0 ]]; do
             DEBUG="--debug"
             shift
             ;;
+        --vision-tokenizer-type)
+            VISION_TOKENIZER_TYPE="$2"
+            shift 2
+            ;;
+        --vision-tokenizer-path)
+            VISION_TOKENIZER_PATH="$2"
+            shift 2
+            ;;
+        --inferencer-type)
+            INFERENCER_TYPE="$2"
+            shift 2
+            ;;
         -h|--help)
             usage
             ;;
@@ -114,24 +138,37 @@ if [ -n "$IMAGE_COMPLETION" ]; then
     echo "  Experiment name:        $EXPERIMENT_NAME"
     echo "  Model path:             $MODEL_PATH"
     echo "  Tokenizer path:         $TOKENIZER_PATH"
+    echo "  Inferencer type:        $([ -z "$INFERENCER_TYPE" ] && echo "vllm (default)" || echo "$INFERENCER_TYPE")"
+    echo "  Vision tokenizer type:  $([ -z "$VISION_TOKENIZER_TYPE" ] && echo "emu3 (default)" || echo "$VISION_TOKENIZER_TYPE")"
+    echo "  Vision tokenizer path:  $([ -z "$VISION_TOKENIZER_PATH" ] && echo "None" || echo "$VISION_TOKENIZER_PATH")"
     echo "  Completion percentages: $([ -z "$COMPLETION_PERCENTAGES" ] && echo "20,40,60,80 (default)" || echo "$COMPLETION_PERCENTAGES")"
     echo "  Strict row count:       $([ -z "$STRICT_ROW_COUNT" ] && echo "No" || echo "Yes")"
     echo "  Debug mode:             $([ -z "$DEBUG" ] && echo "No" || echo "Yes")"
 else
     echo "Running VLM Q&A benchmark with:"
-    echo "  Experiment name:     $EXPERIMENT_NAME"
-    echo "  Model path:          $MODEL_PATH"
-    echo "  Tokenizer path:      $TOKENIZER_PATH"
-    echo "  Chat format:         $([ -z "$CHAT_FORMAT" ] && echo "None" || echo "$CHAT_FORMAT")"
-    echo "  Apply chat template: $([ -z "$APPLY_CHAT_TEMPLATE" ] && echo "Yes" || echo "No")"
+    echo "  Experiment name:        $EXPERIMENT_NAME"
+    echo "  Model path:             $MODEL_PATH"
+    echo "  Tokenizer path:         $TOKENIZER_PATH"
+    echo "  Inferencer type:        $([ -z "$INFERENCER_TYPE" ] && echo "vllm (default)" || echo "$INFERENCER_TYPE")"
+    echo "  Vision tokenizer type:  $([ -z "$VISION_TOKENIZER_TYPE" ] && echo "emu3 (default)" || echo "$VISION_TOKENIZER_TYPE")"
+    echo "  Vision tokenizer path:  $([ -z "$VISION_TOKENIZER_PATH" ] && echo "None" || echo "$VISION_TOKENIZER_PATH")"
+    echo "  Chat format:            $([ -z "$CHAT_FORMAT" ] && echo "None" || echo "$CHAT_FORMAT")"
+    echo "  Apply chat template:    $([ -z "$APPLY_CHAT_TEMPLATE" ] && echo "Yes" || echo "No")"
 fi
 echo "=================================================================================="
+
+# make sure latest transformers is installed to support apertus
+# Pin numpy<2 to avoid breaking scipy/sklearn compiled against numpy 1.x
+pip install -U "transformers>=4.56" #"vllm>=0.14.0" "numpy<2"
 
 python vlm_benchmark.py --tokenizer_path "$TOKENIZER_PATH" \
                         --model_path "$MODEL_PATH" \
                         --experiment_name "$EXPERIMENT_NAME" \
                         $([ -n "$CHAT_FORMAT" ] && echo "--chat-format $CHAT_FORMAT") \
                         $([ -n "$COMPLETION_PERCENTAGES" ] && echo "--completion-percentages $COMPLETION_PERCENTAGES") \
+                        $([ -n "$VISION_TOKENIZER_TYPE" ] && echo "--vision-tokenizer-type $VISION_TOKENIZER_TYPE") \
+                        $([ -n "$VISION_TOKENIZER_PATH" ] && echo "--vision-tokenizer-path $VISION_TOKENIZER_PATH") \
+                        $([ -n "$INFERENCER_TYPE" ] && echo "--inferencer-type $INFERENCER_TYPE") \
                         $APPLY_CHAT_TEMPLATE \
                         $IMAGE_COMPLETION \
                         $STRICT_ROW_COUNT \

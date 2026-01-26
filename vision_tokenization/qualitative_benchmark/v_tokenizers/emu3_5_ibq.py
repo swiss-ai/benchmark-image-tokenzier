@@ -13,7 +13,7 @@ from PIL import Image
 from .base import SpatialTokenizer
 
 # repo base
-base_dir = Path(__file__).parent.parent.parent
+base_dir = Path(__file__).parent.parent.parent.parent
 sys.path.append(str(base_dir))
 sys.path.append(str(base_dir / "Tokenizer"))
 
@@ -38,9 +38,12 @@ class EMU35IBQVisionTokenizer(SpatialTokenizer):
     - May have different compression ratios
     """
 
+    # Default path to shared model weights on CSCS infrastructure
+    DEFAULT_MODEL_PATH = "/capstor/store/cscs/swissai/infra01/MLLM/Emu3.5-VisionTokenizer"
+
     def __init__(
         self,
-        model_path: str = (base_dir / "Tokenizer" / "submodules" / "Emu3.5").resolve(), # default to repo submodule
+        model_path: str = None,  # Will use DEFAULT_MODEL_PATH if not provided
         min_pixels: int = 256 * 256,
         max_pixels: int = 512 * 512,
         device: str = "cuda",
@@ -57,6 +60,11 @@ class EMU35IBQVisionTokenizer(SpatialTokenizer):
             tokenizer_path: Path to text tokenizer (needed for vision token mapping)
         """
         from Tokenizer.Emu3_5_IBQ import Emu3_5_IBQ
+
+        # Use default path if not provided
+        if model_path is None:
+            model_path = self.DEFAULT_MODEL_PATH
+            print(f"Using default EMU3.5 model path: {model_path}")
 
         self.model_path = model_path
         self.min_pixels = min_pixels
