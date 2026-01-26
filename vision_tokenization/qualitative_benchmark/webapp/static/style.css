@@ -148,6 +148,9 @@ main {
     color: #2c3e50;
     margin-bottom: 1rem;
     font-size: 1.5rem;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    hyphens: auto;
 }
 
 .experiment-info {
@@ -429,12 +432,13 @@ main {
 
 .checkbox-item {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     padding: 0.75rem;
     border: 1px solid #ddd;
     border-radius: 4px;
     cursor: pointer;
     transition: background-color 0.2s, border-color 0.2s;
+    min-width: 0;
 }
 
 .checkbox-item:hover {
@@ -444,14 +448,19 @@ main {
 
 .checkbox-item input[type="checkbox"] {
     margin-right: 0.75rem;
+    margin-top: 0.15rem;
     width: 18px;
     height: 18px;
+    flex-shrink: 0;
     cursor: pointer;
 }
 
 .checkbox-item span {
     flex: 1;
     color: #2c3e50;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    min-width: 0;
 }
 
 .compare-actions {
@@ -511,6 +520,8 @@ main {
     color: #2c3e50;
     font-size: 1.1rem;
     margin-bottom: 0.75rem;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 .experiment-info-card p {

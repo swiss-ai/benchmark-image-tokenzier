@@ -411,7 +411,14 @@ class VLM(object):
 class VLMBenchmark:
     """Scaffolding for running qualitative VLM benchmarks with images and prompts."""
 
-    def __init__(self, images_config_path: str, prompts_config_path: str, vlm: VLM, results_dir: str = "results"):
+    def __init__(
+        self,
+        images_config_path: str,
+        prompts_config_path: str,
+        vlm: VLM,
+        results_dir: str = "results",
+        debug: bool = False,
+    ):
         """
         Initialize the benchmark system.
 
@@ -419,11 +426,13 @@ class VLMBenchmark:
             images_config_path: Path to JSON file containing image configurations
             prompts_config_path: Path to JSON file containing prompt configurations
             results_dir: Directory where results will be stored
+            debug: Enable debug mode for detailed token output
         """
         self.images = self._load_json(images_config_path)
         self.prompts = self._load_json(prompts_config_path)
         self.results_dir = Path(results_dir)
         self.vlm = vlm
+        self.debug = debug
         print(f"Loaded {len(self.images)} images and {len(self.prompts)} prompts.")
 
     def _load_json(self, path: str) -> List[Dict[str, Any]]:
@@ -481,14 +490,28 @@ class VLMBenchmark:
             "runs": [],
         }
 
+        # Track sample number for debug mode (only first 3 samples)
+        sample_num = 0
+
         # Match images with prompts based on tags
         for image in tqdm(self.images, desc="Processing images"):
             for prompt in self.prompts:
                 require_all = prompt.get("require_all_tags", False)
                 if self._tags_match(image.get("tags", []), prompt.get("tags", []), require_all):
+                    sample_num += 1
+
+                    # Enable debug for first 3 samples
+                    debug_this_sample = self.debug and sample_num <= 3
+
+                    if debug_this_sample:
+                        print(f"\n{'='*60}")
+                        print(f"[DEBUG] Sample {sample_num}: {Path(image['path']).name}")
+                        print(f"[DEBUG] Prompt: {prompt['text'][:80]}...")
+                        print(f"{'='*60}")
+
                     # Run VLM generation
                     final_prompt = self.vlm.preprocess(image["path"], prompt["text"])
-                    output = self.vlm.generate(final_prompt)
+                    output = self.vlm.generate(final_prompt, debug=debug_this_sample)
 
                     # Store result
                     result_entry = {
@@ -732,7 +755,14 @@ class ImageCompletionBenchmark:
 class CaptioningBenchmark:
     """Scaffolding for running image captioning benchmarks."""
 
-    def __init__(self, images_config_path: str, vlm: VLM, results_dir: str = "results", init_phrase: str = None):
+    def __init__(
+        self,
+        images_config_path: str,
+        vlm: VLM,
+        results_dir: str = "results",
+        init_phrase: str = None,
+        debug: bool = False,
+    ):
         """
         Initialize the captioning benchmark system.
 
@@ -741,11 +771,13 @@ class CaptioningBenchmark:
             vlm: VLM instance for running captioning
             results_dir: Directory where results will be stored
             init_phrase: Optional initialization phrase for caption generation
+            debug: Enable debug mode for detailed token output
         """
         self.images = self._load_json(images_config_path)
         self.results_dir = Path(results_dir)
         self.vlm = vlm
         self.init_phrase = init_phrase or ""
+        self.debug = debug
         print(f"Loaded {len(self.images)} images for captioning benchmark.")
         if self.init_phrase:
             print(f"Using init phrase: '{self.init_phrase}'")
@@ -789,9 +821,22 @@ class CaptioningBenchmark:
             "runs": [],
         }
 
+        # Track sample number for debug mode (only first 3 samples)
+        sample_num = 0
+
         for image in tqdm(self.images, desc="Generating captions"):
+            sample_num += 1
+
+            # Enable debug for first 3 samples
+            debug_this_sample = self.debug and sample_num <= 3
+
+            if debug_this_sample:
+                print(f"\n{'='*60}")
+                print(f"[DEBUG] Sample {sample_num}: {Path(image['path']).name}")
+                print(f"{'='*60}")
+
             final_prompt = self.vlm.preprocess(image["path"], self.init_phrase)
-            caption = self.vlm.generate(final_prompt)
+            caption = self.vlm.generate(final_prompt, debug=debug_this_sample)
 
             result_entry = {
                 "image": {"path": image["path"], "tags": image.get("tags", [])},
@@ -830,7 +875,9 @@ def parse_args():
     parser.add_argument("--prompt_list", type=str, default="prompts.json", help="Path to prompt list JSON")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing results file if it exists")
     parser.add_argument(
-        "--debug", action="store_true", help="Enable debug mode (prints tokens for first 3 samples)"
+        "--debug",
+        action="store_true",
+        help="Enable debug mode (prints prompt token IDs and decoded text for first 3 samples in all benchmark modes)",
     )
 
     # Image completion benchmark arguments
@@ -1088,6 +1135,8 @@ if __name__ == "__main__":
         percentages = [int(p.strip()) for p in args.completion_percentages.split(",")]
         print(f"Running image completion benchmark with percentages: {percentages}")
         print(f"Strict row count: {args.strict_row_count}")
+        if args.debug:
+            print("Debug mode enabled (will print tokens for first 3 samples)")
 
         # Create and run image completion benchmark
         benchmark = ImageCompletionBenchmark(
@@ -1102,6 +1151,8 @@ if __name__ == "__main__":
         print("Running captioning benchmark")
         if args.caption_init_phrase:
             print(f"Init phrase: '{args.caption_init_phrase}'")
+        if args.debug:
+            print("Debug mode enabled (will print tokens for first 3 samples)")
 
         # Create and run captioning benchmark
         benchmark = CaptioningBenchmark(
@@ -1109,15 +1160,20 @@ if __name__ == "__main__":
             vlm=vlm,
             results_dir=str(results_dir),
             init_phrase=args.caption_init_phrase,
+            debug=args.debug,
         )
         results = benchmark.run_captioning_benchmark(output_filename=f"{args.experiment_name}.json")
     else:
         # Run standard VLM Q&A benchmark
+        if args.debug:
+            print("Debug mode enabled (will print tokens for first 3 samples)")
+
         benchmark = VLMBenchmark(
             images_config_path=args.image_list,
             prompts_config_path=args.prompt_list,
             vlm=vlm,
             results_dir=str(results_dir),
+            debug=args.debug,
         )
         results = benchmark.run_benchmark(output_filename=f"{args.experiment_name}.json")
 
