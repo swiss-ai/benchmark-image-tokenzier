@@ -31,6 +31,7 @@ VISION_TOKENIZER_PATH=""
 INFERENCER_TYPE=""
 CAPTIONING=""
 CAPTION_INIT_PHRASE=""
+GREEDY=""
 
 usage() {
     echo "Usage: $0 --experiment_name <name> [OPTIONS]"
@@ -50,6 +51,7 @@ usage() {
     echo ""
     echo "Inference backend options:"
     echo "  --inferencer-type <type>        Inference backend: vllm (faster) or hf (HuggingFace, more compatible - needed for apertus) (default: vllm)"
+    echo "  --greedy                        Use greedy decoding (temperature=0, top_p=1.0)"
     echo ""
     echo "Image completion benchmark options:"
     echo "  --image-completion                      Run image completion benchmark instead of VLM Q&A"
@@ -127,6 +129,10 @@ while [[ $# -gt 0 ]]; do
             CAPTION_INIT_PHRASE="$2"
             shift 2
             ;;
+        --greedy)
+            GREEDY="--greedy"
+            shift
+            ;;
         -h|--help)
             usage
             ;;
@@ -157,6 +163,7 @@ if [ -n "$IMAGE_COMPLETION" ]; then
     echo "  Vision tokenizer path:  $([ -z "$VISION_TOKENIZER_PATH" ] && echo "None" || echo "$VISION_TOKENIZER_PATH")"
     echo "  Completion percentages: $([ -z "$COMPLETION_PERCENTAGES" ] && echo "20,40,60,80 (default)" || echo "$COMPLETION_PERCENTAGES")"
     echo "  Strict row count:       $([ -z "$STRICT_ROW_COUNT" ] && echo "No" || echo "Yes")"
+    echo "  Greedy decoding:        $([ -z "$GREEDY" ] && echo "No" || echo "Yes")"
     echo "  Debug mode:             $([ -z "$DEBUG" ] && echo "No" || echo "Yes")"
 elif [ -n "$CAPTIONING" ]; then
     echo "Running CAPTIONING benchmark with:"
@@ -197,7 +204,8 @@ python vlm_benchmark.py --tokenizer_path "$TOKENIZER_PATH" \
                         $IMAGE_COMPLETION \
                         $STRICT_ROW_COUNT \
                         $DEBUG \
-                        $CAPTIONING
+                        $CAPTIONING \
+                        $GREEDY
 
 echo "=================================================================================="
 echo "Job completed at $(date)"
