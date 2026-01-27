@@ -42,6 +42,9 @@
             <span class="stat-badge">{{ captioning_experiments|length }} experiments</span>
         </div>
         <a href="/captioning" class="btn btn-primary">View Captioning</a>
+        {% if captioning_experiments|length > 1 %}
+        <a href="/captioning/compare" class="btn btn-secondary">Compare Experiments</a>
+        {% endif %}
     </div>
 
     <div class="landing-card completion-card">

@@ -474,8 +474,25 @@ main {
     color: white;
     padding: 0.25rem 0.75rem;
     border-radius: 4px;
-    margin-right: 0.5rem;
     font-size: 0.9rem;
+}
+
+.experiments-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.experiments-row > strong {
+    flex-shrink: 0;
+    padding-top: 0.25rem;
+}
+
+.experiment-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
 }
 
 /* Comparison Section */
@@ -734,8 +751,7 @@ footer p {
 }
 
 .compare-link-section {
-    margin-top: 2rem;
-    text-align: center;
+    margin-bottom: 1.5rem;
 }
 
 /* =============================================================================
@@ -1194,6 +1210,10 @@ footer p {
     border-left-color: #27ae60;
 }
 
+.captioning-info-card {
+    border-left-color: #9b59b6;
+}
+
 .mini-summary-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -1254,7 +1274,7 @@ footer p {
 
 .completion-comparison-content {
     display: grid;
-    grid-template-columns: 200px 1fr;
+    grid-template-columns: 280px 1fr;
     gap: 1.5rem;
     padding: 1.5rem;
 }
@@ -1288,7 +1308,7 @@ footer p {
 
 .completed-images-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 1rem;
 }
 
@@ -1310,9 +1330,17 @@ footer p {
     font-size: 0.9rem;
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
     flex-wrap: wrap;
     gap: 0.25rem;
+}
+
+.completed-image-item h5 .exp-name {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    flex: 1;
+    min-width: 0;
 }
 
 .completed-image-item h5 .validity-badge {
