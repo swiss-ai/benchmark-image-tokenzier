@@ -220,6 +220,62 @@ def find_common_completion_runs(experiment_results):
     return common_runs
 
 
+def find_common_captioning_runs(experiment_results):
+    """
+    Find common images across captioning experiments.
+
+    Returns a list of dicts with structure:
+    {
+        'image_path': 'assets/image.jpg',
+        'image_tags': ['tag1', 'tag2'],
+        'init_phrase': 'This',
+        'captions': {
+            'experiment1': 'caption text',
+            'experiment2': 'caption text',
+            ...
+        }
+    }
+    """
+    if not experiment_results:
+        return []
+
+    exp_names = list(experiment_results.keys())
+
+    # Build mapping of image_path -> experiment captions
+    combinations = {}
+
+    for exp_name, results in experiment_results.items():
+        for run in results.get("runs", []):
+            key = run["image"]["path"]
+
+            if key not in combinations:
+                combinations[key] = {
+                    "image": run["image"],
+                    "init_phrase": run.get("init_phrase", ""),
+                    "captions": {},
+                }
+
+            combinations[key]["captions"][exp_name] = run.get("caption", "")
+
+    # Filter to only include images present in ALL experiments
+    common_runs = []
+    for key, data in combinations.items():
+        if len(data["captions"]) == len(exp_names):
+            common_runs.append(
+                {
+                    "image_path": data["image"]["path"],
+                    "image_tags": data["image"].get("tags", []),
+                    "init_phrase": data["init_phrase"],
+                    "captions": data["captions"],
+                }
+            )
+
+    # Sort by image path
+    common_runs.sort(key=lambda x: x["image_path"])
+
+    return common_runs
+
+
 # =============================================================================
 # Landing Page
 # =============================================================================
@@ -379,6 +435,51 @@ def captioning_experiment(experiment_name):
         filtered_runs=filtered_runs,
         all_tags=all_tags,
         current_image_tag=image_tag_filter,
+    )
+
+
+@app.route("/captioning/compare")
+def captioning_compare():
+    """Compare multiple captioning experiments side-by-side."""
+    _, captioning_experiments, _ = get_experiments_by_type()
+
+    # Get selected experiments from query parameters
+    selected_experiments = request.args.getlist("experiments")
+
+    if not selected_experiments or len(selected_experiments) < 2:
+        # Show experiment selection page
+        return render_template(
+            "captioning/compare.html",
+            experiments=captioning_experiments,
+            selected_experiments=selected_experiments,
+            comparison_data=None,
+        )
+
+    # Load results for all selected experiments
+    experiment_results = {}
+    for exp_name in selected_experiments:
+        results = load_experiment_results(exp_name)
+        if results and results.get("mode") == "captioning":
+            experiment_results[exp_name] = results
+
+    if len(experiment_results) < 2:
+        return render_template(
+            "captioning/compare.html",
+            experiments=captioning_experiments,
+            selected_experiments=selected_experiments,
+            comparison_data=None,
+            error="Could not load results for selected experiments",
+        )
+
+    # Find common images across experiments
+    comparison_data = find_common_captioning_runs(experiment_results)
+
+    return render_template(
+        "captioning/compare.html",
+        experiments=captioning_experiments,
+        selected_experiments=selected_experiments,
+        experiment_results=experiment_results,
+        comparison_data=comparison_data,
     )
 
 

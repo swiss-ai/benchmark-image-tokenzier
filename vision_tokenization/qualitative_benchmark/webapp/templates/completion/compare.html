@@ -41,11 +41,14 @@
 <div class="comparison-section">
     <div class="comparison-header">
         <h2>Comparison Results</h2>
-        <p><strong>Experiments:</strong>
-            {% for exp_name in selected_experiments %}
-            <span class="experiment-badge">{{ exp_name }}</span>
-            {% endfor %}
-        </p>
+        <div class="experiments-row">
+            <strong>Experiments:</strong>
+            <div class="experiment-badges">
+                {% for exp_name in selected_experiments %}
+                <span class="experiment-badge">{{ exp_name }}</span>
+                {% endfor %}
+            </div>
+        </div>
         <p><strong>Common (image, percentage) combinations:</strong> {{ comparison_data|length }}</p>
 
         <!-- Summary comparison -->
@@ -114,7 +117,7 @@
                     {% set run = item.runs[exp_name] %}
                     <div class="completed-image-item {% if run.is_valid %}valid{% else %}invalid{% endif %}">
                         <h5>
-                            {{ exp_name }}
+                            <span class="exp-name" title="{{ exp_name }}">{{ exp_name }}</span>
                             <span class="validity-badge {% if run.is_valid %}valid{% else %}invalid{% endif %}">
                                 {% if run.is_valid %}Valid{% else %}Invalid{% endif %}
                             </span>

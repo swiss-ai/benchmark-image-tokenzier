@@ -9,6 +9,11 @@
 </div>
 
 {% if experiments %}
+{% if experiments|length > 1 %}
+<div class="compare-link-section">
+    <a href="/captioning/compare" class="btn btn-secondary">Compare Experiments</a>
+</div>
+{% endif %}
 <div class="experiments-grid">
     {% for experiment in experiments %}
     <div class="experiment-card captioning-experiment-card">

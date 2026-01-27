@@ -1,17 +1,17 @@
 {% extends "base.html" %}
 
-{% block title %}Compare VLM Experiments - Benchmark Viewer{% endblock %}
+{% block title %}Compare Captioning Experiments - Benchmark Viewer{% endblock %}
 
 {% block content %}
 <div class="page-header">
-    <h1>Compare VLM Experiments</h1>
-    <p class="subtitle">Select experiments to compare side-by-side</p>
+    <h1>Compare Captioning Experiments</h1>
+    <p class="subtitle">Select experiments to compare captions side-by-side</p>
 </div>
 
 <!-- Experiment Selection Form -->
 <div class="compare-selection">
     <h2>Select Experiments to Compare</h2>
-    <form method="get" action="/vlm/compare">
+    <form method="get" action="/captioning/compare">
         <div class="checkbox-grid">
             {% for experiment in experiments %}
             <label class="checkbox-item">
@@ -24,7 +24,7 @@
 
         <div class="compare-actions">
             <button type="submit" class="btn btn-primary">Compare Selected</button>
-            <a href="/vlm/compare" class="btn btn-secondary">Clear Selection</a>
+            <a href="/captioning/compare" class="btn btn-secondary">Clear Selection</a>
         </div>
     </form>
 </div>
@@ -49,30 +49,30 @@
                 {% endfor %}
             </div>
         </div>
-        <p><strong>Common image-prompt combinations:</strong> {{ comparison_data|length }}</p>
+        <p><strong>Common images:</strong> {{ comparison_data|length }}</p>
 
         <!-- Show model info for selected experiments -->
         <div class="experiments-info">
             {% for exp_name in selected_experiments %}
             {% if exp_name in experiment_results %}
-            <div class="experiment-info-card">
+            <div class="experiment-info-card captioning-info-card">
                 <h3>{{ exp_name }}</h3>
+                {% if experiment_results[exp_name].vision_tokenizer %}
+                <p><strong>Vision Tokenizer:</strong> {{ experiment_results[exp_name].vision_tokenizer }}</p>
+                {% endif %}
+                {% if experiment_results[exp_name].inferencer %}
+                <p><strong>Inferencer:</strong> {{ experiment_results[exp_name].inferencer }}</p>
+                {% endif %}
                 {% if experiment_results[exp_name].model_path %}
                 <p><strong>Model:</strong> <code>{{ experiment_results[exp_name].model_path }}</code></p>
                 {% endif %}
-                {% if experiment_results[exp_name].tokenizer_path %}
-                <p><strong>Tokenizer:</strong> <code>{{ experiment_results[exp_name].tokenizer_path }}</code></p>
+                {% if experiment_results[exp_name].caption_init_phrase %}
+                <p><strong>Init Phrase:</strong> "{{ experiment_results[exp_name].caption_init_phrase }}"</p>
                 {% endif %}
                 {% if experiment_results[exp_name].inference_args %}
-                <p><strong>Apply chat template:</strong> {{ experiment_results[exp_name].inference_args.apply_chat_template }}</p>
                 <p><strong>Temperature:</strong> {{ experiment_results[exp_name].inference_args.temperature }}</p>
                 <p><strong>Top-p:</strong> {{ experiment_results[exp_name].inference_args.top_p }}</p>
                 <p><strong>Max tokens:</strong> {{ experiment_results[exp_name].inference_args.max_new_tokens }}</p>
-                <p><strong>Min EMU aspect ratio:</strong> {{ experiment_results[exp_name].inference_args.min_emu_aspect_ratio }}</p>
-                <p><strong>Max EMU aspect ratio:</strong> {{ experiment_results[exp_name].inference_args.max_emu_aspect_ratio }}</p>
-                {% if experiment_results[exp_name].inference_args.stop_token_ids %}
-                <p><strong>Stop token IDs:</strong> {{ experiment_results[exp_name].inference_args.stop_token_ids|join(', ') }}</p>
-                {% endif %}
                 {% endif %}
             </div>
             {% endif %}
@@ -82,19 +82,19 @@
 
     {% if comparison_data|length == 0 %}
     <div class="empty-state">
-        <p>No common image-prompt combinations found across all selected experiments.</p>
-        <p>Make sure the selected experiments were run with overlapping images and prompts.</p>
+        <p>No common images found across all selected experiments.</p>
+        <p>Make sure the selected experiments were run with overlapping images.</p>
     </div>
     {% else %}
     <div class="comparison-list">
         {% for item in comparison_data %}
         <div class="comparison-card">
             <div class="comparison-card-header">
-                <h3>Comparison #{{ loop.index }}</h3>
+                <h3>{{ item.image_path.split('/')[-1] }}</h3>
             </div>
 
             <div class="comparison-content">
-                <!-- Left Column: Image and Prompt -->
+                <!-- Left Column: Image and Init Phrase -->
                 <div class="left-column">
                     <!-- Image Section -->
                     <div class="comparison-image-section">
@@ -108,26 +108,23 @@
                         <p class="image-path">{{ item.image_path }}</p>
                     </div>
 
-                    <!-- Prompt Section -->
+                    {% if item.init_phrase %}
+                    <!-- Init Phrase Section -->
                     <div class="comparison-prompt-section">
-                        <h4>Prompt</h4>
-                        <p class="prompt-text">{{ item.prompt_text }}</p>
-                        <div class="tags">
-                            {% for tag in item.prompt_tags %}
-                            <span class="tag tag-prompt">{{ tag }}</span>
-                            {% endfor %}
-                        </div>
+                        <h4>Init Phrase</h4>
+                        <p class="prompt-text">{{ item.init_phrase }}</p>
                     </div>
+                    {% endif %}
                 </div>
 
-                <!-- Right Column: Outputs -->
+                <!-- Right Column: Captions -->
                 <div class="comparison-outputs-section">
-                    <h4>Outputs</h4>
+                    <h4>Generated Captions</h4>
                     <div class="outputs-grid">
                         {% for exp_name in selected_experiments %}
                         <div class="output-item">
                             <h5>{{ exp_name }}</h5>
-                            <div class="output-text">{{ item.outputs[exp_name] }}</div>
+                            <div class="output-text">{{ item.captions[exp_name] }}</div>
                         </div>
                         {% endfor %}
                     </div>
