@@ -698,6 +698,7 @@ class ImageCompletionBenchmark:
     ) -> Path:
         """
         Reconstruct image and save with red boundary line.
+        Expects a valid formatted image (equally sized full rows).
 
         Args:
             completion_result: Result from generate_image_completion()
@@ -722,8 +723,7 @@ class ImageCompletionBenchmark:
 
         # Calculate actual height from combined data
         actual_height = len(all_indices) // width
-        # Truncate to exact multiple of width (drop incomplete row if any)
-        all_indices = all_indices[:actual_height * width]
+        assert len(all_indices) == actual_height * width
 
         # Reconstruct image using vision tokenizer
         tokenizer = self.vlm.vision_tokenizer.tokenizer
