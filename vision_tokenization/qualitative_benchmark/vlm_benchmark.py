@@ -953,6 +953,11 @@ def parse_args():
         choices=["vllm", "hf"],
         help="Inference backend: 'vllm' (faster) or 'hf' (HuggingFace, more compatible) (default: vllm)",
     )
+    inference_group.add_argument(
+        "--greedy",
+        action="store_true",
+        help="Use greedy decoding (sets temperature=0, top_p=1.0)",
+    )
     return parser.parse_args()
 
 
@@ -1080,12 +1085,19 @@ def setup_vlm_inferencer(args):
         apply_chat = False
         print("Note: Chat template disabled for captioning mode (use explicit prompts if needed)")
 
+    # For image completion mode, set max_new_tokens to max_pixels by default
+    # (image completion can generate many tokens - up to the full image token count)
+    max_new_tokens = args.max_new_tokens
+    if args.image_completion:
+        max_new_tokens = max_pixels
+        print(f"Note: max_new_tokens set to {max_new_tokens} for image completion mode")
+
     inference_args = InferenceArgs(
         apply_chat_template=apply_chat,
         temperature=args.temperature,
         top_p=args.top_p,
         stop_token_ids=[],  # Will be set by VLM __init__
-        max_new_tokens=args.max_new_tokens,
+        max_new_tokens=max_new_tokens,
         max_emu_aspect_ratio=max_pixels,
         min_emu_aspect_ratio=min_pixels,
         chat_transform=args.chat_format or None,
@@ -1109,6 +1121,12 @@ if __name__ == "__main__":
     python vlm_benchmark.py --tokenizer_path /path/to/tokenizer --model_path /path/to/model --experiment_name my_experiment
     """
     args = parse_args()
+
+    # Apply greedy decoding settings if requested
+    if args.greedy:
+        args.temperature = 0.0
+        args.top_p = 1.0
+        print("Greedy decoding enabled: temperature=0, top_p=1.0")
 
     # Validate argument combinations
     validate_args(args)
