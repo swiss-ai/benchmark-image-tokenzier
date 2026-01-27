@@ -713,17 +713,13 @@ class ImageCompletionBenchmark:
         # Combine given and generated indices
         given_indices = completion_result["given_indices"]
         generated_indices = completion_result["generated_indices"]
-        height = completion_result["original_image_rows"]
-        width = completion_result["original_image_width"]
+        height = completion_result["generated_rows"]
+        width = completion_result["original_image_width"] # width expected to be the same to be valid!
         given_rows = completion_result["given_rows"]
 
-        # Ensure we have the right number of tokens
-        expected_total = height * width
+        # we reconstruct with all shapes that are valid (method assumes valid shapes)
+        # Specifically we dont pad with 0s or truncate extra rows
         all_indices = given_indices + generated_indices
-        if len(all_indices) < expected_total:
-            # Pad with zeros if needed
-            all_indices = all_indices + [0] * (expected_total - len(all_indices))
-        all_indices = all_indices[:expected_total]
 
         # Reconstruct image using vision tokenizer
         tokenizer = self.vlm.vision_tokenizer.tokenizer
