@@ -713,18 +713,22 @@ class ImageCompletionBenchmark:
         # Combine given and generated indices
         given_indices = completion_result["given_indices"]
         generated_indices = completion_result["generated_indices"]
-        height = completion_result["generated_rows"]
-        width = completion_result["original_image_width"] # width expected to be the same to be valid!
+        width = completion_result["original_image_width"]  # width expected to be the same to be valid!
         given_rows = completion_result["given_rows"]
 
-        # we reconstruct with all shapes that are valid (method assumes valid shapes)
-        # Specifically we dont pad with 0s or truncate extra rows
+        # We reconstruct with all shapes that are valid (method assumes valid shapes)
+        # Specifically we don't pad with 0s or truncate extra rows
         all_indices = given_indices + generated_indices
+
+        # Calculate actual height from combined data
+        actual_height = len(all_indices) // width
+        # Truncate to exact multiple of width (drop incomplete row if any)
+        all_indices = all_indices[:actual_height * width]
 
         # Reconstruct image using vision tokenizer
         tokenizer = self.vlm.vision_tokenizer.tokenizer
         indices_tensor = torch.tensor(all_indices, dtype=torch.long, device=tokenizer.device)
-        indices_tensor = indices_tensor.reshape(1, height, width)
+        indices_tensor = indices_tensor.reshape(1, actual_height, width)
 
         with torch.no_grad():
             reconstructed_tensor = tokenizer.decode(indices_tensor)
@@ -733,7 +737,7 @@ class ImageCompletionBenchmark:
 
         # Draw red line at boundary
         # Calculate pixels per token row dynamically (varies by tokenizer, e.g., 8 for emu3, 16 for emu3.5)
-        pixels_per_row = reconstructed_pil.height / height
+        pixels_per_row = reconstructed_pil.height / actual_height
         boundary_y = int(given_rows * pixels_per_row)
         draw = ImageDraw.Draw(reconstructed_pil)
         img_width = reconstructed_pil.width
