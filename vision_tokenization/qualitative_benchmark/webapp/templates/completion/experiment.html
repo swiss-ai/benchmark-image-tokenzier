@@ -65,6 +65,27 @@
         </div>
     </div>
 
+    <!-- Row Count Difference Metrics -->
+    <h3>Row Count Accuracy</h3>
+    <div class="completion-summary-grid">
+        <div class="summary-card">
+            <span class="summary-value">{{ summary.correct_row_count }}</span>
+            <span class="summary-label">Correct Row Count</span>
+        </div>
+        <div class="summary-card">
+            <span class="summary-value">{{ summary.incorrect_row_count }}</span>
+            <span class="summary-label">Incorrect Row Count</span>
+        </div>
+        <div class="summary-card">
+            <span class="summary-value">{{ "%.2f"|format(summary.avg_row_diff_all) }}</span>
+            <span class="summary-label">Avg Row Diff (All)</span>
+        </div>
+        <div class="summary-card">
+            <span class="summary-value">{{ "%.2f"|format(summary.avg_row_diff_excluding_correct) }}</span>
+            <span class="summary-label">Avg Row Diff (Excl. Correct)</span>
+        </div>
+    </div>
+
     <!-- Breakdown by completion percentage -->
     <h3>Success Rate by Completion Percentage</h3>
     <div class="percentage-breakdown">
