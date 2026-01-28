@@ -75,6 +75,20 @@
                         <span class="value">{{ "%.1f"|format(experiment_summaries[exp_name].success_rate) }}%</span>
                     </div>
                 </div>
+                <div class="mini-summary-grid">
+                    <div class="mini-summary-item">
+                        <span class="label">Correct Rows</span>
+                        <span class="value">{{ experiment_summaries[exp_name].correct_row_count }}/{{ experiment_summaries[exp_name].total_runs }}</span>
+                    </div>
+                    <div class="mini-summary-item">
+                        <span class="label">Avg Row Diff (All)</span>
+                        <span class="value">{{ "%.2f"|format(experiment_summaries[exp_name].avg_row_diff_all) }}</span>
+                    </div>
+                    <div class="mini-summary-item">
+                        <span class="label">Avg Row Diff (Excl.)</span>
+                        <span class="value">{{ "%.2f"|format(experiment_summaries[exp_name].avg_row_diff_excluding_correct) }}</span>
+                    </div>
+                </div>
                 {% if exp_name in experiment_results %}
                 {% if experiment_results[exp_name].model_path %}
                 <p class="model-path"><strong>Model:</strong> <code>{{ experiment_results[exp_name].model_path }}</code></p>

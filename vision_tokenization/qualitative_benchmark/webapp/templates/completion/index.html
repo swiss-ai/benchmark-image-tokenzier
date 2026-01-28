@@ -49,6 +49,18 @@
             </div>
         </div>
 
+        <!-- Row count accuracy -->
+        <div class="completion-summary-mini">
+            <div class="summary-stat">
+                <span class="stat-value">{{ experiment.summary.correct_row_count }}/{{ experiment.summary.total_runs }}</span>
+                <span class="stat-label">Correct Rows</span>
+            </div>
+            <div class="summary-stat">
+                <span class="stat-value">{{ "%.2f"|format(experiment.summary.avg_row_diff_all) }}</span>
+                <span class="stat-label">Avg Row Diff</span>
+            </div>
+        </div>
+
         <a href="/completion/{{ experiment.name }}" class="btn btn-primary">View Results</a>
     </div>
     {% endfor %}

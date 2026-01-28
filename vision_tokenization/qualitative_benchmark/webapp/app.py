@@ -105,12 +105,31 @@ def calculate_completion_summary(results):
             "success_rate": (pct_valid / pct_total * 100) if pct_total > 0 else 0,
         }
 
+    # Calculate row count difference metrics
+    row_diffs = []
+    for r in runs:
+        generated = r.get("generated_rows", 0)
+        expected = r.get("expected_rows", 0)
+        row_diffs.append(abs(generated - expected))
+
+    # Average including correct (diff=0)
+    avg_row_diff_all = sum(row_diffs) / len(row_diffs) if row_diffs else 0
+
+    # Average excluding correct (diff=0)
+    non_zero_diffs = [d for d in row_diffs if d > 0]
+    avg_row_diff_excluding_correct = sum(non_zero_diffs) / len(non_zero_diffs) if non_zero_diffs else 0
+    correct_row_count = len(row_diffs) - len(non_zero_diffs)
+
     return {
         "total_runs": total_runs,
         "valid_runs": valid_runs,
         "invalid_runs": invalid_runs,
         "success_rate": (valid_runs / total_runs * 100) if total_runs > 0 else 0,
         "stats_by_percentage": stats_by_percentage,
+        "avg_row_diff_all": avg_row_diff_all,
+        "avg_row_diff_excluding_correct": avg_row_diff_excluding_correct,
+        "correct_row_count": correct_row_count,
+        "incorrect_row_count": len(non_zero_diffs),
     }
 
 
