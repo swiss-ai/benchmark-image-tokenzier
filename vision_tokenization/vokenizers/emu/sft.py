@@ -22,7 +22,8 @@ def _replace_images(
 ) -> torch.Tensor:
     """
     Replace multiple <|image|> placeholders with vision tokens in order.
-    Optimized using torch.cat for better memory efficiency.
+    Optimized using torch.cat for better memory efficiency. Can potentially support multiple images per sample.
+    Works on one sample only, not a list of samples.
 
     Args:
         text_tokens: Original tokens with <|image|> placeholders
@@ -301,7 +302,7 @@ class EMUSftTokenizer(EMUImageOnlyTokenizer):
 
             # Replace <|image|> placeholder with actual vision tokens
             # For single image case, use the first (and only) position
-            final_tokens = _replace_images(text_tokens, image_positions, image_tokens_no_special)
+            final_tokens = _replace_images(text_tokens, image_positions, [image_tokens_no_special])
 
             combined_batch.append(final_tokens)
 
