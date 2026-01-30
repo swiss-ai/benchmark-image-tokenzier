@@ -25,7 +25,7 @@
   "transform_params": {
             "remove_string": {
                 "strings": ["<image>"],
-                "text_key": "content"
+                "text_key": ["content", "value"]
             }
         },
   "conversation_transform": "llava_to_apertus",
