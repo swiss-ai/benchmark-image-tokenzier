@@ -203,48 +203,87 @@ class FineVisionToLLaMATransform(BaseConversationTransform):
 class LLaVaInstructToApertusTransform(BaseConversationTransform):
     """
     Transform LLaVa-Onevision-Instruct conversation format to Apertus chat template format.
-    The LLaVa Instruct data is quite simple in structure so we only include necessary transforms.
+    Handles all conversation formats found in the LLaVA-OneVision-1.5-Instruct-Data dataset.
     Llava-OneVision-Instruct: https://huggingface.co/datasets/mvp-lab/LLaVA-OneVision-1.5-Instruct-Data
     Apertus: https://huggingface.co/collections/swiss-ai/apertus-llm
 
-    Input format (LLaVa Onevision Instruct):
-        [
-            {"role": "user", "content": "question1"}, # here we add the image additionally
-            {"role": "assistant", "content": "answer1"},
-            ...
-        ]
+    Supported input formats:
+        Format A: [{"role": "user", "content": "..."},  {"role": "assistant", "content": "..."}]
+        Format B: [{"from": "human", "value": "..."},   {"from": "gpt", "value": "..."}]
+        Format C: [{"content": null, "from": "human", "role": null, "value": "..."}]  (null role/content, data in from/value)
+        Format D: [{"content": "...", "from": null, "role": "user", "value": null, ...}]  (extra null keys, data in role/content)
 
     Output format (Apertus):
         [
+            {"role": "system", "content": ""},
             {
                 "role": "user",
                 "content": {
                     "parts": [
-                        {
-                            "type": "image"
-                        },
-                        {
-                            "type": "text",
-                            "text": "question1"
-                        }
+                        {"type": "image"},
+                        {"type": "text", "text": "question1"}
                     ]
                 }
             },
             {"role": "assistant", "content": "answer1"},
         ]
 
-    The first user message we include message part, so the chat template adds the image placeholder we later replace with
-    actual vision tokens during tokenization.
-    Also Configure for empty system prompt! (Otherwise cutoff date and so on included.)
+    The first user message includes an image part so the chat template adds the image placeholder
+    we later replace with actual vision tokens during tokenization.
+    Also configures an empty system prompt (otherwise cutoff date and so on included).
     Deliberation and Tool Capabilities are set false by default.
     """
 
     name = "llava_to_apertus"
 
-    def transform(self, text: List[Dict[str, str]]) -> List[Dict[str, Any]]:
+    # Mapping from "from" field values to standard role names
+    _ROLE_MAP = {"human": "user", "gpt": "assistant", "system": "system"}
+
+    def _normalize_message(self, msg: Dict[str, Any], index: int) -> tuple:
         """
-        Expect a list of dicts.
-        Here we set the 1st msg to always contain the input image.
+        Extract (role, content) from any LLaVA OneVision conversation format.
+
+        Priority: role/content (if both non-None) > from/value (if both non-None).
+
+        Args:
+            msg: Message dict in any supported format
+            index: Message index (for error reporting)
+
+        Returns:
+            Tuple of (role, content) as strings
+
+        Raises:
+            ValueError: If neither key pair yields valid data
+        """
+        role = msg.get("role")
+        content = msg.get("content")
+        from_field = msg.get("from")
+        value = msg.get("value")
+
+        # Prefer role/content when both are non-None (Format A, D)
+        if role is not None and content is not None:
+            return str(role), str(content)
+
+        # Fall back to from/value (Format B, C)
+        if from_field is not None and value is not None:
+            mapped_role = self._ROLE_MAP.get(from_field)
+            if mapped_role is None:
+                raise ValueError(
+                    f"Message at index {index}: unknown 'from' value '{from_field}'. "
+                    f"Expected one of: {list(self._ROLE_MAP.keys())}"
+                )
+            return mapped_role, str(value)
+
+        raise ValueError(
+            f"Message at index {index}: cannot extract role/content. "
+            f"Expected non-null 'role'+'content' or 'from'+'value', "
+            f"got: role={role}, content={content}, from={from_field}, value={value}"
+        )
+
+    def transform(self, text: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Transform conversation from any LLaVA OneVision format to Apertus chat template format.
+        The first user message always gets the image placeholder.
         """
         if not isinstance(text, list):
             raise ValueError(f"Expected list of conversation dicts, got {type(text)}")
@@ -254,30 +293,34 @@ class LLaVaInstructToApertusTransform(BaseConversationTransform):
 
         messages = []
 
-        # Add empty system prompt
-        messages.append({"role": "system", "content": ""})
-
+        # Normalize all messages first
+        normalized = []
         for i, conv in enumerate(text):
             if not isinstance(conv, dict):
                 raise ValueError(f"Expected dict at index {i}, got {type(conv)}")
+            role, content = self._normalize_message(conv, i)
+            normalized.append((role, content))
 
-            if "role" not in conv or "content" not in conv:
-                raise ValueError(
-                    f"Conversation dict at index {i} must contain 'role' and 'content' keys, "
-                    f"got keys: {list(conv.keys())}"
-                )
+        # Handle system message: use from data if present, otherwise add empty one
+        start_idx = 0
+        if normalized[0][0] == "system":
+            messages.append({"role": "system", "content": normalized[0][1]})
+            start_idx = 1
+        else:
+            messages.append({"role": "system", "content": ""})
 
-            # First message gets the image placeholder and question for user
-            if i == 0:
-                assert conv["role"] == "user"
+        # Process remaining messages; first user message gets the image placeholder
+        first_user_seen = False
+        for role, content in normalized[start_idx:]:
+            if role == "user" and not first_user_seen:
                 messages.append(
                     {
                         "role": "user",
-                        "content": {"parts": [{"type": "image"}, {"type": "text", "text": conv["content"]}]},
+                        "content": {"parts": [{"type": "image"}, {"type": "text", "text": content}]},
                     }
                 )
+                first_user_seen = True
             else:
-                # Normal messages
-                messages.append({"role": conv["role"], "content": conv["content"]})
+                messages.append({"role": role, "content": content})
 
         return messages

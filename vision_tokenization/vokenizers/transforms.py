@@ -367,16 +367,26 @@ class RemoveStringTransform(TextTransform):
                 "text_key": "msg.content"
             }
         }
+
+        # Multiple text keys (tries each, skips if key is missing or value is null)
+        "transform_params": {
+            "remove_string": {
+                "strings": ["<unwanted>"],
+                "text_key": ["content", "value"]
+            }
+        }
     """
 
     name = "remove_string"
 
-    def __init__(self, strings: Union[str, List[str]], text_key: Optional[str] = None):
+    def __init__(self, strings: Union[str, List[str]], text_key: Optional[Union[str, List[str]]] = None):
         """
         Args:
             strings: String or list of strings to remove from text
-            text_key: Key path for extracting text from objects (supports dot notation, e.g., "msg.content")
-                     Only used when __call__ receives a list of objects
+            text_key: Key path(s) for extracting text from objects (supports dot notation, e.g., "msg.content").
+                     Can be a single key or a list of keys. When multiple keys are provided, each is tried
+                     in order; missing keys or null values are skipped without error.
+                     Only used when __call__ receives a list of objects.
         """
         if isinstance(strings, str):
             self.strings = [strings]
@@ -386,7 +396,15 @@ class RemoveStringTransform(TextTransform):
         if not self.strings or not any(s for s in self.strings):
             raise ValueError("remove_string transform requires at least one non-empty string")
 
-        self.text_key = text_key
+        # Normalize text_key to a list
+        if text_key is None:
+            self.text_keys = []
+        elif isinstance(text_key, str):
+            self.text_keys = [text_key]
+        elif isinstance(text_key, list):
+            self.text_keys = list(text_key)
+        else:
+            raise ValueError(f"text_key must be a string, list of strings, or None, got {type(text_key)}")
 
     def _remove_strings(self, text: str) -> str:
         """Apply string removal to a single text string."""
@@ -421,7 +439,7 @@ class RemoveStringTransform(TextTransform):
 
             # List of objects
             if isinstance(text[0], dict):
-                if not self.text_key:
+                if not self.text_keys:
                     raise ValueError("text_key must be configured to process list of objects")
 
                 result = []
@@ -430,7 +448,12 @@ class RemoveStringTransform(TextTransform):
                         raise ValueError(f"Expected dict, got {type(obj)}")
                     # Create a deep copy to avoid mutating input (handles nested dicts)
                     obj_copy = copy.deepcopy(obj)
-                    _transform_nested_value(obj_copy, self.text_key, self._remove_strings)
+                    for key in self.text_keys:
+                        try:
+                            _transform_nested_value(obj_copy, key, self._remove_strings)
+                        except (KeyError, TypeError, AttributeError):
+                            # Key not present, intermediate path invalid, or value is None — skip
+                            continue
                     result.append(obj_copy)
                 return result
 
