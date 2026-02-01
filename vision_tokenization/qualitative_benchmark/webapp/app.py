@@ -120,6 +120,47 @@ def calculate_completion_summary(results):
     avg_row_diff_excluding_correct = sum(non_zero_diffs) / len(non_zero_diffs) if non_zero_diffs else 0
     correct_row_count = len(row_diffs) - len(non_zero_diffs)
 
+    # Aggregate perceptual metrics across valid runs with metrics
+    metric_keys = ["psnr_full", "ssim_full", "lpips_full", "psnr_generated", "ssim_generated", "lpips_generated"]
+    aggregated_metrics = {}
+    metric_values = {k: [] for k in metric_keys}
+
+    for r in runs:
+        pm = r.get("perceptual_metrics")
+        if pm:
+            for k in metric_keys:
+                v = pm.get(k)
+                if v is not None:
+                    metric_values[k].append(v)
+
+    for k in metric_keys:
+        if metric_values[k]:
+            aggregated_metrics[k] = sum(metric_values[k]) / len(metric_values[k])
+        else:
+            aggregated_metrics[k] = None
+    aggregated_metrics["num_samples"] = len(metric_values.get("psnr_full", []))
+
+    # Per-percentage perceptual metrics
+    metrics_by_percentage = {}
+    for pct in percentages:
+        pct_runs = [r for r in runs if r.get("completion_percentage") == pct]
+        pct_metric_values = {k: [] for k in metric_keys}
+        for r in pct_runs:
+            pm = r.get("perceptual_metrics")
+            if pm:
+                for k in metric_keys:
+                    v = pm.get(k)
+                    if v is not None:
+                        pct_metric_values[k].append(v)
+        pct_metrics = {}
+        for k in metric_keys:
+            if pct_metric_values[k]:
+                pct_metrics[k] = sum(pct_metric_values[k]) / len(pct_metric_values[k])
+            else:
+                pct_metrics[k] = None
+        pct_metrics["num_samples"] = len(pct_metric_values.get("psnr_full", []))
+        metrics_by_percentage[pct] = pct_metrics
+
     return {
         "total_runs": total_runs,
         "valid_runs": valid_runs,
@@ -130,6 +171,8 @@ def calculate_completion_summary(results):
         "avg_row_diff_excluding_correct": avg_row_diff_excluding_correct,
         "correct_row_count": correct_row_count,
         "incorrect_row_count": len(non_zero_diffs),
+        "aggregated_metrics": aggregated_metrics,
+        "metrics_by_percentage": metrics_by_percentage,
     }
 
 

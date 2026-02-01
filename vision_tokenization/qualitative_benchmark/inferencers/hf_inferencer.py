@@ -97,8 +97,8 @@ class HFInferencer:
         # Convert string prompt to token IDs if needed
         if isinstance(prompt, str):
             # Check if prompt already has special tokens (from chat template)
-            has_special_tokens = (
-                self.txt_tokenizer.bos_token is not None and prompt.startswith(self.txt_tokenizer.bos_token)
+            has_special_tokens = self.txt_tokenizer.bos_token is not None and prompt.startswith(
+                self.txt_tokenizer.bos_token
             )
 
             if has_special_tokens:

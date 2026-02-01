@@ -3,8 +3,8 @@
 
 import json
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 from typing import Any, Dict, Tuple
 
 import torch
@@ -16,6 +16,7 @@ from .base import SpatialTokenizer
 base_dir = Path(__file__).parent.parent.parent.parent
 sys.path.append(str(base_dir))
 sys.path.append(str(base_dir / "Tokenizer"))
+
 
 class EMU35IBQVisionTokenizer(SpatialTokenizer):
     """

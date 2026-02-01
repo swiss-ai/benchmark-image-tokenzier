@@ -93,8 +93,8 @@ class VLLMInferencer:
             if self.txt_tokenizer is not None:
                 # Check if prompt already has special tokens (from chat template)
                 # Chat templates include BOS token as text like "<|begin_of_text|>"
-                has_special_tokens = (
-                    self.txt_tokenizer.bos_token is not None and prompt.startswith(self.txt_tokenizer.bos_token)
+                has_special_tokens = self.txt_tokenizer.bos_token is not None and prompt.startswith(
+                    self.txt_tokenizer.bos_token
                 )
 
                 if has_special_tokens:
