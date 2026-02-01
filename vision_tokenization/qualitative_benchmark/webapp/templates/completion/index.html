@@ -61,6 +61,30 @@
             </div>
         </div>
 
+        <!-- Perceptual metrics summary -->
+        {% if experiment.summary.aggregated_metrics and experiment.summary.aggregated_metrics.num_samples > 0 %}
+        <div class="completion-summary-mini metrics-mini">
+            {% if experiment.summary.aggregated_metrics.psnr_generated is not none %}
+            <div class="summary-stat">
+                <span class="stat-value">{{ "%.1f"|format(experiment.summary.aggregated_metrics.psnr_generated) }}</span>
+                <span class="stat-label">PSNR (Gen)</span>
+            </div>
+            {% endif %}
+            {% if experiment.summary.aggregated_metrics.ssim_generated is not none %}
+            <div class="summary-stat">
+                <span class="stat-value">{{ "%.3f"|format(experiment.summary.aggregated_metrics.ssim_generated) }}</span>
+                <span class="stat-label">SSIM (Gen)</span>
+            </div>
+            {% endif %}
+            {% if experiment.summary.aggregated_metrics.lpips_generated is not none %}
+            <div class="summary-stat">
+                <span class="stat-value">{{ "%.3f"|format(experiment.summary.aggregated_metrics.lpips_generated) }}</span>
+                <span class="stat-label">LPIPS (Gen)</span>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
         <a href="/completion/{{ experiment.name }}" class="btn btn-primary">View Results</a>
     </div>
     {% endfor %}

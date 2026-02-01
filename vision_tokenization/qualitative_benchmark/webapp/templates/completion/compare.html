@@ -89,6 +89,34 @@
                         <span class="value">{{ "%.2f"|format(experiment_summaries[exp_name].avg_row_diff_excluding_correct) }}</span>
                     </div>
                 </div>
+                {% if experiment_summaries[exp_name].aggregated_metrics and experiment_summaries[exp_name].aggregated_metrics.num_samples > 0 %}
+                <div class="mini-summary-grid">
+                    {% if experiment_summaries[exp_name].aggregated_metrics.lpips_full is not none %}
+                    <div class="mini-summary-item">
+                        <span class="label">LPIPS (Full)</span>
+                        <span class="value">{{ "%.4f"|format(experiment_summaries[exp_name].aggregated_metrics.lpips_full) }}</span>
+                    </div>
+                    {% endif %}
+                    {% if experiment_summaries[exp_name].aggregated_metrics.ssim_full is not none %}
+                    <div class="mini-summary-item">
+                        <span class="label">SSIM (Full)</span>
+                        <span class="value">{{ "%.4f"|format(experiment_summaries[exp_name].aggregated_metrics.ssim_full) }}</span>
+                    </div>
+                    {% endif %}
+                    {% if experiment_summaries[exp_name].aggregated_metrics.lpips_generated is not none %}
+                    <div class="mini-summary-item">
+                        <span class="label">LPIPS (Gen)</span>
+                        <span class="value">{{ "%.4f"|format(experiment_summaries[exp_name].aggregated_metrics.lpips_generated) }}</span>
+                    </div>
+                    {% endif %}
+                    {% if experiment_summaries[exp_name].aggregated_metrics.ssim_generated is not none %}
+                    <div class="mini-summary-item">
+                        <span class="label">SSIM (Gen)</span>
+                        <span class="value">{{ "%.4f"|format(experiment_summaries[exp_name].aggregated_metrics.ssim_generated) }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endif %}
                 {% if exp_name in experiment_results %}
                 {% if experiment_results[exp_name].model_path %}
                 <p class="model-path"><strong>Model:</strong> <code>{{ experiment_results[exp_name].model_path }}</code></p>
@@ -147,6 +175,16 @@
                             <span>{{ run.generated_rows }}/{{ run.expected_rows }} rows</span>
                             <span>{{ run.statistics.generated_tokens }} tokens</span>
                         </div>
+                        {% if run.perceptual_metrics %}
+                        <div class="completion-mini-stats metrics-mini-stats">
+                            {% if run.perceptual_metrics.lpips_generated is defined and run.perceptual_metrics.lpips_generated is not none %}
+                            <span title="LPIPS (Generated region)">LPIPS: {{ "%.3f"|format(run.perceptual_metrics.lpips_generated) }}</span>
+                            {% endif %}
+                            {% if run.perceptual_metrics.ssim_generated is defined and run.perceptual_metrics.ssim_generated is not none %}
+                            <span title="SSIM (Generated region)">SSIM: {{ "%.3f"|format(run.perceptual_metrics.ssim_generated) }}</span>
+                            {% endif %}
+                        </div>
+                        {% endif %}
                     </div>
                     {% endfor %}
                 </div>

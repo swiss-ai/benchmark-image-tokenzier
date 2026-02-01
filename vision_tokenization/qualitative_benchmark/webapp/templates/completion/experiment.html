@@ -86,6 +86,86 @@
         </div>
     </div>
 
+    <!-- Perceptual Quality Metrics -->
+    {% if summary.aggregated_metrics and summary.aggregated_metrics.num_samples > 0 %}
+    <h3>Perceptual Quality Metrics (avg over {{ summary.aggregated_metrics.num_samples }} valid runs)</h3>
+    <div class="completion-summary-grid metrics-summary-grid">
+        {% if summary.aggregated_metrics.psnr_full is not none %}
+        <div class="summary-card metrics-card">
+            <span class="summary-value">{{ "%.2f"|format(summary.aggregated_metrics.psnr_full) }}</span>
+            <span class="summary-label">PSNR (Full)</span>
+        </div>
+        {% endif %}
+        {% if summary.aggregated_metrics.ssim_full is not none %}
+        <div class="summary-card metrics-card">
+            <span class="summary-value">{{ "%.4f"|format(summary.aggregated_metrics.ssim_full) }}</span>
+            <span class="summary-label">SSIM (Full)</span>
+        </div>
+        {% endif %}
+        {% if summary.aggregated_metrics.lpips_full is not none %}
+        <div class="summary-card metrics-card">
+            <span class="summary-value">{{ "%.4f"|format(summary.aggregated_metrics.lpips_full) }}</span>
+            <span class="summary-label">LPIPS (Full)</span>
+        </div>
+        {% endif %}
+        {% if summary.aggregated_metrics.psnr_generated is not none %}
+        <div class="summary-card metrics-card generated">
+            <span class="summary-value">{{ "%.2f"|format(summary.aggregated_metrics.psnr_generated) }}</span>
+            <span class="summary-label">PSNR (Generated)</span>
+        </div>
+        {% endif %}
+        {% if summary.aggregated_metrics.ssim_generated is not none %}
+        <div class="summary-card metrics-card generated">
+            <span class="summary-value">{{ "%.4f"|format(summary.aggregated_metrics.ssim_generated) }}</span>
+            <span class="summary-label">SSIM (Generated)</span>
+        </div>
+        {% endif %}
+        {% if summary.aggregated_metrics.lpips_generated is not none %}
+        <div class="summary-card metrics-card generated">
+            <span class="summary-value">{{ "%.4f"|format(summary.aggregated_metrics.lpips_generated) }}</span>
+            <span class="summary-label">LPIPS (Generated)</span>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Metrics by Completion Percentage -->
+    {% if summary.metrics_by_percentage %}
+    <h3>Perceptual Metrics by Completion Percentage</h3>
+    <div class="metrics-table-wrapper">
+        <table class="metrics-table">
+            <thead>
+                <tr>
+                    <th>%</th>
+                    <th>N</th>
+                    <th>PSNR (Full)</th>
+                    <th>SSIM (Full)</th>
+                    <th>LPIPS (Full)</th>
+                    <th>PSNR (Gen)</th>
+                    <th>SSIM (Gen)</th>
+                    <th>LPIPS (Gen)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for pct, m in summary.metrics_by_percentage.items() %}
+                {% if m.num_samples > 0 %}
+                <tr>
+                    <td><strong>{{ pct }}%</strong></td>
+                    <td>{{ m.num_samples }}</td>
+                    <td>{{ "%.2f"|format(m.psnr_full) if m.psnr_full is not none else "-" }}</td>
+                    <td>{{ "%.4f"|format(m.ssim_full) if m.ssim_full is not none else "-" }}</td>
+                    <td>{{ "%.4f"|format(m.lpips_full) if m.lpips_full is not none else "-" }}</td>
+                    <td>{{ "%.2f"|format(m.psnr_generated) if m.psnr_generated is not none else "-" }}</td>
+                    <td>{{ "%.4f"|format(m.ssim_generated) if m.ssim_generated is not none else "-" }}</td>
+                    <td>{{ "%.4f"|format(m.lpips_generated) if m.lpips_generated is not none else "-" }}</td>
+                </tr>
+                {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+    {% endif %}
+
     <!-- Breakdown by completion percentage -->
     <h3>Success Rate by Completion Percentage</h3>
     <div class="percentage-breakdown">
@@ -204,7 +284,7 @@
                 </div>
 
                 <!-- Details Sections -->
-                <div class="completion-details">
+                <div class="completion-details {% if run.perceptual_metrics %}has-metrics{% endif %}">
                     <!-- Validation Status -->
                     <div class="validation-section">
                         <h4>Validation Status</h4>
@@ -256,6 +336,59 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Perceptual Metrics -->
+                    {% if run.perceptual_metrics %}
+                    <div class="perceptual-metrics-section">
+                        <h4>Perceptual Metrics</h4>
+                        <div class="stats-grid">
+                            {% if run.perceptual_metrics.psnr_full is defined and run.perceptual_metrics.psnr_full is not none %}
+                            <div class="stat-item">
+                                <span class="stat-label">PSNR (Full)</span>
+                                <span class="stat-value">{{ "%.2f"|format(run.perceptual_metrics.psnr_full) }}</span>
+                            </div>
+                            {% endif %}
+                            {% if run.perceptual_metrics.ssim_full is defined and run.perceptual_metrics.ssim_full is not none %}
+                            <div class="stat-item">
+                                <span class="stat-label">SSIM (Full)</span>
+                                <span class="stat-value">{{ "%.4f"|format(run.perceptual_metrics.ssim_full) }}</span>
+                            </div>
+                            {% endif %}
+                            {% if run.perceptual_metrics.lpips_full is defined and run.perceptual_metrics.lpips_full is not none %}
+                            <div class="stat-item">
+                                <span class="stat-label">LPIPS (Full)</span>
+                                <span class="stat-value">{{ "%.4f"|format(run.perceptual_metrics.lpips_full) }}</span>
+                            </div>
+                            {% endif %}
+                            {% if run.perceptual_metrics.psnr_generated is defined and run.perceptual_metrics.psnr_generated is not none %}
+                            <div class="stat-item metric-generated">
+                                <span class="stat-label">PSNR (Gen)</span>
+                                <span class="stat-value">{{ "%.2f"|format(run.perceptual_metrics.psnr_generated) }}</span>
+                            </div>
+                            {% endif %}
+                            {% if run.perceptual_metrics.ssim_generated is defined and run.perceptual_metrics.ssim_generated is not none %}
+                            <div class="stat-item metric-generated">
+                                <span class="stat-label">SSIM (Gen)</span>
+                                <span class="stat-value">{{ "%.4f"|format(run.perceptual_metrics.ssim_generated) }}</span>
+                            </div>
+                            {% endif %}
+                            {% if run.perceptual_metrics.lpips_generated is defined and run.perceptual_metrics.lpips_generated is not none %}
+                            <div class="stat-item metric-generated">
+                                <span class="stat-label">LPIPS (Gen)</span>
+                                <span class="stat-value">{{ "%.4f"|format(run.perceptual_metrics.lpips_generated) }}</span>
+                            </div>
+                            {% endif %}
+                            {% if run.perceptual_metrics.row_count_matched is defined %}
+                            <div class="stat-item">
+                                <span class="stat-label">Row Match</span>
+                                <span class="stat-value {% if run.perceptual_metrics.row_count_matched %}metric-good{% else %}metric-bad{% endif %}">
+                                    {% if run.perceptual_metrics.row_count_matched %}Yes{% else %}No{% endif %}
+                                </span>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
         </div>

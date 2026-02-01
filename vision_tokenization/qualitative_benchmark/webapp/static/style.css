@@ -1369,6 +1369,125 @@ footer p {
     color: #7f8c8d;
 }
 
+/* =============================================================================
+   Perceptual Metrics Styles
+   ============================================================================= */
+
+/* Metrics summary cards in experiment view */
+.metrics-summary-grid {
+    grid-template-columns: repeat(3, 1fr);
+}
+
+@media (max-width: 900px) {
+    .metrics-summary-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+.summary-card.metrics-card {
+    border-left-color: #8e44ad;
+}
+
+.summary-card.metrics-card.generated {
+    border-left-color: #e67e22;
+}
+
+/* Metrics table */
+.metrics-table-wrapper {
+    overflow-x: auto;
+    margin-top: 0.5rem;
+}
+
+.metrics-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.metrics-table th,
+.metrics-table td {
+    padding: 0.6rem 0.8rem;
+    text-align: center;
+    border-bottom: 1px solid #ecf0f1;
+}
+
+.metrics-table th {
+    background: #f8f9fa;
+    color: #2c3e50;
+    font-weight: 600;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.metrics-table td {
+    color: #555;
+}
+
+.metrics-table tbody tr:hover {
+    background: #f8f9fa;
+}
+
+/* Per-run perceptual metrics section */
+.perceptual-metrics-section {
+    background: white;
+    padding: 1rem;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+}
+
+.perceptual-metrics-section h4 {
+    color: #2c3e50;
+    margin-bottom: 1rem;
+    font-size: 1rem;
+    border-bottom: 2px solid #8e44ad;
+    padding-bottom: 0.5rem;
+}
+
+/* 3-column layout when metrics are present */
+.completion-details.has-metrics {
+    grid-template-columns: 1fr 1fr 1fr;
+}
+
+@media (max-width: 1200px) {
+    .completion-details.has-metrics {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+@media (max-width: 800px) {
+    .completion-details.has-metrics {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Metric value coloring */
+.stat-item.metric-generated {
+    border-left: 3px solid #e67e22;
+}
+
+.metric-good {
+    color: #27ae60 !important;
+}
+
+.metric-bad {
+    color: #e74c3c !important;
+}
+
+/* Metrics mini-stats in comparison view */
+.metrics-mini-stats {
+    margin-top: 0.25rem;
+    color: #8e44ad;
+    font-style: italic;
+}
+
+/* Metrics mini section in index cards */
+.completion-summary-mini.metrics-mini {
+    border-top: 1px solid #ecf0f1;
+    padding-top: 0.5rem;
+    grid-template-columns: repeat(3, 1fr);
+}
+
 /* Print Styles */
 @media print {
     /* Remove scrolling and height restrictions from output text */
