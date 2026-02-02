@@ -20,6 +20,7 @@ class InferenceArgs:
         min_emu_aspect_ratio,
         chat_transform: str = None,  # method out of registered ones in prompt_formatter to prepare input to chat template
         img_right: bool = False,  # Will image be after the prompt or before
+        prompt_builder: str = None,  # registered prompt builder name, bypasses apply_chat_template entirely
     ):
         self.apply_chat_template = apply_chat_template
         self.img_right = img_right
@@ -30,6 +31,7 @@ class InferenceArgs:
         self.chat_transform = chat_transform
         self.max_emu_aspect_ratio = max_emu_aspect_ratio
         self.min_emu_aspect_ratio = min_emu_aspect_ratio
+        self.prompt_builder = prompt_builder
 
 
 class VLM(object):
@@ -103,8 +105,17 @@ class VLM(object):
         Prepare final prompt for VLM inference.
 
         Uses PromptFormatter to create the chat input string.
+        Priority: prompt_builder > apply_chat_template > simple concatenation.
         """
-        if self.inf_args.apply_chat_template:
+        if self.inf_args.prompt_builder is not None:
+            # Custom prompt builder — bypasses apply_chat_template entirely
+            formatted_prompt = self.prompt_formatter.prepare_custom_prompt(
+                prompt,
+                image_token_string,
+                prompt_builder_name=self.inf_args.prompt_builder,
+                img_right=self.inf_args.img_right,
+            )
+        elif self.inf_args.apply_chat_template:
             # Apply chat template and replace <|image|> with actual image tokens
             formatted_prompt = self.prompt_formatter.prepare_chat_prompt(
                 prompt,

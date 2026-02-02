@@ -49,6 +49,21 @@ def to_llama_format(text: str, img_right: bool = False) -> List[dict]:
 CHAT_TRANFORMS = {"to_apertus": to_apertus_format, "to_llama": to_llama_format}
 
 
+########################################################################
+# Prompt builders: fully format prompts, bypassing apply_chat_template #
+########################################################################
+def emu3_prompt_builder(text_prompt: str, img_token_string: str, img_right: bool = False) -> str:
+    """Build Emu3-Chat prompt (mirrors Emu3Processor chat_template)."""
+    if img_right:
+        return f"You are a helpful assistant. USER: {text_prompt}{img_token_string} ASSISTANT:"
+    return f"You are a helpful assistant. USER: {img_token_string}{text_prompt} ASSISTANT:"
+
+
+PROMPT_BUILDERS = {
+    "emu3": emu3_prompt_builder,
+}
+
+
 class PromptFormatter:
     def __init__(self, tokenizer_path: str = None):
         if tokenizer_path is not None:
@@ -85,6 +100,11 @@ class PromptFormatter:
             chat_txt = re.sub(r"<\|image\|>", img_token_string, chat_txt)
 
         return chat_txt
+
+    def prepare_custom_prompt(self, conversation_text, img_token_string, prompt_builder_name, img_right=False):
+        """Build prompt using a registered prompt builder, bypassing apply_chat_template."""
+        builder_fn = PROMPT_BUILDERS[prompt_builder_name]
+        return builder_fn(conversation_text, img_token_string, img_right=img_right)
 
     def prepare_non_chat_prompt(self, txt_string: str, img_token_string: str = None, img_right: bool = False) -> str:
         """

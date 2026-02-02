@@ -4,12 +4,43 @@ EMU3 Image Reconstruction Helper
 Validates and reconstructs images from generated visual tokens
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from transformers import AutoImageProcessor, AutoModel
+
+
+class VisionTokenRange:
+    """Range-based vision token identification.
+
+    Vision tokens occupy a contiguous range in the vocabulary.  A token is a
+    vision token iff ``first_token_id <= token_id < first_token_id + codebook_size``,
+    and its visual index is ``token_id - first_token_id``.
+
+    This replaces the full ``{visual_index: token_id}`` mapping dict, avoiding
+    the need for a ``vision_token_mapping.json`` file.
+    """
+
+    def __init__(self, first_token_id: int, codebook_size: int):
+        self.first_token_id = first_token_id
+        self.codebook_size = codebook_size
+
+    def is_vision_token(self, token_id: int) -> bool:
+        return self.first_token_id <= token_id < self.first_token_id + self.codebook_size
+
+    def to_visual_index(self, token_id: int) -> int:
+        return token_id - self.first_token_id
+
+    def to_token_id(self, visual_index: int) -> int:
+        return visual_index + self.first_token_id
+
+    def __repr__(self) -> str:
+        return (
+            f"VisionTokenRange(first_token_id={self.first_token_id}, "
+            f"codebook_size={self.codebook_size})"
+        )
 
 
 def validate_token_structure(token_ids: List[int], special_token_ids: Dict[str, int]) -> Dict:
@@ -69,21 +100,27 @@ def validate_token_structure(token_ids: List[int], special_token_ids: Dict[str, 
 
 
 def extract_visual_tokens_by_row(
-    token_ids: List[int], vision_mapping: Dict[int, int], special_token_ids: Dict[str, int]
+    token_ids: List[int],
+    vision_mapping: Union[Dict[int, int], "VisionTokenRange"],
+    special_token_ids: Dict[str, int],
 ) -> Tuple[List[List[int]], Dict]:
     """
     Extract visual tokens organized by rows.
 
     Args:
         token_ids: List of token IDs from model
-        vision_mapping: Mapping from visual index to token ID
+        vision_mapping: Either a ``VisionTokenRange`` (preferred) or a legacy
+            ``{visual_index: token_id}`` dict.
         special_token_ids: Special token IDs
 
     Returns:
         (rows_of_visual_indices, statistics)
     """
-    # Create reverse mapping
-    reverse_mapping = {v: k for k, v in vision_mapping.items()}
+    use_range = isinstance(vision_mapping, VisionTokenRange)
+
+    if not use_range:
+        # Legacy dict path: create reverse mapping (token_id -> visual_index)
+        reverse_mapping = {v: k for k, v in vision_mapping.items()}
 
     eol_id = special_token_ids.get("img_end_of_row", -1)
     eof_id = special_token_ids.get("img_end_of_frame", -1)
@@ -101,10 +138,10 @@ def extract_visual_tokens_by_row(
             if current_row:
                 rows.append(current_row)
             break
-        elif token_id in reverse_mapping:
-            # It's a visual token
-            visual_idx = reverse_mapping[token_id]
-            current_row.append(visual_idx)
+        elif use_range and vision_mapping.is_vision_token(token_id):
+            current_row.append(vision_mapping.to_visual_index(token_id))
+        elif not use_range and token_id in reverse_mapping:
+            current_row.append(reverse_mapping[token_id])
 
     # Calculate statistics
     row_lengths = [len(row) for row in rows]

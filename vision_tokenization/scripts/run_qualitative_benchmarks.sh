@@ -32,6 +32,7 @@ INFERENCER_TYPE=""
 CAPTIONING=""
 CAPTION_INIT_PHRASE=""
 GREEDY=""
+PROMPT_BUILDER=""
 
 usage() {
     echo "Usage: $0 --experiment_name <name> [OPTIONS]"
@@ -44,6 +45,7 @@ usage() {
     echo "  --tokenizer_path <path>     Path to tokenizer (default: $DEFAULT_TOKENIZER_PATH)"
     echo "  --chat-format <format>      Chat format to use (e.g., llama, apertus)"
     echo "  --no_chat_template          Do not apply chat template to prompts"
+    echo "  --prompt-builder <name>     Custom prompt builder bypassing chat template (e.g., emu3)"
     echo ""
     echo "Vision tokenizer options:"
     echo "  --vision-tokenizer-type <type>  Vision tokenizer type: emu3, emu3.5, emu3.5-ibq (default: emu3)"
@@ -129,6 +131,10 @@ while [[ $# -gt 0 ]]; do
             CAPTION_INIT_PHRASE="$2"
             shift 2
             ;;
+        --prompt-builder)
+            PROMPT_BUILDER="$2"
+            shift 2
+            ;;
         --greedy)
             GREEDY="--greedy"
             shift
@@ -161,6 +167,7 @@ if [ -n "$IMAGE_COMPLETION" ]; then
     echo "  Inferencer type:        $([ -z "$INFERENCER_TYPE" ] && echo "vllm (default)" || echo "$INFERENCER_TYPE")"
     echo "  Vision tokenizer type:  $([ -z "$VISION_TOKENIZER_TYPE" ] && echo "emu3 (default)" || echo "$VISION_TOKENIZER_TYPE")"
     echo "  Vision tokenizer path:  $([ -z "$VISION_TOKENIZER_PATH" ] && echo "None" || echo "$VISION_TOKENIZER_PATH")"
+    echo "  Prompt builder:         $([ -z "$PROMPT_BUILDER" ] && echo "None" || echo "$PROMPT_BUILDER")"
     echo "  Completion percentages: $([ -z "$COMPLETION_PERCENTAGES" ] && echo "20,40,60,80 (default)" || echo "$COMPLETION_PERCENTAGES")"
     echo "  Strict row count:       $([ -z "$STRICT_ROW_COUNT" ] && echo "No" || echo "Yes")"
     echo "  Greedy decoding:        $([ -z "$GREEDY" ] && echo "No" || echo "Yes")"
@@ -173,6 +180,7 @@ elif [ -n "$CAPTIONING" ]; then
     echo "  Inferencer type:        $([ -z "$INFERENCER_TYPE" ] && echo "vllm (default)" || echo "$INFERENCER_TYPE")"
     echo "  Vision tokenizer type:  $([ -z "$VISION_TOKENIZER_TYPE" ] && echo "emu3 (default)" || echo "$VISION_TOKENIZER_TYPE")"
     echo "  Vision tokenizer path:  $([ -z "$VISION_TOKENIZER_PATH" ] && echo "None" || echo "$VISION_TOKENIZER_PATH")"
+    echo "  Prompt builder:         $([ -z "$PROMPT_BUILDER" ] && echo "None" || echo "$PROMPT_BUILDER")"
     echo "  Caption init phrase:    $([ -z "$CAPTION_INIT_PHRASE" ] && echo "None" || echo "$CAPTION_INIT_PHRASE")"
 else
     echo "Running VLM Q&A benchmark with:"
@@ -182,6 +190,7 @@ else
     echo "  Inferencer type:        $([ -z "$INFERENCER_TYPE" ] && echo "vllm (default)" || echo "$INFERENCER_TYPE")"
     echo "  Vision tokenizer type:  $([ -z "$VISION_TOKENIZER_TYPE" ] && echo "emu3 (default)" || echo "$VISION_TOKENIZER_TYPE")"
     echo "  Vision tokenizer path:  $([ -z "$VISION_TOKENIZER_PATH" ] && echo "None" || echo "$VISION_TOKENIZER_PATH")"
+    echo "  Prompt builder:         $([ -z "$PROMPT_BUILDER" ] && echo "None" || echo "$PROMPT_BUILDER")"
     echo "  Chat format:            $([ -z "$CHAT_FORMAT" ] && echo "None" || echo "$CHAT_FORMAT")"
     echo "  Apply chat template:    $([ -z "$APPLY_CHAT_TEMPLATE" ] && echo "Yes" || echo "No")"
 fi
@@ -195,6 +204,7 @@ python vlm_benchmark.py --tokenizer_path "$TOKENIZER_PATH" \
                         --model_path "$MODEL_PATH" \
                         --experiment_name "$EXPERIMENT_NAME" \
                         $([ -n "$CHAT_FORMAT" ] && echo "--chat-format $CHAT_FORMAT") \
+                        $([ -n "$PROMPT_BUILDER" ] && echo "--prompt-builder $PROMPT_BUILDER") \
                         $([ -n "$COMPLETION_PERCENTAGES" ] && echo "--completion-percentages $COMPLETION_PERCENTAGES") \
                         $([ -n "$VISION_TOKENIZER_TYPE" ] && echo "--vision-tokenizer-type $VISION_TOKENIZER_TYPE") \
                         $([ -n "$VISION_TOKENIZER_PATH" ] && echo "--vision-tokenizer-path $VISION_TOKENIZER_PATH") \

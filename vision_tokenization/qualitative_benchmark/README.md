@@ -1,18 +1,23 @@
 # VLM Qualitative Benchmark
 
-A comprehensive toolkit for running qualitative benchmarks on Vision-Language Models (VLMs) and exploring the results through an interactive web interface.
+A toolkit for running qualitative benchmarks on Vision-Language Models (VLMs) and exploring results through an interactive web interface.
 
 ## Overview
 
 This toolkit consists of two main components:
 
-1. **`vlm_benchmark.py`**: Script to run VLM inference on image-prompt pairs and store results
-2. **Webapp**: Flask-based web interface to browse, filter, and analyze benchmark results
+1. **`vlm_benchmark.py`**: Script to run VLM inference in three modes: VLM Q&A, image completion, and captioning
+2. **Webapp**: Flask-based web interface to browse, filter, and compare benchmark results
 
 ## Table of Contents
 
 - [Installation](#installation)
-- [VLM Benchmark Script](#vlm-benchmark-script)
+- [Choosing Models and Tokenizers](#choosing-models-and-tokenizers)
+- [Benchmark Modes](#benchmark-modes)
+  - [VLM Q&A](#vlm-qa-default)
+  - [Image Completion](#image-completion)
+  - [Captioning](#captioning)
+- [Command-Line Reference](#command-line-reference)
 - [Results Viewer Webapp](#results-viewer-webapp)
 - [Data Format](#data-format)
 - [Troubleshooting](#troubleshooting)
@@ -27,70 +32,291 @@ This toolkit consists of two main components:
 
 ### Setup
 
-1. Navigate to the qualitative benchmark directory:
 ```bash
 cd vision_tokenization/qualitative_benchmark
-```
 
-2. Install dependencies:
-```bash
-# For VLM benchmarking
-pip install torch torchvision pillow tqdm vllm
+# Core dependencies
+pip install torch torchvision pillow tqdm
 
-# For the webapp
+# Transformers: >=4.56 required for Apertus/EMU3.5 support, <5 to keep EMU3 compatible
+pip install "transformers>=4.56,<5.0.0"
+
+# Inference backend (install one or both)
+pip install vllm          # Fast inference (recommended)
+# HuggingFace backend uses transformers directly, no extra install needed
+
+# Perceptual metrics (needed for image completion benchmarks)
+pip install lpips scikit-image
+
+# Webapp
 pip install -r webapp/requirements.txt
 ```
 
 ---
 
-## VLM Benchmark Script
+## Choosing Models and Tokenizers
+
+Running a benchmark requires three components:
+
+1. **Model** (`--model_path`): The VLM (language model with vision tokens in its vocabulary)
+2. **Text tokenizer** (`--tokenizer_path`): Tokenizer matching the model's vocabulary, including vision special tokens
+3. **Vision tokenizer** (`--vision-tokenizer-type`): Encodes images into discrete tokens (EMU3 or EMU3.5)
+
+The text tokenizer must contain the vision special tokens (`<|img_start|>`, `<|visual token XXXXXX|>`, etc.) that match the vision tokenizer. Vision token mapping is auto-detected from the text tokenizer at startup -- no `vision_token_mapping.json` file is needed.
+Currently we calculate the vision token range by finding the id of first vision token `<|visual token 000000|>` and then adding the vision codebook size. 
+Special tokens for vision are cached separately.
+
+### EMU3 Baseline (BAAI/Emu3-Chat)
+
+Uses the original EMU3 vision tokenizer (MoVQGAN, 8x8 compression, 32K codebook). Works with vLLM.
+
+**Important:** BAAI/Emu3-Chat does not implement the HuggingFace `apply_chat_template` protocol. You **must** use `--prompt-builder emu3` so the prompt is formatted with the correct `You are a helpful assistant. USER: {image}{prompt} ASSISTANT:` pattern that Emu3 expects.
+
+```bash
+sbatch vision_tokenization/scripts/run_qualitative_benchmarks.sh \
+    --experiment_name qa_emu3_baseline \
+    --model_path BAAI/Emu3-Chat \
+    --tokenizer_path BAAI/Emu3-Chat \
+    --vision-tokenizer-type emu3 \
+    --prompt-builder emu3
+```
+
+Or with a locally-trained llama3+emu3 model (these typically have a proper chat template, so `--prompt-builder` is not needed):
+
+```bash
+sbatch vision_tokenization/scripts/run_qualitative_benchmarks.sh \
+    --experiment_name qa_llama3_emu3 \
+    --model_path /path/to/llama3-emu3-sft/HF \
+    --tokenizer_path /capstor/store/cscs/swissai/infra01/MLLM/llama3_emu3_tokenizer \
+    --vision-tokenizer-type emu3
+```
+
+### Apertus with EMU3.5-IBQ
+
+Uses the EMU3.5 IBQ vision tokenizer (16x compression with information bottleneck quantization). Requires `--inferencer-type hf` on older vLLM versions that don't support the Apertus architecture.
+
+```bash
+sbatch vision_tokenization/scripts/run_qualitative_benchmarks.sh \
+    --experiment_name qa_apertus_emu3_5 \
+    --model_path /path/to/apertus-8b-sft/HF \
+    --tokenizer_path /capstor/store/cscs/swissai/infra01/MLLM/apertus_emu3.5_tokenizer \
+    --vision-tokenizer-type emu3.5 \
+    --inferencer-type hf
+```
+
+### Choosing the Inference Backend
+
+| Backend | Flag | When to use |
+|---------|------|------------|
+| vLLM | `--inferencer-type vllm` (default) | Standard models, faster inference, supports tensor parallelism (`--tp-size`) |
+| HuggingFace | `--inferencer-type hf` | Models not yet in vLLM (e.g., Apertus on older vLLM), debugging |
+
+### Choosing the Vision Tokenizer
+
+| Type | Flag | Codebook | Compression | Notes |
+|------|------|----------|-------------|-------|
+| EMU3 | `--vision-tokenizer-type emu3` (default) | 32K | 8x8 | BAAI/Emu3-VisionTokenizer, no extra path needed |
+| EMU3.5-IBQ | `--vision-tokenizer-type emu3.5` | varies | 16x | Requires `--vision-tokenizer-path` or uses default CSCS path |
+
+---
+
+## Benchmark Modes
+
+### VLM Q&A (default)
+
+Runs VLM inference on image-prompt pairs matched by tags. Images and prompts are loaded from JSON config files and paired based on overlapping tags.
+
+**When to use:** Evaluating how well a model answers questions or describes images.
+
+```bash
+# Via launch script
+sbatch vision_tokenization/scripts/run_qualitative_benchmarks.sh \
+    --experiment_name qa_apertus_emu3_5 \
+    --model_path /path/to/apertus-8b-sft/HF \
+    --tokenizer_path /capstor/store/cscs/swissai/infra01/MLLM/apertus_emu3.5_tokenizer \
+    --vision-tokenizer-type emu3.5 \
+    --inferencer-type hf \
+    --chat-format to_apertus
+
+# Direct invocation
+python vlm_benchmark.py \
+    --tokenizer_path /path/to/tokenizer \
+    --model_path /path/to/model \
+    --experiment_name my_qa_experiment \
+    --image_list images.json \
+    --prompt_list prompts.json \
+    --chat-format to_apertus \
+    --temperature 0.3 \
+    --top_p 0.9
+```
+
+**Chat template handling:** By default the model's chat template is applied. Use `--chat-format` to select a format transform (`to_apertus`, `to_llama`) that restructures the prompt before template application. Use `--no_chat_template` to disable templating entirely and send raw `<image_tokens> + prompt` to the model. For models that don't implement HF's `apply_chat_template` (e.g., BAAI/Emu3-Chat), use `--prompt-builder` to apply a hardcoded prompt format instead — this takes highest priority and bypasses both `--chat-format` and `--no_chat_template`.
+
+### Image Completion
+
+Provides a percentage of an image's token rows as context and lets the model generate the remaining rows. Validates structural correctness (consistent row widths, proper end-of-row/frame/image tokens) and computes perceptual metrics (PSNR, SSIM, LPIPS) against a reference reconstruction.
+
+**When to use:** Evaluating a model's ability to continue/complete visual content from partial context.
+
+```bash
+# EMU3 model, complete from 30%, 60%, 80%, 90% of rows
+sbatch vision_tokenization/scripts/run_qualitative_benchmarks.sh \
+    --experiment_name completion_llama3_emu3 \
+    --model_path /path/to/llama3-emu3-sft/HF \
+    --tokenizer_path /capstor/store/cscs/swissai/infra01/MLLM/llama3_emu3_tokenizer \
+    --vision-tokenizer-type emu3 \
+    --image-completion \
+    --completion-percentages 30,60,80,90
+
+# Apertus EMU3.5, greedy decoding, strict row count validation
+sbatch vision_tokenization/scripts/run_qualitative_benchmarks.sh \
+    --experiment_name completion_apertus_emu3_5_greedy \
+    --model_path /path/to/apertus-8b-sft/HF \
+    --tokenizer_path /capstor/store/cscs/swissai/infra01/MLLM/apertus_emu3.5_tokenizer \
+    --vision-tokenizer-type emu3.5 \
+    --inferencer-type hf \
+    --image-completion \
+    --completion-percentages 30,60,80,90 \
+    --strict-row-count \
+    --greedy
+```
+
+**Key flags:**
+- `--completion-percentages` (required): Comma-separated percentages of rows to provide as context, e.g. `30,60,80,90`
+- `--strict-row-count`: Require the model to generate exactly the expected number of remaining rows for the completion to count as valid
+- `--greedy`: Use greedy decoding (temperature=0, top_p=1.0) for deterministic output
+
+**Output:** Results JSON + reconstructed images saved in `results/<experiment_name>/completion_images/` with a red boundary line marking where generation began.
+
+### Captioning
+
+Generates captions for each image. Chat template is disabled by default in this mode. An optional init phrase seeds the beginning of the caption.
+
+**When to use:** Evaluating image captioning quality, or generating captions for a set of benchmark images.
+
+```bash
+# Basic captioning
+sbatch vision_tokenization/scripts/run_qualitative_benchmarks.sh \
+    --experiment_name captioning_apertus_emu3_5 \
+    --model_path /path/to/apertus-8b-sft/HF \
+    --tokenizer_path /capstor/store/cscs/swissai/infra01/MLLM/apertus_emu3.5_tokenizer \
+    --vision-tokenizer-type emu3.5 \
+    --inferencer-type hf \
+    --captioning
+
+# With an init phrase to seed the caption
+sbatch vision_tokenization/scripts/run_qualitative_benchmarks.sh \
+    --experiment_name captioning_apertus_emu3_5_seeded \
+    --model_path /path/to/apertus-8b-sft/HF \
+    --tokenizer_path /capstor/store/cscs/swissai/infra01/MLLM/apertus_emu3.5_tokenizer \
+    --vision-tokenizer-type emu3.5 \
+    --inferencer-type hf \
+    --captioning \
+    --caption-init-phrase "The image shows"
+```
+
+**Note:** In captioning mode, `--prompt_list` is ignored and the chat template is disabled by default.
+
+---
+
+## Command-Line Reference
+
+### Core Arguments
+
+| Argument | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `--tokenizer_path` | Yes | - | Path to text tokenizer (must contain vision special tokens) |
+| `--model_path` | Yes | - | Path to VLM model |
+| `--experiment_name` | Yes | - | Name of experiment (used for output filename) |
+| `--results_folder` | No | `results/` | Directory for results |
+| `--image_list` | No | `images.json` | Path to image configuration JSON |
+| `--prompt_list` | No | `prompts.json` | Path to prompt configuration JSON (Q&A mode only) |
+| `--overwrite` | No | `False` | Overwrite existing results file |
+| `--debug` | No | `False` | Print token IDs and decoded text for first 3 samples |
+
+### Vision Tokenizer Arguments
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--vision-tokenizer-type` | `emu3` | `emu3` or `emu3.5` / `emu3.5-ibq` |
+| `--vision-tokenizer-path` | None | Path to vision tokenizer model weights (required for emu3.5 unless default CSCS path works) |
+| `--min-tokenizer-pixels` | 65536 (256x256) | Minimum pixel count for image preprocessing |
+| `--max-tokenizer-pixels` | 262144 (512x512) | Maximum pixel count for image preprocessing |
+
+### Inference Arguments
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--inferencer-type` | `vllm` | `vllm` (faster) or `hf` (more compatible) |
+| `--max-seq-len` | 8192 | Maximum sequence length for the model |
+| `--tp-size` | 1 | Tensor parallel size (vLLM only) |
+| `--no_chat_template` | `False` | Disable chat template application |
+| `--chat-format` | None | Chat format transform: `to_apertus`, `to_llama` |
+| `--prompt-builder` | None | Custom prompt builder bypassing `apply_chat_template` entirely: `emu3` (required for BAAI/Emu3-Chat) |
+| `--temperature` | 0.3 | Sampling temperature |
+| `--top_p` | 0.9 | Top-p sampling parameter |
+| `--max_new_tokens` | 300 | Maximum tokens to generate |
+| `--greedy` | `False` | Greedy decoding (sets temperature=0, top_p=1.0) |
+
+### Mode-Specific Arguments
+
+| Argument | Mode | Description |
+|----------|------|-------------|
+| `--image-completion` | - | Enable image completion mode |
+| `--completion-percentages` | Image completion | Comma-separated row percentages, e.g. `30,60,80,90` |
+| `--strict-row-count` | Image completion | Require exact row count match for validity |
+| `--captioning` | - | Enable captioning mode |
+| `--caption-init-phrase` | Captioning | Seed phrase for caption generation |
+
+---
+
+## Results Viewer Webapp
 
 ### Overview
 
-`vlm_benchmark.py` runs VLM inference on combinations of images and prompts based on tag matching, storing results in JSON format.
+A Flask web application for browsing, filtering, and comparing VLM benchmark results.
+
+### Features
+
+- Browse multiple experiments with metadata
+- View input images, prompts, and model outputs side-by-side
+- Compare multiple experiments side-by-side
+- Filter results by tags
+- REST API for programmatic access
 
 ### Usage
 
 ```bash
-python vlm_benchmark.py \
-    --tokenizer_path /path/to/tokenizer \
-    --model_path /path/to/model \
-    --experiment_name my_experiment \
-    --image_list images.json \
-    --prompt_list prompts.json \
-    --results_folder results/
+cd webapp
+pip install -r requirements.txt
+python app.py
 ```
 
-### Command-Line Arguments
-
-#### Main Arguments
-
-| Argument | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `--tokenizer_path` | Yes | - | Path to tokenizer supporting SFT and images |
-| `--model_path` | Yes | - | Path to HuggingFace model |
-| `--experiment_name` | Yes | - | Name of experiment (used for JSON filename) |
-| `--results_folder` | No | `results/` | Path to results folder |
-| `--image_list` | No | `images.json` | Path to image configuration JSON |
-| `--prompt_list` | No | `prompts.json` | Path to prompt configuration JSON |
-| `--overwrite` | No | `False` | Overwrite existing results file if it exists |
-
-#### Inference Arguments
+The webapp starts on `http://localhost:5000`.
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--no_chat_template` | `False` | Do not apply chat template to prompts (by default chat template is applied) |
-| `--temperature` | `0.3` | Sampling temperature for generation |
-| `--top_p` | `0.9` | Top-p (nucleus) sampling parameter |
-| `--max_new_tokens` | `300` | Maximum number of tokens to generate |
-| `--min_emu_aspect_ratio` | `65536` (256×256) | Minimum aspect ratio for EMU3 tokenizer |
-| `--max_emu_aspect_ratio` | `262144` (512×512) | Maximum aspect ratio for EMU3 tokenizer |
+| `--results_folder` | `results/` | Path to results directory |
+| `--assets_folder` | `assets/` | Path to image assets |
+| `--port` | `5000` | Port number |
+| `--host` | `0.0.0.0` | Host address |
+| `--debug` | `False` | Debug mode with auto-reload |
+
+### REST API
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/experiments` | List all experiments |
+| `GET /api/experiment/<name>` | Get results for a specific experiment |
+| `GET /assets/<filename>` | Serve image assets |
+
+---
+
+## Data Format
 
 ### Input Files
 
 #### `images.json`
-
-JSON file listing images with their paths and tags:
 
 ```json
 [
@@ -105,9 +331,7 @@ JSON file listing images with their paths and tags:
 ]
 ```
 
-#### `prompts.json`
-
-JSON file listing prompts with their text and tags:
+#### `prompts.json` (Q&A mode only)
 
 ```json
 [
@@ -124,203 +348,25 @@ JSON file listing prompts with their text and tags:
 ]
 ```
 
-**Tag Matching:**
-- If `require_all_tags: false` (default): At least one tag must overlap between image and prompt
-- If `require_all_tags: true`: All prompt tags must be present in the image tags
+**Tag matching:** If `require_all_tags` is false (default), at least one tag must overlap. If true, all prompt tags must be present in the image's tags.
 
 ### Output
 
-The script creates a JSON file `results/<experiment_name>.json` containing:
-- Timestamp
-- Model and tokenizer paths
-- All inference results with images, prompts, and outputs
-
-**Important:** The script will abort if a results file with the same experiment name already exists, unless you use the `--overwrite` flag.
-
-Example output structure:
-```
-results/
-├── experiment1.json
-├── experiment2.json
-└── baseline_eval.json
-```
-
-### Example Workflow
-
-1. Prepare your images in the `assets/` folder
-2. Create `images.json` and `prompts.json` configuration files
-3. Run the benchmark:
-
-```bash
-python vlm_benchmark.py \
-    --tokenizer_path /data/models/emu3-tokenizer \
-    --model_path /data/models/emu3-3B \
-    --experiment_name baseline_eval \
-    --image_list images.json \
-    --prompt_list prompts.json
-```
-
-4. Results will be saved to `results/baseline_eval.json`
-
-**To overwrite existing results:**
-```bash
-python vlm_benchmark.py \
-    --tokenizer_path /data/models/emu3-tokenizer \
-    --model_path /data/models/emu3-3B \
-    --experiment_name baseline_eval \
-    --overwrite
-```
-
-**With custom inference parameters:**
-```bash
-python vlm_benchmark.py \
-    --tokenizer_path /data/models/emu3-tokenizer \
-    --model_path /data/models/emu3-3B \
-    --experiment_name high_temp_eval \
-    --temperature 0.7 \
-    --top_p 0.95 \
-    --max_new_tokens 500 \
-    --no_chat_template
-```
-
----
-
-## Results Viewer Webapp
-
-### Overview
-
-A Flask web application that provides an interactive interface to browse, filter, and analyze VLM benchmark results.
-
-### Features
-
-- **Browse Multiple Experiments**: View and compare results from different benchmark runs
-- **Visual Result Display**: See input images, prompts, and model outputs side-by-side
-- **Model Information**: View which model and tokenizer were used for each experiment
-- **Tag-based Filtering**: Filter results by image tags or prompt tags
-- **Responsive Design**: Clean, modern interface that works on all screen sizes
-- **REST API**: JSON endpoints for programmatic access
-
-### Usage
-
-#### Quick Start
-
-```bash
-cd webapp
-python app.py
-```
-
-The webapp will start on `http://localhost:5000` by default.
-
-#### Command-Line Arguments
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--results_folder` | `results/` | Path to results folder containing experiment subdirectories |
-| `--assets_folder` | `assets/` | Path to assets folder containing images (auto-detected if not specified) |
-| `--port` | `5000` | Port to run the webapp on |
-| `--host` | `0.0.0.0` | Host to run the webapp on |
-| `--debug` | `False` | Run in debug mode (auto-reload, detailed errors) |
-
-#### Examples
-
-**Basic usage with defaults:**
-```bash
-cd webapp
-python app.py
-```
-
-**Custom results folder:**
-```bash
-python app.py --results_folder /path/to/my/results
-```
-
-**Run on different port:**
-```bash
-python app.py --port 8080
-```
-
-**Debug mode for development:**
-```bash
-python app.py --debug
-```
-
-**Full configuration:**
-```bash
-python app.py \
-    --results_folder /data/vlm_results \
-    --assets_folder /data/benchmark_images \
-    --port 8000 \
-    --host 127.0.0.1 \
-    --debug
-```
-
-### Using the Web Interface
-
-1. **Home Page**: View all available experiments with metadata
-2. **Experiment Page**: Click on an experiment to view its results
-3. **Model Configuration**: See which model and tokenizer were used
-4. **Filters**: Use dropdowns to filter by image or prompt tags
-5. **Results**: Each result card displays:
-   - Input image with tags
-   - Prompt text with tags
-   - Model output
-
-### REST API Endpoints
-
-The webapp provides JSON API endpoints:
-
-| Endpoint | Description |
-|----------|-------------|
-| `GET /api/experiments` | List all experiments |
-| `GET /api/experiment/<name>` | Get results for specific experiment |
-| `GET /assets/<filename>` | Serve image assets |
-
-**Example API Usage:**
-
-```bash
-# List all experiments
-curl http://localhost:5000/api/experiments
-
-# Get specific experiment results
-curl http://localhost:5000/api/experiment/baseline_eval
-
-# Get results with filtering (through browser)
-http://localhost:5000/experiment/baseline_eval?image_tag=chart&prompt_tag=statistics
-```
-
----
-
-## Data Format
-
-### Results JSON Structure
-
-Generated by `vlm_benchmark.py` and consumed by the webapp:
+Results are saved to `results/<experiment_name>.json`. Image completion mode also saves reconstructed images to `results/<experiment_name>/completion_images/`.
 
 ```json
 {
     "timestamp": "2025-10-15T18:21:33.916674",
     "model_path": "/path/to/model",
     "tokenizer_path": "/path/to/tokenizer",
-    "inference_args": {
-        "apply_chat_template": true,
-        "temperature": 0.3,
-        "top_p": 0.9,
-        "max_new_tokens": 300,
-        "min_emu_aspect_ratio": 65536,
-        "max_emu_aspect_ratio": 262144,
-        "stop_token_ids": [128009]
-    },
+    "vision_tokenizer": "EMU3.5-IBQ",
+    "inferencer": "HFInferencer",
+    "inference_args": { "..." },
     "total_runs": 10,
     "runs": [
         {
-            "image": {
-                "path": "assets/example.jpg",
-                "tags": ["general", "objects"]
-            },
-            "prompt": {
-                "text": "Describe what you see in the image",
-                "tags": ["general"]
-            },
+            "image": { "path": "assets/example.jpg", "tags": ["general"] },
+            "prompt": { "text": "Describe what you see", "tags": ["general"] },
             "output": "The image shows..."
         }
     ]
@@ -329,31 +375,31 @@ Generated by `vlm_benchmark.py` and consumed by the webapp:
 
 ### Directory Structure
 
-Expected layout for the qualitative benchmark:
-
 ```
 qualitative_benchmark/
-├── assets/                    # Images for benchmarking
-│   ├── image1.jpg
-│   ├── image2.png
-│   └── ...
-├── results/                   # Benchmark results (one JSON file per experiment)
-│   ├── experiment1.json
-│   ├── experiment2.json
-│   └── baseline_eval.json
-├── images.json               # Image configuration
-├── prompts.json              # Prompt configuration
-├── vlm_benchmark.py          # Benchmark script
-├── README.md                 # This file
-└── webapp/                   # Results viewer
+├── assets/                    # Benchmark images
+├── results/                   # Output (one JSON per experiment)
+├── images.json                # Image configuration
+├── prompts.json               # Prompt configuration (Q&A mode)
+├── vlm_benchmark.py           # Main benchmark script
+├── vlm.py                     # VLM orchestrator
+├── metrics.py                 # PSNR, SSIM, LPIPS computation
+├── emu3_reconstruct_helper.py # Token extraction and image reconstruction
+├── inferencers/               # Inference backends
+│   ├── base.py                # BaseInferencer ABC
+│   ├── vllm_inferencer.py     # vLLM backend
+│   └── hf_inferencer.py       # HuggingFace backend
+├── v_tokenizers/              # Vision tokenizer wrappers
+│   ├── base.py                # VLMVisionTokenizer ABC
+│   ├── emu3.py                # EMU3 wrapper
+│   └── emu3_5_ibq.py          # EMU3.5 IBQ wrapper
+├── utils/                     # Prompt formatting utilities
+├── README.md                  # This file
+└── webapp/                    # Results viewer
     ├── app.py
     ├── requirements.txt
     ├── static/
-    │   └── style.css
     └── templates/
-        ├── base.html
-        ├── index.html
-        └── experiment.html
 ```
 
 ---
@@ -363,90 +409,28 @@ qualitative_benchmark/
 ### VLM Benchmark Issues
 
 **CUDA out of memory:**
-- Reduce batch size in the inference configuration
-- Use smaller images or reduce resolution
-- Check GPU memory with `nvidia-smi`
+- Use `--max-tokenizer-pixels` to reduce image resolution
+- Use `--tp-size 2` (or more) with vLLM to shard across GPUs
+- Use `--max-seq-len` to limit context length
 
-**Import errors:**
-- Ensure all paths in `vlm_benchmark.py` are correct
-- Check that the EMU3 tokenizer and inferencer modules are available
-- Verify CUDA and PyTorch installation
+**Import errors / model loading failures:**
+- Check `transformers` version: `pip install "transformers>=4.56,<5.0.0"`
+- Apertus models need `>=4.56`; EMU3 VisionTokenizer breaks on `5.x`
 
 **No results generated:**
-- Check that image tags and prompt tags have at least one overlap
-- Verify image paths in `images.json` are correct
-- Ensure the model and tokenizer paths are valid
+- Check that image and prompt tags overlap (Q&A mode)
+- Verify image paths in `images.json` are correct relative to the working directory
+- Ensure model and tokenizer paths are valid
 
 **Results file already exists:**
-- Use `--overwrite` flag to overwrite existing results
-- Or choose a different experiment name
+- Use `--overwrite` or choose a different experiment name
 
 ### Webapp Issues
 
 **No experiments showing up:**
-- Verify the `--results_folder` path points to the correct directory
-- Check that the results folder contains JSON result files (not folders)
-- Ensure JSON files are valid and properly formatted
+- Check `--results_folder` points to the directory containing JSON result files
+- Ensure JSON files are valid
 
 **Images not loading:**
-- Verify the `--assets_folder` path is correct
-- Check that image paths in JSON results match actual file locations
-- Ensure images are in a web-compatible format (JPG, PNG, etc.)
-
-**Port already in use:**
-```bash
-# Use a different port
-python app.py --port 8080
-```
-
-**Permission denied:**
-```bash
-# Run on port > 1024 or use sudo (not recommended)
-python app.py --port 8080
-```
-
-### General Tips
-
-- **Check file paths**: All paths should be relative to the `qualitative_benchmark` directory
-- **Validate JSON**: Use a JSON validator to check configuration files
-- **Check logs**: The webapp prints useful diagnostic information on startup
-- **Browser cache**: Clear browser cache if changes don't appear
-
----
-
-## Development
-
-### Running in Debug Mode
-
-For development, use debug mode for auto-reload and detailed error messages:
-
-```bash
-cd webapp
-python app.py --debug
-```
-
-### Adding New Features
-
-**VLM Benchmark:**
-- Modify `VLMBenchmark` class to add new benchmark types
-- Extend tag matching logic in `_tags_match()` method
-- Add new inference arguments to `InferenceArgs` class
-
-**Webapp:**
-- Add new routes in `app.py`
-- Create new templates in `templates/`
-- Modify styling in `static/style.css`
-- Extend filtering logic for additional filter types
-
----
-
-## Support
-
-This toolkit is part of the SwissAI benchmark image tokenizer project. For issues or questions, please refer to the main project documentation.
-
-## Notes
-
-- Currently only supports EMU3-based vision-language models
-- Image tokenization uses EMU3 vision tokenizer with configurable resolution limits
-- Results are stored in JSON format for easy parsing and analysis
-- The webapp is designed for local/internal use; add authentication for production deployment
+- Check `--assets_folder` path
+- Ensure image paths in results match actual file locations

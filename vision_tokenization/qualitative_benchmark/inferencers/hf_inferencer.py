@@ -10,37 +10,30 @@ from typing import Dict, List, Union
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 
+from .base import BaseInferencer
+
 logger = logging.getLogger(__name__)
 
 
-class HFInferencer:
+class HFInferencer(BaseInferencer):
     """
     HuggingFace inference class with the same interface as VLLMInferencer.
     Provides compatibility with models not yet supported by vLLM (e.g., Apertus on older vLLM versions).
     """
 
-    def __init__(
-        self,
-        model_path: str,
-        tokenizer_path: str = None,
-        max_seq_len: int = 8192,
-        model_dtype: str = "auto",
-        device: str = "cuda",
-    ):
-        """
-        Initialize HuggingFace inferencer.
+    REQUIRED_ARGS = ["model_path"]
+    OPTIONAL_ARGS = {
+        "tokenizer_path": None,
+        "max_seq_len": 8192,
+        "model_dtype": "auto",
+        "device": "cuda",
+    }
 
-        Args:
-            model_path: Path to the HuggingFace model
-            tokenizer_path: Path to tokenizer (if different from model_path)
-            max_seq_len: Maximum sequence length
-            model_dtype: Model dtype ("auto", "float16", "bfloat16", "float32")
-            device: Device to run on ("cuda", "cuda:0", "cpu", etc.)
-        """
-        self.model_path = model_path
-        self.tokenizer_path = tokenizer_path if tokenizer_path is not None else model_path
-        self.max_seq_len = max_seq_len
-        self.device = device
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        if self.tokenizer_path is None:
+            self.tokenizer_path = self.model_path
 
         # Map dtype string to torch dtype
         dtype_map = {
@@ -49,23 +42,27 @@ class HFInferencer:
             "bfloat16": torch.bfloat16,
             "float32": torch.float32,
         }
-        torch_dtype = dtype_map.get(model_dtype, "auto")
+        torch_dtype = dtype_map.get(self.model_dtype, "auto")
 
         # Load tokenizer
         logger.info(f"Loading tokenizer from {self.tokenizer_path}")
-        self.txt_tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path, trust_remote_code=True)
+        self._txt_tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path, trust_remote_code=True)
 
         # Load model
-        logger.info(f"Loading model from {model_path}")
+        logger.info(f"Loading model from {self.model_path}")
         self.model = AutoModelForCausalLM.from_pretrained(
-            model_path,
+            self.model_path,
             trust_remote_code=True,
             torch_dtype=torch_dtype,
-            device_map=device,
+            device_map=self.device,
         )
         self.model.eval()
 
-        logger.info(f"HFInferencer initialized on {device}")
+        logger.info(f"HFInferencer initialized on {self.device}")
+
+    @property
+    def txt_tokenizer(self):
+        return self._txt_tokenizer
 
     def run_inference(
         self,
@@ -97,19 +94,19 @@ class HFInferencer:
         # Convert string prompt to token IDs if needed
         if isinstance(prompt, str):
             # Check if prompt already has special tokens (from chat template)
-            has_special_tokens = self.txt_tokenizer.bos_token is not None and prompt.startswith(
-                self.txt_tokenizer.bos_token
+            has_special_tokens = self._txt_tokenizer.bos_token is not None and prompt.startswith(
+                self._txt_tokenizer.bos_token
             )
 
             if has_special_tokens:
                 # Chat template already added special tokens, don't add again
-                input_ids = self.txt_tokenizer.encode(prompt, add_special_tokens=False)
+                input_ids = self._txt_tokenizer.encode(prompt, add_special_tokens=False)
             else:
                 # No chat template used, add BOS
-                input_ids = self.txt_tokenizer.encode(prompt, add_special_tokens=True)
+                input_ids = self._txt_tokenizer.encode(prompt, add_special_tokens=True)
 
             # Remove EOS token if present at the end (we want to generate, not stop)
-            if input_ids and input_ids[-1] == self.txt_tokenizer.eos_token_id:
+            if input_ids and input_ids[-1] == self._txt_tokenizer.eos_token_id:
                 input_ids = input_ids[:-1]
         else:
             input_ids = prompt
@@ -123,8 +120,8 @@ class HFInferencer:
             print(f"  Last 10 token IDs: {input_ids[-10:]}")
 
             # Decode first and last 10 tokens
-            first_10_text = self.txt_tokenizer.decode(input_ids[:10], skip_special_tokens=False)
-            last_10_text = self.txt_tokenizer.decode(input_ids[-10:], skip_special_tokens=False)
+            first_10_text = self._txt_tokenizer.decode(input_ids[:10], skip_special_tokens=False)
+            last_10_text = self._txt_tokenizer.decode(input_ids[-10:], skip_special_tokens=False)
             print(f"\n  First 10 tokens as text:\n    {repr(first_10_text)}")
             print(f"\n  Last 10 tokens as text:\n    {repr(last_10_text)}")
             print("=" * 80 + "\n")
@@ -140,8 +137,8 @@ class HFInferencer:
             temperature=sampling_tmp if sampling_tmp > 0 else None,
             top_p=sampling_topp if sampling_tmp > 0 else None,
             do_sample=sampling_tmp > 0,
-            eos_token_id=sampling_stop_token_ids if sampling_stop_token_ids else self.txt_tokenizer.eos_token_id,
-            pad_token_id=self.txt_tokenizer.pad_token_id or self.txt_tokenizer.eos_token_id,
+            eos_token_id=sampling_stop_token_ids if sampling_stop_token_ids else self._txt_tokenizer.eos_token_id,
+            pad_token_id=self._txt_tokenizer.pad_token_id or self._txt_tokenizer.eos_token_id,
         )
 
         # Generate
@@ -159,6 +156,6 @@ class HFInferencer:
         }
 
         if return_text:
-            return_dict["generated_text"] = self.txt_tokenizer.decode(gen_ids, skip_special_tokens=False)
+            return_dict["generated_text"] = self._txt_tokenizer.decode(gen_ids, skip_special_tokens=False)
 
         return return_dict

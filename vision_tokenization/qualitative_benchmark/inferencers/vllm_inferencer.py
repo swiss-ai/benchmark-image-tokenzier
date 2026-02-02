@@ -9,49 +9,55 @@ from transformers import AutoTokenizer
 from vllm import LLM, SamplingParams
 from vllm.inputs import TokensPrompt
 
+from .base import BaseInferencer
+
 logger = logging.getLogger(__name__)
 
 
-class VLLMInferencer:
+class VLLMInferencer(BaseInferencer):
     """
     Simple VLLM inference class. Can be initialized with or without tokenizer.
     If tokenizer not given, only inference from token ids is allowed.
     """
 
-    def __init__(
-        self,
-        model_path: str,
-        tokenizer_path: str = None,
-        tp_size: int = 1,
-        max_seq_len: int = 8192,
-        model_dtype: str = "auto",
-        model_quantization: str = None,
-        seed: int = None,
-    ):
-        self.model_path = model_path
-        self.tokenizer_path = tokenizer_path
+    REQUIRED_ARGS = ["model_path"]
+    OPTIONAL_ARGS = {
+        "tokenizer_path": None,
+        "tp_size": 1,
+        "max_seq_len": 8192,
+        "model_dtype": "auto",
+        "model_quantization": None,
+        "seed": None,
+    }
 
-        if tokenizer_path is not None:
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        if self.tokenizer_path is not None:
             logger.info(f"Loading tokenizer from {self.tokenizer_path}")
-            self.txt_tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+            self._txt_tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path)
         else:
             logger.warning(
                 "No tokenizer given, vllm will initialize from model tokenizer which might be unintended or fail!"
             )
-            self.txt_tokenizer = None
+            self._txt_tokenizer = None
 
-        logger.info(f"Loading model from {model_path}")
+        logger.info(f"Loading model from {self.model_path}")
         self.llm = LLM(
-            model=model_path,
+            model=self.model_path,
             trust_remote_code=True,
-            tokenizer=tokenizer_path,
-            tensor_parallel_size=tp_size,
-            max_model_len=max_seq_len,
-            skip_tokenizer_init=self.txt_tokenizer is not None,
-            dtype=model_dtype,
-            quantization=model_quantization,
-            seed=seed,
+            tokenizer=self.tokenizer_path,
+            tensor_parallel_size=self.tp_size,
+            max_model_len=self.max_seq_len,
+            skip_tokenizer_init=self._txt_tokenizer is not None,
+            dtype=self.model_dtype,
+            quantization=self.model_quantization,
+            seed=self.seed,
         )
+
+    @property
+    def txt_tokenizer(self):
+        return self._txt_tokenizer
 
     def run_inference(
         self,
@@ -90,22 +96,22 @@ class VLLMInferencer:
         )
 
         if isinstance(prompt, str):
-            if self.txt_tokenizer is not None:
+            if self._txt_tokenizer is not None:
                 # Check if prompt already has special tokens (from chat template)
                 # Chat templates include BOS token as text like "<|begin_of_text|>"
-                has_special_tokens = self.txt_tokenizer.bos_token is not None and prompt.startswith(
-                    self.txt_tokenizer.bos_token
+                has_special_tokens = self._txt_tokenizer.bos_token is not None and prompt.startswith(
+                    self._txt_tokenizer.bos_token
                 )
 
                 if has_special_tokens:
                     # Chat template already added special tokens, don't add again
-                    prompt = self.txt_tokenizer.encode(prompt, add_special_tokens=False)
+                    prompt = self._txt_tokenizer.encode(prompt, add_special_tokens=False)
                 else:
                     # No chat template used, add BOS but strip EOS since we're generating
-                    prompt = self.txt_tokenizer.encode(prompt, add_special_tokens=True)
+                    prompt = self._txt_tokenizer.encode(prompt, add_special_tokens=True)
                     # Remove EOS token if present at the end
                 # sanity check: remove eod token if exists as we want to generate
-                if prompt and prompt[-1] == self.txt_tokenizer.eos_token_id:
+                if prompt and prompt[-1] == self._txt_tokenizer.eos_token_id:
                     prompt = prompt[:-1]
             else:
                 logger.warning(
@@ -113,7 +119,7 @@ class VLLMInferencer:
                 )
 
         # Debug: Print prompt token IDs and text
-        if debug and isinstance(prompt, list) and self.txt_tokenizer is not None:
+        if debug and isinstance(prompt, list) and self._txt_tokenizer is not None:
             print("\n" + "=" * 80)
             print("[VLLM INFERENCER DEBUG] Prompt Token IDs:")
             print(f"  Total prompt length: {len(prompt)} tokens")
@@ -121,8 +127,8 @@ class VLLMInferencer:
             print(f"  Last 10 token IDs: {prompt[-10:]}")
 
             # Decode first and last 10 tokens
-            first_10_text = self.txt_tokenizer.decode(prompt[:10], skip_special_tokens=False)
-            last_10_text = self.txt_tokenizer.decode(prompt[-10:], skip_special_tokens=False)
+            first_10_text = self._txt_tokenizer.decode(prompt[:10], skip_special_tokens=False)
+            last_10_text = self._txt_tokenizer.decode(prompt[-10:], skip_special_tokens=False)
             print(f"\n  First 10 tokens as text:\n    {repr(first_10_text)}")
             print(f"\n  Last 10 tokens as text:\n    {repr(last_10_text)}")
             print("=" * 80 + "\n")
@@ -141,8 +147,8 @@ class VLLMInferencer:
         }
 
         if return_text:
-            if self.txt_tokenizer is not None:
-                return_dict["generated_text"] = self.txt_tokenizer.decode(gen_ids, skip_special_tokens=False)
+            if self._txt_tokenizer is not None:
+                return_dict["generated_text"] = self._txt_tokenizer.decode(gen_ids, skip_special_tokens=False)
             else:
                 return_dict["generated_text"] = output.outputs[0].text
 
