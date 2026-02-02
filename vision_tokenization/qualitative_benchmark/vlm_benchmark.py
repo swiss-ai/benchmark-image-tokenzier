@@ -13,8 +13,8 @@ from pathlib import Path
 
 import torch
 
-from vision_tokenization.qualitative_benchmark.utils.prompt_formatter import CHAT_TRANFORMS
-from vision_tokenization.qualitative_benchmark.inferencers.vllm_inferencer import VLLMInferencer
+from vision_tokenization.qualitative_benchmark.utils.prompt_formatter import CHAT_TRANFORMS, PROMPT_BUILDERS
+from vision_tokenization.qualitative_benchmark.inferencers import create_inferencer
 from vision_tokenization.qualitative_benchmark.vlm import VLM, InferenceArgs
 
 base_dir = Path(__file__).parent.parent.parent
@@ -97,6 +97,7 @@ class VLMBenchmark:
         # Serialize inference args to dict
         inference_args_dict = {
             "apply_chat_template": self.vlm.inf_args.apply_chat_template,
+            "prompt_builder": self.vlm.inf_args.prompt_builder,
             "temperature": self.vlm.inf_args.temperature,
             "top_p": self.vlm.inf_args.top_p,
             "max_new_tokens": self.vlm.inf_args.max_new_tokens,
@@ -203,6 +204,7 @@ class ImageCompletionBenchmark:
         # Serialize inference args
         inference_args_dict = {
             "apply_chat_template": self.vlm.inf_args.apply_chat_template,
+            "prompt_builder": self.vlm.inf_args.prompt_builder,
             "temperature": self.vlm.inf_args.temperature,
             "top_p": self.vlm.inf_args.top_p,
             "max_new_tokens": self.vlm.inf_args.max_new_tokens,
@@ -384,7 +386,7 @@ class ImageCompletionBenchmark:
         # Compute perceptual metrics before drawing the red line
         metrics_dict = {}
         try:
-            from vision_tokenization.qualitative_benchmark.metrics import compute_completion_metrics
+            from vision_tokenization.qualitative_benchmark.utils.metrics import compute_completion_metrics
 
             metrics_device = str(tokenizer.device) if hasattr(tokenizer, "device") else "cpu"
             metrics_dict = compute_completion_metrics(
@@ -471,6 +473,7 @@ class CaptioningBenchmark:
         # Serialize inference args
         inference_args_dict = {
             "apply_chat_template": self.vlm.inf_args.apply_chat_template,
+            "prompt_builder": self.vlm.inf_args.prompt_builder,
             "temperature": self.vlm.inf_args.temperature,
             "top_p": self.vlm.inf_args.top_p,
             "max_new_tokens": self.vlm.inf_args.max_new_tokens,
@@ -537,6 +540,13 @@ def parse_args():
         type=str,
         choices=list(CHAT_TRANFORMS.keys()),
         help="Chat format to use. Method to transform input into format hat works with a models chat template",
+    )
+    parser.add_argument(
+        "--prompt-builder",
+        type=str,
+        choices=list(PROMPT_BUILDERS.keys()),
+        default=None,
+        help="Custom prompt builder that bypasses apply_chat_template entirely (e.g., emu3 for BAAI/Emu3-Chat)",
     )
     parser.add_argument("--results_folder", type=str, default="results/", help="Path to save results")
     parser.add_argument(
@@ -625,6 +635,18 @@ def parse_args():
         help="Inference backend: 'vllm' (faster) or 'hf' (HuggingFace, more compatible) (default: vllm)",
     )
     inference_group.add_argument(
+        "--max-seq-len",
+        type=int,
+        default=8192,
+        help="Maximum sequence length for the model (default: 8192)",
+    )
+    inference_group.add_argument(
+        "--tp-size",
+        type=int,
+        default=1,
+        help="Tensor parallel size (vLLM only, ignored by HF backend) (default: 1)",
+    )
+    inference_group.add_argument(
         "--greedy",
         action="store_true",
         help="Use greedy decoding (sets temperature=0, top_p=1.0)",
@@ -657,6 +679,10 @@ def validate_args(args):
         current_mode = "captioning"
     else:
         current_mode = "vlm-qa"
+
+    # Warn if --prompt-builder is used together with --chat-format
+    if args.prompt_builder is not None and args.chat_format is not None:
+        print("WARNING: --prompt-builder overrides --chat-format; --chat-format will be ignored")
 
     # Check required arguments for each mode
     if current_mode == "image-completion":
@@ -732,27 +758,23 @@ def setup_vlm_inferencer(args):
     inferencer_type = getattr(args, "inferencer_type", "vllm")
     print(f"Creating inferencer: {inferencer_type}")
 
+    inferencer_kwargs = {
+        "model_path": args.model_path,
+        "tokenizer_path": args.tokenizer_path,
+        "max_seq_len": getattr(args, "max_seq_len", 8192),
+    }
     if inferencer_type == "vllm":
-        inferencer = VLLMInferencer(
-            model_path=args.model_path, tokenizer_path=args.tokenizer_path, tp_size=1, max_seq_len=8192
-        )
+        inferencer_kwargs["tp_size"] = getattr(args, "tp_size", 1)
     elif inferencer_type == "hf":
-        from vision_tokenization.qualitative_benchmark.inferencers.hf_inferencer import HFInferencer
+        inferencer_kwargs["device"] = "cuda:0"
 
-        inferencer = HFInferencer(
-            model_path=args.model_path,
-            tokenizer_path=args.tokenizer_path,
-            max_seq_len=8192,
-            device="cuda:0",
-        )
-    else:
-        raise ValueError(f"Unknown inferencer type: {inferencer_type}")
+    inferencer = create_inferencer(inferencer_type, **inferencer_kwargs)
 
     # Create inference args
     # For captioning mode, disable chat template by default (unless explicitly enabled)
     apply_chat = not args.no_chat_template
-    if args.captioning and not args.no_chat_template:
-        # Captioning mode defaults to no chat template
+    if args.captioning and not args.no_chat_template and args.prompt_builder is None:
+        # Captioning mode defaults to no chat template (unless prompt_builder handles it)
         apply_chat = False
         print("Note: Chat template disabled for captioning mode (use explicit prompts if needed)")
 
@@ -772,6 +794,7 @@ def setup_vlm_inferencer(args):
         max_emu_aspect_ratio=max_pixels,
         min_emu_aspect_ratio=min_pixels,
         chat_transform=args.chat_format or None,
+        prompt_builder=args.prompt_builder,
     )
 
     # Create VLM with pluggable components

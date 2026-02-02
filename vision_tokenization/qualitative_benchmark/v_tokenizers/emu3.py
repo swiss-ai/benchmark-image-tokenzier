@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """EMU3 vision tokenizer wrapper for VLM benchmarking."""
 
-import json
-import os
-from typing import Any, Dict, Tuple
+import logging
+from typing import Any, Dict, Tuple, Union
 
 import torch
 from PIL import Image
+from transformers import AutoTokenizer
 
 from .base import SpatialTokenizer
+
+logger = logging.getLogger(__name__)
 
 
 class EMU3VisionTokenizer(SpatialTokenizer):
@@ -43,7 +45,7 @@ class EMU3VisionTokenizer(SpatialTokenizer):
             max_pixels: Maximum pixel count for aspect ratio
             device: Device to load model on ('cuda' or 'cpu')
             model_path: Optional path to EMU3 model (uses default if None)
-            tokenizer_path: Path to text tokenizer (needed for vision token mapping)
+            tokenizer_path: Path to text tokenizer (needed for vision token range detection)
         """
         from Tokenizer.Emu3VisionTokenizer import Emu3VisionTokenizer as CoreEmu3Tokenizer
 
@@ -60,8 +62,15 @@ class EMU3VisionTokenizer(SpatialTokenizer):
             self.tokenizer.model = self.tokenizer.model.to(device)
             self.tokenizer.device = device
 
-        # Load vision token mapping
-        self._vision_mapping = self._load_vision_mapping()
+        # Set default special token strings (overridden by _cache_special_tokens if tokenizer_path is available)
+        self.boi_token = "<|img_start|>"
+        self.img_token = "<|img_token_start|>"
+        self.eol_token = "<|img_end_of_row|>"
+        self.eof_token = "<|img_end_of_frame|>"
+        self.eoi_token = "<|img_end|>"
+
+        # Detect vision token range and cache special tokens from text tokenizer
+        self._vision_token_range = self._detect_vision_token_range()
 
     @property
     def name(self) -> str:
@@ -110,15 +119,13 @@ class EMU3VisionTokenizer(SpatialTokenizer):
             height: Total image height in token rows
             width: Width in tokens per row
             num_rows: Number of rows to include in output
-            include_end_tokens: If True, add <|img_end_of_frame|><|img_end|> at the end
+            include_end_tokens: If True, add EOF + EOI at the end
 
         Returns:
             Formatted token string
         """
-        # Build EMU3 format
-        img_tokens_str = f"<|img_start|>{height}*{width}<|img_token_start|>"
+        img_tokens_str = f"{self.boi_token}{height}*{width}{self.img_token}"
 
-        # Add image tokens row by row
         for row in range(num_rows):
             row_start = row * width
             row_end = row_start + width
@@ -126,11 +133,10 @@ class EMU3VisionTokenizer(SpatialTokenizer):
 
             for token_idx in row_tokens:
                 img_tokens_str += f"<|visual token {token_idx:06d}|>"
-            img_tokens_str += "<|img_end_of_row|>"
+            img_tokens_str += self.eol_token
 
-        # Optionally add end tokens
         if include_end_tokens:
-            img_tokens_str += "<|img_end_of_frame|><|img_end|>"
+            img_tokens_str += f"{self.eof_token}{self.eoi_token}"
 
         return img_tokens_str
 
@@ -139,12 +145,6 @@ class EMU3VisionTokenizer(SpatialTokenizer):
     ) -> str:
         """
         Format vision tokens as string for chat template insertion.
-
-        Builds EMU3-specific token string with spatial structure:
-        <|img_start|>H*W<|img_token_start|>
-        <|visual token XXXXXX|>...<|img_end_of_row|>
-        ...
-        <|img_end_of_frame|><|img_end|>
 
         Args:
             indices: Discrete token indices [B, H, W] or [H, W]
@@ -165,16 +165,10 @@ class EMU3VisionTokenizer(SpatialTokenizer):
         else:
             raise ValueError(f"Unexpected indices shape: {indices.shape}")
 
-        # Use helper to format all rows with end tokens
         return self._format_image_tokens_rows(visual_indices, h, w, h, include_end_tokens=True)
 
     def get_resolution_params(self) -> Dict[str, Any]:
-        """
-        Get resolution parameters for this tokenizer.
-
-        Returns:
-            Dict with 'min_pixels' and 'max_pixels'
-        """
+        """Get resolution parameters for this tokenizer."""
         return {"min_pixels": self.min_pixels, "max_pixels": self.max_pixels}
 
     def create_partial_prompt(self, visual_indices: list, height: int, width: int, given_rows: int) -> str:
@@ -189,38 +183,49 @@ class EMU3VisionTokenizer(SpatialTokenizer):
 
         Returns:
             Formatted prompt string with partial image tokens
-
-        Note:
-            BOS token is automatically added by the inferencer during tokenization.
         """
-        # Use helper to format only the given rows, without end tokens
         return self._format_image_tokens_rows(visual_indices, height, width, given_rows, include_end_tokens=False)
 
-    def _load_vision_mapping(self) -> Dict[int, int]:
-        """Load vision token mapping (visual_index -> token_id) from tokenizer path."""
-        if not self.tokenizer_path:
-            print("Warning: No tokenizer_path provided, vision_mapping will be empty")
-            return {}
+    def _detect_vision_token_range(self):
+        """Detect vision token range from the text tokenizer.
 
-        mapping_path = os.path.join(self.tokenizer_path, "vision_token_mapping.json")
-        if os.path.exists(mapping_path):
-            with open(mapping_path, "r") as f:
-                data = json.load(f)
-                # Convert string keys to integers
-                return {int(k): v for k, v in data.get("vision_token_ids", {}).items()}
-        else:
-            print(f"Warning: Vision token mapping not found at {mapping_path}")
-            return {}
+        Returns a ``VisionTokenRange`` if a text tokenizer path is available,
+        otherwise ``None``.
+        """
+        from emu3_reconstruct_helper import VisionTokenRange
+
+        if not self.tokenizer_path:
+            logger.warning("No tokenizer_path provided, vision token range will not be available")
+            return None
+
+        txt_tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path, trust_remote_code=True)
+
+        # Cache special tokens using the base class helper
+        self._cache_special_tokens(txt_tokenizer)
+
+        first_id = txt_tokenizer.convert_tokens_to_ids("<|visual token 000000|>")
+        if first_id == txt_tokenizer.unk_token_id:
+            logger.warning(
+                "Text tokenizer does not contain EMU3 vision tokens "
+                "(<|visual token 000000|> mapped to unk). "
+                "Vision token range will not be available."
+            )
+            return None
+
+        codebook_size = self.tokenizer.codebook_size
+        logger.info(
+            f"Detected vision token range: first_id={first_id}, codebook_size={codebook_size}"
+        )
+        return VisionTokenRange(first_id, codebook_size)
 
     @property
-    def vision_mapping(self) -> Dict[int, int]:
+    def vision_mapping(self) -> Union["VisionTokenRange", Dict[int, int]]:
         """
-        Get the vision token mapping (visual_index -> token_id).
+        Get the vision token mapping.
 
-        For EMU3, this maps visual token indices (0-32767) to their
-        corresponding token IDs in the LLM vocabulary.
-
-        Returns:
-            Dictionary mapping visual indices to token IDs
+        Returns a ``VisionTokenRange`` for range-based lookups (preferred),
+        or an empty dict if detection failed.
         """
-        return self._vision_mapping
+        if self._vision_token_range is not None:
+            return self._vision_token_range
+        return {}

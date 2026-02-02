@@ -107,7 +107,29 @@ class SpatialTokenizer(VLMVisionTokenizer):
     Token format: [B, H, W] where H and W represent spatial dimensions.
     """
 
-    pass
+    def _cache_special_tokens(self, txt_tokenizer):
+        """Cache special token strings from text tokenizer with fallbacks.
+
+        Probes tokenizer attributes first (e.g. ``boi_token``), then falls
+        back to hardcoded EMU3 defaults.  This mirrors the approach used
+        by lmms-eval and makes the tokenizer work correctly even when
+        special token strings differ across model families.
+        """
+
+        def _get_attr(tok, attr, default):
+            try:
+                val = getattr(tok, attr)
+                if val is not None:
+                    return val
+            except AttributeError:
+                pass
+            return default
+
+        self.boi_token = _get_attr(txt_tokenizer, "boi_token", "<|img_start|>")
+        self.img_token = _get_attr(txt_tokenizer, "img_token", "<|img_token_start|>")
+        self.eol_token = _get_attr(txt_tokenizer, "eol_token", "<|img_end_of_row|>")
+        self.eof_token = _get_attr(txt_tokenizer, "eof_token", "<|img_end_of_frame|>")
+        self.eoi_token = _get_attr(txt_tokenizer, "eoi_token", "<|img_end|>")
 
 
 class FlattenedTokenizer(VLMVisionTokenizer):
