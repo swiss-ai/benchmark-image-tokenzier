@@ -8,9 +8,63 @@ Shared functions for adding vision tokens to text tokenizers.
 import json
 import os
 import sys
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 from transformers import AutoTokenizer
+
+
+# Modality registry: name -> (mapping_file, offset_key, vocab_size_key)
+MODALITY_REGISTRY = {
+    "vision": ("vision_token_mapping.json", "vision_token_offset", "visual_vocab_size"),
+    "audio": ("audio_token_mapping.json", "audio_token_offset", "audio_vocab_size"),
+}
+
+
+def _read_modality_info(output_path: str, name: str) -> Dict[str, Any] | None:
+    """Read modality info from its mapping file. Returns None if not found or incomplete."""
+    if name not in MODALITY_REGISTRY:
+        return None
+
+    mapping_file, offset_key, vocab_key = MODALITY_REGISTRY[name]
+    mapping_path = os.path.join(output_path, mapping_file)
+
+    if not os.path.exists(mapping_path):
+        return None
+
+    with open(mapping_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    if offset_key not in data:
+        return None
+
+    return {
+        "name": name,
+        "offset": data[offset_key],
+        "vocab_size": data.get(vocab_key),
+    }
+
+
+def _build_omnimodal_config(output_path: str, base_vocab_size: int) -> Dict[str, Any]:
+    """
+    Build omnimodal_config from all present modality mapping files.
+
+    Stores raw data only - omni_special_vocab_size computed at load time as:
+        first_modality_offset - omni_special_token_offset
+    """
+    modalities = [
+        info for name in MODALITY_REGISTRY
+        if (info := _read_modality_info(output_path, name)) is not None
+    ]
+
+    if not modalities:
+        return {}
+
+    modalities.sort(key=lambda m: m["offset"])
+
+    return {
+        "omni_special_token_offset": base_vocab_size,
+        "modalities": modalities,
+    }
 
 # Add Tokenizer directory to path for importing vision tokenizers
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
@@ -323,15 +377,13 @@ def create_base_tokenizer(
     # Add visual tokens
     print(f"\nGenerating {visual_vocab_size:,} visual tokens for {vision_tokenizer_name}...")
     visual_tokens = []
-    # Calculate padding based on vocab size
-    padding = len(str(visual_vocab_size - 1))
     for i in range(visual_vocab_size):
-        visual_tokens.append(f"<|visual token {i:0{padding}d}|>")
+        visual_tokens.append(f"<|visual token {i}|>")
 
     special_tokens_to_add.extend(visual_tokens)
     stats["visual_tokens_added"] = len(visual_tokens)
-    print(f"Token format: <|visual token {{:0{padding}d}}|>")
-    print(f"Range: <|visual token {0:0{padding}d}|> to <|visual token {visual_vocab_size-1:0{padding}d}|>")
+    print(f"Token format: <|visual token N|>")
+    print(f"Range: <|visual token 0|> to <|visual token {visual_vocab_size-1}|>")
 
     # Deduplicate and filter tokens
     unique_new_tokens = deduplicate_tokens(special_tokens_to_add, existing_vocab)
@@ -375,7 +427,7 @@ def create_base_tokenizer(
     print("\nCreating vision token mapping...")
     vision_mapping = {}
     for i in range(visual_vocab_size):
-        token = f"<|visual token {i:0{padding}d}|>"
+        token = f"<|visual token {i}|>"
         token_id = tokenizer.convert_tokens_to_ids(token)
         vision_mapping[i] = token_id
 
@@ -389,8 +441,9 @@ def create_base_tokenizer(
                 "vision_tokenizer_type": vision_tokenizer,
                 "vision_tokenizer_path": vision_tokenizer_path,
                 "vision_token_ids": vision_mapping,
+                "vision_token_offset": vision_mapping[0],
                 "visual_vocab_size": visual_vocab_size,
-                "vision_token_format": f"<|visual token {{:0{padding}d}}|>",
+                "vision_token_format": "<|visual token N|>",
                 "num_reserved_tokens": num_reserved_tokens,
                 "original_vocab_size": original_vocab_size,
                 "structure_tokens_added": stats["structure_tokens_added"],
@@ -401,6 +454,17 @@ def create_base_tokenizer(
             indent=2,
         )
     print(f"Saved vision token mapping to {mapping_path}")
+
+    # Now update tokenizer_config.json with omnimodal_config (after mapping files exist)
+    config_path = os.path.join(output_path, "tokenizer_config.json")
+    with open(config_path, "r") as f:
+        config = json.load(f)
+    omnimodal_config = _build_omnimodal_config(output_path, original_vocab_size)
+    if omnimodal_config:
+        config["omnimodal_config"] = omnimodal_config
+        with open(config_path, "w") as f:
+            json.dump(config, f, indent=2)
+        print(f"Updated omnimodal_config in tokenizer_config.json")
 
     # Verification - show some token IDs
     print("\n" + "=" * 60)
@@ -434,9 +498,11 @@ def create_base_tokenizer(
     print(f"\nVisual tokens (for {vision_tokenizer_name}):")
     sample_indices = [0, visual_vocab_size // 2, visual_vocab_size - 1]
     for idx in sample_indices:
-        token = f"<|visual token {idx:0{padding}d}|>"
+        token = f"<|visual token {idx}|>"
         token_id = tokenizer.convert_tokens_to_ids(token)
         print(f"  {token}: ID {token_id}")
+
+    print(f"\nVision token offset: {vision_mapping[0]}")
 
     print("\n" + "=" * 60)
 
