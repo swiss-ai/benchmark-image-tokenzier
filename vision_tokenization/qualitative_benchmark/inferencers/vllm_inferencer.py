@@ -35,7 +35,7 @@ class VLLMInferencer(BaseInferencer):
 
         if self.tokenizer_path is not None:
             logger.info(f"Loading tokenizer from {self.tokenizer_path}")
-            self._txt_tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path)
+            self._txt_tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path, trust_remote_code=True)
         else:
             logger.warning(
                 "No tokenizer given, vllm will initialize from model tokenizer which might be unintended or fail!"

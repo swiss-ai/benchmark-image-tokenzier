@@ -5,6 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --partition=normal
+#SBATCH --reservation=PA-2338-RL
 #SBATCH --ntasks-per-node=1
 #SBATCH --time=1:30:00
 #SBATCH --output=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/qualitative_bench%j.out
@@ -33,6 +34,7 @@ CAPTIONING=""
 CAPTION_INIT_PHRASE=""
 GREEDY=""
 PROMPT_BUILDER=""
+NO_KV_CACHE=""
 
 usage() {
     echo "Usage: $0 --experiment_name <name> [OPTIONS]"
@@ -54,6 +56,7 @@ usage() {
     echo "Inference backend options:"
     echo "  --inferencer-type <type>        Inference backend: vllm (faster) or hf (HuggingFace, more compatible - needed for apertus) (default: vllm)"
     echo "  --greedy                        Use greedy decoding (temperature=0, top_p=1.0)"
+    echo "  --no-kv-cache                   Disable KV caching (HF backend only, slower but fixes Emu3 compatibility)"
     echo ""
     echo "Image completion benchmark options:"
     echo "  --image-completion                      Run image completion benchmark instead of VLM Q&A"
@@ -139,6 +142,10 @@ while [[ $# -gt 0 ]]; do
             GREEDY="--greedy"
             shift
             ;;
+        --no-kv-cache)
+            NO_KV_CACHE="--no-kv-cache"
+            shift
+            ;;
         -h|--help)
             usage
             ;;
@@ -171,6 +178,7 @@ if [ -n "$IMAGE_COMPLETION" ]; then
     echo "  Completion percentages: $([ -z "$COMPLETION_PERCENTAGES" ] && echo "20,40,60,80 (default)" || echo "$COMPLETION_PERCENTAGES")"
     echo "  Strict row count:       $([ -z "$STRICT_ROW_COUNT" ] && echo "No" || echo "Yes")"
     echo "  Greedy decoding:        $([ -z "$GREEDY" ] && echo "No" || echo "Yes")"
+    echo "  No KV cache:            $([ -z "$NO_KV_CACHE" ] && echo "No" || echo "Yes")"
     echo "  Debug mode:             $([ -z "$DEBUG" ] && echo "No" || echo "Yes")"
 elif [ -n "$CAPTIONING" ]; then
     echo "Running CAPTIONING benchmark with:"
@@ -199,6 +207,7 @@ echo "==========================================================================
 # make sure compatible transformers is installed to support apertus
 # Note: transformers 5.0.0 breaks Emu3VisionTokenizer loading, so pin to <5.0.0
 pip install -U "transformers>=4.56,<5.0.0" #"vllm>=0.14.0" "numpy<2"
+pip install lpips scikit-image
 
 python vlm_benchmark.py --tokenizer_path "$TOKENIZER_PATH" \
                         --model_path "$MODEL_PATH" \
@@ -215,7 +224,8 @@ python vlm_benchmark.py --tokenizer_path "$TOKENIZER_PATH" \
                         $STRICT_ROW_COUNT \
                         $DEBUG \
                         $CAPTIONING \
-                        $GREEDY
+                        $GREEDY \
+                        $NO_KV_CACHE
 
 echo "=================================================================================="
 echo "Job completed at $(date)"

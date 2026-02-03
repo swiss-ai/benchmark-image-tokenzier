@@ -651,6 +651,12 @@ def parse_args():
         action="store_true",
         help="Use greedy decoding (sets temperature=0, top_p=1.0)",
     )
+    inference_group.add_argument(
+        "--no-kv-cache",
+        action="store_true",
+        help="Disable KV caching during generation (HF backend only). "
+        "Slower but fixes compatibility issues with some models (e.g., Emu3)",
+    )
     return parser.parse_args()
 
 
@@ -767,6 +773,7 @@ def setup_vlm_inferencer(args):
         inferencer_kwargs["tp_size"] = getattr(args, "tp_size", 1)
     elif inferencer_type == "hf":
         inferencer_kwargs["device"] = "cuda:0"
+        inferencer_kwargs["use_cache"] = not getattr(args, "no_kv_cache", False)
 
     inferencer = create_inferencer(inferencer_type, **inferencer_kwargs)
 
