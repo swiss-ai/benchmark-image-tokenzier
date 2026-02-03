@@ -3,15 +3,21 @@ Script to generate qualitative results for VLM inference based on single-turn im
 Prompts and images are loaded from json files. Results are stored in an experiment folder together with prompts and images.
 
 For now only supports EMU3 inferencer.
+
+This module serves as the CLI entry point for running benchmarks.
+Benchmark implementations are in the benchmarks/ module.
 """
 
 import argparse
+import json
 import os
-
 import sys
+from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, List, Tuple
 
 import torch
+from tqdm import tqdm
 
 from vision_tokenization.qualitative_benchmark.utils.prompt_formatter import CHAT_TRANFORMS, PROMPT_BUILDERS
 from vision_tokenization.qualitative_benchmark.inferencers import create_inferencer
@@ -21,18 +27,17 @@ base_dir = Path(__file__).parent.parent.parent
 sys.path.append(str(base_dir))
 sys.path.append(str(base_dir / "Tokenizer"))
 
-import json
-from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Tuple
-
-from tqdm import tqdm
-
 # Set environment variables to prevent OOM and process issues
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"  # Use only GPU 0 for the LLM
 
+# Import benchmark registry
+from vision_tokenization.qualitative_benchmark.benchmarks import get_benchmark
+
+
+# Legacy class definitions kept for backward compatibility
+# New code should use the registry-based benchmarks from benchmarks/ module
 
 class VLMBenchmark:
     """Scaffolding for running qualitative VLM benchmarks with images and prompts."""
@@ -848,7 +853,7 @@ if __name__ == "__main__":
 
     vlm = setup_vlm_inferencer(args)
 
-    # Check which benchmark mode to run
+    # Check which benchmark mode to run using registry
     if args.image_completion:
         # Parse percentages
         percentages = [int(p.strip()) for p in args.completion_percentages.split(",")]
@@ -857,11 +862,15 @@ if __name__ == "__main__":
         if args.debug:
             print("Debug mode enabled (will print tokens for first 3 samples)")
 
-        # Create and run image completion benchmark
-        benchmark = ImageCompletionBenchmark(
-            images_config_path=args.image_list, vlm=vlm, results_dir=str(results_dir), debug=args.debug
+        # Create and run image completion benchmark using registry
+        benchmark = get_benchmark(
+            "image_completion",
+            images_config_path=args.image_list,
+            vlm=vlm,
+            results_dir=str(results_dir),
+            debug=args.debug,
         )
-        results = benchmark.run_completion_benchmark(
+        results = benchmark.run(
             percentages=percentages,
             output_filename=f"{args.experiment_name}.json",
             strict_row_count=args.strict_row_count,
@@ -873,27 +882,29 @@ if __name__ == "__main__":
         if args.debug:
             print("Debug mode enabled (will print tokens for first 3 samples)")
 
-        # Create and run captioning benchmark
-        benchmark = CaptioningBenchmark(
+        # Create and run captioning benchmark using registry
+        benchmark = get_benchmark(
+            "captioning",
             images_config_path=args.image_list,
             vlm=vlm,
             results_dir=str(results_dir),
             init_phrase=args.caption_init_phrase,
             debug=args.debug,
         )
-        results = benchmark.run_captioning_benchmark(output_filename=f"{args.experiment_name}.json")
+        results = benchmark.run(output_filename=f"{args.experiment_name}.json")
     else:
-        # Run standard VLM Q&A benchmark
+        # Run standard VLM Q&A benchmark using registry
         if args.debug:
             print("Debug mode enabled (will print tokens for first 3 samples)")
 
-        benchmark = VLMBenchmark(
+        benchmark = get_benchmark(
+            "vlm",
             images_config_path=args.image_list,
             prompts_config_path=args.prompt_list,
             vlm=vlm,
             results_dir=str(results_dir),
             debug=args.debug,
         )
-        results = benchmark.run_benchmark(output_filename=f"{args.experiment_name}.json")
+        results = benchmark.run(output_filename=f"{args.experiment_name}.json")
 
     print("Done!")

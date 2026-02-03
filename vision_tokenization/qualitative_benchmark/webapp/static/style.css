@@ -1488,6 +1488,47 @@ footer p {
     grid-template-columns: repeat(3, 1fr);
 }
 
+/* =============================================================================
+   Captioning Metrics Styles
+   ============================================================================= */
+
+.caption-metrics {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid #ecf0f1;
+}
+
+.caption-metrics h4 {
+    color: #2c3e50;
+    margin-bottom: 0.5rem;
+    font-size: 0.9rem;
+}
+
+.metrics-inline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.metric-badge {
+    display: inline-flex;
+    align-items: center;
+    background: #f0e6f6;
+    padding: 0.35rem 0.75rem;
+    border-radius: 16px;
+    font-size: 0.85rem;
+}
+
+.metric-badge .metric-name {
+    color: #7f8c8d;
+    margin-right: 0.5rem;
+}
+
+.metric-badge .metric-value {
+    color: #8e44ad;
+    font-weight: 600;
+}
+
 /* Print Styles */
 @media print {
     /* Remove scrolling and height restrictions from output text */

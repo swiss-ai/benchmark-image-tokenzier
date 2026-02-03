@@ -104,6 +104,24 @@
                 <div class="result-output">
                     <h4>Generated Caption</h4>
                     <div class="output-text">{{ run.caption }}</div>
+
+                    <!-- Metrics (CLIP score, etc.) -->
+                    {% set run_metrics = run.metrics %}
+                    {% if run_metrics %}
+                    <div class="caption-metrics">
+                        <h4>Metrics</h4>
+                        <div class="metrics-inline">
+                            {% for key, value in run_metrics.items() %}
+                            {% if value is not none and value is number %}
+                            <span class="metric-badge">
+                                <span class="metric-name">{{ key.replace('_', ' ').title() }}:</span>
+                                <span class="metric-value">{{ "%.4f"|format(value) }}</span>
+                            </span>
+                            {% endif %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
         </div>
