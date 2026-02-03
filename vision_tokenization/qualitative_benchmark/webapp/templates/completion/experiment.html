@@ -284,7 +284,8 @@
                 </div>
 
                 <!-- Details Sections -->
-                <div class="completion-details {% if run.perceptual_metrics %}has-metrics{% endif %}">
+                {% set run_metrics = run.metrics or run.perceptual_metrics %}
+                <div class="completion-details {% if run_metrics %}has-metrics{% endif %}">
                     <!-- Validation Status -->
                     <div class="validation-section">
                         <h4>Validation Status</h4>
@@ -337,55 +338,30 @@
                         </div>
                     </div>
 
-                    <!-- Perceptual Metrics -->
-                    {% if run.perceptual_metrics %}
+                    <!-- Metrics (handles both old perceptual_metrics and new metrics format) -->
+                    {% if run_metrics %}
                     <div class="perceptual-metrics-section">
-                        <h4>Perceptual Metrics</h4>
+                        <h4>Metrics</h4>
                         <div class="stats-grid">
-                            {% if run.perceptual_metrics.psnr_full is defined and run.perceptual_metrics.psnr_full is not none %}
+                            {% for key, value in run_metrics.items() %}
+                            {% if value is not none and value is number %}
+                            <div class="stat-item {% if 'generated' in key %}metric-generated{% endif %}">
+                                <span class="stat-label">{{ key.replace('_', ' ').title() }}</span>
+                                {% if value is number and value < 1 and value > -1 and 'psnr' not in key %}
+                                <span class="stat-value">{{ "%.4f"|format(value) }}</span>
+                                {% else %}
+                                <span class="stat-value">{{ "%.2f"|format(value) }}</span>
+                                {% endif %}
+                            </div>
+                            {% elif value is sameas true or value is sameas false %}
                             <div class="stat-item">
-                                <span class="stat-label">PSNR (Full)</span>
-                                <span class="stat-value">{{ "%.2f"|format(run.perceptual_metrics.psnr_full) }}</span>
-                            </div>
-                            {% endif %}
-                            {% if run.perceptual_metrics.ssim_full is defined and run.perceptual_metrics.ssim_full is not none %}
-                            <div class="stat-item">
-                                <span class="stat-label">SSIM (Full)</span>
-                                <span class="stat-value">{{ "%.4f"|format(run.perceptual_metrics.ssim_full) }}</span>
-                            </div>
-                            {% endif %}
-                            {% if run.perceptual_metrics.lpips_full is defined and run.perceptual_metrics.lpips_full is not none %}
-                            <div class="stat-item">
-                                <span class="stat-label">LPIPS (Full)</span>
-                                <span class="stat-value">{{ "%.4f"|format(run.perceptual_metrics.lpips_full) }}</span>
-                            </div>
-                            {% endif %}
-                            {% if run.perceptual_metrics.psnr_generated is defined and run.perceptual_metrics.psnr_generated is not none %}
-                            <div class="stat-item metric-generated">
-                                <span class="stat-label">PSNR (Gen)</span>
-                                <span class="stat-value">{{ "%.2f"|format(run.perceptual_metrics.psnr_generated) }}</span>
-                            </div>
-                            {% endif %}
-                            {% if run.perceptual_metrics.ssim_generated is defined and run.perceptual_metrics.ssim_generated is not none %}
-                            <div class="stat-item metric-generated">
-                                <span class="stat-label">SSIM (Gen)</span>
-                                <span class="stat-value">{{ "%.4f"|format(run.perceptual_metrics.ssim_generated) }}</span>
-                            </div>
-                            {% endif %}
-                            {% if run.perceptual_metrics.lpips_generated is defined and run.perceptual_metrics.lpips_generated is not none %}
-                            <div class="stat-item metric-generated">
-                                <span class="stat-label">LPIPS (Gen)</span>
-                                <span class="stat-value">{{ "%.4f"|format(run.perceptual_metrics.lpips_generated) }}</span>
-                            </div>
-                            {% endif %}
-                            {% if run.perceptual_metrics.row_count_matched is defined %}
-                            <div class="stat-item">
-                                <span class="stat-label">Row Match</span>
-                                <span class="stat-value {% if run.perceptual_metrics.row_count_matched %}metric-good{% else %}metric-bad{% endif %}">
-                                    {% if run.perceptual_metrics.row_count_matched %}Yes{% else %}No{% endif %}
+                                <span class="stat-label">{{ key.replace('_', ' ').title() }}</span>
+                                <span class="stat-value {% if value %}metric-good{% else %}metric-bad{% endif %}">
+                                    {% if value %}Yes{% else %}No{% endif %}
                                 </span>
                             </div>
                             {% endif %}
+                            {% endfor %}
                         </div>
                     </div>
                     {% endif %}

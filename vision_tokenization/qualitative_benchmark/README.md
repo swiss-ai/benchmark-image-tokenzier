@@ -73,11 +73,11 @@ Uses the original EMU3 vision tokenizer (MoVQGAN, 8x8 compression, 32K codebook)
 **Important:** BAAI/Emu3-Chat does not implement the HuggingFace `apply_chat_template` protocol. You **must** use `--prompt-builder emu3` so the prompt is formatted with the correct `You are a helpful assistant. USER: {image}{prompt} ASSISTANT:` pattern that Emu3 expects.
 
 ```bash
-sbatch vision_tokenization/scripts/run_qualitative_benchmarks.sh \
-    --experiment_name qa_emu3_baseline \
-    --model_path BAAI/Emu3-Chat \
-    --tokenizer_path BAAI/Emu3-Chat \
-    --vision-tokenizer-type emu3 \
+sbatch vision_tokenization/scripts/run_qualitative_benchmarks.sh 
+    --experiment_name qa_emu3_baseline 
+    --model_path BAAI/Emu3-Chat 
+    --tokenizer_path BAAI/Emu3-Chat 
+    --vision-tokenizer-type emu3 
     --prompt-builder emu3
 ```
 
@@ -257,6 +257,7 @@ sbatch vision_tokenization/scripts/run_qualitative_benchmarks.sh \
 | `--top_p` | 0.9 | Top-p sampling parameter |
 | `--max_new_tokens` | 300 | Maximum tokens to generate |
 | `--greedy` | `False` | Greedy decoding (sets temperature=0, top_p=1.0) |
+| `--no-kv-cache` | `False` | Disable KV cache during inference (HF inferencer only) |
 
 ### Mode-Specific Arguments
 

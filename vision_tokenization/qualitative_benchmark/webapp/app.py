@@ -84,6 +84,23 @@ def get_all_tags(results):
     return {"image_tags": sorted(list(image_tags)), "prompt_tags": sorted(list(prompt_tags))}
 
 
+def _get_run_metrics(run):
+    """
+    Get metrics from a run, handling both old (perceptual_metrics) and new (metrics) format.
+
+    Args:
+        run: Run dictionary from results
+
+    Returns:
+        Dictionary of metrics, or None if no metrics present
+    """
+    # Try new format first, then fall back to old format
+    metrics = run.get("metrics")
+    if metrics:
+        return metrics
+    return run.get("perceptual_metrics")
+
+
 def calculate_completion_summary(results):
     """Calculate summary stats for completion benchmark: total/valid/invalid runs, success rate by percentage."""
     runs = results.get("runs", [])
@@ -120,45 +137,70 @@ def calculate_completion_summary(results):
     avg_row_diff_excluding_correct = sum(non_zero_diffs) / len(non_zero_diffs) if non_zero_diffs else 0
     correct_row_count = len(row_diffs) - len(non_zero_diffs)
 
-    # Aggregate perceptual metrics across valid runs with metrics
-    metric_keys = ["psnr_full", "ssim_full", "lpips_full", "psnr_generated", "ssim_generated", "lpips_generated"]
+    # Aggregate metrics across valid runs (handles both old and new format)
+    # Collect all numeric metric keys dynamically
+    all_metric_keys = set()
+    for r in runs:
+        m = _get_run_metrics(r)
+        if m:
+            for k, v in m.items():
+                if isinstance(v, (int, float)) and v is not None:
+                    all_metric_keys.add(k)
+
     aggregated_metrics = {}
-    metric_values = {k: [] for k in metric_keys}
+    metric_values = {k: [] for k in all_metric_keys}
 
     for r in runs:
-        pm = r.get("perceptual_metrics")
-        if pm:
-            for k in metric_keys:
-                v = pm.get(k)
-                if v is not None:
+        m = _get_run_metrics(r)
+        if m:
+            for k in all_metric_keys:
+                v = m.get(k)
+                if v is not None and isinstance(v, (int, float)):
                     metric_values[k].append(v)
 
-    for k in metric_keys:
+    for k in all_metric_keys:
         if metric_values[k]:
             aggregated_metrics[k] = sum(metric_values[k]) / len(metric_values[k])
         else:
             aggregated_metrics[k] = None
-    aggregated_metrics["num_samples"] = len(metric_values.get("psnr_full", []))
 
-    # Per-percentage perceptual metrics
+    # Count samples (use psnr_full as reference if available)
+    if "psnr_full" in metric_values and metric_values["psnr_full"]:
+        aggregated_metrics["num_samples"] = len(metric_values["psnr_full"])
+    elif metric_values:
+        # Use the first available metric
+        first_key = next(iter(metric_values.keys()))
+        aggregated_metrics["num_samples"] = len(metric_values[first_key])
+    else:
+        aggregated_metrics["num_samples"] = 0
+
+    # Per-percentage metrics
     metrics_by_percentage = {}
     for pct in percentages:
         pct_runs = [r for r in runs if r.get("completion_percentage") == pct]
-        pct_metric_values = {k: [] for k in metric_keys}
+        pct_metric_values = {k: [] for k in all_metric_keys}
         for r in pct_runs:
-            pm = r.get("perceptual_metrics")
-            if pm:
-                for k in metric_keys:
-                    v = pm.get(k)
-                    if v is not None:
+            m = _get_run_metrics(r)
+            if m:
+                for k in all_metric_keys:
+                    v = m.get(k)
+                    if v is not None and isinstance(v, (int, float)):
                         pct_metric_values[k].append(v)
         pct_metrics = {}
-        for k in metric_keys:
+        for k in all_metric_keys:
             if pct_metric_values[k]:
                 pct_metrics[k] = sum(pct_metric_values[k]) / len(pct_metric_values[k])
             else:
                 pct_metrics[k] = None
-        pct_metrics["num_samples"] = len(pct_metric_values.get("psnr_full", []))
+
+        if "psnr_full" in pct_metric_values and pct_metric_values["psnr_full"]:
+            pct_metrics["num_samples"] = len(pct_metric_values["psnr_full"])
+        elif pct_metric_values:
+            first_key = next(iter(pct_metric_values.keys()), None)
+            pct_metrics["num_samples"] = len(pct_metric_values[first_key]) if first_key else 0
+        else:
+            pct_metrics["num_samples"] = 0
+
         metrics_by_percentage[pct] = pct_metrics
 
     return {
