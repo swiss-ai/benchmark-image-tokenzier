@@ -68,7 +68,7 @@ class PromptFormatter:
     def __init__(self, tokenizer_path: str = None):
         if tokenizer_path is not None:
             logger.info(f"Loading tokenizer from {tokenizer_path}")
-            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
 
     def prepare_chat_prompt(
         self,

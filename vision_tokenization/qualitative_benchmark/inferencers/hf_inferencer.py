@@ -27,6 +27,7 @@ class HFInferencer(BaseInferencer):
         "max_seq_len": 8192,
         "model_dtype": "auto",
         "device": "cuda",
+        "use_cache": True,  # Set to False to disable KV caching (fixes compatibility with some models like Emu3)
     }
 
     def __init__(self, **kwargs):
@@ -59,6 +60,8 @@ class HFInferencer(BaseInferencer):
         self.model.eval()
 
         logger.info(f"HFInferencer initialized on {self.device}")
+        if not self.use_cache:
+            logger.info("KV caching disabled (use_cache=False)")
 
     @property
     def txt_tokenizer(self):
@@ -139,6 +142,7 @@ class HFInferencer(BaseInferencer):
             do_sample=sampling_tmp > 0,
             eos_token_id=sampling_stop_token_ids if sampling_stop_token_ids else self._txt_tokenizer.eos_token_id,
             pad_token_id=self._txt_tokenizer.pad_token_id or self._txt_tokenizer.eos_token_id,
+            use_cache=self.use_cache,
         )
 
         # Generate
