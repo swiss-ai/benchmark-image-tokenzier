@@ -405,7 +405,7 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
         """
         # Images are required for image-only tokenizer
         # Ignore text parameter, only process images
-        batched_tokens = self.tokenize_batch(images, resize_size)  # [B, seq_len]
+        batched_tokens = self.tokenize_images(images, resize_size)  # [B, seq_len]
 
         # Convert batched tensor to list of individual sequences
         # This provides a uniform interface with image-text pair tokenizer
