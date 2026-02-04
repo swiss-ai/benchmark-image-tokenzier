@@ -101,6 +101,72 @@ def _get_run_metrics(run):
     return run.get("perceptual_metrics")
 
 
+def aggregate_metrics(runs):
+    """
+    Aggregate metrics across runs with min/max/avg/count statistics.
+
+    Args:
+        runs: List of run dictionaries
+
+    Returns:
+        Dictionary with structure:
+        {
+            "total_samples": int,
+            "metrics": {
+                "metric_name": {
+                    "min": float,
+                    "max": float,
+                    "avg": float,
+                    "count": int  # samples with this metric
+                },
+                ...
+            }
+        }
+    """
+    total_samples = len(runs)
+
+    # Collect all numeric metric values
+    metric_values = {}
+    for run in runs:
+        m = _get_run_metrics(run)
+        if m:
+            for key, value in m.items():
+                if value is not None and isinstance(value, (int, float)) and not isinstance(value, bool):
+                    if key not in metric_values:
+                        metric_values[key] = []
+                    metric_values[key].append(value)
+
+    # Compute statistics for each metric
+    metrics_summary = {}
+    for key, values in metric_values.items():
+        if values:
+            metrics_summary[key] = {
+                "min": min(values),
+                "max": max(values),
+                "avg": sum(values) / len(values),
+                "count": len(values),
+            }
+
+    return {
+        "total_samples": total_samples,
+        "metrics": metrics_summary,
+    }
+
+
+def calculate_captioning_summary(results):
+    """Calculate summary stats for captioning benchmark including aggregated metrics."""
+    runs = results.get("runs", [])
+    total_runs = len(runs)
+
+    # Aggregate metrics across all runs
+    metrics_agg = aggregate_metrics(runs)
+
+    return {
+        "total_runs": total_runs,
+        "aggregated_metrics": metrics_agg["metrics"],
+    }
+
+
 def calculate_completion_summary(results):
     """Calculate summary stats for completion benchmark: total/valid/invalid runs, success rate by percentage."""
     runs = results.get("runs", [])
@@ -137,71 +203,16 @@ def calculate_completion_summary(results):
     avg_row_diff_excluding_correct = sum(non_zero_diffs) / len(non_zero_diffs) if non_zero_diffs else 0
     correct_row_count = len(row_diffs) - len(non_zero_diffs)
 
-    # Aggregate metrics across valid runs (handles both old and new format)
-    # Collect all numeric metric keys dynamically
-    all_metric_keys = set()
-    for r in runs:
-        m = _get_run_metrics(r)
-        if m:
-            for k, v in m.items():
-                if isinstance(v, (int, float)) and v is not None:
-                    all_metric_keys.add(k)
+    # Aggregate metrics using the generic function (includes min/max/avg/count)
+    metrics_agg = aggregate_metrics(runs)
+    aggregated_metrics = metrics_agg["metrics"]
 
-    aggregated_metrics = {}
-    metric_values = {k: [] for k in all_metric_keys}
-
-    for r in runs:
-        m = _get_run_metrics(r)
-        if m:
-            for k in all_metric_keys:
-                v = m.get(k)
-                if v is not None and isinstance(v, (int, float)):
-                    metric_values[k].append(v)
-
-    for k in all_metric_keys:
-        if metric_values[k]:
-            aggregated_metrics[k] = sum(metric_values[k]) / len(metric_values[k])
-        else:
-            aggregated_metrics[k] = None
-
-    # Count samples (use psnr_full as reference if available)
-    if "psnr_full" in metric_values and metric_values["psnr_full"]:
-        aggregated_metrics["num_samples"] = len(metric_values["psnr_full"])
-    elif metric_values:
-        # Use the first available metric
-        first_key = next(iter(metric_values.keys()))
-        aggregated_metrics["num_samples"] = len(metric_values[first_key])
-    else:
-        aggregated_metrics["num_samples"] = 0
-
-    # Per-percentage metrics
+    # Per-percentage metrics with full stats
     metrics_by_percentage = {}
     for pct in percentages:
         pct_runs = [r for r in runs if r.get("completion_percentage") == pct]
-        pct_metric_values = {k: [] for k in all_metric_keys}
-        for r in pct_runs:
-            m = _get_run_metrics(r)
-            if m:
-                for k in all_metric_keys:
-                    v = m.get(k)
-                    if v is not None and isinstance(v, (int, float)):
-                        pct_metric_values[k].append(v)
-        pct_metrics = {}
-        for k in all_metric_keys:
-            if pct_metric_values[k]:
-                pct_metrics[k] = sum(pct_metric_values[k]) / len(pct_metric_values[k])
-            else:
-                pct_metrics[k] = None
-
-        if "psnr_full" in pct_metric_values and pct_metric_values["psnr_full"]:
-            pct_metrics["num_samples"] = len(pct_metric_values["psnr_full"])
-        elif pct_metric_values:
-            first_key = next(iter(pct_metric_values.keys()), None)
-            pct_metrics["num_samples"] = len(pct_metric_values[first_key]) if first_key else 0
-        else:
-            pct_metrics["num_samples"] = 0
-
-        metrics_by_percentage[pct] = pct_metrics
+        pct_agg = aggregate_metrics(pct_runs)
+        metrics_by_percentage[pct] = pct_agg["metrics"]
 
     return {
         "total_runs": total_runs,
@@ -503,7 +514,19 @@ def vlm_compare():
 def captioning_index():
     """Captioning experiments list page."""
     _, captioning_experiments, _ = get_experiments_by_type()
-    return render_template("captioning/index.html", experiments=captioning_experiments)
+
+    # Load summary stats for each experiment
+    experiments_with_stats = []
+    for exp in captioning_experiments:
+        results = load_experiment_results(exp["name"])
+        if results:
+            summary = calculate_captioning_summary(results)
+            experiments_with_stats.append({
+                **exp,
+                "summary": summary,
+            })
+
+    return render_template("captioning/index.html", experiments=experiments_with_stats)
 
 
 @app.route("/captioning/<experiment_name>")
@@ -532,6 +555,9 @@ def captioning_experiment(experiment_name):
     # Get all available tags for filtering UI
     all_tags = get_all_tags(results)
 
+    # Calculate summary statistics including aggregated metrics
+    summary = calculate_captioning_summary(results)
+
     return render_template(
         "captioning/experiment.html",
         experiment_name=experiment_name,
@@ -539,6 +565,7 @@ def captioning_experiment(experiment_name):
         filtered_runs=filtered_runs,
         all_tags=all_tags,
         current_image_tag=image_tag_filter,
+        summary=summary,
     )
 
 

@@ -49,6 +49,39 @@
     {% endif %}
 </div>
 
+<!-- Aggregated Metrics Summary -->
+{% if summary and summary.aggregated_metrics %}
+<div class="captioning-summary-section">
+    <h2>Metrics Summary</h2>
+    <p class="summary-subtitle">Aggregated across {{ summary.total_runs }} total samples</p>
+
+    <div class="metrics-table-wrapper">
+        <table class="metrics-table">
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    <th>Min</th>
+                    <th>Max</th>
+                    <th>Avg</th>
+                    <th>Samples</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for metric_name, stats in summary.aggregated_metrics.items() %}
+                <tr>
+                    <td><strong>{{ metric_name.replace('_', ' ').title() }}</strong></td>
+                    <td>{{ "%.4f"|format(stats.min) }}</td>
+                    <td>{{ "%.4f"|format(stats.max) }}</td>
+                    <td>{{ "%.4f"|format(stats.avg) }}</td>
+                    <td>{{ stats.count }} / {{ summary.total_runs }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
 <div class="filters-section">
     <h2>Filters</h2>
     <form method="get" class="filters-form">
