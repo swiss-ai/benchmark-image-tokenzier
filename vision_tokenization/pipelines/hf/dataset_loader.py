@@ -109,7 +109,8 @@ def get_builder_split_info(
     for split_name, split_data in info.splits.items():
         # Extract num_examples, num_shards, and shard_lengths
         num_examples = split_data.num_examples
-        shard_lengths = getattr(split_data, "shard_lengths", [])
+        # Use `or []` to handle both missing attribute AND None value
+        shard_lengths = getattr(split_data, "shard_lengths", None) or []
         num_shards = len(shard_lengths) if shard_lengths else None
 
         split_info[split_name] = {
