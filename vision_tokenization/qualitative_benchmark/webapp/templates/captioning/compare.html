@@ -12,15 +12,32 @@
 <div class="compare-selection">
     <h2>Select Experiments to Compare</h2>
     <form method="get" action="/captioning/compare">
-        <div class="checkbox-grid">
-            {% for experiment in experiments %}
-            <label class="checkbox-item">
-                <input type="checkbox" name="experiments" value="{{ experiment.name }}"
-                    {% if experiment.name in selected_experiments %}checked{% endif %}>
-                <span>{{ experiment.name }}</span>
-            </label>
-            {% endfor %}
+        {% for folder, folder_experiments in grouped_experiments.items() %}
+        <div class="checkbox-folder-section collapsed">
+            <div class="checkbox-folder-header">
+                <span class="folder-toggle">&#9660;</span>
+                <span class="folder-icon">&#128193;</span>
+                <span class="folder-name">{{ folder if folder else '/' }}</span>
+                <span class="folder-count">({{ folder_experiments|length }})</span>
+            </div>
+            <div class="checkbox-folder-content">
+            <div class="checkbox-grid">
+                {% for experiment in folder_experiments %}
+                <label class="checkbox-item">
+                    <input type="checkbox" name="experiments" value="{{ experiment.name }}"
+                        {% if experiment.name in selected_experiments %}checked{% endif %}>
+                    <span>
+                        {{ experiment.display_name }}
+                        {% if experiment.folder and not folder %}
+                        <span class="folder-badge-small">{{ experiment.folder }}</span>
+                        {% endif %}
+                    </span>
+                </label>
+                {% endfor %}
+            </div>
+            </div>
         </div>
+        {% endfor %}
 
         <div class="compare-actions">
             <button type="submit" class="btn btn-primary">Compare Selected</button>

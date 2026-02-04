@@ -4,8 +4,17 @@
 
 {% block content %}
 <div class="page-header">
+    <nav class="breadcrumb">
+        <a href="/vlm">Experiments</a>
+        {% if folder %}
+        <span class="breadcrumb-separator">/</span>
+        <span class="breadcrumb-folder">{{ folder }}</span>
+        {% endif %}
+        <span class="breadcrumb-separator">/</span>
+        <span class="breadcrumb-current">{{ display_name }}</span>
+    </nav>
     <div class="header-content">
-        <h1>{{ experiment_name }}</h1>
+        <h1>{{ display_name }}</h1>
         <a href="/vlm" class="btn btn-secondary">Back to Experiments</a>
     </div>
     <div class="experiment-meta">

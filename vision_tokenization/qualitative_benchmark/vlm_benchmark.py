@@ -555,6 +555,12 @@ def parse_args():
     )
     parser.add_argument("--results_folder", type=str, default="results/", help="Path to save results")
     parser.add_argument(
+        "--subfolder",
+        type=str,
+        default=None,
+        help="Optional subfolder within results_folder to organize results (e.g., 'project_a' saves to results/project_a/)",
+    )
+    parser.add_argument(
         "--experiment_name", type=str, required=True, help="Name of experiment, used for saving results"
     )
     parser.add_argument("--image_list", type=str, default="images.json", help="Path to image list JSON")
@@ -839,6 +845,8 @@ if __name__ == "__main__":
 
     # Setup results directory and output file path
     results_dir = Path(args.results_folder)
+    if args.subfolder:
+        results_dir = results_dir / args.subfolder
     results_dir.mkdir(exist_ok=True, parents=True)
     output_file = results_dir / f"{args.experiment_name}.json"
 

@@ -22,19 +22,43 @@ ASSETS_BASE_DIR = None
 
 
 def get_experiments():
-    """Get list of all experiments (JSON files in results folder)."""
+    """Get list of all experiments (JSON files in results folder, including subfolders)."""
     if not RESULTS_BASE_DIR.exists():
         return []
 
     experiments = []
-    for item in RESULTS_BASE_DIR.iterdir():
-        # Look for JSON files directly in the results folder
-        if item.is_file() and item.suffix == ".json":
-            # Extract experiment name from filename (without .json extension)
-            experiment_name = item.stem
-            experiments.append({"name": experiment_name, "path": str(item), "file": item.name})
+    for item in RESULTS_BASE_DIR.rglob("*.json"):
+        if item.is_file():
+            # Calculate relative path from results base dir
+            rel_path = item.relative_to(RESULTS_BASE_DIR)
+            # Experiment name includes folder path (e.g., "project_a/completion_exp1")
+            experiment_name = str(rel_path.with_suffix(""))
+            # Folder is the parent directory path, empty string for root level
+            folder = str(rel_path.parent) if rel_path.parent != Path(".") else ""
+
+            experiments.append({
+                "name": experiment_name,           # e.g., "project_a/completion_exp1"
+                "display_name": item.stem,         # e.g., "completion_exp1"
+                "folder": folder,                  # e.g., "project_a" or ""
+                "path": str(item),
+                "file": item.name
+            })
 
     return experiments
+
+
+def group_experiments_by_folder(experiments):
+    """Group experiments by their folder path for hierarchical display."""
+    grouped = {}
+    for exp in experiments:
+        folder = exp.get("folder", "")
+        if folder not in grouped:
+            grouped[folder] = []
+        grouped[folder].append(exp)
+
+    # Sort folders: root (empty string) first, then alphabetically
+    sorted_folders = sorted(grouped.keys(), key=lambda x: (x != "", x))
+    return {f: grouped[f] for f in sorted_folders}
 
 
 def get_experiments_by_type():
@@ -59,8 +83,16 @@ def get_experiments_by_type():
 
 
 def load_experiment_results(experiment_name):
-    """Load results for a specific experiment."""
+    """Load results for a specific experiment.
+
+    Args:
+        experiment_name: Experiment name, may include folder path (e.g., "project_a/exp1")
+
+    Returns:
+        Parsed JSON results or None if not found
+    """
     # Look for the JSON file named <experiment_name>.json in the results folder
+    # experiment_name may include folder path (e.g., "project_a/exp1")
     result_file = RESULTS_BASE_DIR / f"{experiment_name}.json"
 
     if not result_file.exists():
@@ -417,10 +449,11 @@ def index():
 def vlm_index():
     """VLM experiments list page."""
     vlm_experiments, _, _ = get_experiments_by_type()
-    return render_template("vlm/index.html", experiments=vlm_experiments)
+    grouped_experiments = group_experiments_by_folder(vlm_experiments)
+    return render_template("vlm/index.html", experiments=vlm_experiments, grouped_experiments=grouped_experiments)
 
 
-@app.route("/vlm/<experiment_name>")
+@app.route("/vlm/<path:experiment_name>")
 def vlm_experiment(experiment_name):
     """View results for a specific VLM experiment."""
     results = load_experiment_results(experiment_name)
@@ -449,9 +482,16 @@ def vlm_experiment(experiment_name):
     # Get all available tags for filtering UI
     all_tags = get_all_tags(results)
 
+    # Extract folder and display name for breadcrumbs
+    exp_path = Path(experiment_name)
+    folder = str(exp_path.parent) if exp_path.parent != Path(".") else ""
+    display_name = exp_path.name
+
     return render_template(
         "vlm/experiment.html",
         experiment_name=experiment_name,
+        display_name=display_name,
+        folder=folder,
         results=results,
         filtered_runs=filtered_runs,
         all_tags=all_tags,
@@ -464,6 +504,7 @@ def vlm_experiment(experiment_name):
 def vlm_compare():
     """Compare multiple VLM experiments side-by-side."""
     vlm_experiments, _, _ = get_experiments_by_type()
+    grouped_experiments = group_experiments_by_folder(vlm_experiments)
 
     # Get selected experiments from query parameters
     selected_experiments = request.args.getlist("experiments")
@@ -473,6 +514,7 @@ def vlm_compare():
         return render_template(
             "vlm/compare.html",
             experiments=vlm_experiments,
+            grouped_experiments=grouped_experiments,
             selected_experiments=selected_experiments,
             comparison_data=None,
         )
@@ -488,6 +530,7 @@ def vlm_compare():
         return render_template(
             "vlm/compare.html",
             experiments=vlm_experiments,
+            grouped_experiments=grouped_experiments,
             selected_experiments=selected_experiments,
             comparison_data=None,
             error="Could not load results for selected experiments",
@@ -499,6 +542,7 @@ def vlm_compare():
     return render_template(
         "vlm/compare.html",
         experiments=vlm_experiments,
+        grouped_experiments=grouped_experiments,
         selected_experiments=selected_experiments,
         experiment_results=experiment_results,
         comparison_data=comparison_data,
@@ -526,10 +570,11 @@ def captioning_index():
                 "summary": summary,
             })
 
-    return render_template("captioning/index.html", experiments=experiments_with_stats)
+    grouped_experiments = group_experiments_by_folder(experiments_with_stats)
+    return render_template("captioning/index.html", experiments=experiments_with_stats, grouped_experiments=grouped_experiments)
 
 
-@app.route("/captioning/<experiment_name>")
+@app.route("/captioning/<path:experiment_name>")
 def captioning_experiment(experiment_name):
     """View results for a specific captioning experiment."""
     results = load_experiment_results(experiment_name)
@@ -558,9 +603,16 @@ def captioning_experiment(experiment_name):
     # Calculate summary statistics including aggregated metrics
     summary = calculate_captioning_summary(results)
 
+    # Extract folder and display name for breadcrumbs
+    exp_path = Path(experiment_name)
+    folder = str(exp_path.parent) if exp_path.parent != Path(".") else ""
+    display_name = exp_path.name
+
     return render_template(
         "captioning/experiment.html",
         experiment_name=experiment_name,
+        display_name=display_name,
+        folder=folder,
         results=results,
         filtered_runs=filtered_runs,
         all_tags=all_tags,
@@ -573,6 +625,7 @@ def captioning_experiment(experiment_name):
 def captioning_compare():
     """Compare multiple captioning experiments side-by-side."""
     _, captioning_experiments, _ = get_experiments_by_type()
+    grouped_experiments = group_experiments_by_folder(captioning_experiments)
 
     # Get selected experiments from query parameters
     selected_experiments = request.args.getlist("experiments")
@@ -582,6 +635,7 @@ def captioning_compare():
         return render_template(
             "captioning/compare.html",
             experiments=captioning_experiments,
+            grouped_experiments=grouped_experiments,
             selected_experiments=selected_experiments,
             comparison_data=None,
         )
@@ -597,6 +651,7 @@ def captioning_compare():
         return render_template(
             "captioning/compare.html",
             experiments=captioning_experiments,
+            grouped_experiments=grouped_experiments,
             selected_experiments=selected_experiments,
             comparison_data=None,
             error="Could not load results for selected experiments",
@@ -608,6 +663,7 @@ def captioning_compare():
     return render_template(
         "captioning/compare.html",
         experiments=captioning_experiments,
+        grouped_experiments=grouped_experiments,
         selected_experiments=selected_experiments,
         experiment_results=experiment_results,
         comparison_data=comparison_data,
@@ -638,10 +694,11 @@ def completion_index():
                 }
             )
 
-    return render_template("completion/index.html", experiments=experiments_with_stats)
+    grouped_experiments = group_experiments_by_folder(experiments_with_stats)
+    return render_template("completion/index.html", experiments=experiments_with_stats, grouped_experiments=grouped_experiments)
 
 
-@app.route("/completion/<experiment_name>")
+@app.route("/completion/<path:experiment_name>")
 def completion_experiment(experiment_name):
     """View results for a specific completion experiment."""
     results = load_experiment_results(experiment_name)
@@ -684,9 +741,16 @@ def completion_experiment(experiment_name):
     # Calculate summary statistics
     summary = calculate_completion_summary(results)
 
+    # Extract folder and display name for breadcrumbs
+    exp_path = Path(experiment_name)
+    folder = str(exp_path.parent) if exp_path.parent != Path(".") else ""
+    display_name = exp_path.name
+
     return render_template(
         "completion/experiment.html",
         experiment_name=experiment_name,
+        display_name=display_name,
+        folder=folder,
         results=results,
         filtered_runs=filtered_runs,
         all_tags=all_tags,
@@ -702,6 +766,7 @@ def completion_experiment(experiment_name):
 def completion_compare():
     """Compare multiple completion experiments side-by-side."""
     _, _, completion_experiments = get_experiments_by_type()
+    grouped_experiments = group_experiments_by_folder(completion_experiments)
 
     # Get selected experiments from query parameters
     selected_experiments = request.args.getlist("experiments")
@@ -711,6 +776,7 @@ def completion_compare():
         return render_template(
             "completion/compare.html",
             experiments=completion_experiments,
+            grouped_experiments=grouped_experiments,
             selected_experiments=selected_experiments,
             comparison_data=None,
         )
@@ -726,6 +792,7 @@ def completion_compare():
         return render_template(
             "completion/compare.html",
             experiments=completion_experiments,
+            grouped_experiments=grouped_experiments,
             selected_experiments=selected_experiments,
             comparison_data=None,
             error="Could not load results for selected experiments",
@@ -742,6 +809,7 @@ def completion_compare():
     return render_template(
         "completion/compare.html",
         experiments=completion_experiments,
+        grouped_experiments=grouped_experiments,
         selected_experiments=selected_experiments,
         experiment_results=experiment_results,
         experiment_summaries=experiment_summaries,
@@ -754,7 +822,7 @@ def completion_compare():
 # =============================================================================
 
 
-@app.route("/experiment/<experiment_name>")
+@app.route("/experiment/<path:experiment_name>")
 def view_experiment(experiment_name):
     """Legacy route: redirect to appropriate section based on experiment type."""
     results = load_experiment_results(experiment_name)
@@ -789,7 +857,7 @@ def api_experiments():
     return jsonify(get_experiments())
 
 
-@app.route("/api/experiment/<experiment_name>")
+@app.route("/api/experiment/<path:experiment_name>")
 def api_experiment_results(experiment_name):
     """API endpoint to get results for a specific experiment."""
     results = load_experiment_results(experiment_name)

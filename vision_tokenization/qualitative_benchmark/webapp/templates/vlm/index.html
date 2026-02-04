@@ -14,17 +14,33 @@
     <a href="/vlm/compare" class="btn btn-secondary">Compare Experiments</a>
 </div>
 {% endif %}
-<div class="experiments-grid">
-    {% for experiment in experiments %}
-    <div class="experiment-card">
-        <h2>{{ experiment.name }}</h2>
-        <p class="experiment-info">
-            <strong>Result file:</strong> <span class="file-badge">{{ experiment.file }}</span>
-        </p>
-        <a href="/vlm/{{ experiment.name }}" class="btn btn-primary">View Results</a>
+
+{% for folder, folder_experiments in grouped_experiments.items() %}
+<div class="folder-section collapsed">
+    <div class="folder-header">
+        <span class="folder-toggle">&#9660;</span>
+        <span class="folder-icon">&#128193;</span>
+        <span class="folder-name">{{ folder if folder else '/' }}</span>
+        <span class="folder-count">({{ folder_experiments|length }} experiment{% if folder_experiments|length != 1 %}s{% endif %})</span>
     </div>
-    {% endfor %}
+    <div class="folder-content">
+    <div class="experiments-grid">
+        {% for experiment in folder_experiments %}
+        <div class="experiment-card">
+            <h2>{{ experiment.display_name }}</h2>
+            {% if experiment.folder %}
+            <p class="experiment-folder"><span class="folder-badge">{{ experiment.folder }}</span></p>
+            {% endif %}
+            <p class="experiment-info">
+                <strong>Result file:</strong> <span class="file-badge">{{ experiment.file }}</span>
+            </p>
+            <a href="/vlm/{{ experiment.name }}" class="btn btn-primary">View Results</a>
+        </div>
+        {% endfor %}
+    </div>
+    </div>
 </div>
+{% endfor %}
 {% else %}
 <div class="empty-state">
     <h2>No VLM experiments found</h2>

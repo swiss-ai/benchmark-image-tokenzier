@@ -27,5 +27,26 @@
             <p>Qualitative Benchmark Explorer</p>
         </div>
     </footer>
+
+    <script>
+        // Folder toggle functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            // Handle folder headers in index pages
+            document.querySelectorAll('.folder-header').forEach(function(header) {
+                header.addEventListener('click', function() {
+                    var section = this.closest('.folder-section');
+                    section.classList.toggle('collapsed');
+                });
+            });
+
+            // Handle checkbox folder headers in compare pages
+            document.querySelectorAll('.checkbox-folder-header').forEach(function(header) {
+                header.addEventListener('click', function() {
+                    var section = this.closest('.checkbox-folder-section');
+                    section.classList.toggle('collapsed');
+                });
+            });
+        });
+    </script>
 </body>
 </html>
