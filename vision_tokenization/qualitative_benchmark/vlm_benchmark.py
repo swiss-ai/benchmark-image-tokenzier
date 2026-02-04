@@ -618,7 +618,7 @@ def parse_args():
     tokenizer_group.add_argument(
         "--max-tokenizer-pixels",
         type=int,
-        default=512 * 512,
+        default=1024 * 1024,
         help="Maximum pixel count for vision tokenizer (default: 262144)",
     )
 

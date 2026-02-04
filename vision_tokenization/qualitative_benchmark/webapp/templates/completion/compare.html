@@ -89,32 +89,19 @@
                         <span class="value">{{ "%.2f"|format(experiment_summaries[exp_name].avg_row_diff_excluding_correct) }}</span>
                     </div>
                 </div>
-                {% if experiment_summaries[exp_name].aggregated_metrics and experiment_summaries[exp_name].aggregated_metrics.num_samples > 0 %}
+                {% if experiment_summaries[exp_name].aggregated_metrics %}
                 <div class="mini-summary-grid">
-                    {% if experiment_summaries[exp_name].aggregated_metrics.lpips_full is not none %}
-                    <div class="mini-summary-item">
-                        <span class="label">LPIPS (Full)</span>
-                        <span class="value">{{ "%.4f"|format(experiment_summaries[exp_name].aggregated_metrics.lpips_full) }}</span>
+                    {% for metric_name, stats in experiment_summaries[exp_name].aggregated_metrics.items() %}
+                    <div class="mini-summary-item {% if 'generated' in metric_name %}metrics{% endif %}">
+                        <span class="label">{{ metric_name.replace('_', ' ').title() }}</span>
+                        {% if 'psnr' in metric_name %}
+                        <span class="value">{{ "%.2f"|format(stats.avg) }}</span>
+                        {% else %}
+                        <span class="value">{{ "%.4f"|format(stats.avg) }}</span>
+                        {% endif %}
+                        <span class="stat-sublabel">({{ stats.count }})</span>
                     </div>
-                    {% endif %}
-                    {% if experiment_summaries[exp_name].aggregated_metrics.ssim_full is not none %}
-                    <div class="mini-summary-item">
-                        <span class="label">SSIM (Full)</span>
-                        <span class="value">{{ "%.4f"|format(experiment_summaries[exp_name].aggregated_metrics.ssim_full) }}</span>
-                    </div>
-                    {% endif %}
-                    {% if experiment_summaries[exp_name].aggregated_metrics.lpips_generated is not none %}
-                    <div class="mini-summary-item">
-                        <span class="label">LPIPS (Gen)</span>
-                        <span class="value">{{ "%.4f"|format(experiment_summaries[exp_name].aggregated_metrics.lpips_generated) }}</span>
-                    </div>
-                    {% endif %}
-                    {% if experiment_summaries[exp_name].aggregated_metrics.ssim_generated is not none %}
-                    <div class="mini-summary-item">
-                        <span class="label">SSIM (Gen)</span>
-                        <span class="value">{{ "%.4f"|format(experiment_summaries[exp_name].aggregated_metrics.ssim_generated) }}</span>
-                    </div>
-                    {% endif %}
+                    {% endfor %}
                 </div>
                 {% endif %}
                 {% if exp_name in experiment_results %}
@@ -175,14 +162,14 @@
                             <span>{{ run.generated_rows }}/{{ run.expected_rows }} rows</span>
                             <span>{{ run.statistics.generated_tokens }} tokens</span>
                         </div>
-                        {% if run.perceptual_metrics %}
+                        {% set run_metrics = run.metrics or run.perceptual_metrics %}
+                        {% if run_metrics %}
                         <div class="completion-mini-stats metrics-mini-stats">
-                            {% if run.perceptual_metrics.lpips_generated is defined and run.perceptual_metrics.lpips_generated is not none %}
-                            <span title="LPIPS (Generated region)">LPIPS: {{ "%.3f"|format(run.perceptual_metrics.lpips_generated) }}</span>
+                            {% for key, value in run_metrics.items() %}
+                            {% if value is not none and value is number and 'generated' in key %}
+                            <span title="{{ key.replace('_', ' ').title() }}">{{ key.replace('_generated', '').upper() }}: {{ "%.3f"|format(value) }}</span>
                             {% endif %}
-                            {% if run.perceptual_metrics.ssim_generated is defined and run.perceptual_metrics.ssim_generated is not none %}
-                            <span title="SSIM (Generated region)">SSIM: {{ "%.3f"|format(run.perceptual_metrics.ssim_generated) }}</span>
-                            {% endif %}
+                            {% endfor %}
                         </div>
                         {% endif %}
                     </div>

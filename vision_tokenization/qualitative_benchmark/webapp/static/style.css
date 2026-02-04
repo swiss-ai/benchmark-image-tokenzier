@@ -1529,6 +1529,96 @@ footer p {
     font-weight: 600;
 }
 
+/* =============================================================================
+   Captioning Summary Section
+   ============================================================================= */
+
+.captioning-summary-section {
+    background: white;
+    padding: 2rem;
+    border-radius: 8px;
+    margin-bottom: 2rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.captioning-summary-section h2 {
+    color: #2c3e50;
+    margin-bottom: 0.5rem;
+}
+
+/* =============================================================================
+   Summary Subtitle & Metric Count Styles
+   ============================================================================= */
+
+.summary-subtitle {
+    color: #7f8c8d;
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+}
+
+.metric-count {
+    color: #95a5a6;
+    font-size: 0.75rem;
+    font-weight: normal;
+}
+
+.metric-generated-row {
+    background: #fef9e7;
+}
+
+.metric-generated-row td:first-child {
+    border-left: 3px solid #e67e22;
+}
+
+/* Captioning summary mini (in index cards) */
+.captioning-summary-mini {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 0.5rem;
+    margin: 1rem 0;
+    padding: 1rem;
+    background: #f8f9fa;
+    border-radius: 8px;
+}
+
+.captioning-summary-mini .summary-stat {
+    text-align: center;
+}
+
+.captioning-summary-mini .summary-stat .stat-value {
+    display: block;
+    font-size: 1.25rem;
+    font-weight: bold;
+    color: #2c3e50;
+}
+
+.captioning-summary-mini .summary-stat.metrics .stat-value {
+    color: #8e44ad;
+}
+
+.captioning-summary-mini .summary-stat .stat-label {
+    display: block;
+    font-size: 0.7rem;
+    color: #7f8c8d;
+    text-transform: uppercase;
+}
+
+.stat-sublabel {
+    display: block;
+    font-size: 0.65rem;
+    color: #95a5a6;
+    margin-top: 0.1rem;
+}
+
+/* Generic metrics stat styling */
+.summary-stat.metrics .stat-value {
+    color: #8e44ad;
+}
+
+.completion-summary-mini .summary-stat.metrics .stat-value {
+    color: #8e44ad;
+}
+
 /* Print Styles */
 @media print {
     /* Remove scrolling and height restrictions from output text */

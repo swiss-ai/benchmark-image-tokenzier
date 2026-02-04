@@ -62,26 +62,21 @@
         </div>
 
         <!-- Perceptual metrics summary -->
-        {% if experiment.summary.aggregated_metrics and experiment.summary.aggregated_metrics.num_samples > 0 %}
+        {% if experiment.summary.aggregated_metrics %}
         <div class="completion-summary-mini metrics-mini">
-            {% if experiment.summary.aggregated_metrics.psnr_generated is not none %}
-            <div class="summary-stat">
-                <span class="stat-value">{{ "%.1f"|format(experiment.summary.aggregated_metrics.psnr_generated) }}</span>
-                <span class="stat-label">PSNR (Gen)</span>
+            {% for metric_name, stats in experiment.summary.aggregated_metrics.items() %}
+            {% if 'generated' in metric_name %}
+            <div class="summary-stat metrics">
+                {% if 'psnr' in metric_name %}
+                <span class="stat-value">{{ "%.1f"|format(stats.avg) }}</span>
+                {% else %}
+                <span class="stat-value">{{ "%.3f"|format(stats.avg) }}</span>
+                {% endif %}
+                <span class="stat-label">{{ metric_name.replace('_', ' ').title() }}</span>
+                <span class="stat-sublabel">({{ stats.count }}/{{ experiment.summary.total_runs }})</span>
             </div>
             {% endif %}
-            {% if experiment.summary.aggregated_metrics.ssim_generated is not none %}
-            <div class="summary-stat">
-                <span class="stat-value">{{ "%.3f"|format(experiment.summary.aggregated_metrics.ssim_generated) }}</span>
-                <span class="stat-label">SSIM (Gen)</span>
-            </div>
-            {% endif %}
-            {% if experiment.summary.aggregated_metrics.lpips_generated is not none %}
-            <div class="summary-stat">
-                <span class="stat-value">{{ "%.3f"|format(experiment.summary.aggregated_metrics.lpips_generated) }}</span>
-                <span class="stat-label">LPIPS (Gen)</span>
-            </div>
-            {% endif %}
+            {% endfor %}
         </div>
         {% endif %}
 

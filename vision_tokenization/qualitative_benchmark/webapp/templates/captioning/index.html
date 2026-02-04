@@ -21,6 +21,25 @@
         <p class="experiment-info">
             <strong>Result file:</strong> <span class="file-badge">{{ experiment.file }}</span>
         </p>
+
+        {% if experiment.summary %}
+        <div class="captioning-summary-mini">
+            <div class="summary-stat">
+                <span class="stat-value">{{ experiment.summary.total_runs }}</span>
+                <span class="stat-label">Total Runs</span>
+            </div>
+            {% if experiment.summary.aggregated_metrics %}
+            {% for metric_name, stats in experiment.summary.aggregated_metrics.items() %}
+            <div class="summary-stat metrics">
+                <span class="stat-value">{{ "%.3f"|format(stats.avg) }}</span>
+                <span class="stat-label">Avg {{ metric_name.replace('_', ' ').title() }}</span>
+                <span class="stat-sublabel">({{ stats.count }}/{{ experiment.summary.total_runs }})</span>
+            </div>
+            {% endfor %}
+            {% endif %}
+        </div>
+        {% endif %}
+
         <a href="/captioning/{{ experiment.name }}" class="btn btn-primary">View Results</a>
     </div>
     {% endfor %}

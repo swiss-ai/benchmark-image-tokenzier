@@ -87,76 +87,70 @@
     </div>
 
     <!-- Perceptual Quality Metrics -->
-    {% if summary.aggregated_metrics and summary.aggregated_metrics.num_samples > 0 %}
-    <h3>Perceptual Quality Metrics (avg over {{ summary.aggregated_metrics.num_samples }} valid runs)</h3>
-    <div class="completion-summary-grid metrics-summary-grid">
-        {% if summary.aggregated_metrics.psnr_full is not none %}
-        <div class="summary-card metrics-card">
-            <span class="summary-value">{{ "%.2f"|format(summary.aggregated_metrics.psnr_full) }}</span>
-            <span class="summary-label">PSNR (Full)</span>
-        </div>
-        {% endif %}
-        {% if summary.aggregated_metrics.ssim_full is not none %}
-        <div class="summary-card metrics-card">
-            <span class="summary-value">{{ "%.4f"|format(summary.aggregated_metrics.ssim_full) }}</span>
-            <span class="summary-label">SSIM (Full)</span>
-        </div>
-        {% endif %}
-        {% if summary.aggregated_metrics.lpips_full is not none %}
-        <div class="summary-card metrics-card">
-            <span class="summary-value">{{ "%.4f"|format(summary.aggregated_metrics.lpips_full) }}</span>
-            <span class="summary-label">LPIPS (Full)</span>
-        </div>
-        {% endif %}
-        {% if summary.aggregated_metrics.psnr_generated is not none %}
-        <div class="summary-card metrics-card generated">
-            <span class="summary-value">{{ "%.2f"|format(summary.aggregated_metrics.psnr_generated) }}</span>
-            <span class="summary-label">PSNR (Generated)</span>
-        </div>
-        {% endif %}
-        {% if summary.aggregated_metrics.ssim_generated is not none %}
-        <div class="summary-card metrics-card generated">
-            <span class="summary-value">{{ "%.4f"|format(summary.aggregated_metrics.ssim_generated) }}</span>
-            <span class="summary-label">SSIM (Generated)</span>
-        </div>
-        {% endif %}
-        {% if summary.aggregated_metrics.lpips_generated is not none %}
-        <div class="summary-card metrics-card generated">
-            <span class="summary-value">{{ "%.4f"|format(summary.aggregated_metrics.lpips_generated) }}</span>
-            <span class="summary-label">LPIPS (Generated)</span>
-        </div>
-        {% endif %}
+    {% if summary.aggregated_metrics %}
+    <h3>Perceptual Quality Metrics Summary</h3>
+    <p class="summary-subtitle">Aggregated across {{ summary.total_runs }} total samples</p>
+
+    <div class="metrics-table-wrapper">
+        <table class="metrics-table">
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    <th>Min</th>
+                    <th>Max</th>
+                    <th>Avg</th>
+                    <th>Samples</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for metric_name, stats in summary.aggregated_metrics.items() %}
+                <tr class="{% if 'generated' in metric_name %}metric-generated-row{% endif %}">
+                    <td><strong>{{ metric_name.replace('_', ' ').title() }}</strong></td>
+                    {% if 'psnr' in metric_name %}
+                    <td>{{ "%.2f"|format(stats.min) }}</td>
+                    <td>{{ "%.2f"|format(stats.max) }}</td>
+                    <td>{{ "%.2f"|format(stats.avg) }}</td>
+                    {% else %}
+                    <td>{{ "%.4f"|format(stats.min) }}</td>
+                    <td>{{ "%.4f"|format(stats.max) }}</td>
+                    <td>{{ "%.4f"|format(stats.avg) }}</td>
+                    {% endif %}
+                    <td>{{ stats.count }} / {{ summary.total_runs }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
 
     <!-- Metrics by Completion Percentage -->
     {% if summary.metrics_by_percentage %}
-    <h3>Perceptual Metrics by Completion Percentage</h3>
+    <h3>Average Metrics by Completion Percentage</h3>
     <div class="metrics-table-wrapper">
         <table class="metrics-table">
             <thead>
                 <tr>
                     <th>%</th>
-                    <th>N</th>
-                    <th>PSNR (Full)</th>
-                    <th>SSIM (Full)</th>
-                    <th>LPIPS (Full)</th>
-                    <th>PSNR (Gen)</th>
-                    <th>SSIM (Gen)</th>
-                    <th>LPIPS (Gen)</th>
+                    {% for metric_name in summary.aggregated_metrics.keys() %}
+                    <th>{{ metric_name.replace('_', ' ').title() }}</th>
+                    {% endfor %}
                 </tr>
             </thead>
             <tbody>
-                {% for pct, m in summary.metrics_by_percentage.items() %}
-                {% if m.num_samples > 0 %}
+                {% for pct, pct_metrics in summary.metrics_by_percentage.items() %}
+                {% if pct_metrics %}
                 <tr>
                     <td><strong>{{ pct }}%</strong></td>
-                    <td>{{ m.num_samples }}</td>
-                    <td>{{ "%.2f"|format(m.psnr_full) if m.psnr_full is not none else "-" }}</td>
-                    <td>{{ "%.4f"|format(m.ssim_full) if m.ssim_full is not none else "-" }}</td>
-                    <td>{{ "%.4f"|format(m.lpips_full) if m.lpips_full is not none else "-" }}</td>
-                    <td>{{ "%.2f"|format(m.psnr_generated) if m.psnr_generated is not none else "-" }}</td>
-                    <td>{{ "%.4f"|format(m.ssim_generated) if m.ssim_generated is not none else "-" }}</td>
-                    <td>{{ "%.4f"|format(m.lpips_generated) if m.lpips_generated is not none else "-" }}</td>
+                    {% for metric_name in summary.aggregated_metrics.keys() %}
+                    {% if pct_metrics[metric_name] is defined %}
+                    {% if 'psnr' in metric_name %}
+                    <td>{{ "%.2f"|format(pct_metrics[metric_name].avg) }} <span class="metric-count">({{ pct_metrics[metric_name].count }})</span></td>
+                    {% else %}
+                    <td>{{ "%.4f"|format(pct_metrics[metric_name].avg) }} <span class="metric-count">({{ pct_metrics[metric_name].count }})</span></td>
+                    {% endif %}
+                    {% else %}
+                    <td>-</td>
+                    {% endif %}
+                    {% endfor %}
                 </tr>
                 {% endif %}
                 {% endfor %}
