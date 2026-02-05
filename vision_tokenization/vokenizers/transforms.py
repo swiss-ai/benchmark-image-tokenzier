@@ -671,3 +671,41 @@ class RandomAugment(ImageTransform):
 
         except Exception as e:
             raise TransformError(f"RandomAugment failed: {e}")
+
+
+@TransformRegistry.register_image("rescale")
+class RescaleTransform(ImageTransform):
+    """
+    Rescale image dimensions by a multiplier factor.
+
+    Config example:
+        "transform_params": {
+            "rescale": {"multiplier": 0.5}  # Scale to 50% of original size
+        }
+    """
+
+    name = "rescale"
+
+    def __init__(self, multiplier: float = 1.0):
+        """
+        Args:
+            multiplier: Scale factor for width and height. Default 1.0 (no change).
+                       Values < 1.0 shrink, values > 1.0 enlarge.
+        """
+        if multiplier <= 0:
+            raise ValueError(f"multiplier must be positive, got {multiplier}")
+        self.multiplier = multiplier
+
+    def __call__(self, image: Image.Image) -> Image.Image:
+        if self.multiplier == 1.0:
+            return image
+
+        new_width = int(image.width * self.multiplier)
+        new_height = int(image.height * self.multiplier)
+
+        if new_width < 1 or new_height < 1:
+            raise TransformError(
+                f"Rescale resulted in invalid dimensions: {new_width}x{new_height}"
+            )
+
+        return image.resize((new_width, new_height), Image.Resampling.LANCZOS)
