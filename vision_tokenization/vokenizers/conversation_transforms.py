@@ -199,6 +199,65 @@ class FineVisionToLLaMATransform(BaseConversationTransform):
         return messages
 
 
+@ConversationTransformRegistry.register("normalize_format")
+class NormalizeFormatTransform(BaseConversationTransform):
+    """
+    Normalize messages to standard role/content format.
+
+    Input formats supported:
+        Format A: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
+        Format B: [{"user": "...", "assistant": "..."}]
+
+    Output format:
+        [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
+    """
+
+    name = "normalize_format"
+
+    def transform(self, text: Any) -> List[Dict[str, Any]]:
+        """
+        Normalize messages to standard format.
+
+        Args:
+            text: Messages in various formats
+
+        Returns:
+            List of message dicts with 'role' and 'content' keys
+
+        Raises:
+            ValueError: If input format is invalid
+        """
+        if not isinstance(text, list):
+            raise ValueError(f"Expected list of messages, got {type(text)}")
+
+        if not text:
+            raise ValueError("Message list cannot be empty")
+
+        first = text[0]
+        if not isinstance(first, dict):
+            raise ValueError(f"Expected dict at index 0, got {type(first)}")
+
+        # Already in standard format
+        if "role" in first:
+            return text
+
+        # Conversation format: [{"user": "...", "assistant": "..."}]
+        if "user" in first:
+            messages = []
+            for i, conv in enumerate(text):
+                if not isinstance(conv, dict):
+                    raise ValueError(f"Expected dict at index {i}, got {type(conv)}")
+                for role in ("user", "assistant"):
+                    if role in conv:
+                        messages.append({"role": role, "content": conv[role]})
+            return messages
+
+        raise ValueError(
+            f"Unknown message format. Expected 'role'/'content' or 'user'/'assistant' keys, "
+            f"got keys: {list(first.keys())}"
+        )
+
+
 @ConversationTransformRegistry.register("llava_to_apertus")
 class LLaVaInstructToApertusTransform(BaseConversationTransform):
     """
@@ -213,7 +272,7 @@ class LLaVaInstructToApertusTransform(BaseConversationTransform):
         Format C: [{"content": null, "from": "human", "role": null, "value": "..."}]  (null role/content, data in from/value)
         Format D: [{"content": "...", "from": null, "role": "user", "value": null, ...}]  (extra null keys, data in role/content)
 
-    Output format (Apertus):
+    Output format (Apertus, with add_image_placeholder=True):
         [
             {"role": "system", "content": ""},
             {
@@ -228,16 +287,39 @@ class LLaVaInstructToApertusTransform(BaseConversationTransform):
             {"role": "assistant", "content": "answer1"},
         ]
 
+    Output format (Apertus, with add_image_placeholder=False):
+        [
+            {"role": "system", "content": ""},
+            {"role": "user", "content": "question1"},
+            {"role": "assistant", "content": "answer1"},
+        ]
+
     The first user message includes an image part so the chat template adds the image placeholder
     we later replace with actual vision tokens during tokenization.
     Also configures an empty system prompt (otherwise cutoff date and so on included).
     Deliberation and Tool Capabilities are set false by default.
+
+    Args:
+        add_image_placeholder: If True (default), adds image placeholder to first user message.
+            Set to False for text-only data.
+        add_system_message: If True (default), adds empty system message if not present.
     """
 
     name = "llava_to_apertus"
 
     # Mapping from "from" field values to standard role names
     _ROLE_MAP = {"human": "user", "gpt": "assistant", "system": "system"}
+
+    def __init__(self, add_image_placeholder: bool = True, add_system_message: bool = True):
+        """
+        Initialize the transform.
+
+        Args:
+            add_image_placeholder: If True, adds {"type": "image"} to first user message.
+            add_system_message: If True, adds empty system message if not present.
+        """
+        self.add_image_placeholder = add_image_placeholder
+        self.add_system_message = add_system_message
 
     def _normalize_message(self, msg: Dict[str, Any], index: int) -> tuple:
         """
@@ -283,7 +365,7 @@ class LLaVaInstructToApertusTransform(BaseConversationTransform):
     def transform(self, text: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Transform conversation from any LLaVA OneVision format to Apertus chat template format.
-        The first user message always gets the image placeholder.
+        The first user message gets the image placeholder if add_image_placeholder=True.
         """
         if not isinstance(text, list):
             raise ValueError(f"Expected list of conversation dicts, got {type(text)}")
@@ -306,13 +388,13 @@ class LLaVaInstructToApertusTransform(BaseConversationTransform):
         if normalized[0][0] == "system":
             messages.append({"role": "system", "content": normalized[0][1]})
             start_idx = 1
-        else:
+        elif self.add_system_message:
             messages.append({"role": "system", "content": ""})
 
-        # Process remaining messages; first user message gets the image placeholder
+        # Process remaining messages; first user message gets the image placeholder if enabled
         first_user_seen = False
         for role, content in normalized[start_idx:]:
-            if role == "user" and not first_user_seen:
+            if role == "user" and not first_user_seen and self.add_image_placeholder:
                 messages.append(
                     {
                         "role": "user",
@@ -324,3 +406,81 @@ class LLaVaInstructToApertusTransform(BaseConversationTransform):
                 messages.append({"role": role, "content": content})
 
         return messages
+
+
+@ConversationTransformRegistry.register("llava_normalize")
+class LLaVaNormalizeTransform(LLaVaInstructToApertusTransform):
+    """
+    Normalize LLaVa-Onevision-Instruct conversation formats to standard role/content format.
+    Text-only variant - does NOT add image placeholders or system messages.
+
+    Handles all LLaVA OneVision formats:
+        Format A: [{"role": "user", "content": "..."},  {"role": "assistant", "content": "..."}]
+        Format B: [{"from": "human", "value": "..."},   {"from": "gpt", "value": "..."}]
+        Format C: [{"content": null, "from": "human", "role": null, "value": "..."}]
+        Format D: [{"content": "...", "from": null, "role": "user", "value": null, ...}]
+
+    Output format (standard):
+        [
+            {"role": "user", "content": "question1"},
+            {"role": "assistant", "content": "answer1"},
+        ]
+
+    Use this for text-only datasets that use LLaVA conversation formats.
+    For multimodal data with images, use 'llava_to_apertus' instead.
+    """
+
+    name = "llava_normalize"
+
+    def __init__(self):
+        """Initialize with no image placeholder and no auto system message."""
+        super().__init__(add_image_placeholder=False, add_system_message=False)
+
+
+# =============================================================================
+# Transform Pipeline
+# =============================================================================
+
+
+class ConversationTransformPipeline:
+    """
+    Chain multiple conversation transforms together.
+
+    Usage:
+        pipeline = ConversationTransformPipeline(["normalize_format", "finevision_to_llama"])
+        messages = pipeline.transform(raw_messages)
+    """
+
+    def __init__(self, transform_names: List[str]):
+        """
+        Initialize pipeline with a list of transform names.
+
+        Args:
+            transform_names: List of registered transform names to apply in order
+
+        Raises:
+            ValueError: If any transform name is not registered
+        """
+        self.transform_names = transform_names
+        self.transforms = []
+        for name in transform_names:
+            transform_cls = ConversationTransformRegistry.get_transform(name)
+            self.transforms.append(transform_cls())
+
+    def transform(self, messages: Any) -> List[Dict[str, Any]]:
+        """
+        Apply all transforms in sequence.
+
+        Args:
+            messages: Input messages in dataset-specific format
+
+        Returns:
+            Transformed messages after applying all transforms
+        """
+        result = messages
+        for t in self.transforms:
+            result = t.transform(result)
+        return result
+
+    def __repr__(self) -> str:
+        return f"ConversationTransformPipeline({self.transform_names})"
