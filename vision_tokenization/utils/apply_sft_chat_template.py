@@ -13,14 +13,14 @@ Example usage:
         --tokenizer-path /capstor/store/cscs/swissai/infra01/MLLM/llama3_vision_instruct_emu3_tokenizer \
         --num-proc 64
 
-    # Process multiple configs (comma-separated) - creates subfolders
+    # Process multiple configs (comma-separated) - creates one parquet per config
     python3 -m vision_tokenization.utils.apply_sft_chat_template \
         --dataset HuggingFaceM4/FineVision \
         --config lrv_chart,text_numinamath_cot,ocr_data \
         --output-dir /output \
         --tokenizer-path /path/to/tokenizer
 
-    # Process multiple configs from a file (one per line) - creates subfolders
+    # Process multiple configs from a file (one per line) - creates one parquet per config
     python3 -m vision_tokenization.utils.apply_sft_chat_template \
         --dataset HuggingFaceM4/FineVision \
         --config @configs.txt \
@@ -236,7 +236,6 @@ def process_single_config(
     conversation_transform,
     debug_samples: int,
     max_samples: int,
-    use_subfolder: bool,
     cache_dir: str = None,
     dataset_load_method: str = "default",
 ) -> dict:
@@ -246,21 +245,14 @@ def process_single_config(
     Returns:
         Dict with processing results (count, errors, output_file, bos_added_by_template)
     """
-    # Determine output path
-    if use_subfolder and config:
-        config_output_dir = os.path.join(output_dir, config)
-        os.makedirs(config_output_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
+    if config:
         filename = f"{config}_formatted.{output_format}"
-        output_file = os.path.join(config_output_dir, filename)
     else:
-        os.makedirs(output_dir, exist_ok=True)
-        if config:
-            filename = f"{config}_formatted.{output_format}"
-        else:
-            # Use last part of dataset name (e.g., HuggingFaceH4/ultrachat_200k -> ultrachat_200k)
-            ds_name = dataset_name.split("/")[-1]
-            filename = f"{ds_name}_formatted.{output_format}"
-        output_file = os.path.join(output_dir, filename)
+        # Use last part of dataset name (e.g., HuggingFaceH4/ultrachat_200k -> ultrachat_200k)
+        ds_name = dataset_name.split("/")[-1]
+        filename = f"{ds_name}_formatted.{output_format}"
+    output_file = os.path.join(output_dir, filename)
 
     print(f"\n{'#'*60}")
     print(f"Processing config: {config or 'default'}")
@@ -391,7 +383,7 @@ def main():
         help=(
             "Dataset configuration(s). Supports: single config name, comma-separated list "
             "(e.g., 'config1,config2'), path to txt file with @prefix (e.g., '@configs.txt'), "
-            "or direct path to txt file. When multiple configs are given, outputs are placed in subfolders."
+            "or direct path to txt file."
         ),
     )
     parser.add_argument("--split", default="train", help="Dataset split to use")
@@ -470,14 +462,11 @@ def main():
 
     # Parse configs
     configs = parse_configs(args.config)
-    use_subfolder = len(configs) > 1
 
     print(f"Dataset: {args.dataset}")
     print(f"Configs to process: {configs}")
     print(f"Output directory: {args.output_dir}")
     print(f"Output format: {args.output_format}")
-    if use_subfolder:
-        print(f"Using subfolders: Yes (multiple configs)")
 
     print(f"\nLoading tokenizer: {args.tokenizer_path}")
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_path)
@@ -527,7 +516,6 @@ def main():
             conversation_transform=conversation_transform,
             debug_samples=args.debug_samples,
             max_samples=args.max_samples,
-            use_subfolder=use_subfolder,
             cache_dir=args.cache_dir,
             dataset_load_method=args.dataset_load_method,
         )
