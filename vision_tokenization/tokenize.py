@@ -82,13 +82,15 @@ def create_hf_parser(subparsers):
     parser.add_argument(
         "--dataset-load-method",
         type=str,
-        choices=["default", "builder_load"],
+        choices=["default", "builder_load", "disk_load"],
         default="default",
         help=(
             "Method for loading HuggingFace datasets. "
             '"default": use load_dataset() (requires HF hub cache). '
             '"builder_load": use load_dataset_builder().as_dataset() '
-            "(requires pre-prepared dataset, no hub cache needed)"
+            "(requires pre-prepared dataset, no hub cache needed). "
+            '"disk_load": use load_from_disk() for datasets saved with '
+            "dataset.save_to_disk() (dataset_name is a local path)"
         ),
     )
     parser.add_argument(

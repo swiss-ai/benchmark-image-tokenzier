@@ -80,6 +80,13 @@ Example usage:
         --dataset-load-method builder_load \
         --offline
 
+    # Load a dataset saved with dataset.save_to_disk() (disk_load method)
+    python3 -m vision_tokenization.utils.apply_sft_chat_template \
+        --dataset /path/to/saved_dataset \
+        --output-dir /output \
+        --tokenizer-path /path/to/tokenizer \
+        --dataset-load-method disk_load
+
     # Then tokenize with datatrove (works with both parquet and jsonl)
     # IMPORTANT: Use --no-add-special-tokens to avoid double BOS token
     # (chat template already added BOS/EOS)
@@ -428,12 +435,14 @@ def main():
     parser.add_argument(
         "--dataset-load-method",
         type=str,
-        choices=["default", "builder_load"],
+        choices=["default", "builder_load", "disk_load"],
         default="default",
         help=(
             "Dataset loading method. 'default' uses load_dataset(), "
             "'builder_load' uses load_dataset_builder().as_dataset() "
-            "(useful on clusters with pre-prepared datasets)"
+            "(useful on clusters with pre-prepared datasets), "
+            "'disk_load' uses load_from_disk() for datasets saved with "
+            "dataset.save_to_disk() (dataset name is a local path)"
         ),
     )
     parser.add_argument(

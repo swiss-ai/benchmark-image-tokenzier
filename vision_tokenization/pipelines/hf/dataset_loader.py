@@ -412,6 +412,44 @@ def _load_with_builder_method(
         raise FileNotFoundError(error_msg) from e
 
 
+def _load_with_disk_method(
+    dataset_name: str,  # This is actually a path for disk_load
+    actual_split: str,
+    streaming: bool,
+) -> Dataset:
+    """Load dataset using load_from_disk().
+
+    Used for datasets saved with dataset.save_to_disk() (Arrow format).
+    The dataset_name parameter is treated as a local path.
+
+    Args:
+        dataset_name: Local path to the saved dataset directory
+        actual_split: Split name (used only if load_from_disk returns a DatasetDict)
+        streaming: If True, a warning is logged (not supported with load_from_disk)
+    """
+    from datasets import DatasetDict, load_from_disk
+
+    if streaming:
+        logger.warning("Streaming mode is not supported with 'disk_load' method. Ignoring streaming=True.")
+
+    dataset = load_from_disk(dataset_name)
+
+    # load_from_disk may return a DatasetDict — extract the requested split
+    if isinstance(dataset, DatasetDict):
+        # Strip slice notation from split to get base name
+        base_split = actual_split.split("[")[0] if "[" in actual_split else actual_split
+        if base_split not in dataset:
+            available = list(dataset.keys())
+            raise ValueError(
+                f"Split '{base_split}' not found in dataset at '{dataset_name}'. "
+                f"Available splits: {available}"
+            )
+        dataset = dataset[base_split]
+        logger.info(f"Extracted split '{base_split}' from DatasetDict")
+
+    return dataset
+
+
 def _apply_streaming_slice(
     dataset,
     start: Optional[int],
@@ -442,29 +480,29 @@ def load_hf_dataset(
     streaming: bool = False,
 ) -> Dataset:
     """
-    Load a HuggingFace dataset using specified method ("default" or "builder_load")
+    Load a HuggingFace dataset using specified method ("default", "builder_load", or "disk_load")
 
-    Both methods support streaming mode.
+    Both "default" and "builder_load" methods support streaming mode.
 
     Args:
-        dataset_name: HF dataset name (e.g., "HuggingFaceM4/FineVision")
-        config_name: Dataset configuration/subset name (e.g., "lrv_chart")
+        dataset_name: HF dataset name (e.g., "HuggingFaceM4/FineVision"), or a local path when using "disk_load"
+        config_name: Dataset configuration/subset name (e.g., "lrv_chart"). Ignored for "disk_load".
         split: Dataset split to load (e.g., "train", "test", "validation", "train[:100]")
-        cache_dir: Cache directory for dataset files
+        cache_dir: Cache directory for dataset files. Ignored for "disk_load".
         num_proc: Number of processes (only used with "default" method)
-        method: Loading method - "default" or "builder_load"
-        streaming: Whether to use streaming mode
+        method: Loading method - "default", "builder_load", or "disk_load"
+        streaming: Whether to use streaming mode (not supported with "disk_load")
 
     Returns:
         Dataset object
 
     Raises:
-        ValueError: If method is not "default" or "builder_load"
+        ValueError: If method is not "default", "builder_load", or "disk_load"
         FileNotFoundError: If "builder_load" is used but dataset is not prepared
     """
     # Validate method parameter
-    if method not in ["default", "builder_load"]:
-        raise ValueError(f"Invalid method: {method}. Must be 'default' or 'builder_load'")
+    if method not in ["default", "builder_load", "disk_load"]:
+        raise ValueError(f"Invalid method: {method}. Must be 'default', 'builder_load', or 'disk_load'")
 
     # Parse split once for all cases (with percentage support)
     base_split, start, end, start_is_pct, end_is_pct = _parse_split_slice(split)
@@ -489,7 +527,7 @@ def load_hf_dataset(
             num_proc=num_proc,
             streaming=streaming,
         )
-    else:  # builder_load
+    elif method == "builder_load":
         logger.info(
             f"[MODE: builder_load] Loading dataset using builder method: {dataset_name}{config_info}/{actual_split}"
         )
@@ -501,6 +539,22 @@ def load_hf_dataset(
             num_proc=num_proc,
             streaming=streaming,
         )
+    else:  # disk_load
+        logger.info(f"[MODE: disk_load] Loading dataset using load_from_disk(): {dataset_name}")
+        dataset = _load_with_disk_method(
+            dataset_name=dataset_name,
+            actual_split=actual_split,
+            streaming=streaming,
+        )
+        # Apply slice manually since load_from_disk doesn't support slice notation
+        if has_slice:
+            num_examples = len(dataset)
+            abs_start = _convert_percentage_to_absolute(start, start_is_pct, num_examples)
+            abs_end = _convert_percentage_to_absolute(end, end_is_pct, num_examples)
+            abs_start = abs_start if abs_start is not None else 0
+            abs_end = abs_end if abs_end is not None else num_examples
+            logger.info(f"Applying slice [{abs_start}:{abs_end}] to disk-loaded dataset ({num_examples} total)")
+            dataset = dataset.select(range(abs_start, abs_end))
 
     # Apply slicing for streaming datasets (unified for both methods)
     if streaming and has_slice:
