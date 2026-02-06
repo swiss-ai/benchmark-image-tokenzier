@@ -5,12 +5,12 @@ Supports both parquet and jsonl output formats.
 
 Example usage:
     # Apply chat template to FineVision text dataset (save as parquet)
+    # BOS/EOS tokens are added by default if missing
     python3 -m vision_tokenization.utils.apply_sft_chat_template \
         --dataset HuggingFaceM4/FineVision \
         --config text_numinamath_cot \
         --output-dir /capstor/store/cscs/swissai/infra01/vision-datasets \
         --tokenizer-path /capstor/store/cscs/swissai/infra01/MLLM/llama3_vision_instruct_emu3_tokenizer \
-        --add-eos \
         --num-proc 64
 
     # Process multiple configs (comma-separated) - creates subfolders
@@ -18,16 +18,14 @@ Example usage:
         --dataset HuggingFaceM4/FineVision \
         --config lrv_chart,text_numinamath_cot,ocr_data \
         --output-dir /output \
-        --tokenizer-path /path/to/tokenizer \
-        --add-eos
+        --tokenizer-path /path/to/tokenizer
 
     # Process multiple configs from a file (one per line) - creates subfolders
     python3 -m vision_tokenization.utils.apply_sft_chat_template \
         --dataset HuggingFaceM4/FineVision \
         --config @configs.txt \
         --output-dir /output \
-        --tokenizer-path /path/to/tokenizer \
-        --add-eos
+        --tokenizer-path /path/to/tokenizer
 
     # Use conversation transform with debug output
     python3 -m vision_tokenization.utils.apply_sft_chat_template \
@@ -36,8 +34,7 @@ Example usage:
         --output-dir /output \
         --tokenizer-path /path/to/tokenizer \
         --conversation-transform finevision_to_llama \
-        --debug-samples 3 \
-        --add-eos
+        --debug-samples 3
 
     # Apply chat template to dataset (save as jsonl)
     python3 -m vision_tokenization.utils.apply_sft_chat_template \
@@ -47,8 +44,15 @@ Example usage:
         --tokenizer-path /capstor/store/cscs/swissai/infra01/MLLM/llama3_emu3_tokenizer \
         --conversation-transform normalize_format \
         --debug-samples 5 \
-        --add-eos \
         --max-samples 100000
+
+    # Disable BOS/EOS addition if needed
+    python3 -m vision_tokenization.utils.apply_sft_chat_template \
+        --dataset HuggingFaceM4/FineVision \
+        --config lrv_chart \
+        --output-dir /output \
+        --tokenizer-path /path/to/tokenizer \
+        --no-add-bos --no-add-eos
 
     # Use llava_to_apertus in text-only mode (no image placeholder)
     python3 -m vision_tokenization.utils.apply_sft_chat_template \
@@ -56,8 +60,7 @@ Example usage:
         --output-dir /output \
         --tokenizer-path /path/to/tokenizer \
         --conversation-transform llava_to_apertus \
-        --transform-params '{"llava_to_apertus": {"add_image_placeholder": false}}' \
-        --add-eos
+        --transform-params '{"llava_to_apertus": {"add_image_placeholder": false}}'
 
     # Or load transform params from a file
     python3 -m vision_tokenization.utils.apply_sft_chat_template \
@@ -65,8 +68,17 @@ Example usage:
         --output-dir /output \
         --tokenizer-path /path/to/tokenizer \
         --conversation-transform llava_to_apertus \
-        --transform-params @my_params.json \
-        --add-eos
+        --transform-params @my_params.json
+
+    # Use pre-prepared dataset on cluster (offline, builder_load method)
+    python3 -m vision_tokenization.utils.apply_sft_chat_template \
+        --dataset HuggingFaceM4/FineVision \
+        --config lrv_chart \
+        --output-dir /output \
+        --tokenizer-path /path/to/tokenizer \
+        --cache-dir /path/to/hf_cache \
+        --dataset-load-method builder_load \
+        --offline
 
     # Then tokenize with datatrove (works with both parquet and jsonl)
     # IMPORTANT: Use --no-add-special-tokens to avoid double BOS token
@@ -86,8 +98,9 @@ import json
 import os
 from typing import Any, Dict
 
-from datasets import load_dataset
 from transformers import AutoTokenizer
+
+from vision_tokenization.pipelines.hf.dataset_loader import load_hf_dataset
 
 from vision_tokenization.vokenizers.conversation_transforms import (
     ConversationTransformRegistry,
@@ -217,6 +230,8 @@ def process_single_config(
     debug_samples: int,
     max_samples: int,
     use_subfolder: bool,
+    cache_dir: str = None,
+    dataset_load_method: str = "default",
 ) -> dict:
     """
     Process a single dataset config.
@@ -250,10 +265,14 @@ def process_single_config(
     print(f"Message column: {message_column}")
 
     # Load dataset
-    if config:
-        dataset = load_dataset(dataset_name, config, split=split, num_proc=num_proc)
-    else:
-        dataset = load_dataset(dataset_name, split=split, num_proc=num_proc)
+    dataset = load_hf_dataset(
+        dataset_name=dataset_name,
+        config_name=config,
+        split=split,
+        cache_dir=cache_dir,
+        num_proc=num_proc,
+        method=dataset_load_method,
+    )
 
     # Select subset if max_samples is specified
     if max_samples:
@@ -376,8 +395,10 @@ def main():
     parser.add_argument("--tokenizer-path", required=True, help="Path to tokenizer for chat template")
     parser.add_argument("--max-samples", type=int, default=None, help="Maximum number of samples to process per config")
     parser.add_argument("--message-column", default="texts", help="Column containing messages")
-    parser.add_argument("--add-bos", action="store_true", help="Add BOS token to the beginning")
-    parser.add_argument("--add-eos", action="store_true", help="Add EOS token to the end")
+    parser.add_argument("--add-bos", action=argparse.BooleanOptionalAction, default=True,
+                        help="Add BOS token if missing (default: True, use --no-add-bos to disable)")
+    parser.add_argument("--add-eos", action=argparse.BooleanOptionalAction, default=True,
+                        help="Add EOS token if missing (default: True, use --no-add-eos to disable)")
     parser.add_argument("--num-proc", type=int, default=64, help="Number of processes for parallel processing")
     parser.add_argument(
         "--conversation-transform",
@@ -399,6 +420,28 @@ def main():
         help="Number of samples to print debug info for (shows raw input, transformed, and formatted output)",
     )
     parser.add_argument(
+        "--cache-dir",
+        type=str,
+        default=None,
+        help="HuggingFace datasets cache directory",
+    )
+    parser.add_argument(
+        "--dataset-load-method",
+        type=str,
+        choices=["default", "builder_load"],
+        default="default",
+        help=(
+            "Dataset loading method. 'default' uses load_dataset(), "
+            "'builder_load' uses load_dataset_builder().as_dataset() "
+            "(useful on clusters with pre-prepared datasets)"
+        ),
+    )
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="Enable HF datasets offline mode (sets HF_DATASETS_OFFLINE=1)",
+    )
+    parser.add_argument(
         "--transform-params",
         type=str,
         default=None,
@@ -410,6 +453,11 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Set offline mode before any dataset loading
+    if args.offline:
+        os.environ["HF_DATASETS_OFFLINE"] = "1"
+        print("HF Datasets Offline Mode: ENABLED")
 
     # Parse configs
     configs = parse_configs(args.config)
@@ -471,6 +519,8 @@ def main():
             debug_samples=args.debug_samples,
             max_samples=args.max_samples,
             use_subfolder=use_subfolder,
+            cache_dir=args.cache_dir,
+            dataset_load_method=args.dataset_load_method,
         )
         results.append(result)
 
@@ -499,17 +549,17 @@ def main():
         else:
             print(f"  BOS token: NOT added by chat template")
             if not args.add_bos:
-                print(f"  Warning: You may need --add-bos flag")
+                print(f"  Warning: BOS token not present - consider removing --no-add-bos")
 
         if args.add_eos:
-            print(f"  EOS token: Added by script (--add-eos)")
+            print(f"  EOS token: Added by script")
         else:
-            print(f"  EOS token: NOT added - datatrove tokenizer may add it")
+            print(f"  EOS token: NOT added (--no-add-eos) - datatrove tokenizer may add it")
 
     print(f"\n{'='*60}")
     print(f"Next step - tokenize with datatrove:")
     print(
-        f"python3 /iopsstor/scratch/cscs/xyixuan/data-pipeline-pretrain/examples/tokenize_megatron/preprocess_megatron.py \\"
+        f"python3 /iopsstor/scratch/cscs/$(USER)/data-pipeline-pretrain/examples/tokenize_megatron/preprocess_megatron.py \\"
     )
     print(f"    --tokenizer-name-or-path {args.tokenizer_path} \\")
     print(f"    --output-folder <output_folder> \\")
