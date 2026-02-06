@@ -16,6 +16,15 @@
 #   sbatch run_apply_sft_chat_template.slurm --dataset HuggingFaceM4/FineVision --dataset-config lrv_chart --tokenizer-path /path/to/tokenizer --output-dir /path/to/output
 #   sbatch run_apply_sft_chat_template.slurm --dataset HuggingFaceM4/FineVision --dataset-config lrv_chart --tokenizer-path /path/to/tokenizer --output-dir /path/to/output --offline --dataset-load-method builder_load
 #   sbatch run_apply_sft_chat_template.slurm --debug --dataset HuggingFaceM4/FineVision --dataset-config lrv_chart --tokenizer-path /path/to/tokenizer --output-dir /path/to/output
+#
+# Full example with Apertus EMU3.5 tokenizer and LLaVA-OneVision dataset:
+#   sbatch run_apply_sft_chat_template.slurm \
+#       --dataset mvp-lab/LLaVA-OneVision-1.5-Instruct-Data \
+#       --dataset-config Evol-Instruct-GPT4-Turbo,amc_aime,aops_forum,cn_k12,code_feedback_66k,gsm8k,ifeval_like,magpie_pro,magpie_ultra,math,mathinstruct_262k,mathqa,olympiads,open_orca,openmathinstruct,orca_994k,orca_agentinstruct,synthetic_amc,synthetic_math,wizardlm \
+#       --output-dir /output \
+#       --tokenizer-path /capstor/store/cscs/swissai/infra01/MLLM/apertus_emu3.5_instruct_tokenizer \
+#       --conversation-transform llava_to_apertus \
+#       --transform-params '{"llava_to_apertus": {"add_image_placeholder": false}}'
 
 # Get the project root directory
 PROJECT_ROOT="/iopsstor/scratch/cscs/${USER}/benchmark-image-tokenizer"
@@ -110,7 +119,7 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  --dataset-config <name>       Dataset configuration/subset name"
             echo "  --dataset-split <split>       Dataset split (default: train)"
-            echo "  --dataset-load-method <m>     'default' or 'builder_load' (default: default)"
+            echo "  --dataset-load-method <m>     'default', 'builder_load', or 'disk_load' (default: default)"
             echo "  --conversation-transform <n>  Conversation transform name"
             echo "  --transform-params <json>     Transform params JSON string or @file"
             echo "  --output-format <fmt>         'parquet' or 'jsonl' (default: parquet)"
