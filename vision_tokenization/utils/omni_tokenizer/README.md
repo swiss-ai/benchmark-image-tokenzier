@@ -4,6 +4,13 @@ Create omnimodal tokenizers by adding vision tokens to text tokenizers with auto
 
 ## Quick Start
 
+**Setup:**
+Make sure submodules are initialized, since some tokenizers (e.g., Emu3.5) are added as submodules and may include specific patches.
+
+```bash
+git submodule update --init --recursive
+```
+
 **Apertus + Emu3.5:**
 ```bash
 # Base omni-tokenizer
