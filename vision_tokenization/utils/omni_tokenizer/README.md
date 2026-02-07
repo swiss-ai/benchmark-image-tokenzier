@@ -4,27 +4,34 @@ Create omnimodal tokenizers by adding vision tokens to text tokenizers with auto
 
 ## Quick Start
 
-**Setup*:*
-Make sure to have submodules initialized, as some tokenizers (ex. EMU3.5 are added as submodules). Also for some tokenizers there are specific patches applied.
-
-`git submodule update --init --recursive`
-
-**Base Tokenizer (for pretraining):**
+**Apertus + Emu3.5:**
 ```bash
-python -m vision_tokenization.utils.omni_tokenizer.create_base \
+# Base omni-tokenizer
+python create_base.py \
+    --text-tokenizer-path swiss-ai/Apertus-8B-2509 \
+    --vision-tokenizer-path /capstor/store/cscs/swissai/infra01/MLLM/Emu3.5-VisionTokenizer \
+    --vision-tokenizer Emu3.5 \
+    --output-path /capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5
+
+# Instruct omni-tokenizer
+python create_instruct.py \
+    --base-tokenizer-path /capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5 \
+    --instruct-tokenizer-path swiss-ai/Apertus-8B-2509-Instruct \
+    --output-path /capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_instruct
+```
+
+**Llama + Emu3**
+```bash
+python create_base.py \
     --text-tokenizer-path meta-llama/Llama-3.2-3B \
     --vision-tokenizer-path BAAI/Emu3-VisionTokenizer \
     --vision-tokenizer Emu3 \
-    --output-path ./llama3_emu3_tokenizer
-```
+    --output-path /path/to/llama3_emu3_tokenizer
 
-**Instruct Tokenizer (for SFT/chat):**
-```bash
-python -m vision_tokenization.utils.omni_tokenizer.create_instruct \
-    --text-tokenizer-path meta-llama/Llama-3.2-3B-Instruct \
-    --vision-tokenizer-path BAAI/Emu3-VisionTokenizer \
-    --vision-tokenizer Emu3 \
-    --output-path ./llama3_emu3_instruct_tokenizer
+python create_instruct.py \
+    --base-tokenizer-path /path/to/llama3_emu3_tokenizer \
+    --instruct-tokenizer-path meta-llama/Llama-3.2-3B-Instruct \
+    --output-path /path/to/llama3_emu3_instruct_tokenizer
 ```
 
 ## Design
@@ -67,16 +74,15 @@ The number of digits adjusts automatically based on the codebook size.
    - Used for pretraining multimodal models
 
 2. **Instruct Tokenizer** (`create_instruct.py`):
-   - Extends instruct text tokenizer (e.g., `meta-llama/Llama-3.2-3B-Instruct`)
-   - Adds RESERVED_OMNI tokens + vision tokens (same as base)
-   - Preserves chat template from instruct text tokenizer
+   - Takes base omni-tokenizer (created by `create_base.py`) as input
+   - Copies chat template from instruct text tokenizer
    - Adds SFT sequences for Megatron-LM training
    - Used for supervised fine-tuning and chat applications
 
 **Why separate architectures?**
-- Base: Clean starting point for pretraining
-- Instruct: Inherits chat template + any instruct-specific tokens automatically
-- Mirrors Meta's approach: Vision-Instruct extends from text instruct tokenizer
+- Base: Clean starting point for pretraining (no chat template)
+- Instruct: Adds chat template + SFT sequences on top of base omni-tokenizer
+- Vision tokens are added once (in base), then reused for instruct
 
 **Important notes about base vs instruct text tokenizers:**
 - Base and instruct text tokenizers typically have the **same vocabulary size**
@@ -84,47 +90,6 @@ The number of digits adjusts automatically based on the codebook size.
 - Example: LLaMA-3.2-Vision-Instruct replaces `<|reserved_special_token_2|>` with `<|step_id|>`
 - Our omni-tokenizer adds vision tokens **after** the text vocabulary, so these differences are preserved
 
-## Examples
-
-### Base Tokenizer
-
-**Emu3:**
-```bash
-python -m vision_tokenization.utils.omni_tokenizer.create_base \
-    --text-tokenizer-path meta-llama/Llama-3.2-3B \
-    --vision-tokenizer-path BAAI/Emu3-VisionTokenizer \
-    --vision-tokenizer Emu3 \
-    --output-path ./llama3_emu3_base
-```
-
-**Emu3.5 IBQ:**
-```bash
-python -m vision_tokenization.utils.omni_tokenizer.create_base \
-    --text-tokenizer-path meta-llama/Llama-3.2-3B \
-    --vision-tokenizer-path /path/to/Emu3.5-VisionTokenizer \
-    --vision-tokenizer Emu3.5 \
-    --output-path ./llama3_emu3.5_base
-```
-
-### Instruct Tokenizer
-
-**Emu3:**
-```bash
-python -m vision_tokenization.utils.omni_tokenizer.create_instruct \
-    --text-tokenizer-path meta-llama/Llama-3.2-3B-Instruct \
-    --vision-tokenizer-path BAAI/Emu3-VisionTokenizer \
-    --vision-tokenizer Emu3 \
-    --output-path ./llama3_emu3_instruct
-```
-
-**Emu3.5 IBQ:**
-```bash
-python -m vision_tokenization.utils.omni_tokenizer.create_instruct \
-    --text-tokenizer-path meta-llama/Llama-3.2-3B-Instruct \
-    --vision-tokenizer-path /path/to/Emu3.5-VisionTokenizer \
-    --vision-tokenizer Emu3.5 \
-    --output-path ./llama3_emu3.5_instruct
-```
 
 ## Options
 
@@ -142,12 +107,11 @@ python -m vision_tokenization.utils.omni_tokenizer.create_instruct \
 ### create_instruct.py
 
 **Required:**
-- `--text-tokenizer-path` - Path or HuggingFace model ID for instruct text tokenizer
-- `--vision-tokenizer-path` - Path to vision tokenizer model directory
-- `--vision-tokenizer` - Vision tokenizer type (Emu3 or Emu3.5)
+- `--base-tokenizer-path` - Path to base omni-tokenizer (created by `create_base.py`)
+- `--instruct-tokenizer-path` - Path or HuggingFace model ID for instruct text tokenizer (for chat template)
 - `--output-path` - Output directory for the omni-tokenizer
 
-**Note:** Instruct tokenizer automatically inherits the chat template from the text tokenizer.
+**Note:** Chat template is copied from the instruct text tokenizer. SFT sequences are encoded using the base omni-tokenizer (which has `<|img_start|>` etc. as single tokens).
 
 ## Output
 
