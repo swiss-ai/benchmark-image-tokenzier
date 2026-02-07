@@ -6,19 +6,27 @@ Creates a base omnimodal tokenizer by adding vision tokens to a text tokenizer.
 Auto-detects codebook size from the vision tokenizer.
 
 Usage:
-    # For Emu3
+    # For Llama3 + Emu3
     python create_base.py \\
         --text-tokenizer-path meta-llama/Llama-3-8B \\
         --vision-tokenizer-path BAAI/Emu3-VisionTokenizer \\
         --vision-tokenizer Emu3 \\
         --output-path ./llama3_emu3_tokenizer
 
-    # For Emu3.5
+    # For Llama3 + Emu3.5
     python create_base.py \\
         --text-tokenizer-path meta-llama/Llama-3-8B \\
         --vision-tokenizer-path /capstor/store/cscs/swissai/infra01/MLLM/Emu3.5-VisionTokenizer \\
         --vision-tokenizer Emu3.5 \\
         --output-path /capstor/store/cscs/swissai/infra01/MLLM/llama3_emu3.5_tokenizer
+
+    For Apertus + Emu3.5
+    python create_base.py \\
+        --text-tokenizer-path swiss-ai/Apertus-8B-2509 \\
+        --vision-tokenizer-path /capstor/store/cscs/swissai/infra01/MLLM/tokenizer/Emu3.5-VisionTokenizer \\
+        --vision-tokenizer Emu3.5 \\
+        --output-path /capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_tokenizer
+
 """
 
 import argparse

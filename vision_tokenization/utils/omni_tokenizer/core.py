@@ -13,19 +13,19 @@ from typing import Any, Dict, Tuple
 from transformers import AutoTokenizer
 
 
-# Modality registry: name -> (mapping_file, offset_key, vocab_size_key)
+# Modality registry: name -> (mapping_file, offset_key, vocab_size_key, start_token, end_token)
 MODALITY_REGISTRY = {
-    "vision": ("vision_token_mapping.json", "vision_token_offset", "visual_vocab_size"),
-    "audio": ("audio_token_mapping.json", "audio_token_offset", "audio_vocab_size"),
+    "vision": ("vision_token_mapping.json", "vision_token_offset", "visual_vocab_size", "<|img_start|>", "<|img_end|>"),
+    "audio": ("audio_token_mapping.json", "audio_token_offset", "audio_vocab_size", "<|audio_start|>", "<|audio_end|>"),
 }
 
 
-def _read_modality_info(output_path: str, name: str) -> Dict[str, Any] | None:
+def _read_modality_info(output_path: str, name: str, tokenizer) -> Dict[str, Any] | None:
     """Read modality info from its mapping file. Returns None if not found or incomplete."""
     if name not in MODALITY_REGISTRY:
         return None
 
-    mapping_file, offset_key, vocab_key = MODALITY_REGISTRY[name]
+    mapping_file, offset_key, vocab_key, start_token, end_token = MODALITY_REGISTRY[name]
     mapping_path = os.path.join(output_path, mapping_file)
 
     if not os.path.exists(mapping_path):
@@ -37,14 +37,28 @@ def _read_modality_info(output_path: str, name: str) -> Dict[str, Any] | None:
     if offset_key not in data:
         return None
 
+    start_token_id = tokenizer.convert_tokens_to_ids(start_token)
+    end_token_id = tokenizer.convert_tokens_to_ids(end_token)
+
+    if start_token_id == tokenizer.unk_token_id:
+        raise ValueError(
+            f"Modality start token {start_token} not found in tokenizer at {output_path}"
+        )
+    if end_token_id == tokenizer.unk_token_id:
+        raise ValueError(
+            f"Modality end token {end_token} not found in tokenizer at {output_path}"
+        )
+
     return {
         "name": name,
         "offset": data[offset_key],
         "vocab_size": data.get(vocab_key),
+        "start_token": start_token_id,
+        "end_token": end_token_id,
     }
 
 
-def _build_omnimodal_config(output_path: str, base_vocab_size: int) -> Dict[str, Any]:
+def _build_omnimodal_config(output_path: str, base_vocab_size: int, tokenizer) -> Dict[str, Any]:
     """
     Build omnimodal_config from all present modality mapping files.
 
@@ -53,7 +67,7 @@ def _build_omnimodal_config(output_path: str, base_vocab_size: int) -> Dict[str,
     """
     modalities = [
         info for name in MODALITY_REGISTRY
-        if (info := _read_modality_info(output_path, name)) is not None
+        if (info := _read_modality_info(output_path, name, tokenizer)) is not None
     ]
 
     if not modalities:
@@ -459,7 +473,8 @@ def create_base_tokenizer(
     config_path = os.path.join(output_path, "tokenizer_config.json")
     with open(config_path, "r") as f:
         config = json.load(f)
-    omnimodal_config = _build_omnimodal_config(output_path, original_vocab_size)
+    tokenizer_for_config = AutoTokenizer.from_pretrained(output_path, use_fast=True)
+    omnimodal_config = _build_omnimodal_config(output_path, original_vocab_size, tokenizer_for_config)
     if omnimodal_config:
         config["omnimodal_config"] = omnimodal_config
         with open(config_path, "w") as f:

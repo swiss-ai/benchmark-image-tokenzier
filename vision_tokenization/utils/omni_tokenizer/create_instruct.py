@@ -2,146 +2,179 @@
 """
 Create Instruct Omni-Tokenizer
 
-Creates an instruct omnimodal tokenizer by adding vision tokens to an instruct text tokenizer.
-The instruct text tokenizer already contains the chat template, so this script:
-1. Adds RESERVED_OMNI tokens + vision tokens (same as create_base.py)
-2. Adds pre-tokenized SFT sequences for Megatron-LM
+Adds chat template and SFT sequences to a base omni-tokenizer (created by create_base.py).
 
 Usage:
-    # For Emu3
-    python create_instruct.py \
-        --text-tokenizer-path meta-llama/Llama-3.2-3B-Instruct \
-        --vision-tokenizer-path BAAI/Emu3-VisionTokenizer \
-        --vision-tokenizer Emu3 \
-        --output-path ./llama3_emu3_omni_instruct
+    # Step 1: Create base tokenizer first (see create_base.py)
 
-    # For Emu3.5
+    # Step 2: Add chat template + SFT sequences
     python create_instruct.py \
-        --text-tokenizer-path meta-llama/Llama-3.2-3B-Instruct \
-        --vision-tokenizer-path /capstor/store/cscs/swissai/infra01/MLLM/Emu3.5-VisionTokenizer \
-        --vision-tokenizer Emu3.5 \
-        --output-path ./llama3_emu3.5_omni_instruct
+        --base-tokenizer-path /path/to/omni_base \
+        --instruct-tokenizer-path meta-llama/Llama-3.2-3B-Instruct \
+        --output-path /path/to/omni_instruct
 """
 
 import argparse
 import json
 import os
-
-from .core import create_base_tokenizer
+import shutil
+from transformers import AutoTokenizer
 
 
 def create_instruct_tokenizer(
-    text_tokenizer_path: str, vision_tokenizer_path: str, vision_tokenizer: str, output_path: str
+    base_tokenizer_path: str,
+    instruct_tokenizer_path: str,
+    output_path: str
 ):
     """
-    Create an instruct omni-tokenizer from an instruct text tokenizer.
+    Add chat template and SFT sequences to a base omni-tokenizer.
 
     This function:
-    1. Calls create_base_tokenizer to add RESERVED_OMNI + vision tokens
-    2. Adds pre-tokenized SFT sequences to tokenizer config for Megatron-LM
-    3. Preserves the chat template from the instruct text tokenizer
+    1. Loads the base omni-tokenizer (which already has vision tokens)
+    2. Copies chat template from instruct text tokenizer
+    3. Adds pre-tokenized SFT sequences to tokenizer config for Megatron-LM
 
     Args:
-        text_tokenizer_path: Path to instruct text tokenizer (e.g., meta-llama/Llama-3.2-3B-Instruct)
-        vision_tokenizer_path: Path to vision tokenizer model
-        vision_tokenizer: Vision tokenizer name (e.g., "Emu3", "Emu3.5")
+        base_tokenizer_path: Path to base omni-tokenizer (created by create_base.py)
+        instruct_tokenizer_path: Path to instruct text tokenizer (for chat template)
         output_path: Path to save instruct omni-tokenizer
 
     Returns:
         Tuple of (tokenizer object, stats dict)
     """
 
-    print("=" * 60)
+    print("="*60)
     print("CREATING OMNI-TOKENIZER (INSTRUCT)")
-    print("=" * 60)
+    print("="*60)
 
-    # Step 1: Create base tokenizer (adds RESERVED_OMNI + vision tokens)
-    print("\nStep 1: Adding vision tokens to instruct text tokenizer...")
-    print("=" * 60)
+    # Step 1: Load base omni-tokenizer
+    print(f"\nStep 1: Loading base omni-tokenizer from {base_tokenizer_path}...")
+    print("="*60)
 
-    tokenizer, base_stats = create_base_tokenizer(
-        text_tokenizer_path=text_tokenizer_path,
-        vision_tokenizer_path=vision_tokenizer_path,
-        vision_tokenizer=vision_tokenizer,
-        output_path=output_path,
-    )
+    tokenizer = AutoTokenizer.from_pretrained(base_tokenizer_path)
+    print(f"  ✓ Loaded tokenizer with vocab size: {len(tokenizer):,}")
 
-    # Update stats for instruct type
-    stats = base_stats.copy()
-    stats["tokenizer_type"] = "instruct"
-    stats["sft_sequences_added"] = False
+    # Verify it's an omni-tokenizer (has vision tokens)
+    if "<|img_start|>" not in tokenizer.get_vocab():
+        raise ValueError(
+            f"Base tokenizer at {base_tokenizer_path} does not have <|img_start|> token. "
+            f"Please create it first using create_base.py"
+        )
+    print("  ✓ Verified: base tokenizer has vision tokens")
 
-    # Step 2: Add SFT sequences for Megatron-LM
-    print("\n" + "=" * 60)
-    print("Step 2: Adding SFT sequences for Megatron-LM")
-    print("=" * 60)
+    # Step 2: Load instruct tokenizer for chat template
+    print(f"\nStep 2: Loading instruct tokenizer from {instruct_tokenizer_path}...")
+    print("="*60)
 
+    instruct_tokenizer = AutoTokenizer.from_pretrained(instruct_tokenizer_path)
+    chat_template = instruct_tokenizer.chat_template
+    if not chat_template:
+        raise ValueError(
+            f"Instruct tokenizer at {instruct_tokenizer_path} does not have a chat template."
+        )
+    print("  ✓ Loaded chat template from instruct tokenizer")
+
+    # Copy base tokenizer to output path if different
+    if os.path.abspath(base_tokenizer_path) != os.path.abspath(output_path):
+        print(f"\n  Copying base tokenizer to {output_path}...")
+        if os.path.exists(output_path):
+            shutil.rmtree(output_path)
+        shutil.copytree(base_tokenizer_path, output_path)
+        print("  ✓ Copied base tokenizer")
+
+    # Load config
     config_path = os.path.join(output_path, "tokenizer_config.json")
-    with open(config_path, "r") as f:
+    with open(config_path, 'r') as f:
         config = json.load(f)
 
-    # Auto-detect chat template format from the tokenizer
-    chat_template = config.get("chat_template", "")
+    # Add chat template to config
+    config['chat_template'] = chat_template
 
-    # Detect LLaMA-3 vs Mistral style
-    if "<|start_header_id|>" in chat_template:
+    # Build stats
+    stats = {
+        "base_tokenizer": base_tokenizer_path,
+        "instruct_tokenizer": instruct_tokenizer_path,
+        "tokenizer_type": "instruct",
+        "vocab_size": config.get('vocab_size', len(tokenizer)),
+        "sft_sequences_added": False
+    }
+
+    # Step 3: Add SFT sequences for Megatron-LM
+    print("\n" + "="*60)
+    print("Step 3: Adding SFT sequences for Megatron-LM")
+    print("="*60)
+
+    # Detect chat template style
+    if '<|start_header_id|>' in chat_template:
         # LLaMA-3 style
-        user_header = "<|start_header_id|>user<|end_header_id|>"
-        assistant_header = "<|start_header_id|>assistant<|end_header_id|>"
-        eot_token = "<|eot_id|>"
+        user_header = '<|start_header_id|>user<|end_header_id|>'
+        assistant_header = '<|start_header_id|>assistant<|end_header_id|>'
+        eot_token = '<|eot_id|>'
         print("  ✓ Detected LLaMA-3 style chat template")
-    elif "[INST]" in chat_template:
-        # Mistral/Mixtral style
-        user_header = "[INST]"
-        assistant_header = "[/INST]"
-        eot_token = "</s>"
-        print("  ✓ Detected Mistral/Mixtral style chat template")
+    elif '<|user_start|>' in chat_template:
+        # Apertus style (ChatML-like)
+        user_header = '<|user_start|>'
+        assistant_header = '<|assistant_start|>'
+        eot_token = '<|assistant_end|>'
+        print("  ✓ Detected Apertus style chat template")
     else:
-        # Raise error for unsupported formats
         raise ValueError(
-            f"Unsupported chat template format. Only LLaMA-3 and Mistral/Mixtral styles are supported.\n"
-            f"Expected '<|start_header_id|>' (LLaMA-3) or '[INST]' (Mistral) in chat template."
+            f"Unsupported chat template format. Supported styles are:\n"
+            f"- LLaMA-3 (with '<|start_header_id|>')\n"
+            f"- Apertus (with '<|user_start|>')\n"
+            f"Found chat template does not match any known format."
         )
 
-    # Add pre-tokenized SFT sequences
-    config["sft_user_begin_sequence"] = tokenizer.encode(user_header, add_special_tokens=False)
-    config["sft_assistant_begin_sequence"] = tokenizer.encode(assistant_header, add_special_tokens=False)
-    config["sft_eot_token"] = tokenizer.encode(eot_token, add_special_tokens=False)
-    config["img_begin_token"] = tokenizer.encode("<|img_start|>", add_special_tokens=False)
-    config["img_end_token"] = tokenizer.encode("<|img_end|>", add_special_tokens=False)
+    # Add pre-tokenized SFT sequences (using base omni-tokenizer which has correct single-token IDs)
+    config['sft_user_begin_sequence'] = tokenizer.encode(
+        user_header,
+        add_special_tokens=False
+    )
+    config['sft_assistant_begin_sequence'] = tokenizer.encode(
+        assistant_header,
+        add_special_tokens=False
+    )
+    config['sft_eot_token'] = tokenizer.encode(
+        eot_token,
+        add_special_tokens=False
+    )
+    config['img_begin_token'] = tokenizer.encode(
+        '<|img_start|>',
+        add_special_tokens=False
+    )
+    config['img_end_token'] = tokenizer.encode(
+        '<|img_end|>',
+        add_special_tokens=False
+    )
 
     print(f"  ✓ sft_user_begin_sequence: {config['sft_user_begin_sequence']} ({user_header})")
     print(f"  ✓ sft_assistant_begin_sequence: {config['sft_assistant_begin_sequence']} ({assistant_header})")
     print(f"  ✓ sft_eot_token: {config['sft_eot_token']} ({eot_token})")
-    print(f"  ✓ img_begin_token: {config['img_begin_token']}")
-    print(f"  ✓ img_end_token: {config['img_end_token']}")
-    stats["sft_sequences_added"] = True
+    print(f"  ✓ img_begin_token: {config['img_begin_token']} (<|img_start|>)")
+    print(f"  ✓ img_end_token: {config['img_end_token']} (<|img_end|>)")
+    stats['sft_sequences_added'] = True
 
     # Save updated config
-    with open(config_path, "w") as f:
+    with open(config_path, 'w') as f:
         json.dump(config, f, indent=2)
 
     # Update vision_token_mapping.json with instruct type
     mapping_path = os.path.join(output_path, "vision_token_mapping.json")
     if os.path.exists(mapping_path):
-        with open(mapping_path, "r") as f:
+        with open(mapping_path, 'r') as f:
             mapping = json.load(f)
 
-        mapping["tokenizer_type"] = "instruct"
+        mapping['tokenizer_type'] = 'instruct'
 
-        with open(mapping_path, "w") as f:
+        with open(mapping_path, 'w') as f:
             json.dump(mapping, f, indent=2)
 
     # Verification
-    print("\n" + "=" * 60)
+    print("\n" + "="*60)
     print("VERIFICATION - Chat Template & SFT Tokens")
-    print("=" * 60)
+    print("="*60)
 
-    # Verify chat template exists
-    if hasattr(tokenizer, "chat_template") and tokenizer.chat_template:
-        print("  ✓ Chat template preserved from instruct text tokenizer")
-    else:
-        print("  ⚠️  No chat template found")
+    print("  ✓ Chat template added from instruct tokenizer")
 
     # Check chat template tokens
     print("\nChat template tokens:")
@@ -150,91 +183,68 @@ def create_instruct_tokenizer(
             token_id = tokenizer.convert_tokens_to_ids(token)
             print(f"  {token}: ID {token_id}")
 
-    # Check image token
+    # Check image tokens
     print("\nImage structure tokens:")
-    image_token_id = tokenizer.convert_tokens_to_ids("<|image|>")
-    if image_token_id != tokenizer.unk_token_id:
-        print(f"  <|image|>: ID {image_token_id}")
+    for token in ["<|image|>", "<|img_start|>", "<|img_end|>"]:
+        token_id = tokenizer.convert_tokens_to_ids(token)
+        if token_id != tokenizer.unk_token_id:
+            print(f"  {token}: ID {token_id}")
 
-    img_start_id = tokenizer.convert_tokens_to_ids("<|img_start|>")
-    if img_start_id != tokenizer.unk_token_id:
-        print(f"  <|img_start|>: ID {img_start_id}")
-
-    img_end_id = tokenizer.convert_tokens_to_ids("<|img_end|>")
-    if img_end_id != tokenizer.unk_token_id:
-        print(f"  <|img_end|>: ID {img_end_id}")
-
-    print("\n" + "=" * 60)
+    print("\n" + "="*60)
 
     return tokenizer, stats
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Create instruct omni-tokenizer from instruct text tokenizer",
+        description="Add chat template and SFT sequences to a base omni-tokenizer",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Create instruct tokenizer with Emu3
   python create_instruct.py \\
-      --text-tokenizer-path meta-llama/Llama-3.2-3B-Instruct \\
-      --vision-tokenizer-path BAAI/Emu3-VisionTokenizer \\
-      --vision-tokenizer Emu3 \\
-      --output-path ./llama3_emu3_omni_instruct
-
-  # Create instruct tokenizer with Emu3.5
-  python create_instruct.py \\
-      --text-tokenizer-path meta-llama/Llama-3.2-3B-Instruct \\
-      --vision-tokenizer-path /path/to/Emu3.5-VisionTokenizer \\
-      --vision-tokenizer Emu3.5 \\
-      --output-path ./llama3_emu3.5_omni_instruct
-
-  # Use Mixtral instruct tokenizer
-  python create_instruct.py \\
-      --text-tokenizer-path mistralai/Mixtral-8x7B-Instruct-v0.1 \\
-      --vision-tokenizer-path BAAI/Emu3-VisionTokenizer \\
-      --vision-tokenizer Emu3 \\
-      --output-path ./mixtral_emu3_omni_instruct
-        """,
+      --base-tokenizer-path /path/to/llama3_emu3_base \\
+      --instruct-tokenizer-path meta-llama/Llama-3.2-3B-Instruct \\
+      --output-path /path/to/llama3_emu3_instruct
+        """
     )
 
     parser.add_argument(
-        "--text-tokenizer-path",
+        "--base-tokenizer-path",
         type=str,
         required=True,
-        help="Path to instruct text tokenizer (e.g., meta-llama/Llama-3.2-3B-Instruct)",
+        help="Path to base omni-tokenizer (created by create_base.py)"
     )
-    parser.add_argument("--vision-tokenizer-path", type=str, required=True, help="Path to vision tokenizer model")
     parser.add_argument(
-        "--vision-tokenizer",
+        "--instruct-tokenizer-path",
         type=str,
         required=True,
-        choices=["Emu3", "Emu3.5"],
-        help="Vision tokenizer type (Emu3 or Emu3.5)",
+        help="Path or HuggingFace model ID for instruct text tokenizer (for chat template)"
     )
-    parser.add_argument("--output-path", type=str, required=True, help="Path to save instruct omni-tokenizer")
+    parser.add_argument(
+        "--output-path",
+        type=str,
+        required=True,
+        help="Path to save instruct omni-tokenizer"
+    )
 
     args = parser.parse_args()
 
     # Create instruct omni-tokenizer
     tokenizer, stats = create_instruct_tokenizer(
-        text_tokenizer_path=args.text_tokenizer_path,
-        vision_tokenizer_path=args.vision_tokenizer_path,
-        vision_tokenizer=args.vision_tokenizer,
-        output_path=args.output_path,
+        base_tokenizer_path=args.base_tokenizer_path,
+        instruct_tokenizer_path=args.instruct_tokenizer_path,
+        output_path=args.output_path
     )
 
-    print("\n" + "=" * 60)
+    print("\n" + "="*60)
     print("INSTRUCT OMNI-TOKENIZER CREATION SUMMARY")
-    print("=" * 60)
-    print(f"Text tokenizer:           {stats['text_tokenizer']}")
-    print(f"Vision tokenizer:         {stats['vision_tokenizer']}")
-    print(f"Tokenizer type:           {stats['tokenizer_type']}")
-    print(f"Final vocabulary size:    {stats['final_vocab_size']:,}")
-    print(f"RESERVED_OMNI added:      {stats['reserved_omni_added']}")
-    print(f"Vision tokens added:      {stats['vision_tokens_added']:,}")
-    print(f"SFT sequences added:      {'✓' if stats['sft_sequences_added'] else '✗'}")
-    print("=" * 60)
+    print("="*60)
+    print(f"Base tokenizer:      {stats['base_tokenizer']}")
+    print(f"Instruct tokenizer:  {stats['instruct_tokenizer']}")
+    print(f"Tokenizer type:      {stats['tokenizer_type']}")
+    print(f"Vocabulary size:     {stats['vocab_size']:,}")
+    print(f"SFT sequences added: {'✓' if stats['sft_sequences_added'] else '✗'}")
+    print("="*60)
     print("\n✅ Instruct omni-tokenizer created successfully!")
     print(f"   Saved to: {args.output_path}")
 
