@@ -51,6 +51,7 @@ class BaseBenchmark(ABC):
         self.vlm = vlm
         self.results_dir = Path(results_dir)
         self.debug = debug
+        print(f"DEBUG ACTIVATED?: {self.debug}")
 
         # Initialize metrics
         metric_names = metrics if metrics is not None else self.METRICS

@@ -23,11 +23,11 @@ def to_apertus_format(text: str, img_right: bool = False) -> List[dict]:
         "content": {"parts": []},
     }
     if img_right:
-        conv_dict["content"]["parts"].append({"type": "image"})
         conv_dict["content"]["parts"].append({"type": "text", "text": text})
+        conv_dict["content"]["parts"].append({"type": "image"})
     else:
-        conv_dict["content"]["parts"].append({"type": "text", "text": text})
         conv_dict["content"]["parts"].append({"type": "image"})
+        conv_dict["content"]["parts"].append({"type": "text", "text": text})
     messages.append(conv_dict)
     return messages
 
