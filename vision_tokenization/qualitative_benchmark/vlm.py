@@ -33,6 +33,40 @@ class InferenceArgs:
         self.min_emu_aspect_ratio = min_emu_aspect_ratio
         self.prompt_builder = prompt_builder
 
+    def __repr__(self) -> str:
+        """Return a string representation of the inference arguments."""
+        return (
+            f"InferenceArgs("
+            f"apply_chat_template={self.apply_chat_template}, "
+            f"temperature={self.temperature}, "
+            f"top_p={self.top_p}, "
+            f"max_new_tokens={self.max_new_tokens}, "
+            f"max_emu_aspect_ratio={self.max_emu_aspect_ratio}, "
+            f"min_emu_aspect_ratio={self.min_emu_aspect_ratio}, "
+            f"stop_token_ids={self.stop_token_ids}, "
+            f"chat_transform={self.chat_transform!r}, "
+            f"img_right={self.img_right}, "
+            f"prompt_builder={self.prompt_builder!r}"
+            f")"
+        )
+
+    def __str__(self) -> str:
+        """Return a human-readable string representation of the inference arguments."""
+        lines = [
+            "Inference Configuration:",
+            f"  Apply chat template: {self.apply_chat_template}",
+            f"  Temperature: {self.temperature}",
+            f"  Top-p: {self.top_p}",
+            f"  Max new tokens: {self.max_new_tokens}",
+            f"  Max EMU aspect ratio: {self.max_emu_aspect_ratio}",
+            f"  Min EMU aspect ratio: {self.min_emu_aspect_ratio}",
+            f"  Stop token IDs: {self.stop_token_ids}",
+            f"  Chat transform: {self.chat_transform if self.chat_transform else 'None'}",
+            f"  Image right: {self.img_right}",
+            f"  Prompt builder: {self.prompt_builder if self.prompt_builder else 'None'}",
+        ]
+        return "\n".join(lines)
+
 
 class VLM(object):
     """Class to initialize and run VLM inference with pluggable vision v_tokenizers and utils."""
@@ -62,10 +96,12 @@ class VLM(object):
         self.model_path = model_path
         self.tokenizer_path = tokenizer_path
 
-        # Extract stop tokens from tokenizer
+        # Extract stop tokens from tokenizer TODO: hardcoded for now, may later want to try to load from GenerationConfig
         stop_tokens = []
         if hasattr(self.inferencer.txt_tokenizer, "eos_token_id") and self.inferencer.txt_tokenizer.eos_token_id:
             stop_tokens.append(self.inferencer.txt_tokenizer.eos_token_id)
+        if hasattr(self.inferencer.txt_tokenizer.init_kwargs, "sft_eot_token") and self.inferencer.txt_tokenizer.init_kwargs["sft_eot_token"]:
+            stop_tokens.append(self.inferencer.txt_tokenizer.init_kwargs["sft_eot_token"])
         self.inf_args.stop_token_ids = stop_tokens
 
         # Determine inferencer name for logging
