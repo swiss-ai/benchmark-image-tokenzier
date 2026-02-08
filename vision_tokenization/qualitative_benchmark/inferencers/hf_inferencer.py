@@ -116,17 +116,17 @@ class HFInferencer(BaseInferencer):
 
         # Debug: Print prompt token IDs and text
         if debug:
-            print("\n" + "=" * 80)
-            print("[HF INFERENCER DEBUG] Prompt Token IDs:")
-            print(f"  Total prompt length: {len(input_ids)} tokens")
-            print(f"  First 10 token IDs: {input_ids[:10]}")
-            print(f"  Last 10 token IDs: {input_ids[-10:]}")
+            print("\n" + "=" * 80, flush=True)
+            print("[HF INFERENCER DEBUG] Prompt Token IDs:", flush=True)
+            print(f"  Total prompt length: {len(input_ids)} tokens", flush=True)
+            print(f"  First 30 token IDs: {input_ids[:30]}", flush=True)
+            print(f"  Last 30 token IDs: {input_ids[-30:]}", flush=True)
 
             # Decode first and last 10 tokens
-            first_10_text = self._txt_tokenizer.decode(input_ids[:10], skip_special_tokens=False)
-            last_10_text = self._txt_tokenizer.decode(input_ids[-10:], skip_special_tokens=False)
-            print(f"\n  First 10 tokens as text:\n    {repr(first_10_text)}")
-            print(f"\n  Last 10 tokens as text:\n    {repr(last_10_text)}")
+            first_30_text = self._txt_tokenizer.decode(input_ids[:30], skip_special_tokens=False)
+            last_30_text = self._txt_tokenizer.decode(input_ids[-30:], skip_special_tokens=False)
+            print(f"\n  First 10 tokens as text:\n    {repr(first_30_text)}", flush=True)
+            print(f"\n  Last 10 tokens as text:\n    {repr(last_30_text)}", flush=True)
             print("=" * 80 + "\n")
 
         # Convert to tensor

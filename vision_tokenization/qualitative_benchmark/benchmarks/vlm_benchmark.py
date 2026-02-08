@@ -103,10 +103,10 @@ class VLMBenchmark(BaseBenchmark):
                     debug_this_sample = self.debug and sample_num <= 3
 
                     if debug_this_sample:
-                        print(f"\n{'='*60}")
-                        print(f"[DEBUG] Sample {sample_num}: {Path(image['path']).name}")
-                        print(f"[DEBUG] Prompt: {prompt['text'][:80]}...")
-                        print(f"{'='*60}")
+                        print(f"\n{'='*60}", flush=True)
+                        print(f"[DEBUG] Sample {sample_num}: {Path(image['path']).name}", flush=True)
+                        print(f"[DEBUG] Prompt: {prompt['text'][:80]}...", flush=True)
+                        print(f"{'='*60}", flush=True)
 
                     # Run VLM generation
                     final_prompt = self.vlm.preprocess(image["path"], prompt["text"])
