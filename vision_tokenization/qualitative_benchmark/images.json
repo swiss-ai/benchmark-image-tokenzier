@@ -62,5 +62,25 @@
     {
         "path": "assets/spark_2.jpg",
         "tags": ["general", "natural_image", "objects"]
+    },
+    {
+        "path": "assets/latexformulas80M_bmsample01.jpg",
+        "tags": ["math", "ocr", "document"]
+    },
+    {
+        "path": "assets/latexformulas80m_bmsample02.jpg",
+        "tags": ["math", "ocr", "document"]
+    },
+    {
+        "path": "assets/medmnist_train_01.tif",
+        "tags": ["general", "medical"]
+    },
+    {
+        "path": "assets/medmnist_train_02.tif",
+        "tags": ["general", "medical"]
+    },
+    {
+        "path": "assets/medmnist_train_03.tif",
+        "tags": ["general", "medical"]
     }
 ]
