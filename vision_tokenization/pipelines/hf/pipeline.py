@@ -502,7 +502,7 @@ class HFDatasetPipeline(BasePipeline):
         total_processed = ray.get(self.progress_actor.close.remote())
 
         # At the end, read ALL shard stats from shard_stats/ directory
-        # This accumulates stats from both old shards (if resumed) and newly completed shards
+        # This accumulates stats from both old_apertus shards (if resumed) and newly completed shards
         self.logger.info("Reading all shard statistics files...")
         all_shard_stats = self._load_completed_shard_stats()
 

@@ -32,7 +32,7 @@ class CaptioningBenchmark(BaseBenchmark):
     """
 
     name: ClassVar[str] = "captioning"
-    METRICS: ClassVar[List[str]] = ["clip_score"]
+    METRICS: ClassVar[List[str]] = ["clip_score", "polos_score"]
 
     def __init__(
         self,
@@ -120,6 +120,8 @@ class CaptioningBenchmark(BaseBenchmark):
 
                         if metrics_dict.get("clip_score") is not None:
                             print(f"   CLIP score: {metrics_dict['clip_score']:.4f}")
+                        if metrics_dict.get("polos_score") is not None:
+                            print(f"   POLOS score: {metrics_dict['polos_score']:.4f}")
 
                 except Exception as e:
                     print(f"   Warning: Failed to compute metrics: {e}")

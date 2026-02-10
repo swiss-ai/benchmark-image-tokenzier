@@ -336,6 +336,14 @@ main {
     margin-top: 0.5rem;
 }
 
+.tiff-note {
+    font-size: 0.8rem;
+    color: #f39c12;
+    font-style: italic;
+    margin-top: 0.25rem;
+    margin-bottom: 0.25rem;
+}
+
 .prompt-text {
     color: #34495e;
     font-size: 1rem;

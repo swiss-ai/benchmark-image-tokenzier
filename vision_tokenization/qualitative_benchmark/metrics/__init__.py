@@ -68,6 +68,7 @@ def list_metrics() -> List[str]:
 # These imports must come after the registry is defined
 from vision_tokenization.qualitative_benchmark.metrics.completion_quality import CompletionQualityMetric
 from vision_tokenization.qualitative_benchmark.metrics.clip_score import CLIPScoreMetric
+from vision_tokenization.qualitative_benchmark.metrics.polos_score import POLOSMetric
 
 __all__ = [
     "BaseMetric",
@@ -77,4 +78,5 @@ __all__ = [
     "list_metrics",
     "CompletionQualityMetric",
     "CLIPScoreMetric",
+    "POLOSMetric",
 ]

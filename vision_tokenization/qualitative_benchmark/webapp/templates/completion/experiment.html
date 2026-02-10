@@ -256,6 +256,9 @@
                     <div class="comparison-image-panel original">
                         <h4>Original Image</h4>
                         <img src="/{{ run.image.path }}" alt="Original image" loading="lazy">
+                        {% if run.image.path.lower().endswith(('.tif', '.tiff')) %}
+                        <p class="tiff-note">Note: TIFF image converted to PNG for web display</p>
+                        {% endif %}
                         <div class="image-info">
                             <p><strong>Token dimensions:</strong> {{ run.image.token_dimensions.height }} x {{ run.image.token_dimensions.width }}</p>
                             <p><strong>Total rows:</strong> {{ run.original_image_rows }}</p>
@@ -341,7 +344,7 @@
                         </div>
                     </div>
 
-                    <!-- Metrics (handles both old perceptual_metrics and new metrics format) -->
+                    <!-- Metrics (handles both old_apertus perceptual_metrics and new metrics format) -->
                     {% if run_metrics %}
                     <div class="perceptual-metrics-section">
                         <h4>Metrics</h4>

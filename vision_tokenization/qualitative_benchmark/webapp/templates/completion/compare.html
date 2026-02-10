@@ -155,6 +155,9 @@
                 <div class="original-image-column">
                     <h4>Original</h4>
                     <img src="/{{ item.image_path }}" alt="Original image" loading="lazy">
+                    {% if item.image_path.lower().endswith(('.tif', '.tiff')) %}
+                    <p class="tiff-note">Note: TIFF image converted to PNG for web display</p>
+                    {% endif %}
                 </div>
 
                 <!-- Completed Images from each experiment -->

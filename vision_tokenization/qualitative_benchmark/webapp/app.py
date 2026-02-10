@@ -12,7 +12,7 @@ import argparse
 import json
 from pathlib import Path
 
-from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, url_for
+from flask import Flask, jsonify, redirect, render_template, request, send_file, send_from_directory, url_for
 
 app = Flask(__name__)
 
@@ -118,7 +118,7 @@ def get_all_tags(results):
 
 def _get_run_metrics(run):
     """
-    Get metrics from a run, handling both old (perceptual_metrics) and new (metrics) format.
+    Get metrics from a run, handling both old_apertus (perceptual_metrics) and new (metrics) format.
 
     Args:
         run: Run dictionary from results
@@ -126,7 +126,7 @@ def _get_run_metrics(run):
     Returns:
         Dictionary of metrics, or None if no metrics present
     """
-    # Try new format first, then fall back to old format
+    # Try new format first, then fall back to old_apertus format
     metrics = run.get("metrics")
     if metrics:
         return metrics
@@ -874,7 +874,45 @@ def api_experiment_results(experiment_name):
 @app.route("/assets/<path:filename>")
 def serve_asset(filename):
     """Serve image assets."""
+    # Check if the file is a TIFF image (which browsers don't support natively)
+    if filename.lower().endswith(('.tif', '.tiff')):
+        return serve_tiff_as_png(filename)
+    
     return send_from_directory(ASSETS_BASE_DIR, filename)
+
+
+def serve_tiff_as_png(filename):
+    """Convert TIFF image to PNG and serve it."""
+    from PIL import Image
+    import io
+    
+    try:
+        # Open the TIFF file
+        tiff_path = ASSETS_BASE_DIR / filename
+        if not tiff_path.exists():
+            return "File not found", 404
+            
+        img = Image.open(tiff_path)
+        
+        # Convert to PNG in memory
+        png_buffer = io.BytesIO()
+        img.save(png_buffer, format='PNG')
+        png_buffer.seek(0)
+        
+        # Return as PNG with appropriate headers
+        return send_file(
+            png_buffer,
+            mimetype='image/png',
+            as_attachment=False,
+            download_name=filename.replace('.tif', '.png').replace('.tiff', '.png')
+        )
+        
+    except Exception as e:
+        # If conversion fails, try to serve the original file
+        try:
+            return send_from_directory(ASSETS_BASE_DIR, filename)
+        except Exception:
+            return f"Error serving image: {str(e)}", 500
 
 
 @app.route("/results/<path:filename>")

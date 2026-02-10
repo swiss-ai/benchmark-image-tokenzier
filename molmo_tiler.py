@@ -141,7 +141,7 @@ class MultiModalPreprocessor:
     image_start_token_id: int = dataclasses.field(init=False)
     image_end_token_id: int = dataclasses.field(init=False)
 
-    # Keep here for compatibility with the old code for now
+    # Keep here for compatibility with the old_apertus code for now
     def __post_init__(self):
         self.image_end_token_id = 0
         self.image_start_token_id = 0
