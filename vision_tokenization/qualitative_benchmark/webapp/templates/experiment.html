@@ -96,6 +96,9 @@
                     <div class="result-image">
                         <h4>Image</h4>
                         <img src="/{{ run.image.path }}" alt="Input image" loading="lazy">
+                        {% if run.image.path.lower().endswith(('.tif', '.tiff')) %}
+                        <p class="tiff-note">Note: TIFF image converted to PNG for web display</p>
+                        {% endif %}
                         <div class="tags">
                             {% for tag in run.image.tags %}
                             <span class="tag tag-image">{{ tag }}</span>

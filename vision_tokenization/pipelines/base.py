@@ -704,7 +704,7 @@ class BaseTokenizerWorker:
         self.stats["throughput_tokens"] = self.stats["tokens_generated"] / elapsed if elapsed > 0 else 0
         self.stats["throughput_samples"] = self.stats["samples_processed"] / elapsed if elapsed > 0 else 0
 
-        # Keep old "throughput" key for backward compatibility (same as throughput_tokens)
+        # Keep old_apertus "throughput" key for backward compatibility (same as throughput_tokens)
         self.stats["throughput"] = self.stats["throughput_tokens"]
 
         msg = self.format_stats_message(f"Worker {self.worker_id} finished", self.stats, elapsed)

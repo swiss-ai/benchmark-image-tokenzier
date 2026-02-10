@@ -405,6 +405,41 @@ qualitative_benchmark/
 
 ---
 
+## POLOS Metric (Optional)
+
+[POLOS](https://github.com/keio-smilab24/Polos) (CVPR 2024) is a reference-free image captioning metric that correlates well with human judgments. It is available alongside CLIP score in captioning benchmarks.
+
+### Why an Isolated Environment?
+
+POLOS requires Python <=3.10, pytorch-lightning <=1.3, and other dependencies that conflict with the main project. It runs in an isolated subprocess with its own venv, managed by `uv`.
+
+### Setup
+
+```bash
+python -m vision_tokenization.qualitative_benchmark.metrics.setup_polos
+```
+
+The setup script will:
+1. Check for `uv` (and offer to install it)
+2. Install Python 3.10 via `uv`
+3. Create an isolated venv at `metrics/.polos_env/`
+4. Install POLOS and download its model weights
+5. Validate the installation with a test run
+
+After setup, POLOS scores appear automatically in captioning benchmark results. If the venv is not set up, the metric is silently skipped and the benchmark continues with CLIP score only.
+
+### Troubleshooting
+
+**`uv` not found:** Install from https://docs.astral.sh/uv/getting-started/installation/ or run `curl -LsSf https://astral.sh/uv/install.sh | sh`.
+
+**Python 3.10 issues:** Run `uv python install 3.10` manually. If on an older OS, you may need to install Python 3.10 system-wide first.
+
+**POLOS model download fails:** Check network access. The model is downloaded on first use via `polos.models.download_model("polos")`.
+
+**To reinstall from scratch:** Delete `metrics/.polos_env/` and re-run the setup script.
+
+---
+
 ## Troubleshooting
 
 ### VLM Benchmark Issues
