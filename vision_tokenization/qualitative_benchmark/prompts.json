@@ -65,13 +65,18 @@
             "require_all_tags": true
         },
         {
-            "text": "What mathematical expressions or equations are present in the image?",
+            "text": "Extract all math from this image and transcribe it in LaTeX format.",
             "tags": ["math", "ocr"],
             "require_all_tags": true
         },
         {
             "text": "Solve the mathematical problem shown in the image.",
-            "tags": ["math", "ocr"],
+            "tags": ["math"],
+            "require_all_tags": true
+        },
+        {
+            "text": "You are a helpful medical assistant. What can you see in this image?",
+            "tags": ["medical"],
             "require_all_tags": true
         }
     ]

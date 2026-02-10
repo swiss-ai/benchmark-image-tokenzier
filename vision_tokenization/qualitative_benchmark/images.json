@@ -65,11 +65,11 @@
     },
     {
         "path": "assets/latexformulas80M_bmsample01.jpg",
-        "tags": ["math", "ocr", "document"]
+        "tags": ["math", "ocr"]
     },
     {
         "path": "assets/latexformulas80m_bmsample02.jpg",
-        "tags": ["math", "ocr", "document"]
+        "tags": ["math", "ocr"]
     },
     {
         "path": "assets/medmnist_train_01.tif",
