@@ -4,10 +4,10 @@
 #SBATCH --environment=emu3
 #SBATCH --nodes=1
 #SBATCH --exclusive
-#SBATCH --partition=normal
+#SBATCH --partition=debug
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=285
-#SBATCH --time=12:00:00
+#SBATCH --time=01:00:00
 #SBATCH --output=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/instruct_tok_%j.out
 #SBATCH --error=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/instruct_tok_%j.err
 
@@ -119,7 +119,7 @@ if [ "$DEBUG_MODE" = true ]; then
     # Debug mode: override config with small dataset parameters
     python -m vision_tokenization.tokenize \
         --output-dir "${OUTPUT_DIR}" \
-        --num-gpus 1 \
+        --num-gpus 2 \
         --log-interval 100 \
         hf \
         --config "${CONFIG_PATH}" \

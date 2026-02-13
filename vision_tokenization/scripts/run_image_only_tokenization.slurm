@@ -23,7 +23,7 @@
 PROJECT_ROOT="/iopsstor/scratch/cscs/${USER}/benchmark-image-tokenizer"
 
 # Configuration
-CONFIG_PATH="${PROJECT_ROOT}/vision_tokenization/configs/llava_onevision_midtrain_image_only_to_emu3.5_apertus.json"
+CONFIG_PATH="${PROJECT_ROOT}/vision_tokenization/configs/apertus_s1_medical/medical-ddti-imgonly-emu3p5.json"
 
 # Hub cache location
 HF_HUB_CACHE="${HF_HUB_CACHE:-/capstor/store/cscs/swissai/infra01/vision-datasets/hf_hub_cache}"
@@ -123,7 +123,7 @@ if [ "$DEBUG_MODE" = true ]; then
         hf \
         --config "${CONFIG_PATH}" \
         --dataset-split "train[:1000]" \
-        --num-shards 2 \
+        --num-shards 6 \
         ${RESUME_FLAG}
 else
     echo "Running in NORMAL mode (full dataset)"

@@ -2,14 +2,16 @@
 #SBATCH --account=a-infra01
 #SBATCH --job-name=multinode-tok
 #SBATCH --environment=emu3
-#SBATCH --nodes=8
+#SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --partition=normal
+#SBATCH --reservation=PA-2338-RL
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=285
 #SBATCH --time=12:00:00
 #SBATCH --output=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/multinode_tok_%j.out
 #SBATCH --error=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/multinode_tok_%j.err
+#SBATCH --dependency=afterany:1513677
 
 ###################### Multi-Node Tokenization Wrapper ######################
 # This script wraps existing single-node tokenization scripts to run on
@@ -20,11 +22,13 @@
 #   TOKENIZATION_MODE=instruct sbatch run_multinode_tokenization.slurm --debug
 #   TOKENIZATION_MODE=paired sbatch run_multinode_tokenization.slurm --resume
 #   TOKENIZATION_MODE=paired sbatch run_multinode_tokenization.slurm --offline
+#   TOKENIZATION_MODE=image_only sbatch run_multinode_tokenization.slurm --config /path/to/config.json
 #
 # Environment Variables:
 #   TOKENIZATION_MODE - Required: image_only, instruct, or paired
 #
 # Optional Arguments (passed to wrapped script):
+#   --config <path>  - Path to config JSON file (overrides default in wrapped script)
 #   --debug          - Run in debug mode (small dataset)
 #   --resume         - Resume from checkpoint
 #   --offline        - Enable HF datasets offline mode (only use cached datasets)
@@ -76,14 +80,24 @@ esac
 
 export ARGS="$@"
 
-# Check for --offline flag and enable offline mode for all nodes
+# Check for --offline and --config flags
 OFFLINE_MODE=false
-for arg in "$@"; do
-    if [ "$arg" = "--offline" ]; then
-        OFFLINE_MODE=true
-        export HF_DATASETS_OFFLINE=1
-        break
-    fi
+CONFIG_OVERRIDE=""
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --config)
+            CONFIG_OVERRIDE="$2"
+            shift 2
+            ;;
+        --offline)
+            OFFLINE_MODE=true
+            export HF_DATASETS_OFFLINE=1
+            shift
+            ;;
+        *)
+            shift
+            ;;
+    esac
 done
 
 echo "=================================================================================="
@@ -96,8 +110,9 @@ echo "GPUs/node:    ${GPUS_PER_NODE}"
 echo "Total GPUs:   ${TOTAL_GPUS}"
 echo "Master node:  ${MASTER_NODE} (${MASTER_NODE_IP})"
 echo "Job ID:       ${SLURM_JOB_ID}"
+echo "Config:       ${CONFIG_OVERRIDE:-<default from wrapped script>}"
 echo "Offline mode: ${OFFLINE_MODE}"
-echo "Arguments:    $@"
+echo "Arguments:    ${ARGS}"
 echo "=================================================================================="
 
 if [ "$OFFLINE_MODE" = true ]; then

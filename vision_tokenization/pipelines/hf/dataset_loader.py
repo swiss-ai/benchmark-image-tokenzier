@@ -12,7 +12,7 @@ import os
 import re
 from typing import Dict, Optional, Tuple
 
-from datasets import Dataset, load_dataset, load_dataset_builder
+from datasets import Dataset, load_dataset, load_dataset_builder, load_from_disk
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,7 @@ def get_builder_split_info(
     dataset_name: str,
     config_name: Optional[str] = None,
     cache_dir: Optional[str] = None,
+    dataset_load_method: str = "default",
 ) -> Dict[str, Dict[str, int]]:
     """
     Load dataset builder and extract split information without loading the dataset.
@@ -77,6 +78,7 @@ def get_builder_split_info(
         dataset_name: HF dataset name (e.g., "HuggingFaceM4/FineVision")
         config_name: Dataset configuration/subset name (e.g., "lrv_chart")
         cache_dir: Cache directory for dataset files
+        dataset_load_method: How to load the dataset ("default" or "disk_load")
 
     Returns:
         Dictionary mapping split names to their info:
@@ -97,11 +99,17 @@ def get_builder_split_info(
     config_info = f" (config: {config_name})" if config_name else ""
     logger.info(f"Loading builder for: {dataset_name}{config_info}")
 
-    if cache_dir is None:
-        logger.warning("No explicit cache_dir provided. " "Will use default: ~/.cache/huggingface/datasets")
-
-    builder = load_dataset_builder(dataset_name, name=config_name, cache_dir=cache_dir)
-    info = builder.info
+    if dataset_load_method == "disk_load":
+        # For datasets saved with save_to_disk, load_dataset_builder doesn't work.
+        # Use load_from_disk to get the dataset info directly.
+        logger.info(f"Using disk_load method to get split info from: {dataset_name}")
+        ds = load_from_disk(dataset_name)
+        info = ds.info
+    else:
+        if cache_dir is None:
+            logger.warning("No explicit cache_dir provided. " "Will use default: ~/.cache/huggingface/datasets")
+        builder = load_dataset_builder(dataset_name, name=config_name, cache_dir=cache_dir)
+        info = builder.info
 
     logger.info(f"=== Builder Split Info ===")
 
