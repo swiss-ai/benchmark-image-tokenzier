@@ -320,6 +320,7 @@ class HFDatasetPipeline(BasePipeline):
                 dataset_name=self.dataset_name,
                 config_name=self.config_name,
                 cache_dir=self.cache_dir,
+                dataset_load_method=self.dataset_load_method,
             )
 
             # Parse split string to handle slice notation (e.g., "train[:100]" or "train[:50%]")

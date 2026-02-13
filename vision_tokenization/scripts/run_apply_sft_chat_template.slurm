@@ -7,7 +7,7 @@
 #SBATCH --partition=normal
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=285
-#SBATCH --time=12:00:00
+#SBATCH --time=02:00:00
 #SBATCH --output=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/sft_chat_template_%j.out
 #SBATCH --error=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/sft_chat_template_%j.err
 
@@ -18,20 +18,20 @@
 #   sbatch run_apply_sft_chat_template.slurm --debug --dataset HuggingFaceM4/FineVision --dataset-config lrv_chart --tokenizer-path /path/to/tokenizer --output-dir /path/to/output
 #
 # Full example with Apertus EMU3.5 tokenizer and LLaVA-OneVision dataset:
-#   sbatch run_apply_sft_chat_template.slurm \
-#       --dataset mvp-lab/LLaVA-OneVision-1.5-Instruct-Data \
+#   sbatch run_apply_sft_chat_template.slurm
+#       --dataset mvp-lab/LLaVA-OneVision-1.5-Instruct-Data
 #       --dataset-config Evol-Instruct-GPT4-Turbo,amc_aime,aops_forum,cn_k12,code_feedback_66k,gsm8k,ifeval_like,magpie_pro,magpie_ultra,math,mathinstruct_262k,mathqa,olympiads,open_orca,openmathinstruct,orca_994k,orca_agentinstruct,synthetic_amc,synthetic_math,wizardlm \
-#       --output-dir /output \
-#       --tokenizer-path /capstor/store/cscs/swissai/infra01/MLLM/apertus_emu3.5_instruct_tokenizer \
-#       --conversation-transform llava_to_apertus \
-#       --transform-params '{"llava_to_apertus": {"add_image_placeholder": false}}'
+#       --output-dir /iopsstor/scratch/cscs/rkreft/benchmark-image-tokenizer/vision_tokenization/output
+#       --tokenizer-path /capstor/store/cscs/swissai/infra01/MLLM/apertus_emu3.5_instruct_tokenizer
+#       --conversation-transform llava_to_apertus
+#       --transform-params '{"llava_to_apertus":{"add_image_placeholder":false}}' --offline
 
 # Get the project root directory
 PROJECT_ROOT="/iopsstor/scratch/cscs/${USER}/benchmark-image-tokenizer"
 
 # Hub cache location
 HF_HUB_CACHE="${HF_HUB_CACHE:-/capstor/store/cscs/swissai/infra01/vision-datasets/hf_hub_cache}"
-HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-${HF_HUB_CACHE}}"
+HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-/capstor/store/cscs/swissai/infra01/vision-datasets/hf_datasets_cache}"
 
 # Defaults
 DEBUG_MODE=false
@@ -43,10 +43,10 @@ TOKENIZER_PATH=""
 OUTPUT_DIR=""
 DATASET_LOAD_METHOD="default"
 CONVERSATION_TRANSFORM=""
-NUM_PROC=64
+NUM_PROC=32
 MAX_SAMPLES=""
 OUTPUT_FORMAT="parquet"
-MESSAGE_COLUMN="texts"
+MESSAGE_COLUMN="conversations"
 TRANSFORM_PARAMS=""
 
 # Parse command-line arguments

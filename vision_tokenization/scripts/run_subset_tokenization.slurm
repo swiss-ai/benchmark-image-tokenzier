@@ -6,6 +6,7 @@
 #SBATCH --exclusive
 #SBATCH --partition=normal
 #SBATCH --ntasks-per-node=1
+#SBATCH --reservation=PA-2338-RL
 #SBATCH --cpus-per-task=285
 #SBATCH --time=12:00:00
 #SBATCH --output=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/subset_tok_%j.out
