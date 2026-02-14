@@ -57,6 +57,7 @@ class HFDatasetPipeline(BasePipeline):
         conversation_transform: Optional[str] = None,
         dataset_load_method: str = "default",
         dataset_streamed: bool = False,
+        data_files: Optional[str] = None,
         **kwargs,
     ):
         super().__init__(tokenizer_path, output_dir, num_gpus, device, **kwargs)
@@ -70,6 +71,7 @@ class HFDatasetPipeline(BasePipeline):
         self.num_shards = num_shards
         self.dataset_load_method = dataset_load_method
         self.dataset_streamed = dataset_streamed
+        self.data_files = data_files
 
         # Set tokenizer pixels with intelligent defaults
         # If min_image_pixels is set but min_tokenizer_pixels is not, use min_image_pixels
@@ -344,6 +346,7 @@ class HFDatasetPipeline(BasePipeline):
             "total_samples": self.dataset_size,
             "load_method": self.dataset_load_method,
             "dataset_streamed": self.dataset_streamed,
+            "data_files": self.data_files,
             "log_interval": self.kwargs.get("log_interval", 1000),
         }
 

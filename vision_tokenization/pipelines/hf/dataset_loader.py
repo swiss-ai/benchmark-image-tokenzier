@@ -359,6 +359,7 @@ def _load_with_default_method(
     cache_dir: Optional[str],
     num_proc: Optional[int],
     streaming: bool,
+    data_files: Optional[str] = None,
 ) -> Dataset:
     """Load dataset using load_dataset()."""
     if streaming and num_proc is not None:
@@ -368,6 +369,12 @@ def _load_with_default_method(
         )
         num_proc = None
 
+    # Parse data_files: comma-separated string -> list (or single string)
+    parsed_data_files = None
+    if data_files:
+        parts = [p.strip() for p in data_files.split(",")]
+        parsed_data_files = parts if len(parts) > 1 else parts[0]
+
     return load_dataset(
         dataset_name,
         name=config_name,
@@ -375,6 +382,7 @@ def _load_with_default_method(
         cache_dir=cache_dir,
         num_proc=num_proc,
         streaming=streaming,
+        data_files=parsed_data_files,
     )
 
 
@@ -385,9 +393,15 @@ def _load_with_builder_method(
     cache_dir: Optional[str],
     num_proc: Optional[int],
     streaming: bool,
+    data_files: Optional[str] = None,
 ) -> Dataset:
     """Load dataset using builder.as_dataset() or builder.as_streaming_dataset()."""
     # Warn about ignored parameters
+    if data_files is not None:
+        logger.warning(
+            f"data_files parameter ('{data_files}') is ignored when using 'builder_load' method. "
+            f"load_dataset_builder does not support data_files."
+        )
     if num_proc is not None:
         logger.warning(
             f"num_proc parameter ({num_proc}) is ignored when using 'builder_load' method. "
@@ -486,6 +500,7 @@ def load_hf_dataset(
     num_proc: Optional[int] = None,
     method: str = "default",
     streaming: bool = False,
+    data_files: Optional[str] = None,
 ) -> Dataset:
     """
     Load a HuggingFace dataset using specified method ("default", "builder_load", or "disk_load")
@@ -500,6 +515,8 @@ def load_hf_dataset(
         num_proc: Number of processes (only used with "default" method)
         method: Loading method - "default", "builder_load", or "disk_load"
         streaming: Whether to use streaming mode (not supported with "disk_load")
+        data_files: Explicit data file path(s) or pattern(s) as a comma-separated string.
+            Only used with "default" and "builder_load" methods (warning logged for builder_load).
 
     Returns:
         Dataset object
@@ -534,6 +551,7 @@ def load_hf_dataset(
             cache_dir=cache_dir,
             num_proc=num_proc,
             streaming=streaming,
+            data_files=data_files,
         )
     elif method == "builder_load":
         logger.info(
@@ -546,6 +564,7 @@ def load_hf_dataset(
             cache_dir=cache_dir,
             num_proc=num_proc,
             streaming=streaming,
+            data_files=data_files,
         )
     else:  # disk_load
         logger.info(f"[MODE: disk_load] Loading dataset using load_from_disk(): {dataset_name}")
