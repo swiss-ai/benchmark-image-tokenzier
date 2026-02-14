@@ -26,7 +26,7 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from vision_tokenization.pipelines import HFDatasetPipeline, WebDatasetPipeline
+from vision_tokenization.pipelines import HFDatasetPipeline, WDSPipeline
 from vision_tokenization.utils.parse_utils import parse_resolution
 
 
@@ -109,22 +109,52 @@ def create_hf_parser(subparsers):
 
 def create_wds_parser(subparsers):
     """Create parser for WebDataset."""
-    parser = subparsers.add_parser("wds", help="Tokenize WebDataset format")
+    parser = subparsers.add_parser("wds", help="Tokenize WebDataset tar files")
 
+    parser.add_argument("--config", type=str, help="Path to JSON configuration file")
     parser.add_argument(
         "--input-pattern",
         type=str,
         required=False,
-        help='Pattern for input webdataset files (e.g., "data_{000..100}.tar")',
+        help='Pattern for input tar files (e.g., "/path/to/*.tar" or "data_{000..100}.tar")',
     )
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["image_only", "image_text_pair", "sft"],
-        default="image_text_pair",
+        choices=["image_only", "image2text", "text2image", "sft"],
+        required=False,
         help="Tokenization mode",
     )
-    parser.add_argument("--batch-size", type=int, default=64, help="Batch size for processing")
+    parser.add_argument(
+        "--image-field",
+        type=str,
+        default="jpg;png;jpeg;webp",
+        help="Semicolon-separated image extension keys to try in fallback order",
+    )
+    parser.add_argument(
+        "--text-field",
+        type=str,
+        default="txt",
+        help="Semicolon-separated text extension keys to try in fallback order",
+    )
+    parser.add_argument(
+        "--resume", action="store_true", help="Resume from existing checkpoint by skipping completed shards"
+    )
+    parser.add_argument(
+        "--image-transforms",
+        type=str,
+        help='Comma-separated list of image transforms to apply (e.g., "convert_rgb,resize_max")',
+    )
+    parser.add_argument(
+        "--text-transforms",
+        type=str,
+        help='Comma-separated list of text transforms to apply (e.g., "strip_whitespace")',
+    )
+    parser.add_argument(
+        "--conversation-transform",
+        type=str,
+        help="Conversation transform to apply in SFT tokenizer worker",
+    )
 
     return parser
 
@@ -179,8 +209,7 @@ def parse_args():
 
     # Add format-specific parsers
     create_hf_parser(subparsers)
-    # TODO: Add WebDataset parser when implemented
-    # create_wds_parser(subparsers)
+    create_wds_parser(subparsers)
 
     return parser.parse_args(), parser
 
@@ -268,6 +297,8 @@ def main():
     required = ["tokenizer_path", "output_dir", "num_gpus", "device"]
     if data_format == "hf":
         required += ["dataset_name", "dataset_split", "mode", "num_shards"]
+    elif data_format == "wds":
+        required += ["input_pattern", "mode"]
 
     missing = [k for k in required if not config.get(k)]
     if missing:
@@ -289,13 +320,17 @@ def main():
             result = pipeline.run()
 
         elif data_format == "wds":
-            logger.error("WebDataset pipeline not yet implemented")
-            sys.exit(1)
-            # TODO: Implement WebDataset pipeline
-            # logger.info("Running WebDataset pipeline")
-            # pipeline_config.update({...})
-            # pipeline = WebDatasetPipeline(**pipeline_config)
-            # result = pipeline.run()
+            logger.info("Running WebDataset pipeline")
+            pipeline_config = {k: v for k, v in config.items() if v is not None}
+            # Remove HF-specific keys that may leak from shared args
+            for hf_key in [
+                "dataset_name", "dataset_split", "config_name", "cache_dir",
+                "num_proc", "num_shards", "max_samples", "dataset_load_method",
+                "dataset_streamed",
+            ]:
+                pipeline_config.pop(hf_key, None)
+            pipeline = WDSPipeline(**pipeline_config)
+            result = pipeline.run()
 
         else:
             raise ValueError(f"Unknown data format: {data_format}")
