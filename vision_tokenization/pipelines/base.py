@@ -52,10 +52,154 @@ class BasePipeline(ABC):
         """Main processing logic."""
         pass
 
-    @abstractmethod
     def cleanup(self):
-        """Cleanup resources."""
-        pass
+        """Cleanup Ray resources."""
+        if ray.is_initialized():
+            ray.shutdown()
+
+    def _get_completed_shards(self) -> set:
+        """Get list of already completed shards by checking for BOTH .bin and .idx files.
+
+        Requires self.num_shards to be set before calling.
+        """
+        import re
+        import sys
+        from pathlib import Path
+
+        completed = set()
+        output_path = Path(self.output_dir)
+
+        if not output_path.exists():
+            return completed
+
+        # Pattern: rank_X_shard_Y_Z.idx where Y is shard_id and Z is total_shards
+        pattern = re.compile(r"rank_\d+_shard_(\d+)_(\d+)\.idx")
+
+        # Collect all shard counts found
+        shard_counts_found = set()
+        files_by_shard_count = {}
+
+        for idx_file in output_path.glob("*.idx"):
+            match = pattern.match(idx_file.name)
+            if match:
+                shard_id = int(match.group(1))
+                total_shards = int(match.group(2))
+
+                # Check if corresponding .bin file also exists
+                bin_file = idx_file.with_suffix(".bin")
+                if not bin_file.exists():
+                    self.logger.warning(
+                        f"Found {idx_file.name} but missing corresponding .bin file - "
+                        f"shard {shard_id} will be reprocessed"
+                    )
+                    continue
+
+                shard_counts_found.add(total_shards)
+                if total_shards not in files_by_shard_count:
+                    files_by_shard_count[total_shards] = []
+                files_by_shard_count[total_shards].append(idx_file.name)
+
+                if total_shards == self.num_shards:
+                    completed.add(shard_id)
+
+        # Check for inconsistency
+        if shard_counts_found and self.num_shards not in shard_counts_found:
+            # No files match the expected shard count
+            self.logger.error(
+                f"ERROR: No existing shards match expected count ({self.num_shards}). "
+                f"Found shard counts: {sorted(shard_counts_found)}"
+            )
+            for count in sorted(shard_counts_found):
+                self.logger.error(f"  {count} total shards: {len(files_by_shard_count[count])} files")
+            self.logger.error("Clean the output directory or use a different output path")
+            sys.exit(1)
+
+        if len(shard_counts_found) > 1:
+            # Multiple different shard counts found
+            self.logger.error(f"ERROR: Inconsistent total shard counts found: {sorted(shard_counts_found)}")
+            for count in sorted(shard_counts_found):
+                self.logger.error(f"  {count} total shards: {len(files_by_shard_count[count])} files")
+            self.logger.error("Clean the output directory or use a different output path")
+            sys.exit(1)
+
+        return completed
+
+    def _load_completed_shard_stats(self) -> Dict[str, Any]:
+        """Load statistics from completed shards in shard_stats/ subfolder.
+
+        Requires self.num_shards to be set before calling.
+
+        Returns:
+            Dictionary with aggregated stats from all completed shards
+        """
+        import json
+        import re
+        from pathlib import Path
+
+        stats_dir = Path(self.output_dir) / "shard_stats"
+
+        # Initialize aggregated stats
+        aggregated = {
+            "samples_processed": 0,
+            "tokens_generated": 0,
+            "image_tokens": 0,
+            "text_tokens": 0,
+            "errors": 0,
+            "samples_skipped": 0,
+            "resolution_skipped": 0,
+            "transform_errors": 0,
+            "cuda_oom_errors": 0,
+            "shard_count": 0,
+            "per_shard": [],  # Keep individual shard stats
+        }
+
+        # If shard_stats directory doesn't exist, no stats to load
+        if not stats_dir.exists():
+            return aggregated
+
+        # Pattern: shard_Y.json where Y is shard_id
+        pattern = re.compile(r"shard_(\d+)\.json")
+
+        for stats_file in stats_dir.glob("shard_*.json"):
+            match = pattern.match(stats_file.name)
+            if match:
+                try:
+                    with open(stats_file, "r") as f:
+                        shard_stats = json.load(f)
+
+                    # Validate shard count matches (if present in stats)
+                    if "num_shards" in shard_stats and shard_stats["num_shards"] != self.num_shards:
+                        self.logger.warning(
+                            f"Skipping {stats_file.name}: shard count mismatch "
+                            f"(expected {self.num_shards}, got {shard_stats['num_shards']})"
+                        )
+                        continue
+
+                    # Aggregate
+                    aggregated["samples_processed"] += shard_stats.get("samples", 0)
+                    aggregated["tokens_generated"] += shard_stats.get("tokens", 0)
+                    aggregated["image_tokens"] += shard_stats.get("image_tokens", 0)
+                    aggregated["text_tokens"] += shard_stats.get("text_tokens", 0)
+                    aggregated["errors"] += shard_stats.get("errors", 0)
+                    aggregated["samples_skipped"] += shard_stats.get("skipped", 0)
+                    aggregated["resolution_skipped"] += shard_stats.get("resolution_skipped", 0)
+                    aggregated["transform_errors"] += shard_stats.get("transform_errors", 0)
+                    aggregated["cuda_oom_errors"] += shard_stats.get("cuda_oom_errors", 0)
+                    aggregated["shard_count"] += 1
+                    aggregated["per_shard"].append(shard_stats)
+
+                except (json.JSONDecodeError, IOError) as e:
+                    self.logger.warning(f"Failed to load {stats_file}: {e}")
+
+        if aggregated["shard_count"] > 0:
+            self.logger.info(
+                f"Loaded statistics from {aggregated['shard_count']} completed shards:\n"
+                f"  - Samples: {aggregated['samples_processed']:,}\n"
+                f"  - Tokens: {aggregated['tokens_generated']:,}\n"
+                f"  - Errors: {aggregated['errors']}"
+            )
+
+        return aggregated
 
     def generate_metadata(self, results: list, processing_time: float, **kwargs) -> Dict[str, Any]:
         """
@@ -711,3 +855,273 @@ class BaseTokenizerWorker:
         self.logger.info(msg)
 
         return self.stats
+
+    def batch_iterable_shard(self, shard, stats: Dict):
+        """
+        Extract, transform, filter samples from a shard and yield batches.
+
+        Iterates over shard samples, applies transforms, checks skip conditions,
+        buffers valid samples, and yields batches from the batcher.
+
+        Args:
+            shard: Iterable of samples (HF dataset shard or WDS decoded samples)
+            stats: Stats tracker dictionary (modified in-place)
+
+        Yields:
+            Batch dictionaries with 'images', 'text', and 'resize_size' keys
+        """
+        buffer = []
+        for sample in shard:
+            image, text = self._extract_data(sample)
+            try:
+                image, text = self.apply_transforms(image, text)
+            except Exception as e:
+                self.logger.warning(f"Transform error: {e}")
+                stats["transform_errors"] += 1
+                continue
+
+            # Check sample status and skip if necessary
+            status = self.get_sample_status(image, text)
+            if status == "resolution_skip":
+                stats["resolution_skipped"] += 1
+                continue
+            elif status == "data_skip":
+                stats["skipped"] += 1
+                continue
+
+            # Add sample to buffer
+            if text is None:
+                buffer.append({"image": image})
+            else:
+                buffer.append({"image": image, "text": text})
+
+            if len(buffer) == self.buffer_size:
+                for batch in self.batcher(buffer):
+                    yield batch
+                buffer.clear()
+
+        # Flush remaining samples
+        if buffer:
+            for batch in self.batcher(buffer):
+                yield batch
+
+    def _process_shard_data(self, shard, builder, stats: Dict, log_interval: int, progress_actor=None):
+        """
+        Process all samples from a shard iterable into an IndexedDataset builder.
+
+        Shared processing loop for both batched and sample-by-sample modes.
+        Handles tokenization, progress updates, and token counting.
+
+        Args:
+            shard: Iterable of samples (HF dataset shard or WDS decoded samples)
+            builder: IndexedDatasetBuilder to write tokens into
+            stats: Stats tracker dictionary (modified in-place)
+            log_interval: Log interval for progress updates
+            progress_actor: Optional Ray progress tracking actor
+        """
+        import time
+
+        update_interval = max(log_interval // 2, 10)
+        samples_since_update = 0
+
+        if self.batcher is not None:
+            import torch
+
+            batch_loader = self.batch_iterable_shard(shard, stats)
+
+            for batch in batch_loader:
+                try:
+                    images, text = batch["images"], batch["text"]
+                    tokens_batched = self.tokenize_batch(images, batch["resize_size"], text if text else None)
+
+                    if tokens_batched is not None:
+                        batch_size = len(tokens_batched)
+
+                        all_tokens = []
+                        lengths_list = []
+                        for seq in tokens_batched:
+                            seq_np = seq.cpu().numpy() if torch.is_tensor(seq) else seq
+                            all_tokens.append(seq_np)
+                            lengths_list.append(len(seq_np))
+
+                        import numpy as np
+
+                        tokens_np = np.concatenate(all_tokens)
+
+                        builder.add_document(tokens_np, lengths_list)
+                        stats["samples"] += batch_size
+                        stats["tokens"] += len(tokens_np)
+                        samples_since_update += batch_size
+
+                        if progress_actor and samples_since_update >= update_interval:
+                            progress_actor.update.remote(samples_since_update)
+                            samples_since_update = 0
+
+                        if self.mode in ["sft", "image2text", "text2image"]:
+                            text_mask = tokens_np < self.tokenizer.vision_token_offset
+                            stats["text_tokens"] += int(text_mask.sum())
+                            stats["image_tokens"] += int((~text_mask).sum())
+
+                        del tokens_batched, tokens_np, all_tokens, lengths_list
+                    else:
+                        stats["errors"] += 1
+
+                except Exception as e:
+                    import traceback
+
+                    error_msg = f"Failed to process batch: {e}\n{traceback.format_exc()}"
+                    self.logger.warning(error_msg)
+                    print(f"[Worker {self.worker_id}] {error_msg}", flush=True)
+                    if self._is_cuda_oom_error(e):
+                        stats["cuda_oom_errors"] += 1
+                    else:
+                        stats["errors"] += 1
+        else:
+            # Sample-by-sample processing
+            for sample in shard:
+                image, text = self._extract_data(sample)
+                try:
+                    image, text = self.apply_transforms(image, text)
+                except Exception as e:
+                    self.logger.warning(f"Transform error: {e}")
+                    stats["transform_errors"] += 1
+                    continue
+
+                status = self.get_sample_status(image, text)
+                if status == "resolution_skip":
+                    stats["resolution_skipped"] += 1
+                    continue
+                elif status == "data_skip":
+                    stats["skipped"] += 1
+                    continue
+
+                try:
+                    tokens_np = self.tokenize_sample(image, text)
+                    if tokens_np is not None:
+                        builder.add_document(tokens_np, [len(tokens_np)])
+                        stats["samples"] += 1
+                        stats["tokens"] += len(tokens_np)
+                        samples_since_update += 1
+
+                        if progress_actor and samples_since_update >= update_interval:
+                            progress_actor.update.remote(samples_since_update)
+                            samples_since_update = 0
+
+                        if self.mode in ["sft", "image2text", "text2image"]:
+                            text_mask = tokens_np < self.tokenizer.vision_token_offset
+                            stats["text_tokens"] += int(text_mask.sum())
+                            stats["image_tokens"] += int((~text_mask).sum())
+                    else:
+                        stats["errors"] += 1
+                except Exception as e:
+                    import traceback
+
+                    error_msg = f"Failed to process sample: {e}\n{traceback.format_exc()}"
+                    self.logger.warning(error_msg)
+                    print(f"[Worker {self.worker_id}] {error_msg}", flush=True)
+                    if self._is_cuda_oom_error(e):
+                        stats["cuda_oom_errors"] += 1
+                    else:
+                        stats["errors"] += 1
+
+        # Send final progress update for any remaining samples
+        if progress_actor and samples_since_update > 0:
+            progress_actor.update.remote(samples_since_update)
+
+    def save_shard_stats(self, shard_id: int, num_shards: int, stats: Dict, output_dir: str):
+        """Save statistics for a completed shard atomically.
+
+        Args:
+            shard_id: The shard ID that was processed
+            num_shards: Total number of shards
+            stats: Statistics dictionary from process_shard()
+            output_dir: Output directory (stats saved to output_dir/shard_stats/)
+        """
+        import json
+        from datetime import datetime
+        from pathlib import Path
+
+        stats_dir = Path(output_dir) / "shard_stats"
+        stats_dir.mkdir(parents=True, exist_ok=True)
+
+        stats_file = stats_dir / f"shard_{shard_id}.json"
+
+        shard_stats = {
+            "shard_id": shard_id,
+            "worker_id": self.worker_id,
+            "num_shards": num_shards,
+            "samples": stats.get("samples", 0),
+            "tokens": stats.get("tokens", 0),
+            "image_tokens": stats.get("image_tokens", 0),
+            "text_tokens": stats.get("text_tokens", 0),
+            "errors": stats.get("errors", 0),
+            "skipped": stats.get("skipped", 0),
+            "resolution_skipped": stats.get("resolution_skipped", 0),
+            "transform_errors": stats.get("transform_errors", 0),
+            "cuda_oom_errors": stats.get("cuda_oom_errors", 0),
+            "processing_time": stats.get("time", 0),
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        # Write atomically (write to temp file, then rename)
+        temp_file = stats_file.with_suffix(".tmp")
+        with open(temp_file, "w") as f:
+            json.dump(shard_stats, f, indent=2)
+        temp_file.rename(stats_file)
+
+        self.logger.debug(f"Saved shard {shard_id} statistics to {stats_file}")
+
+    def run_shards(self, shard_queue, dataset_info, num_shards, progress_actor=None) -> Dict:
+        """
+        Main worker loop for shard-based processing (work-stealing pattern).
+
+        Pulls shards from the queue, processes them, saves stats, and updates
+        global statistics. Used by both HF and WDS workers.
+
+        Args:
+            shard_queue: Ray remote ShardQueue for work distribution
+            dataset_info: Dataset metadata passed to process_shard()
+            num_shards: Total number of shards
+            progress_actor: Optional progress tracking actor
+
+        Returns:
+            Final worker statistics
+        """
+        self.logger.info("Starting shard processing loop")
+
+        while True:
+            shard_id = ray.get(shard_queue.get_next_shard.remote(self.worker_id))
+
+            if shard_id is None:
+                self.logger.info("No more shards, finishing")
+                break
+
+            try:
+                result = self.process_shard(shard_id, dataset_info, num_shards, progress_actor)
+                ray.get(shard_queue.mark_completed.remote(shard_id, result))
+
+                # Save shard statistics immediately
+                self.save_shard_stats(
+                    shard_id=shard_id, num_shards=num_shards, stats=result, output_dir=self.output_dir
+                )
+
+                # Update global statistics
+                self.update_stats(
+                    samples=result["samples"],
+                    tokens=result["tokens"],
+                    errors=result["errors"],
+                    skipped=result.get("skipped", 0),
+                    resolution_skipped=result.get("resolution_skipped", 0),
+                    transform_errors=result.get("transform_errors", 0),
+                    cuda_oom_errors=result.get("cuda_oom_errors", 0),
+                    image_tokens=result.get("image_tokens", 0),
+                    text_tokens=result.get("text_tokens", 0),
+                )
+
+            except Exception as e:
+                import traceback
+
+                error_msg = f"Failed to process shard {shard_id}: {e}\n{traceback.format_exc()}"
+                self.logger.error(error_msg)
+                print(f"[Worker {self.worker_id}] {error_msg}", flush=True)
+                ray.get(shard_queue.mark_failed.remote(shard_id, str(e)))
