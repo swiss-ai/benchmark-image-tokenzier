@@ -12,8 +12,10 @@
 #SBATCH --error=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/paired_tok_%j.err
 
 # Script to run image-text pair tokenization with optional debug and resume modes
+# Supports both HuggingFace (hf) and WebDataset (wds) data formats.
 # Usage:
-#   sbatch run_paired_tokenization.slurm              # Normal mode
+#   sbatch run_paired_tokenization.slurm              # Normal mode (HF)
+#   sbatch run_paired_tokenization.slurm --data-format wds  # WebDataset mode
 #   sbatch run_paired_tokenization.slurm --debug      # Debug mode (small dataset)
 #   sbatch run_paired_tokenization.slurm --resume     # Resume from checkpoint
 #   sbatch run_paired_tokenization.slurm --config /path/to/config.json  # Custom config
@@ -31,6 +33,9 @@ HF_HUB_CACHE="${HF_HUB_CACHE:-/capstor/store/cscs/swissai/infra01/vision-dataset
 # Allow environment variable override for num-gpus (used in multi-node mode)
 NUM_GPUS="${NUM_GPUS:-}"
 
+# Data format: hf (HuggingFace) or wds (WebDataset). Default: hf
+DATA_FORMAT="${DATA_FORMAT:-hf}"
+
 # Parse command-line arguments
 DEBUG_MODE=false
 RESUME_MODE=false
@@ -40,6 +45,10 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --config)
             CONFIG_PATH="$2"
+            shift 2
+            ;;
+        --data-format)
+            DATA_FORMAT="$2"
             shift 2
             ;;
         --debug)
@@ -55,13 +64,14 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -h|--help)
-            echo "Usage: sbatch $0 [--config <path>] [--debug] [--resume] [--offline]"
+            echo "Usage: sbatch $0 [--config <path>] [--data-format hf|wds] [--debug] [--resume] [--offline]"
             echo ""
             echo "Options:"
-            echo "  --config <path>  Path to config JSON file (overrides default)"
-            echo "  --debug          Run with small dataset (1000 samples, 2 GPUs, 2 shards)"
-            echo "  --resume         Resume from checkpoint (skip completed shards)"
-            echo "  --offline        Enable HF datasets offline mode (only use cached datasets)"
+            echo "  --config <path>       Path to config JSON file (overrides default)"
+            echo "  --data-format hf|wds  Data format: hf (default) or wds"
+            echo "  --debug               Run with small dataset (1000 samples, 2 GPUs, 2 shards)"
+            echo "  --resume              Resume from checkpoint (skip completed shards)"
+            echo "  --offline             Enable HF datasets offline mode (only use cached datasets)"
             echo ""
             exit 0
             ;;
@@ -70,6 +80,12 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Validate data format
+if [[ "${DATA_FORMAT}" != "hf" && "${DATA_FORMAT}" != "wds" ]]; then
+    echo "ERROR: Invalid data format: ${DATA_FORMAT}. Must be 'hf' or 'wds'."
+    exit 1
+fi
 
 # Set up Python path
 export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH}"
@@ -80,6 +96,7 @@ echo "LLaVA-OneVision Mid-Training Paired Tokenization (image2text)"
 echo "=================================================================================="
 echo "Project root: ${PROJECT_ROOT}"
 echo "Config:       ${CONFIG_PATH}"
+echo "Data format:  ${DATA_FORMAT}"
 echo "Debug mode:   ${DEBUG_MODE}"
 echo "Resume mode:  ${RESUME_MODE}"
 echo "Offline mode: ${OFFLINE_MODE}"
@@ -114,23 +131,37 @@ fi
 if [ "$DEBUG_MODE" = true ]; then
     echo "Running in DEBUG mode (small dataset for testing)"
     echo "=================================================================================="
-    OUTPUT_DIR="${PROJECT_ROOT}/vision_tokenization/tokenized_outputs/paired_100_s2"
-    # Debug mode: override config with small dataset parameters
-    python -m vision_tokenization.tokenize \
-        --output-dir "${OUTPUT_DIR}" \
-        --num-gpus 2 \
-        --log-interval 100 \
-        hf \
-        --config "${CONFIG_PATH}" \
-        --dataset-split "train[:1000]" \
-        --num-shards 2 \
-        ${RESUME_FLAG}
+    if [ "${DATA_FORMAT}" = "wds" ]; then
+        OUTPUT_DIR="${PROJECT_ROOT}/vision_tokenization/tokenized_outputs/wds_paired_debug"
+        WDS_INPUT_PATTERN="${PROJECT_ROOT}/vision_tokenization/test_data/wds/*.tar"
+        python -m vision_tokenization.tokenize \
+            --output-dir "${OUTPUT_DIR}" \
+            --num-gpus 2 \
+            --log-interval 100 \
+            wds \
+            --config "${CONFIG_PATH}" \
+            --input-pattern "${WDS_INPUT_PATTERN}" \
+            --mode image2text \
+            ${RESUME_FLAG}
+    else
+        OUTPUT_DIR="${PROJECT_ROOT}/vision_tokenization/tokenized_outputs/paired_100_s2"
+        # Debug mode: override config with small dataset parameters
+        python -m vision_tokenization.tokenize \
+            --output-dir "${OUTPUT_DIR}" \
+            --num-gpus 2 \
+            --log-interval 100 \
+            hf \
+            --config "${CONFIG_PATH}" \
+            --dataset-split "train[:1000]" \
+            --num-shards 2 \
+            ${RESUME_FLAG}
+    fi
 else
     echo "Running in NORMAL mode (full dataset)"
     echo "=================================================================================="
     ray enable-usage-stats
     # Normal mode: use config file as-is
-    python -m vision_tokenization.tokenize ${GPU_FLAG} hf \
+    python -m vision_tokenization.tokenize ${GPU_FLAG} ${DATA_FORMAT} \
         --config "${CONFIG_PATH}" \
         ${RESUME_FLAG}
 fi

@@ -23,15 +23,18 @@
 #   TOKENIZATION_MODE=paired sbatch run_multinode_tokenization.slurm --resume
 #   TOKENIZATION_MODE=paired sbatch run_multinode_tokenization.slurm --offline
 #   TOKENIZATION_MODE=image_only sbatch run_multinode_tokenization.slurm --config /path/to/config.json
+#   DATA_FORMAT=wds TOKENIZATION_MODE=image_only sbatch run_multinode_tokenization.slurm
 #
 # Environment Variables:
 #   TOKENIZATION_MODE - Required: image_only, instruct, or paired
+#   DATA_FORMAT       - Optional: hf (default) or wds
 #
 # Optional Arguments (passed to wrapped script):
-#   --config <path>  - Path to config JSON file (overrides default in wrapped script)
-#   --debug          - Run in debug mode (small dataset)
-#   --resume         - Resume from checkpoint
-#   --offline        - Enable HF datasets offline mode (only use cached datasets)
+#   --config <path>       - Path to config JSON file (overrides default in wrapped script)
+#   --data-format hf|wds  - Data format (overrides DATA_FORMAT env var)
+#   --debug               - Run in debug mode (small dataset)
+#   --resume              - Resume from checkpoint
+#   --offline             - Enable HF datasets offline mode (only use cached datasets)
 #############################################################################
 
 # Get the project root directory
@@ -40,6 +43,8 @@ export SCRIPT_DIR="${PROJECT_ROOT}/vision_tokenization/scripts"
 # Hub cache location
 export HF_HUB_CACHE="${HF_HUB_CACHE:-/capstor/store/cscs/swissai/infra01/vision-datasets/hf_hub_cache}"
 
+# Data format: hf (default) or wds - export so wrapped scripts inherit it
+export DATA_FORMAT="${DATA_FORMAT:-hf}"
 
 # Configuration
 export SLURM_JOB_NUM_NODES="${SLURM_JOB_NUM_NODES:-${SLURM_NNODES:-1}}"
@@ -80,13 +85,17 @@ esac
 
 export ARGS="$@"
 
-# Check for --offline and --config flags
+# Check for --offline, --config, and --data-format flags
 OFFLINE_MODE=false
 CONFIG_OVERRIDE=""
 while [[ $# -gt 0 ]]; do
     case $1 in
         --config)
             CONFIG_OVERRIDE="$2"
+            shift 2
+            ;;
+        --data-format)
+            export DATA_FORMAT="$2"
             shift 2
             ;;
         --offline)
@@ -104,6 +113,7 @@ echo "==========================================================================
 echo "Multi-Node Tokenization - Ray Distributed Processing"
 echo "=================================================================================="
 echo "Mode:         ${TOKENIZATION_MODE}"
+echo "Data format:  ${DATA_FORMAT}"
 echo "Script:       ${WRAPPED_SCRIPT}"
 echo "Nodes:        ${SLURM_JOB_NUM_NODES}"
 echo "GPUs/node:    ${GPUS_PER_NODE}"
