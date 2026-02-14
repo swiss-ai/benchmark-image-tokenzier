@@ -158,6 +158,7 @@ class Worker(BaseTokenizerWorker):
             cache_dir=dataset_info.get("cache_dir"),
             method=dataset_info.get("load_method", "default"),
             streaming=dataset_info["dataset_streamed"],
+            data_files=dataset_info.get("data_files"),
         )
         shard = dataset.shard(num_shards=num_shards, index=shard_id)
 

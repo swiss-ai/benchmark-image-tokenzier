@@ -104,6 +104,16 @@ def create_hf_parser(subparsers):
     parser.add_argument(
         "--dataset-streamed", action="store_true", help="If set, and a HF dataset is loaded with mode 'load_dataset'"
     )
+    parser.add_argument(
+        "--data-files",
+        type=str,
+        help=(
+            "Explicit data file path(s) or pattern(s) to pass to load_dataset(). "
+            'Accepts a single path/glob (e.g., "*.tar") or a comma-separated list '
+            '(e.g., "shard_001.parquet,shard_002.parquet"). '
+            "Useful for loading webdatasets or custom file collections through the HF datasets API."
+        ),
+    )
     return parser
 
 
