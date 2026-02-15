@@ -53,11 +53,19 @@ class ShardQueue:
     def get_status(self) -> Dict:
         """Get current processing status."""
         return {
-            "processed": self.next_shard,
+            "dispatched": self.current_index,
             "total": self.num_shards,
             "in_progress": len(self.in_progress),
             "completed": len(self.completed),
             "failed": len(self.failed),
+        }
+
+    def get_final_summary(self) -> Dict:
+        """Get final shard processing summary with completed/failed details."""
+        return {
+            "shards_completed": len(self.completed),
+            "shards_failed": len(self.failed),
+            "failed_shard_details": list(self.failed),
         }
 
 

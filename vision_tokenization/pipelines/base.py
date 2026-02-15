@@ -932,6 +932,7 @@ class BaseTokenizerWorker:
             for batch in batch_loader:
                 try:
                     images, text = batch["images"], batch["text"]
+                    current_batch_size = len(images)
                     tokens_batched = self.tokenize_batch(images, batch["resize_size"], text if text else None)
 
                     if tokens_batched is not None:
@@ -964,18 +965,18 @@ class BaseTokenizerWorker:
 
                         del tokens_batched, tokens_np, all_tokens, lengths_list
                     else:
-                        stats["errors"] += 1
+                        stats["errors"] += current_batch_size
 
                 except Exception as e:
                     import traceback
 
-                    error_msg = f"Failed to process batch: {e}\n{traceback.format_exc()}"
+                    error_msg = f"Failed to process batch of {current_batch_size}: {e}\n{traceback.format_exc()}"
                     self.logger.warning(error_msg)
                     print(f"[Worker {self.worker_id}] {error_msg}", flush=True)
                     if self._is_cuda_oom_error(e):
-                        stats["cuda_oom_errors"] += 1
+                        stats["cuda_oom_errors"] += current_batch_size
                     else:
-                        stats["errors"] += 1
+                        stats["errors"] += current_batch_size
         else:
             # Sample-by-sample processing
             for sample in shard:

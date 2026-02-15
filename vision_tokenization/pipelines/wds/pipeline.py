@@ -314,28 +314,44 @@ class WDSPipeline(BasePipeline):
 
         results = ray.get(worker_futures)
 
-        total_processed = ray.get(self.progress_actor.close.remote())
+        # Get final progress (only reflects samples processed in this run, not resumed shards)
+        current_run_processed = ray.get(self.progress_actor.close.remote())
+
+        # Get shard-level summary from work queue
+        shard_summary = ray.get(self.work_queue.get_final_summary.remote())
 
         # Read all shard stats (includes previously completed shards if resumed)
         self.logger.info("Reading all shard statistics files...")
         all_shard_stats = self._load_completed_shard_stats()
 
+        shards_incomplete = self.num_shards - all_shard_stats["shard_count"]
         self.logger.info(
-            f"Accumulated statistics from {all_shard_stats['shard_count']} total shards:\n"
+            f"Final statistics ({all_shard_stats['shard_count']}/{self.num_shards} shards completed"
+            f"{f', {shards_incomplete} incomplete' if shards_incomplete > 0 else ''}):\n"
             f"  - Total samples: {all_shard_stats['samples_processed']:,}\n"
             f"  - Total tokens: {all_shard_stats['tokens_generated']:,}\n"
-            f"  - Total errors: {all_shard_stats['errors']}"
+            f"  - Total errors: {all_shard_stats['errors']}\n"
+            f"  - This run: {shard_summary['shards_completed']} completed, "
+            f"{shard_summary['shards_failed']} failed"
         )
+
+        if shard_summary["shards_failed"] > 0:
+            for shard_id, error in shard_summary["failed_shard_details"]:
+                self.logger.error(f"  Failed shard {shard_id}: {error}")
 
         max_time = max(r["elapsed_time"] for r in results) if results else 0
 
-        self._save_metadata(all_shard_stats, results, max_time)
+        self._save_metadata(all_shard_stats, shard_summary, results, max_time)
 
         return {
-            "total_processed": total_processed,
+            "current_run_processed": current_run_processed,
             "total_samples": all_shard_stats["samples_processed"],
             "total_tokens": all_shard_stats["tokens_generated"],
             "total_errors": all_shard_stats["errors"],
+            "shards_completed_total": all_shard_stats["shard_count"],
+            "shards_incomplete_total": shards_incomplete,
+            "current_run_shards_completed": shard_summary["shards_completed"],
+            "current_run_shards_failed": shard_summary["shards_failed"],
             "processing_time": max_time,
             "workers": len(self.workers),
             "mode": self.mode,
@@ -343,7 +359,13 @@ class WDSPipeline(BasePipeline):
             "metadata_file": str(Path(self.output_dir) / "dataset_info.json"),
         }
 
-    def _save_metadata(self, shard_stats: Dict[str, Any], worker_results: list, processing_time: float):
+    def _save_metadata(
+        self,
+        shard_stats: Dict[str, Any],
+        shard_summary: Dict[str, Any],
+        worker_results: list,
+        processing_time: float,
+    ):
         """Save dataset processing metadata to JSON file."""
         import json
 
@@ -392,7 +414,19 @@ class WDSPipeline(BasePipeline):
 
         metadata["per_shard_details"] = shard_stats["per_shard"]
         metadata["processing"]["num_shards"] = self.num_shards
-        metadata["processing"]["shards_completed"] = shard_stats["shard_count"]
+        # All-time count: derived from shard_stats files on disk (includes resumed shards)
+        metadata["processing"]["shards_completed_total"] = shard_stats["shard_count"]
+        metadata["processing"]["shards_incomplete_total"] = self.num_shards - shard_stats["shard_count"]
+        # Current run counts: from the ShardQueue (this run only)
+        metadata["processing"]["current_run"] = {
+            "shards_completed": shard_summary["shards_completed"],
+            "shards_failed": shard_summary["shards_failed"],
+        }
+        if shard_summary["failed_shard_details"]:
+            metadata["processing"]["current_run"]["failed_shard_details"] = [
+                {"shard_id": shard_id, "error": error}
+                for shard_id, error in shard_summary["failed_shard_details"]
+            ]
 
         metadata_path = Path(self.output_dir) / "dataset_info.json"
         with open(metadata_path, "w") as f:
