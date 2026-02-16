@@ -133,7 +133,7 @@ fi
 srun -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=1 --cpus-per-task=${SLURM_CPUS_PER_TASK} -u --export=ALL bash -c '
     # Python path setup and critical variables
     export PYTHONPATH='"${PROJECT_ROOT}"':$PYTHONPATH
-    pip install -q omegaconf fastkmeans
+    pip install -q omegaconf fastkmeans webdataset
     export HF_DATASETS_OFFLINE
     export HF_HUB_CACHE
 

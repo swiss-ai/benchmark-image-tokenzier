@@ -133,13 +133,13 @@ if [ "$DEBUG_MODE" = true ]; then
     echo "=================================================================================="
     if [ "${DATA_FORMAT}" = "wds" ]; then
         OUTPUT_DIR="${PROJECT_ROOT}/vision_tokenization/tokenized_outputs/wds_image_only_debug"
-        WDS_INPUT_PATTERN="${PROJECT_ROOT}/vision_tokenization/test_data/wds/*.tar"
+        WDS_INPUT_PATTERN="${PROJECT_ROOT}/vision_tokenization/test_data/*.tar"
         python -m vision_tokenization.tokenize \
             --output-dir "${OUTPUT_DIR}" \
             --num-gpus 4 \
-            --log-interval 100 \
+            --log-interval 10 \
             wds \
-            --config "${CONFIG_PATH}" \
+            --config /users/rkreft/benchmark-image-tokenzier/vision_tokenization/configs/example_wds_image_only.json \
             --input-pattern "${WDS_INPUT_PATTERN}" \
             --mode image_only \
             ${RESUME_FLAG}

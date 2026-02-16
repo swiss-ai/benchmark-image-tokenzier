@@ -106,6 +106,20 @@ class HFDatasetPipeline(BasePipeline):
         if mode not in valid_modes:
             raise ValueError(f"Invalid mode: {mode}. Must be one of {valid_modes}")
 
+        # For webdataset with streaming, cap num_shards to the number of tar files
+        # since IterableDataset.shard() distributes underlying files, not samples
+        if self.dataset_streamed and self.data_files:
+            import glob as glob_mod
+
+            parts = [p.strip() for p in self.data_files.split(",")]
+            num_files = sum(len(glob_mod.glob(p)) for p in parts)
+            if num_files > 0 and self.num_shards > num_files:
+                self.logger.warning(
+                    f"num_shards ({self.num_shards}) > number of data files ({num_files}). "
+                    f"Capping num_shards to {num_files} to avoid empty shards."
+                )
+                self.num_shards = num_files
+
         # Validate num_shards is sufficient for workers
         if self.num_shards < self.num_gpus:
             self.logger.warning(
@@ -386,10 +400,11 @@ class HFDatasetPipeline(BasePipeline):
                 self.logger.error(f"  Failed shard {shard_id}: {error}")
 
         # Calculate max time from worker results for overall timing
-        max_time = max(r["elapsed_time"] for r in results) if results else 0
+        valid_results = [r for r in results if r is not None]
+        max_time = max(r["elapsed_time"] for r in valid_results) if valid_results else 0
 
         # Save final metadata with complete accumulated statistics
-        self._save_metadata(all_shard_stats, shard_summary, results, max_time)
+        self._save_metadata(all_shard_stats, shard_summary, valid_results, max_time)
 
         return {
             "current_run_processed": current_run_processed,
