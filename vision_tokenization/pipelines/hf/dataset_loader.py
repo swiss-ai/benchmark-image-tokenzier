@@ -70,7 +70,8 @@ def get_builder_split_info(
     config_name: Optional[str] = None,
     cache_dir: Optional[str] = None,
     dataset_load_method: str = "default",
-) -> Dict[str, Dict[str, int]]:
+    data_files: Optional[str] = None,
+) -> Optional[Dict[str, Dict[str, int]]]:
     """
     Load dataset builder and extract split information without loading the dataset.
 
@@ -79,22 +80,12 @@ def get_builder_split_info(
         config_name: Dataset configuration/subset name (e.g., "lrv_chart")
         cache_dir: Cache directory for dataset files
         dataset_load_method: How to load the dataset ("default" or "disk_load")
+        data_files: Explicit data file path(s) or pattern(s) as a comma-separated string.
 
     Returns:
-        Dictionary mapping split names to their info:
-        {
-            "train": {
-                "num_examples": 1000,
-                "num_shards": 4,
-                "shard_lengths": [250, 250, 250, 250]
-            },
-            "validation": {
-                "num_examples": 100,
-                "num_shards": 1,
-                "shard_lengths": [100]
-            },
-            ...
-        }
+        Dictionary mapping split names to their info, or None if split info
+        is not available (e.g. for webdataset from local tar files where the
+        builder cannot determine splits without preparing the data first).
     """
     config_info = f" (config: {config_name})" if config_name else ""
     logger.info(f"Loading builder for: {dataset_name}{config_info}")
@@ -108,10 +99,27 @@ def get_builder_split_info(
     else:
         if cache_dir is None:
             logger.warning("No explicit cache_dir provided. " "Will use default: ~/.cache/huggingface/datasets")
-        builder = load_dataset_builder(dataset_name, name=config_name, cache_dir=cache_dir)
+
+        # Parse data_files string into the format load_dataset_builder expects
+        parsed_data_files = None
+        if data_files:
+            parts = [p.strip() for p in data_files.split(",")]
+            parsed_data_files = parts if len(parts) > 1 else parts[0]
+
+        builder = load_dataset_builder(
+            dataset_name, name=config_name, cache_dir=cache_dir, data_files=parsed_data_files
+        )
         info = builder.info
 
     logger.info(f"=== Builder Split Info ===")
+
+    if info.splits is None:
+        logger.warning(
+            "Builder has no split metadata available. This is expected for datasets "
+            "loaded from local files (e.g. webdataset tar files) that have not been "
+            "prepared yet. Dataset size will be determined after loading."
+        )
+        return None
 
     split_info = {}
     for split_name, split_data in info.splits.items():
@@ -592,10 +600,15 @@ def load_hf_dataset(
                 dataset_name=dataset_name,
                 config_name=config_name,
                 cache_dir=cache_dir,
+                data_files=data_files,
             )
 
-            if base_split not in split_info:
-                raise ValueError(f"Cannot convert percentage slice for streaming: " f"split '{base_split}' not found")
+            if split_info is None or base_split not in split_info:
+                raise ValueError(
+                    f"Cannot convert percentage slice for streaming: "
+                    f"split info not available for '{base_split}'. "
+                    f"Use absolute indices instead of percentages."
+                )
 
             num_examples = split_info[base_split]["num_examples"]
             abs_start = _convert_percentage_to_absolute(start, start_is_pct, num_examples)

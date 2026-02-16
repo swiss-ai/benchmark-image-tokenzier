@@ -194,49 +194,87 @@ class HFDatasetPipeline(BasePipeline):
                 config_name=self.config_name,
                 cache_dir=self.cache_dir,
                 dataset_load_method=self.dataset_load_method,
+                data_files=self.data_files,
             )
 
-            # Parse split string to handle slice notation (e.g., "train[:100]" or "train[:50%]")
-            base_split, start, end, start_is_pct, end_is_pct = _parse_split_slice(self.dataset_split)
+            if split_info is not None:
+                # Parse split string to handle slice notation (e.g., "train[:100]" or "train[:50%]")
+                base_split, start, end, start_is_pct, end_is_pct = _parse_split_slice(self.dataset_split)
 
-            # Check if base split exists in split_info
-            if base_split not in split_info:
-                available_splits = list(split_info.keys())
-                raise ValueError(f"Split '{base_split}' not found in dataset. " f"Available splits: {available_splits}")
-
-            # Get total number of examples for this split
-            num_examples = split_info[base_split]["num_examples"]
-
-            # Apply slice bounds if present in split string
-            if start is not None or end is not None:
-                # Convert percentages to absolute indices
-                abs_start = _convert_percentage_to_absolute(start, start_is_pct, num_examples)
-                abs_end = _convert_percentage_to_absolute(end, end_is_pct, num_examples)
-
-                effective_start = abs_start if abs_start is not None else 0
-                effective_end = abs_end if abs_end is not None else num_examples
-
-                num_examples = effective_end - effective_start
-                self.logger.info(
-                    f"Split slice '{self.dataset_split}' will process "
-                    f"{num_examples:,} samples (from {effective_start} to {effective_end})"
-                )
-
-            # Apply max_samples limit if specified
-            if self.max_samples:
-                original_num = num_examples
-                num_examples = min(self.max_samples, num_examples)
-                if num_examples < original_num:
-                    self.logger.info(
-                        f"Limiting to {num_examples:,} samples due to max_samples parameter "
-                        f"(dataset has {original_num:,} samples)"
+                # Check if base split exists in split_info
+                if base_split not in split_info:
+                    available_splits = list(split_info.keys())
+                    raise ValueError(
+                        f"Split '{base_split}' not found in dataset. " f"Available splits: {available_splits}"
                     )
 
-            self.logger.info("Checking system memory mapping limits...")
-            check_memory_mapping_limits(split_info, self.dataset_split, self.dataset_streamed)
+                # Get total number of examples for this split
+                num_examples = split_info[base_split]["num_examples"]
 
-            self.dataset_size = num_examples
-            self.logger.info(f"Will process {num_examples:,} samples")
+                # Apply slice bounds if present in split string
+                if start is not None or end is not None:
+                    # Convert percentages to absolute indices
+                    abs_start = _convert_percentage_to_absolute(start, start_is_pct, num_examples)
+                    abs_end = _convert_percentage_to_absolute(end, end_is_pct, num_examples)
+
+                    effective_start = abs_start if abs_start is not None else 0
+                    effective_end = abs_end if abs_end is not None else num_examples
+
+                    num_examples = effective_end - effective_start
+                    self.logger.info(
+                        f"Split slice '{self.dataset_split}' will process "
+                        f"{num_examples:,} samples (from {effective_start} to {effective_end})"
+                    )
+
+                # Apply max_samples limit if specified
+                if self.max_samples:
+                    original_num = num_examples
+                    num_examples = min(self.max_samples, num_examples)
+                    if num_examples < original_num:
+                        self.logger.info(
+                            f"Limiting to {num_examples:,} samples due to max_samples parameter "
+                            f"(dataset has {original_num:,} samples)"
+                        )
+
+                self.logger.info("Checking system memory mapping limits...")
+                check_memory_mapping_limits(split_info, self.dataset_split, self.dataset_streamed)
+
+                self.dataset_size = num_examples
+                self.logger.info(f"Will process {num_examples:,} samples")
+
+            # Load dataset once on head node to:
+            # 1. Trigger download_and_prepare() so Arrow cache is ready before workers start
+            #    (avoids concurrent preparation race conditions on shared filesystems)
+            # 2. Sanity check: verify the first sample is accessible and readable
+            # 3. Determine dataset size when builder split info was not available
+            self.logger.info("Loading dataset for preparation and sanity check...")
+            dataset = load_hf_dataset(
+                dataset_name=self.dataset_name,
+                config_name=self.config_name,
+                split=self.dataset_split,
+                cache_dir=self.cache_dir,
+                method=self.dataset_load_method,
+                streaming=False,
+                data_files=self.data_files,
+            )
+
+            if split_info is None:
+                # Builder couldn't determine split info (e.g. webdataset from local tar files).
+                # Now that we've loaded, we can get the actual size.
+                num_examples = len(dataset)
+                self.logger.info(
+                    f"Split metadata was not available from builder. "
+                    f"Determined dataset size after loading: {num_examples:,} samples"
+                )
+                self.dataset_size = num_examples
+            else:
+                self.logger.info("Dataset Arrow cache is ready.")
+
+            # Sanity check: access first sample to verify data is readable
+            self._sanity_check_sample(dataset)
+
+            # Clean up — workers will mmap the cached Arrow files independently
+            del dataset
 
         # Auto-create output subdirectory based on config_name and mode if config_name is provided
         if self.config_name:
@@ -258,6 +296,16 @@ class HFDatasetPipeline(BasePipeline):
         Path(self.output_dir).mkdir(parents=True, exist_ok=True)
 
         self._setup_workers()
+
+    def _sanity_check_sample(self, dataset):
+        """Access the first sample to verify the dataset is readable."""
+        try:
+            sample = dataset[0]
+            self.logger.info(f"Sanity check passed. Columns: {list(sample.keys())}")
+        except Exception as e:
+            raise RuntimeError(
+                f"Sanity check failed: could not access first sample. Error: {e}"
+            ) from e
 
     def _setup_workers(self):
         """Setup workers for shard-based tokenization.
@@ -292,12 +340,18 @@ class HFDatasetPipeline(BasePipeline):
                             num_sequences = get_num_sequences(str(idx_file))
                             completed_samples += num_sequences
 
-                remaining_samples = self.dataset_size - completed_samples
-                self.logger.info(
-                    f"[RESUME]: Already processed {completed_samples:,} samples in {len(completed_shards)} shards. "
-                    f"Remaining: {remaining_samples:,} samples"
-                )
-                total_samples = remaining_samples
+                if self.dataset_size > 0:
+                    remaining_samples = self.dataset_size - completed_samples
+                    self.logger.info(
+                        f"[RESUME]: Already processed {completed_samples:,} samples in {len(completed_shards)} shards. "
+                        f"Remaining: {remaining_samples:,} samples"
+                    )
+                    total_samples = remaining_samples
+                else:
+                    self.logger.info(
+                        f"[RESUME]: Already processed {completed_samples:,} samples in {len(completed_shards)} shards. "
+                        f"Remaining: unknown (dataset size not available upfront)"
+                    )
 
                 # Create work queue with only uncompleted shards
                 uncompleted = [i for i in range(self.num_shards) if i not in completed_shards]
@@ -455,7 +509,8 @@ class HFDatasetPipeline(BasePipeline):
             "text_tokens": shard_stats["text_tokens"],
             "errors": total_errors,
             "samples_skipped": shard_stats["samples_skipped"],
-            "resolution_skipped": shard_stats["resolution_skipped"],
+            "resolution_skipped_min": shard_stats["resolution_skipped_min"],
+            "resolution_skipped_max": shard_stats["resolution_skipped_max"],
             "transform_errors": shard_stats["transform_errors"],
             "cuda_oom_errors": shard_stats["cuda_oom_errors"],
             "elapsed_time": processing_time,

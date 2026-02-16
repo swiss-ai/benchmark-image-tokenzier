@@ -52,8 +52,9 @@ def read_statistics(p: Path) -> Tuple[int, int, int, int, int]:
     image = get_int(stats, "image_tokens", p)
     text = get_int(stats, "text_tokens", p)
     skipped_samples = get_int(stats, "samples_skipped", p)
-    skipped_resolution = get_int(stats, "resolution_skipped", p)
-    total_skipped = skipped_samples + skipped_resolution
+    skipped_resolution_min = get_int(stats, "resolution_skipped_min", p)
+    skipped_resolution_max = get_int(stats, "resolution_skipped_max", p)
+    total_skipped = skipped_samples + skipped_resolution_min + skipped_resolution_max
     total_processed = get_int(stats, "total_samples_processed", p)
     return total, image, text, total_skipped, total_processed
 
