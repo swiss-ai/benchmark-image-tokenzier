@@ -75,9 +75,22 @@ class BasePipeline(ABC):
         # Pattern: rank_X_shard_Y_Z.idx where Y is shard_id and Z is total_shards
         pattern = re.compile(r"rank_\d+_shard_(\d+)_(\d+)\.idx")
 
+        # Delete orphaned .bin files (no matching .idx) from interrupted writes
+        bin_pattern = re.compile(r"rank_\d+_shard_\d+_\d+\.bin")
+        for bin_file in output_path.glob("*.bin"):
+            if bin_pattern.match(bin_file.name):
+                idx_file = bin_file.with_suffix(".idx")
+                if not idx_file.exists():
+                    self.logger.warning(
+                        f"Deleting orphaned .bin file with no matching .idx: {bin_file.name}"
+                    )
+                    bin_file.unlink()
+
         # Collect all shard counts found
         shard_counts_found = set()
         files_by_shard_count = {}
+        # Track shard_id -> list of files for duplicate detection
+        shard_id_files = {}
 
         for idx_file in output_path.glob("*.idx"):
             match = pattern.match(idx_file.name)
@@ -100,7 +113,39 @@ class BasePipeline(ABC):
                 files_by_shard_count[total_shards].append(idx_file.name)
 
                 if total_shards == self.num_shards:
+                    key = (shard_id, total_shards)
+                    shard_id_files.setdefault(key, []).append(idx_file.name)
                     completed.add(shard_id)
+
+        # Resolve duplicate shards (same shard_id processed by different workers)
+        duplicates = {k: v for k, v in shard_id_files.items() if len(v) > 1}
+        if duplicates:
+            stats_dir = output_path / "shard_stats"
+            for (shard_id, total_shards), files in sorted(duplicates.items()):
+                stats_file = stats_dir / f"shard_{shard_id}.json"
+                if not stats_file.exists():
+                    raise RuntimeError(
+                        f"Duplicate shard {shard_id} found ({files}) but no "
+                        f"shard_stats/shard_{shard_id}.json exists to validate. "
+                        "Resolve manually."
+                    )
+
+                # Keep the newest .idx file, delete older pairs
+                idx_paths = [output_path / f for f in files]
+                idx_paths.sort(key=lambda p: p.stat().st_mtime)
+                keeper = idx_paths[-1]
+                for old_idx in idx_paths[:-1]:
+                    old_bin = old_idx.with_suffix(".bin")
+                    self.logger.warning(
+                        f"Duplicate shard {shard_id}: deleting older {old_idx.name} "
+                        f"(keeping {keeper.name})"
+                    )
+                    old_idx.unlink()
+                    if old_bin.exists():
+                        old_bin.unlink()
+
+                # Update tracking to only keep the survivor
+                shard_id_files[(shard_id, total_shards)] = [keeper.name]
 
         # Check for inconsistency
         if shard_counts_found and self.num_shards not in shard_counts_found:
@@ -856,6 +901,18 @@ class BaseTokenizerWorker:
 
         return self.stats
 
+    def _resilient_iter(self, shard, stats):
+        """Wrap shard iterator to skip corrupt samples instead of crashing."""
+        iterator = iter(shard)
+        while True:
+            try:
+                yield next(iterator)
+            except StopIteration:
+                break
+            except Exception as e:
+                self.logger.warning(f"Skipping corrupt sample: {e}")
+                stats["errors"] += 1
+
     def batch_iterable_shard(self, shard, stats: Dict):
         """
         Extract, transform, filter samples from a shard and yield batches.
@@ -871,7 +928,7 @@ class BaseTokenizerWorker:
             Batch dictionaries with 'images', 'text', and 'resize_size' keys
         """
         buffer = []
-        for sample in shard:
+        for sample in self._resilient_iter(shard, stats):
             image, text = self._extract_data(sample)
             try:
                 image, text = self.apply_transforms(image, text)
@@ -979,7 +1036,7 @@ class BaseTokenizerWorker:
                         stats["errors"] += current_batch_size
         else:
             # Sample-by-sample processing
-            for sample in shard:
+            for sample in self._resilient_iter(shard, stats):
                 image, text = self._extract_data(sample)
                 try:
                     image, text = self.apply_transforms(image, text)
@@ -1126,3 +1183,6 @@ class BaseTokenizerWorker:
                 self.logger.error(error_msg)
                 print(f"[Worker {self.worker_id}] {error_msg}", flush=True)
                 ray.get(shard_queue.mark_failed.remote(shard_id, str(e)))
+                self.update_stats(errors=1)
+
+        return self.get_final_stats()

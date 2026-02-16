@@ -339,9 +339,10 @@ class WDSPipeline(BasePipeline):
             for shard_id, error in shard_summary["failed_shard_details"]:
                 self.logger.error(f"  Failed shard {shard_id}: {error}")
 
-        max_time = max(r["elapsed_time"] for r in results) if results else 0
+        valid_results = [r for r in results if r is not None]
+        max_time = max(r["elapsed_time"] for r in valid_results) if valid_results else 0
 
-        self._save_metadata(all_shard_stats, shard_summary, results, max_time)
+        self._save_metadata(all_shard_stats, shard_summary, valid_results, max_time)
 
         return {
             "current_run_processed": current_run_processed,

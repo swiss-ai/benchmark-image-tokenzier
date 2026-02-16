@@ -20,4 +20,27 @@
 #TOKENIZATION_MODE=image_only sbatch --nodes=1 --job-name=tok-uwf /users/rkreft/benchmark-image-tokenzier/vision_tokenization/scripts/run_multinode_tokenization.slurm --config /users/rkreft/benchmark-image-tokenzier/vision_tokenization/configs/apertus_s1_medical/medical-uwf-imgonly-emu3p5.json --offline
 
 ## HOLO ASSIST ##
-TOKENIZATION_MODE=image_only sbatch --nodes=10 --job-name=tok-holoassist /users/rkreft/benchmark-image-tokenzier/vision_tokenization/scripts/run_multinode_tokenization.slurm --config /users/rkreft/benchmark-image-tokenzier/vision_tokenization/configs/apertus_s1_egocentric/egocentric-holoassist-imgonly-emu3p5.json --offline
+#TOKENIZATION_MODE=image_only sbatch --nodes=10 --job-name=tok-holoassist /users/rkreft/benchmark-image-tokenzier/vision_tokenization/scripts/run_multinode_tokenization.slurm --config /users/rkreft/benchmark-image-tokenzier/vision_tokenization/configs/apertus_s1_egocentric/egocentric-holoassist-imgonly-emu3p5.json --offline
+
+## General ##
+
+# WDS - laion aesthetics12m-umap
+TOKENIZATION_MODE=image_only sbatch --nodes=20 --job-name=tok-laionaesthetic /users/rkreft/benchmark-image-tokenzier/vision_tokenization/scripts/run_multinode_tokenization.slurm --data-format wds --config /users/rkreft/benchmark-image-tokenzier/vision_tokenization/configs/apertus_s1_general/general-laion_aesthetics12m_uwp-imgonly-emu3p5_wds.json
+# WDS - Mint1T PDF
+TOKENIZATION_MODE=image_only sbatch --nodes=15 --job-name=tok-mint1tpdf_01 /users/rkreft/benchmark-image-tokenzier/vision_tokenization/scripts/run_multinode_tokenization.slurm --data-format wds --config /users/rkreft/benchmark-image-tokenzier/vision_tokenization/configs/apertus_s1_general/general-mint1t_pdf_01-imgonly-emu3p5_wds.json
+TOKENIZATION_MODE=image_only sbatch --nodes=15 --job-name=tok-mint1tpdf_02 /users/rkreft/benchmark-image-tokenzier/vision_tokenization/scripts/run_multinode_tokenization.slurm --data-format wds --config /users/rkreft/benchmark-image-tokenzier/vision_tokenization/configs/apertus_s1_general/general-mint1t_pdf_02-imgonly-emu3p5_wds.json
+TOKENIZATION_MODE=image_only sbatch --nodes=15 --job-name=tok-mint1tpdf_03 /users/rkreft/benchmark-image-tokenzier/vision_tokenization/scripts/run_multinode_tokenization.slurm --data-format wds --config /users/rkreft/benchmark-image-tokenzier/vision_tokenization/configs/apertus_s1_general/general-mint1t_pdf_03-imgonly-emu3p5_wds.json
+TOKENIZATION_MODE=image_only sbatch --nodes=15 --job-name=tok-mint1tpdf_04 /users/rkreft/benchmark-image-tokenzier/vision_tokenization/scripts/run_multinode_tokenization.slurm --data-format wds --config /users/rkreft/benchmark-image-tokenzier/vision_tokenization/configs/apertus_s1_general/general-mint1t_pdf_04-imgonly-emu3p5_wds.json
+TOKENIZATION_MODE=image_only sbatch --nodes=8 --job-name=tok-mint1tpdf_05 /users/rkreft/benchmark-image-tokenzier/vision_tokenization/scripts/run_multinode_tokenization.slurm --data-format wds --config /users/rkreft/benchmark-image-tokenzier/vision_tokenization/configs/apertus_s1_general/general-mint1t_pdf_05-imgonly-emu3p5_wds.json --resume
+# streaming mode hf webdataset integration for more shards (TODO: check if finished, wlse restart with streaming = False because with streaming num shards is max num tar files.)
+TOKENIZATION_MODE=image_only sbatch --nodes=32 --job-name=tok-mint1tpdf_06 /users/rkreft/benchmark-image-tokenzier/vision_tokenization/scripts/run_multinode_tokenization.slurm --config /users/rkreft/benchmark-image-tokenzier/vision_tokenization/configs/apertus_s1_general/general-mint1t_pdf_06-imgonly-emu3p5_wds.json
+TOKENIZATION_MODE=image_only sbatch --nodes=32 --job-name=tok-mint1tpdf_07 /users/rkreft/benchmark-image-tokenzier/vision_tokenization/scripts/run_multinode_tokenization.slurm --config /users/rkreft/benchmark-image-tokenzier/vision_tokenization/configs/apertus_s1_general/general-mint1t_pdf_07-imgonly-emu3p5_wds.json
+
+## OCR ##
+
+# MINT 1T Arxiv
+TOKENIZATION_MODE=image_only sbatch --nodes=32 --job-name=tok-mint1tarxiv /users/rkreft/benchmark-image-tokenzier/vision_tokenization/scripts/run_multinode_tokenization.slurm --config /users/rkreft/benchmark-image-tokenzier/vision_tokenization/configs/apertus_s1_ocr/ocr-mint1t_arxiv-imgonly-emu3p5_wds.json
+#Big Docs 7.5 M
+TOKENIZATION_MODE=image_only sbatch --nodes=2 --job-name=tok-bigdocs7_5m /users/rkreft/benchmark-image-tokenzier/vision_tokenization/scripts/run_multinode_tokenization.slurm --data-format wds --config /users/rkreft/benchmark-image-tokenzier/vision_tokenization/configs/apertus_s1_ocr/ocr-bigdocs7_5m-imgonly-emu3p5_wds.json
+# TreeOfLife10M
+TOKENIZATION_MODE=image_only sbatch --nodes=11 --job-name=tok-treeoflife10m /users/rkreft/benchmark-image-tokenzier/vision_tokenization/scripts/run_multinode_tokenization.slurm --config /users/rkreft/benchmark-image-tokenzier/vision_tokenization/configs/apertus_s1_bio/bio-treeoflife10m-imgonly-emu3p5_wds.json
