@@ -7,6 +7,7 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from collections import deque
+from enum import Enum
 from typing import Any, Dict, Optional, Tuple, Union
 
 import ray
@@ -15,6 +16,13 @@ from tqdm import tqdm
 
 from vision_tokenization.utils.time_utils import format_duration, get_slurm_time_limit
 from vision_tokenization.vokenizers.transforms import TransformPipeline
+
+
+class SampleStatus(Enum):
+    OK = "ok"
+    DATA_SKIP = "data_skip"
+    RESOLUTION_SKIP_MIN = "resolution_skip_min"
+    RESOLUTION_SKIP_MAX = "resolution_skip_max"
 
 
 class BasePipeline(ABC):
@@ -191,7 +199,8 @@ class BasePipeline(ABC):
             "text_tokens": 0,
             "errors": 0,
             "samples_skipped": 0,
-            "resolution_skipped": 0,
+            "resolution_skipped_min": 0,
+            "resolution_skipped_max": 0,
             "transform_errors": 0,
             "cuda_oom_errors": 0,
             "shard_count": 0,
@@ -227,7 +236,8 @@ class BasePipeline(ABC):
                     aggregated["text_tokens"] += shard_stats.get("text_tokens", 0)
                     aggregated["errors"] += shard_stats.get("errors", 0)
                     aggregated["samples_skipped"] += shard_stats.get("skipped", 0)
-                    aggregated["resolution_skipped"] += shard_stats.get("resolution_skipped", 0)
+                    aggregated["resolution_skipped_min"] += shard_stats.get("resolution_skipped_min", 0)
+                    aggregated["resolution_skipped_max"] += shard_stats.get("resolution_skipped_max", 0)
                     aggregated["transform_errors"] += shard_stats.get("transform_errors", 0)
                     aggregated["cuda_oom_errors"] += shard_stats.get("cuda_oom_errors", 0)
                     aggregated["shard_count"] += 1
@@ -263,7 +273,8 @@ class BasePipeline(ABC):
         total_tokens = sum(r["tokens_generated"] for r in results)
         total_errors = sum(r["errors"] for r in results)
         total_skipped = sum(r.get("samples_skipped", 0) for r in results)
-        total_resolution_skipped = sum(r.get("resolution_skipped", 0) for r in results)
+        total_resolution_skipped_min = sum(r.get("resolution_skipped_min", 0) for r in results)
+        total_resolution_skipped_max = sum(r.get("resolution_skipped_max", 0) for r in results)
         total_transform_errors = sum(r.get("transform_errors", 0) for r in results)
         total_cuda_oom_errors = sum(r.get("cuda_oom_errors", 0) for r in results)
         total_image_tokens = sum(r.get("image_tokens", 0) for r in results)
@@ -273,7 +284,8 @@ class BasePipeline(ABC):
             "statistics": {
                 "total_samples_processed": total_samples,
                 "samples_skipped": total_skipped,
-                "resolution_skipped": total_resolution_skipped,
+                "resolution_skipped_min": total_resolution_skipped_min,
+                "resolution_skipped_max": total_resolution_skipped_max,
                 "transform_errors": total_transform_errors,
                 "total_tokens": total_tokens,
                 "image_tokens": total_image_tokens,
@@ -305,7 +317,8 @@ class BasePipeline(ABC):
                     "text_tokens": r.get("text_tokens", 0),
                     "errors": r["errors"],
                     "samples_skipped": r.get("samples_skipped", 0),
-                    "resolution_skipped": r.get("resolution_skipped", 0),
+                    "resolution_skipped_min": r.get("resolution_skipped_min", 0),
+                    "resolution_skipped_max": r.get("resolution_skipped_max", 0),
                     "transform_errors": r.get("transform_errors", 0),
                     "cuda_oom_errors": r.get("cuda_oom_errors", 0),
                     "throughput_tokens": r.get("throughput_tokens", r.get("throughput", 0)),
@@ -637,7 +650,8 @@ class BaseTokenizerWorker:
             "text_tokens": 0,  # For multimodal modes (sft, image2text, text2image)
             "errors": 0,
             "samples_skipped": 0,  # Samples skipped due to missing data
-            "resolution_skipped": 0,  # Samples skipped due to resolution filtering
+            "resolution_skipped_min": 0,  # Samples skipped: below min resolution
+            "resolution_skipped_max": 0,  # Samples skipped: above max resolution
             "transform_errors": 0,  # Samples skipped due to transform errors
             "cuda_oom_errors": 0,  # CUDA Out-Of-Memory errors
             "start_time": time.time(),
@@ -645,7 +659,7 @@ class BaseTokenizerWorker:
 
         self.logger.warning(f"Worker {worker_id} initialized on {self.device} in {mode} mode")
 
-    def should_process_resolution(self, image) -> bool:
+    def should_process_resolution(self, image) -> SampleStatus:
         """
         Check if image meets resolution criteria for filtering.
         Note: image.size is O(1) - just returns stored dimensions without decoding.
@@ -654,23 +668,24 @@ class BaseTokenizerWorker:
             image: PIL Image object
 
         Returns:
-            True if image should be processed, False if it should be skipped
+            SampleStatus.OK if image should be processed,
+            SampleStatus.RESOLUTION_SKIP_MIN/MAX if it should be skipped
         """
         if not self.min_image_pixels and not self.max_image_pixels:
-            return True
+            return SampleStatus.OK
 
         width, height = image.size
         resolution = width * height
 
         # Filter based on configured thresholds
         if self.min_image_pixels and resolution < self.min_image_pixels:
-            return False
+            return SampleStatus.RESOLUTION_SKIP_MIN
         if self.max_image_pixels and resolution > self.max_image_pixels:
-            return False
+            return SampleStatus.RESOLUTION_SKIP_MAX
 
-        return True
+        return SampleStatus.OK
 
-    def get_sample_status(self, image, text) -> str:
+    def get_sample_status(self, image, text) -> SampleStatus:
         """
         Determine the processing status of a sample.
 
@@ -679,22 +694,23 @@ class BaseTokenizerWorker:
             text: Text data (may be None)
 
         Returns:
-            Status string: 'ok', 'data_skip', or 'resolution_skip'
+            SampleStatus enum value
         """
         # Check for missing image
         if image is None:
             # TODO: this will prevent txt-only sft tokenization form working!
-            return "data_skip"
+            return SampleStatus.DATA_SKIP
 
         # Check if mode requires text and it's missing
         if self.mode in ["image2text", "text2image", "sft"] and not text:
-            return "data_skip"
+            return SampleStatus.DATA_SKIP
 
         # Check resolution filtering
-        if not self.should_process_resolution(image):
-            return "resolution_skip"
+        resolution_status = self.should_process_resolution(image)
+        if resolution_status != SampleStatus.OK:
+            return resolution_status
 
-        return "ok"
+        return SampleStatus.OK
 
     def tokenize_sample(self, image, text) -> Optional[Any]:
         """
@@ -828,7 +844,8 @@ class BaseTokenizerWorker:
         tokens: int = 0,
         errors: int = 0,
         skipped: int = 0,
-        resolution_skipped: int = 0,
+        resolution_skipped_min: int = 0,
+        resolution_skipped_max: int = 0,
         transform_errors: int = 0,
         cuda_oom_errors: int = 0,
         image_tokens: int = 0,
@@ -841,7 +858,8 @@ class BaseTokenizerWorker:
         self.stats["text_tokens"] += text_tokens
         self.stats["errors"] += errors
         self.stats["samples_skipped"] += skipped
-        self.stats["resolution_skipped"] += resolution_skipped
+        self.stats["resolution_skipped_min"] += resolution_skipped_min
+        self.stats["resolution_skipped_max"] += resolution_skipped_max
         self.stats["transform_errors"] += transform_errors
         self.stats["cuda_oom_errors"] += cuda_oom_errors
 
@@ -871,8 +889,10 @@ class BaseTokenizerWorker:
         skips = []
         if stats.get("skipped", stats.get("samples_skipped", 0)) > 0:
             skips.append(f"{stats.get('skipped', stats.get('samples_skipped', 0))} data_skip")
-        if stats.get("resolution_skipped", 0) > 0:
-            skips.append(f"{stats['resolution_skipped']} res_skip")
+        if stats.get("resolution_skipped_min", 0) > 0:
+            skips.append(f"{stats['resolution_skipped_min']} res_skip_min")
+        if stats.get("resolution_skipped_max", 0) > 0:
+            skips.append(f"{stats['resolution_skipped_max']} res_skip_max")
         if stats.get("transform_errors", 0) > 0:
             skips.append(f"{stats['transform_errors']} transform_err")
         if stats.get("cuda_oom_errors", 0) > 0:
@@ -939,10 +959,13 @@ class BaseTokenizerWorker:
 
             # Check sample status and skip if necessary
             status = self.get_sample_status(image, text)
-            if status == "resolution_skip":
-                stats["resolution_skipped"] += 1
+            if status == SampleStatus.RESOLUTION_SKIP_MIN:
+                stats["resolution_skipped_min"] += 1
                 continue
-            elif status == "data_skip":
+            elif status == SampleStatus.RESOLUTION_SKIP_MAX:
+                stats["resolution_skipped_max"] += 1
+                continue
+            elif status == SampleStatus.DATA_SKIP:
                 stats["skipped"] += 1
                 continue
 
@@ -1046,10 +1069,13 @@ class BaseTokenizerWorker:
                     continue
 
                 status = self.get_sample_status(image, text)
-                if status == "resolution_skip":
-                    stats["resolution_skipped"] += 1
+                if status == SampleStatus.RESOLUTION_SKIP_MIN:
+                    stats["resolution_skipped_min"] += 1
                     continue
-                elif status == "data_skip":
+                elif status == SampleStatus.RESOLUTION_SKIP_MAX:
+                    stats["resolution_skipped_max"] += 1
+                    continue
+                elif status == SampleStatus.DATA_SKIP:
                     stats["skipped"] += 1
                     continue
 
@@ -1114,7 +1140,8 @@ class BaseTokenizerWorker:
             "text_tokens": stats.get("text_tokens", 0),
             "errors": stats.get("errors", 0),
             "skipped": stats.get("skipped", 0),
-            "resolution_skipped": stats.get("resolution_skipped", 0),
+            "resolution_skipped_min": stats.get("resolution_skipped_min", 0),
+            "resolution_skipped_max": stats.get("resolution_skipped_max", 0),
             "transform_errors": stats.get("transform_errors", 0),
             "cuda_oom_errors": stats.get("cuda_oom_errors", 0),
             "processing_time": stats.get("time", 0),
@@ -1169,7 +1196,8 @@ class BaseTokenizerWorker:
                     tokens=result["tokens"],
                     errors=result["errors"],
                     skipped=result.get("skipped", 0),
-                    resolution_skipped=result.get("resolution_skipped", 0),
+                    resolution_skipped_min=result.get("resolution_skipped_min", 0),
+                    resolution_skipped_max=result.get("resolution_skipped_max", 0),
                     transform_errors=result.get("transform_errors", 0),
                     cuda_oom_errors=result.get("cuda_oom_errors", 0),
                     image_tokens=result.get("image_tokens", 0),

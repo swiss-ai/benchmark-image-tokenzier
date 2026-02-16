@@ -149,7 +149,8 @@ class WDSWorker(BaseTokenizerWorker):
             "text_tokens": 0,
             "errors": 0,
             "skipped": 0,
-            "resolution_skipped": 0,
+            "resolution_skipped_min": 0,
+            "resolution_skipped_max": 0,
             "transform_errors": 0,
             "cuda_oom_errors": 0,
         }
