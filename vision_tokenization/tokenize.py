@@ -151,6 +151,13 @@ def create_wds_parser(subparsers):
         "--resume", action="store_true", help="Resume from existing checkpoint by skipping completed shards"
     )
     parser.add_argument(
+        "--skip-sample-count",
+        action="store_true",
+        help="Skip counting samples in tar files before processing. "
+        "Useful for large numbers of tars where the header scan is slow. "
+        "Progress will show absolute counts without percentages or ETA.",
+    )
+    parser.add_argument(
         "--image-transforms",
         type=str,
         help='Comma-separated list of image transforms to apply (e.g., "convert_rgb,resize_max")',
