@@ -39,6 +39,7 @@ class WDSPipeline(BasePipeline):
         image_field: str = "jpg;png;jpeg;webp",
         text_field: str = "txt",
         resume: bool = False,
+        skip_sample_count: bool = False,
         image_transforms: Optional[str] = None,
         text_transforms: Optional[str] = None,
         transform_params: Optional[Dict[str, Dict[str, Any]]] = None,
@@ -50,6 +51,7 @@ class WDSPipeline(BasePipeline):
         self.input_pattern = input_pattern
         self.mode = mode
         self.resume = resume
+        self.skip_sample_count = skip_sample_count
 
         # Set tokenizer pixels with defaults
         if min_tokenizer_pixels is None:
@@ -193,7 +195,11 @@ class WDSPipeline(BasePipeline):
             )
 
         # Count total samples by scanning tar headers (no decompression)
-        self.dataset_size = self._count_tar_samples(tar_paths)
+        if self.skip_sample_count:
+            self.logger.info("Skipping tar sample count (skip_sample_count=True). Progress will use streaming mode.")
+            self.dataset_size = -1
+        else:
+            self.dataset_size = self._count_tar_samples(tar_paths)
 
         # Initialize Ray
         self.logger.info(f"Initializing Ray with {self.num_gpus} workers")
@@ -244,12 +250,18 @@ class WDSPipeline(BasePipeline):
                         if shard_id in completed_shards:
                             completed_samples += get_num_sequences(str(idx_file))
 
-                remaining_samples = total_samples - completed_samples
-                self.logger.info(
-                    f"[RESUME]: Already processed {completed_samples:,} samples in {len(completed_shards)} shards. "
-                    f"Remaining: {remaining_samples:,} samples"
-                )
-                total_samples = remaining_samples
+                if total_samples > 0:
+                    remaining_samples = total_samples - completed_samples
+                    self.logger.info(
+                        f"[RESUME]: Already processed {completed_samples:,} samples in {len(completed_shards)} shards. "
+                        f"Remaining: {remaining_samples:,} samples"
+                    )
+                    total_samples = remaining_samples
+                else:
+                    self.logger.info(
+                        f"[RESUME]: Already processed {completed_samples:,} samples in {len(completed_shards)} shards. "
+                        f"Remaining sample count unknown (sample counting skipped)."
+                    )
 
                 uncompleted = [i for i in range(self.num_shards) if i not in completed_shards]
                 self.logger.info(
