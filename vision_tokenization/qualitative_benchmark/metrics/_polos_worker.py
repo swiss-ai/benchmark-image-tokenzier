@@ -36,6 +36,11 @@ def main():
     image_bytes = base64.b64decode(image_b64)
     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
+    # Redirect stdout to stderr before importing POLOS to silence any library
+    # output that would corrupt the JSON result written to stdout later.
+    _real_stdout = sys.stdout
+    sys.stdout = sys.stderr
+
     # Load POLOS model
     from polos.models import download_model, load_checkpoint
 
@@ -55,7 +60,8 @@ def main():
     _, scores = model.predict(data)
     score = float(scores[0])
 
-    # Write result
+    # Restore stdout and write JSON result
+    sys.stdout = _real_stdout
     json.dump({"polos_score": score}, sys.stdout)
 
 

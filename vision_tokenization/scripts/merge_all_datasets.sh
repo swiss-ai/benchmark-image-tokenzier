@@ -315,7 +315,9 @@ output_idx = os.path.join(output_base, f"{output_name}.idx")
 total_sequences = 0
 total_documents = 0
 if os.path.exists(output_idx):
-    total_sequences, total_documents = read_idx_counts(output_idx)
+    total_sequences, _doc_array_len = read_idx_counts(output_idx)
+    # _doc_array_len is len(document_indices) = N+1; actual documents = N
+    total_documents = _doc_array_len - 1
 
 # Parse source datasets and calculate their tokens
 source_stats = []
@@ -326,7 +328,10 @@ for source in source_datasets:
         path, pattern = source.rsplit(':', 1)
         # Find the actual bin files
         import glob
-        bin_files = glob.glob(os.path.join(path, pattern))
+        # Filter to .bin files only — glob with "*" picks up .idx, .meta.json,
+        # shard_stats dirs, current_run logs, etc. and corrupts token counts.
+        all_matches = glob.glob(os.path.join(path, pattern))
+        bin_files = [f for f in all_matches if f.endswith('.bin') and os.path.isfile(f)]
 
         total_source_tokens = 0
         source_sequences = 0
@@ -336,11 +341,12 @@ for source in source_datasets:
                 file_size = os.path.getsize(bin_file)
                 tokens = file_size // 4
                 total_source_tokens += tokens
-                idx_file = bin_file.replace('.bin', '.idx')
+                idx_file = bin_file[:-4] + '.idx'
                 if os.path.exists(idx_file):
                     seq_c, doc_c = read_idx_counts(idx_file)
                     source_sequences += seq_c
-                    source_documents += doc_c
+                    # doc_c from .idx is len(document_indices) = N+1; actual docs = N
+                    source_documents += doc_c - 1
 
         if total_source_tokens > 0:
             source_stats.append({
