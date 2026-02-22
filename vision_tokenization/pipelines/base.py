@@ -1018,32 +1018,24 @@ class BaseTokenizerWorker:
                     if tokens_batched is not None:
                         batch_size = len(tokens_batched)
 
-                        all_tokens = []
-                        lengths_list = []
                         for seq in tokens_batched:
                             seq_np = seq.cpu().numpy() if torch.is_tensor(seq) else seq
-                            all_tokens.append(seq_np)
-                            lengths_list.append(len(seq_np))
+                            seq_len = len(seq_np)
+                            builder.add_document(seq_np, [seq_len])
+                            stats["tokens"] += seq_len
+                            if self.mode in ["sft", "image2text", "text2image"]:
+                                text_mask = seq_np < self.tokenizer.vision_token_offset
+                                stats["text_tokens"] += int(text_mask.sum())
+                                stats["image_tokens"] += int((~text_mask).sum())
 
-                        import numpy as np
-
-                        tokens_np = np.concatenate(all_tokens)
-
-                        builder.add_document(tokens_np, lengths_list)
                         stats["samples"] += batch_size
-                        stats["tokens"] += len(tokens_np)
                         samples_since_update += batch_size
 
                         if progress_actor and samples_since_update >= update_interval:
                             progress_actor.update.remote(samples_since_update)
                             samples_since_update = 0
 
-                        if self.mode in ["sft", "image2text", "text2image"]:
-                            text_mask = tokens_np < self.tokenizer.vision_token_offset
-                            stats["text_tokens"] += int(text_mask.sum())
-                            stats["image_tokens"] += int((~text_mask).sum())
-
-                        del tokens_batched, tokens_np, all_tokens, lengths_list
+                        del tokens_batched
                     else:
                         stats["errors"] += current_batch_size
 
