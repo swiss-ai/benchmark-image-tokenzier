@@ -1,0 +1,19 @@
+{
+  "tokenizer_path": "/capstor/store/cscs/swissai/infra01/MLLM/apertus_emu3.5_tokenizer",
+  "output_dir": "/users/rkreft/vision-datasets/Apertus1p5_stage1_tokenized/ocr-bigDocs7_5m/pubtables1m",
+  "input_pattern": "/capstor/scratch/cscs/tchu/data/bigdocs/pubtables1m/*.tar",
+  "num_shards": 153,
+  "mode": "image_only",
+  "num_gpus": 4,
+  "batch_mode": "clustered",
+  "batch_size": 3,
+  "buffer_size": null,
+  "resize_size": "avg",
+  "device": "cuda",
+  "min_tokenizer_pixels": "128*128",
+  "max_tokenizer_pixels": "1400*1400",
+  "min_image_pixels": "64*128",
+  "max_image_pixels": "2048*2048",
+  "image_field": "jpg;png;jpeg;webp",
+  "log_interval": 500
+}

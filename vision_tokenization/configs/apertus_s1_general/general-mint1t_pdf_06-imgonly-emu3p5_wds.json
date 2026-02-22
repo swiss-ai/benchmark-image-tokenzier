@@ -1,0 +1,23 @@
+{
+  "tokenizer_path": "/capstor/store/cscs/swissai/infra01/MLLM/apertus_emu3.5_tokenizer",
+  "output_dir": "/users/rkreft/vision-datasets/Apertus1p5_stage1_tokenized/general-mint1Tpdf_06",
+  "dataset_name": "webdataset",
+  "data_files": "/capstor/store/cscs/swissai/infra01/vision-datasets/mlfoundations/MINT-1T-PDF-CC-2024-10/*.tar",
+  "dataset_split": "train",
+  "dataset_load_method": "default",
+  "dataset_streamed": true,
+  "num_shards": 512,
+  "mode": "image_only",
+  "num_gpus": 4,
+  "batch_mode": "clustered",
+  "batch_size": 4,
+  "buffer_size": null,
+  "resize_size": "avg",
+  "device": "cuda",
+  "min_tokenizer_pixels": "128*128",
+  "max_tokenizer_pixels": "1400*1400",
+  "min_image_pixels": "64*128",
+  "max_image_pixels": "2048*2048",
+  "image_field": "jpg",
+  "log_interval": 500
+}
