@@ -1,5 +1,5 @@
 {
-  "tokenizer_path": "/capstor/store/cscs/swissai/infra01/MLLM/apertus_emu3_tokenizer",
+  "tokenizer_path": "/capstor/store/cscs/swissai/infra01/MLLM/apertus_emu3.5_tokenizer",
   "output_dir": "/capstor/store/cscs/swissai/infra01/vision-datasets/example-wds/tokenized_image_only",
   "input_pattern": "/capstor/store/cscs/swissai/infra01/vision-datasets/example-wds/*.tar",
   "mode": "image_only",
