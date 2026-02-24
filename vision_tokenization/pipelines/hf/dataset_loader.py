@@ -471,8 +471,7 @@ def _load_with_disk_method(
         if base_split not in dataset:
             available = list(dataset.keys())
             raise ValueError(
-                f"Split '{base_split}' not found in dataset at '{dataset_name}'. "
-                f"Available splits: {available}"
+                f"Split '{base_split}' not found in dataset at '{dataset_name}'. " f"Available splits: {available}"
             )
         dataset = dataset[base_split]
         logger.info(f"Extracted split '{base_split}' from DatasetDict")

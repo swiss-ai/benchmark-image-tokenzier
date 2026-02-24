@@ -36,13 +36,15 @@ def get_experiments():
             # Folder is the parent directory path, empty string for root level
             folder = str(rel_path.parent) if rel_path.parent != Path(".") else ""
 
-            experiments.append({
-                "name": experiment_name,           # e.g., "project_a/completion_exp1"
-                "display_name": item.stem,         # e.g., "completion_exp1"
-                "folder": folder,                  # e.g., "project_a" or ""
-                "path": str(item),
-                "file": item.name
-            })
+            experiments.append(
+                {
+                    "name": experiment_name,  # e.g., "project_a/completion_exp1"
+                    "display_name": item.stem,  # e.g., "completion_exp1"
+                    "folder": folder,  # e.g., "project_a" or ""
+                    "path": str(item),
+                    "file": item.name,
+                }
+            )
 
     return experiments
 
@@ -565,13 +567,17 @@ def captioning_index():
         results = load_experiment_results(exp["name"])
         if results:
             summary = calculate_captioning_summary(results)
-            experiments_with_stats.append({
-                **exp,
-                "summary": summary,
-            })
+            experiments_with_stats.append(
+                {
+                    **exp,
+                    "summary": summary,
+                }
+            )
 
     grouped_experiments = group_experiments_by_folder(experiments_with_stats)
-    return render_template("captioning/index.html", experiments=experiments_with_stats, grouped_experiments=grouped_experiments)
+    return render_template(
+        "captioning/index.html", experiments=experiments_with_stats, grouped_experiments=grouped_experiments
+    )
 
 
 @app.route("/captioning/<path:experiment_name>")
@@ -695,7 +701,9 @@ def completion_index():
             )
 
     grouped_experiments = group_experiments_by_folder(experiments_with_stats)
-    return render_template("completion/index.html", experiments=experiments_with_stats, grouped_experiments=grouped_experiments)
+    return render_template(
+        "completion/index.html", experiments=experiments_with_stats, grouped_experiments=grouped_experiments
+    )
 
 
 @app.route("/completion/<path:experiment_name>")
@@ -875,38 +883,39 @@ def api_experiment_results(experiment_name):
 def serve_asset(filename):
     """Serve image assets."""
     # Check if the file is a TIFF image (which browsers don't support natively)
-    if filename.lower().endswith(('.tif', '.tiff')):
+    if filename.lower().endswith((".tif", ".tiff")):
         return serve_tiff_as_png(filename)
-    
+
     return send_from_directory(ASSETS_BASE_DIR, filename)
 
 
 def serve_tiff_as_png(filename):
     """Convert TIFF image to PNG and serve it."""
-    from PIL import Image
     import io
-    
+
+    from PIL import Image
+
     try:
         # Open the TIFF file
         tiff_path = ASSETS_BASE_DIR / filename
         if not tiff_path.exists():
             return "File not found", 404
-            
+
         img = Image.open(tiff_path)
-        
+
         # Convert to PNG in memory
         png_buffer = io.BytesIO()
-        img.save(png_buffer, format='PNG')
+        img.save(png_buffer, format="PNG")
         png_buffer.seek(0)
-        
+
         # Return as PNG with appropriate headers
         return send_file(
             png_buffer,
-            mimetype='image/png',
+            mimetype="image/png",
             as_attachment=False,
-            download_name=filename.replace('.tif', '.png').replace('.tiff', '.png')
+            download_name=filename.replace(".tif", ".png").replace(".tiff", ".png"),
         )
-        
+
     except Exception as e:
         # If conversion fails, try to serve the original file
         try:

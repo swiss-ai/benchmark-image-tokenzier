@@ -108,7 +108,6 @@ from typing import Any, Dict
 from transformers import AutoTokenizer
 
 from vision_tokenization.pipelines.hf.dataset_loader import load_hf_dataset
-
 from vision_tokenization.vokenizers.conversation_transforms import (
     ConversationTransformRegistry,
 )
@@ -328,7 +327,9 @@ def process_single_config(
 
     print(f"\nApplying chat template to dataset...")
     processed_dataset = dataset.map(
-        apply_chat_template_to_sample, num_proc=effective_num_proc, desc=f"Applying chat template ({config or 'default'})"
+        apply_chat_template_to_sample,
+        num_proc=effective_num_proc,
+        desc=f"Applying chat template ({config or 'default'})",
     )
 
     # Save to appropriate format
@@ -394,10 +395,18 @@ def main():
     parser.add_argument("--tokenizer-path", required=True, help="Path to tokenizer for chat template")
     parser.add_argument("--max-samples", type=int, default=None, help="Maximum number of samples to process per config")
     parser.add_argument("--message-column", default="texts", help="Column containing messages")
-    parser.add_argument("--add-bos", action=argparse.BooleanOptionalAction, default=True,
-                        help="Add BOS token if missing (default: True, use --no-add-bos to disable)")
-    parser.add_argument("--add-eos", action=argparse.BooleanOptionalAction, default=True,
-                        help="Add EOS token if missing (default: True, use --no-add-eos to disable)")
+    parser.add_argument(
+        "--add-bos",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Add BOS token if missing (default: True, use --no-add-bos to disable)",
+    )
+    parser.add_argument(
+        "--add-eos",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Add EOS token if missing (default: True, use --no-add-eos to disable)",
+    )
     parser.add_argument("--num-proc", type=int, default=64, help="Number of processes for parallel processing")
     parser.add_argument(
         "--conversation-transform",
@@ -449,7 +458,7 @@ def main():
         help=(
             "JSON string or @file path with transform parameters. "
             "Format: '{\"transform_name\": {\"param\": value}}' or '@params.json'. "
-            "Example: '{\"llava_to_apertus\": {\"add_image_placeholder\": false}}'"
+            'Example: \'{"llava_to_apertus": {"add_image_placeholder": false}}\''
         ),
     )
 

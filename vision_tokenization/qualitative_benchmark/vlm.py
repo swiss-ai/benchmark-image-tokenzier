@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict, Any
+from typing import Any, Dict, List, Tuple
 
 from PIL import Image
 
@@ -100,7 +100,10 @@ class VLM(object):
         stop_tokens = []
         if hasattr(self.inferencer.txt_tokenizer, "eos_token_id") and self.inferencer.txt_tokenizer.eos_token_id:
             stop_tokens.append(self.inferencer.txt_tokenizer.eos_token_id)
-        if hasattr(self.inferencer.txt_tokenizer.init_kwargs, "sft_eot_token") and self.inferencer.txt_tokenizer.init_kwargs["sft_eot_token"]:
+        if (
+            hasattr(self.inferencer.txt_tokenizer.init_kwargs, "sft_eot_token")
+            and self.inferencer.txt_tokenizer.init_kwargs["sft_eot_token"]
+        ):
             stop_tokens.append(self.inferencer.txt_tokenizer.init_kwargs["sft_eot_token"])
         self.inf_args.stop_token_ids = stop_tokens
 

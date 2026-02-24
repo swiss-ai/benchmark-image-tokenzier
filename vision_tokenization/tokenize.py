@@ -341,8 +341,14 @@ def main():
             pipeline_config = {k: v for k, v in config.items() if v is not None}
             # Remove HF-specific keys that may leak from shared args
             for hf_key in [
-                "dataset_name", "dataset_split", "config_name", "cache_dir",
-                "num_proc", "num_shards", "max_samples", "dataset_load_method",
+                "dataset_name",
+                "dataset_split",
+                "config_name",
+                "cache_dir",
+                "num_proc",
+                "num_shards",
+                "max_samples",
+                "dataset_load_method",
                 "dataset_streamed",
             ]:
                 pipeline_config.pop(hf_key, None)

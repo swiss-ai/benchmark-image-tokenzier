@@ -64,11 +64,12 @@ def list_benchmarks() -> List[str]:
     return list(BENCHMARK_REGISTRY.keys())
 
 
+from vision_tokenization.qualitative_benchmark.benchmarks.captioning import CaptioningBenchmark
+from vision_tokenization.qualitative_benchmark.benchmarks.image_completion import ImageCompletionBenchmark
+
 # Import benchmarks to trigger registration
 # These imports must come after the registry is defined
 from vision_tokenization.qualitative_benchmark.benchmarks.vlm_benchmark import VLMBenchmark
-from vision_tokenization.qualitative_benchmark.benchmarks.image_completion import ImageCompletionBenchmark
-from vision_tokenization.qualitative_benchmark.benchmarks.captioning import CaptioningBenchmark
 
 __all__ = [
     "BaseBenchmark",

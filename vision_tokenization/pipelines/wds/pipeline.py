@@ -190,8 +190,7 @@ class WDSPipeline(BasePipeline):
         self.logger.info(f"Discovered {self.num_shards} tar shards")
         if self.num_shards < self.num_gpus:
             self.logger.warning(
-                f"num_shards ({self.num_shards}) < num_gpus ({self.num_gpus}). "
-                f"Some workers will be idle."
+                f"num_shards ({self.num_shards}) < num_gpus ({self.num_gpus}). " f"Some workers will be idle."
             )
 
         # Count total samples by scanning tar headers (no decompression)
@@ -307,10 +306,7 @@ class WDSPipeline(BasePipeline):
             )
             self.workers.append(worker)
 
-        self.logger.info(
-            f"Setup {self.num_gpus} workers for {self.mode} mode "
-            f"with batch_size={self.batch_size}"
-        )
+        self.logger.info(f"Setup {self.num_gpus} workers for {self.mode} mode " f"with batch_size={self.batch_size}")
 
     def process(self) -> Dict[str, Any]:
         """Process all tar shards using distributed workers."""
@@ -438,8 +434,7 @@ class WDSPipeline(BasePipeline):
         }
         if shard_summary["failed_shard_details"]:
             metadata["processing"]["current_run"]["failed_shard_details"] = [
-                {"shard_id": shard_id, "error": error}
-                for shard_id, error in shard_summary["failed_shard_details"]
+                {"shard_id": shard_id, "error": error} for shard_id, error in shard_summary["failed_shard_details"]
             ]
 
         metadata_path = Path(self.output_dir) / "dataset_info.json"
@@ -447,6 +442,7 @@ class WDSPipeline(BasePipeline):
             json.dump(metadata, f, indent=2)
 
         self.logger.info(f"Saved complete metadata to {metadata_path}")
+
 
 def run_wds_pipeline(config: Dict[str, Any]) -> Dict[str, Any]:
     """

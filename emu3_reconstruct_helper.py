@@ -37,10 +37,7 @@ class VisionTokenRange:
         return visual_index + self.first_token_id
 
     def __repr__(self) -> str:
-        return (
-            f"VisionTokenRange(first_token_id={self.first_token_id}, "
-            f"codebook_size={self.codebook_size})"
-        )
+        return f"VisionTokenRange(first_token_id={self.first_token_id}, " f"codebook_size={self.codebook_size})"
 
 
 def validate_token_structure(token_ids: List[int], special_token_ids: Dict[str, int]) -> Dict:

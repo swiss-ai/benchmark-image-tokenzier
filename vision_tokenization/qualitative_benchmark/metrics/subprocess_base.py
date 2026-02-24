@@ -79,10 +79,7 @@ class SubprocessMetric(BaseMetric):
             return None
 
         if not self._worker_path.is_file():
-            logger.warning(
-                f"Metric '{self.name}': worker script not found at {self._worker_path}. "
-                f"Returning None."
-            )
+            logger.warning(f"Metric '{self.name}': worker script not found at {self._worker_path}. " f"Returning None.")
             return None
 
         try:
@@ -104,9 +101,7 @@ class SubprocessMetric(BaseMetric):
             return json.loads(result.stdout.strip())
 
         except subprocess.TimeoutExpired:
-            logger.warning(
-                f"Metric '{self.name}' subprocess timed out after {self.SUBPROCESS_TIMEOUT}s."
-            )
+            logger.warning(f"Metric '{self.name}' subprocess timed out after {self.SUBPROCESS_TIMEOUT}s.")
             return None
         except (json.JSONDecodeError, Exception) as e:
             logger.warning(f"Metric '{self.name}' subprocess error: {e}")

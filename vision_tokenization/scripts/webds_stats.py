@@ -1,5 +1,7 @@
-import webdataset as wds
 import glob
+
+import webdataset as wds
+
 
 def inspect_webdataset(shard_pattern):
     # Expand the shard pattern to a list of file paths
@@ -21,14 +23,14 @@ def inspect_webdataset(shard_pattern):
     for i, sample in enumerate(dataset):
         sample_count += 1
         all_keys.update(sample.keys())
-        
+
         # Save first sample for display
         if i == 0:
             first_sample = sample
             print(f"\nFirst sample keys and types:")
             for key, value in sample.items():
                 print(f"  {key}: {type(value).__name__}")
-        
+
         # Progress indicator for large datasets
         if (i + 1) % 10000 == 0:
             print(f"Processed {i + 1} samples...")
@@ -39,6 +41,7 @@ def inspect_webdataset(shard_pattern):
     print(f"\nAll available keys across dataset:")
     for key in sorted(all_keys):
         print(f"  - {key}")
+
 
 # Example usage:
 shard_pattern = "/capstor/store/cscs/swissai/infra01/vision-datasets/imageomics/TreeOfLife-10M/*.tar.gz"  # Replace with your shard pattern

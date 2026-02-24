@@ -704,8 +704,6 @@ class RescaleTransform(ImageTransform):
         new_height = int(image.height * self.multiplier)
 
         if new_width < 1 or new_height < 1:
-            raise TransformError(
-                f"Rescale resulted in invalid dimensions: {new_width}x{new_height}"
-            )
+            raise TransformError(f"Rescale resulted in invalid dimensions: {new_width}x{new_height}")
 
         return image.resize((new_width, new_height), Image.Resampling.LANCZOS)

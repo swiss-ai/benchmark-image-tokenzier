@@ -17,6 +17,7 @@ import io
 import json
 import sys
 
+
 def main():
     try:
         payload = json.loads(sys.stdin.read())
@@ -33,6 +34,7 @@ def main():
 
     # Decode image
     from PIL import Image
+
     image_bytes = base64.b64decode(image_b64)
     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
