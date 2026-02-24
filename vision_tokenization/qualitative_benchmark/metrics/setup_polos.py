@@ -132,9 +132,10 @@ def validate():
     print("[6/6] Validating installation...")
 
     # Create a tiny 8x8 red test image
-    from PIL import Image
-    import io
     import base64
+    import io
+
+    from PIL import Image
 
     img = Image.new("RGB", (8, 8), color=(255, 0, 0))
     buf = io.BytesIO()

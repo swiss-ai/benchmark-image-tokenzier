@@ -64,10 +64,11 @@ def list_metrics() -> List[str]:
     return list(METRIC_REGISTRY.keys())
 
 
+from vision_tokenization.qualitative_benchmark.metrics.clip_score import CLIPScoreMetric
+
 # Import metrics to trigger registration
 # These imports must come after the registry is defined
 from vision_tokenization.qualitative_benchmark.metrics.completion_quality import CompletionQualityMetric
-from vision_tokenization.qualitative_benchmark.metrics.clip_score import CLIPScoreMetric
 from vision_tokenization.qualitative_benchmark.metrics.polos_score import POLOSMetric
 
 __all__ = [

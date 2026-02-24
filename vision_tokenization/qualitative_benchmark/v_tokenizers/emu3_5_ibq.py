@@ -234,9 +234,7 @@ class EMU35IBQVisionTokenizer(SpatialTokenizer):
             return None
 
         codebook_size = self.tokenizer.codebook_size
-        logger.info(
-            f"Detected vision token range: first_id={first_id}, codebook_size={codebook_size}"
-        )
+        logger.info(f"Detected vision token range: first_id={first_id}, codebook_size={codebook_size}")
         return VisionTokenRange(first_id, codebook_size)
 
     @property

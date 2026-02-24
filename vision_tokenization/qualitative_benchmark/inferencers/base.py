@@ -36,9 +36,7 @@ class BaseInferencer(ABC):
         # 1. Check required args
         missing = [arg for arg in self.REQUIRED_ARGS if arg not in kwargs]
         if missing:
-            raise ValueError(
-                f"{type(self).__name__} missing required argument(s): {', '.join(missing)}"
-            )
+            raise ValueError(f"{type(self).__name__} missing required argument(s): {', '.join(missing)}")
 
         # 2. Apply defaults for optional args
         for arg, default in self.OPTIONAL_ARGS.items():

@@ -12,7 +12,6 @@ from typing import Any, Dict, Optional, Tuple, Union
 
 import ray
 import torch
-from tqdm import tqdm
 
 from vision_tokenization.utils.time_utils import format_duration, get_slurm_time_limit
 from vision_tokenization.vokenizers.transforms import TransformPipeline
@@ -89,9 +88,7 @@ class BasePipeline(ABC):
             if bin_pattern.match(bin_file.name):
                 idx_file = bin_file.with_suffix(".idx")
                 if not idx_file.exists():
-                    self.logger.warning(
-                        f"Deleting orphaned .bin file with no matching .idx: {bin_file.name}"
-                    )
+                    self.logger.warning(f"Deleting orphaned .bin file with no matching .idx: {bin_file.name}")
                     bin_file.unlink()
 
         # Collect all shard counts found
@@ -145,8 +142,7 @@ class BasePipeline(ABC):
                 for old_idx in idx_paths[:-1]:
                     old_bin = old_idx.with_suffix(".bin")
                     self.logger.warning(
-                        f"Duplicate shard {shard_id}: deleting older {old_idx.name} "
-                        f"(keeping {keeper.name})"
+                        f"Duplicate shard {shard_id}: deleting older {old_idx.name} " f"(keeping {keeper.name})"
                     )
                     old_idx.unlink()
                     if old_bin.exists():
@@ -772,7 +768,6 @@ class BaseTokenizerWorker:
         Text loaded here can be either string only or any format of messages (ex. list of objects with {"content": ..., "role": ...})."})
         """
         try:
-            # Extract image
             image = sample[self.image_field]
             # Unwrap single-item lists
             if (
@@ -821,7 +816,6 @@ class BaseTokenizerWorker:
         """
         import torch
 
-        # Check if it's the explicit CUDA OOM exception type
         if isinstance(exception, torch.cuda.OutOfMemoryError):
             return True
 
@@ -1010,6 +1004,7 @@ class BaseTokenizerWorker:
             batch_loader = self.batch_iterable_shard(shard, stats)
 
             for batch in batch_loader:
+                current_batch_size = len(batch.get("images", []))
                 try:
                     images, text = batch["images"], batch["text"]
                     current_batch_size = len(images)

@@ -19,8 +19,8 @@ from typing import Any, Dict, List, Tuple
 import torch
 from tqdm import tqdm
 
-from vision_tokenization.qualitative_benchmark.utils.prompt_formatter import CHAT_TRANFORMS, PROMPT_BUILDERS
 from vision_tokenization.qualitative_benchmark.inferencers import create_inferencer
+from vision_tokenization.qualitative_benchmark.utils.prompt_formatter import CHAT_TRANFORMS, PROMPT_BUILDERS
 from vision_tokenization.qualitative_benchmark.vlm import VLM, InferenceArgs
 
 base_dir = Path(__file__).parent.parent.parent
@@ -35,9 +35,9 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"  # Use only GPU 0 for the LLM
 # Import benchmark registry
 from vision_tokenization.qualitative_benchmark.benchmarks import get_benchmark
 
-
 # Legacy class definitions kept for backward compatibility
 # New code should use the registry-based benchmarks from benchmarks/ module
+
 
 class VLMBenchmark:
     """Scaffolding for running qualitative VLM benchmarks with images and prompts."""

@@ -12,7 +12,6 @@ from typing import Any, Dict, Tuple
 
 from transformers import AutoTokenizer
 
-
 # Modality registry: name -> (mapping_file, offset_key, vocab_size_key, start_token, end_token)
 MODALITY_REGISTRY = {
     "vision": ("vision_token_mapping.json", "vision_token_offset", "visual_vocab_size", "<|img_start|>", "<|img_end|>"),
@@ -41,13 +40,9 @@ def _read_modality_info(output_path: str, name: str, tokenizer) -> Dict[str, Any
     end_token_id = tokenizer.convert_tokens_to_ids(end_token)
 
     if start_token_id == tokenizer.unk_token_id:
-        raise ValueError(
-            f"Modality start token {start_token} not found in tokenizer at {output_path}"
-        )
+        raise ValueError(f"Modality start token {start_token} not found in tokenizer at {output_path}")
     if end_token_id == tokenizer.unk_token_id:
-        raise ValueError(
-            f"Modality end token {end_token} not found in tokenizer at {output_path}"
-        )
+        raise ValueError(f"Modality end token {end_token} not found in tokenizer at {output_path}")
 
     return {
         "name": name,
@@ -66,8 +61,7 @@ def _build_omnimodal_config(output_path: str, base_vocab_size: int, tokenizer) -
         first_modality_offset - omni_special_token_offset
     """
     modalities = [
-        info for name in MODALITY_REGISTRY
-        if (info := _read_modality_info(output_path, name, tokenizer)) is not None
+        info for name in MODALITY_REGISTRY if (info := _read_modality_info(output_path, name, tokenizer)) is not None
     ]
 
     if not modalities:
@@ -79,6 +73,7 @@ def _build_omnimodal_config(output_path: str, base_vocab_size: int, tokenizer) -
         "omni_special_token_offset": base_vocab_size,
         "modalities": modalities,
     }
+
 
 # Add Tokenizer directory to path for importing vision tokenizers
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))

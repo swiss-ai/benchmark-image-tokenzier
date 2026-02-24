@@ -303,9 +303,7 @@ class HFDatasetPipeline(BasePipeline):
             sample = dataset[0]
             self.logger.info(f"Sanity check passed. Columns: {list(sample.keys())}")
         except Exception as e:
-            raise RuntimeError(
-                f"Sanity check failed: could not access first sample. Error: {e}"
-            ) from e
+            raise RuntimeError(f"Sanity check failed: could not access first sample. Error: {e}") from e
 
     def _setup_workers(self):
         """Setup workers for shard-based tokenization.
@@ -556,8 +554,7 @@ class HFDatasetPipeline(BasePipeline):
         }
         if shard_summary["failed_shard_details"]:
             metadata["processing"]["current_run"]["failed_shard_details"] = [
-                {"shard_id": shard_id, "error": error}
-                for shard_id, error in shard_summary["failed_shard_details"]
+                {"shard_id": shard_id, "error": error} for shard_id, error in shard_summary["failed_shard_details"]
             ]
 
         # Save to file
@@ -566,6 +563,7 @@ class HFDatasetPipeline(BasePipeline):
             json.dump(metadata, f, indent=2)
 
         self.logger.info(f"Saved complete metadata to {metadata_path}")
+
 
 def run_hf_pipeline(config: Dict[str, Any]) -> Dict[str, Any]:
     """

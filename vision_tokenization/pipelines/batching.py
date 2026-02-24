@@ -228,7 +228,9 @@ class ClusteredBatcher(Batcher):
         data = np.array([[img.width / img.height, np.log(img.width * img.height)] for img in images], dtype=np.float32)
         min_ = data.min(axis=0)
         max_ = data.max(axis=0)
-        data = (data - min_) / (max_ - min_)
+        range_ = max_ - min_
+        range_[range_ == 0] = 1.0
+        data = (data - min_) / range_
 
         labels = kmeans.fit_predict(data)
 
