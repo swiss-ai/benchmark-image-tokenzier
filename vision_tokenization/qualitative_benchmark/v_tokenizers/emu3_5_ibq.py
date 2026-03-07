@@ -30,7 +30,7 @@ class EMU35IBQVisionTokenizer(SpatialTokenizer):
     EMU3.5 uses the same spatial 2D grid format and special tokens as EMU3:
     - <|img_start|>: Start of image
     - <|img_token_start|>: Start of vision tokens
-    - <|visual token XXXXXX|>: Individual vision tokens (6-digit hex)
+    - <|visual token X|>: Individual vision tokens (6-digit hex)
     - <|img_end_of_row|>: End of each token row
     - <|img_end_of_frame|>: End of frame
     - <|img_end|>: End of image
@@ -153,7 +153,7 @@ class EMU35IBQVisionTokenizer(SpatialTokenizer):
             row_tokens = visual_indices[row_start:row_end]
 
             for token_idx in row_tokens:
-                img_tokens_str += f"<|visual token {token_idx:06d}|>"
+                img_tokens_str += f"<|visual token {token_idx}|>"
             img_tokens_str += self.eol_token
 
         if include_end_tokens:
@@ -224,7 +224,7 @@ class EMU35IBQVisionTokenizer(SpatialTokenizer):
         # Cache special tokens using the base class helper
         self._cache_special_tokens(txt_tokenizer)
 
-        first_id = txt_tokenizer.convert_tokens_to_ids("<|visual token 000000|>")
+        first_id = txt_tokenizer.convert_tokens_to_ids("<|visual token 0|>")
         if first_id == txt_tokenizer.unk_token_id:
             logger.warning(
                 "Text tokenizer does not contain EMU3 vision tokens "

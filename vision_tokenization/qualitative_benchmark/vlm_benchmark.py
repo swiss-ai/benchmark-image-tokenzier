@@ -824,13 +824,6 @@ def setup_vlm_inferencer(args):
         model_path=args.model_path,
     )
 
-    # Print inference configuration
-    print(f"\n{'='*60}")
-    print("INFERENCE CONFIGURATION")
-    print(f"{'='*60}")
-    print(vlm.inf_args)
-    print(f"{'='*60}\n")
-
     return vlm
 
 

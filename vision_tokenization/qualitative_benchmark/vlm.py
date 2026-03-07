@@ -96,18 +96,21 @@ class VLM(object):
         self.model_path = model_path
         self.tokenizer_path = tokenizer_path
 
-        # Extract stop tokens from tokenizer TODO: hardcoded for now, may later want to try to load from GenerationConfig
-        stop_tokens = []
-        if hasattr(self.inferencer.txt_tokenizer, "eos_token_id") and self.inferencer.txt_tokenizer.eos_token_id:
-            stop_tokens.append(self.inferencer.txt_tokenizer.eos_token_id)
-        if (
-            hasattr(self.inferencer.txt_tokenizer.init_kwargs, "sft_eot_token")
-            and self.inferencer.txt_tokenizer.init_kwargs["sft_eot_token"]
-        ):
-            stop_tokens.append(self.inferencer.txt_tokenizer.init_kwargs["sft_eot_token"])
-        self.inf_args.stop_token_ids = stop_tokens
+        # Extract stop tokens from tokenizer 
+        # TODO: hardcoded to extarct sft eot(assume to be stored in tokenizer_config.json) and eos for now - once rdy adapt to load from generationconf
+        tok = self.inferencer.txt_tokenizer
+        sft_eot = tok.init_kwargs.get("sft_eot_token")
+        if sft_eot is not None and len(sft_eot) != 1:
+            raise ValueError(f"Expected sft_eot_token to have exactly 1 element, got {len(sft_eot)}: {sft_eot}")
 
-        # Determine inferencer name for logging
+        self.inf_args.stop_token_ids = [t for t in [
+            getattr(tok, "eos_token_id", None),
+            sft_eot[0] if sft_eot else None,
+        ] if t is not None]
+
+        print(f"====== Inference Configuration ======")
+        print(self.inf_args)
+
         inferencer_name = type(self.inferencer).__name__
         print(f"VLM initialized with {self.vision_tokenizer.name} tokenizer and {inferencer_name}")
 
@@ -125,7 +128,6 @@ class VLM(object):
         Uses the vision tokenizer to encode the image and format it as a string
         suitable for insertion into the chat template.
         """
-        # Encode image using vision tokenizer
         indices, metadata = self.vision_tokenizer.encode_for_vlm(img)
 
         # Log token dimensions if available
@@ -277,7 +279,7 @@ class VLM(object):
             generated_token_ids, self.vision_tokenizer.vision_mapping, special_token_ids
         )
 
-        # Flatten generated indices
+        # Flatten generated indices (excluding special tokens)
         generated_indices = [idx for row in rows_generated for idx in row]
 
         # Debug: Print extracted visual indices

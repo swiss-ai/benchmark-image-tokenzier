@@ -149,13 +149,18 @@ srun -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=1 --cpus-per-task=${SLURM_CPUS_P
     export MASTER_NODE_IP='"${MASTER_NODE_IP}"'
     export RAY_PORT='"${RAY_PORT}"'
 
+    # Use job-specific temp dir to avoid conflicts with other Ray jobs
+    export RAY_TMPDIR="/tmp/ray_${SLURM_JOB_ID}"
+    mkdir -p "$RAY_TMPDIR"
+    export RAY_raylet_start_wait_time_s=120
+
     if [[ $SLURM_PROCID = 0 ]]; then
         echo "=================================================================================="
         echo "[Master] Starting Ray head on ${MASTER_NODE_IP}:${RAY_PORT}"
         echo "=================================================================================="
-        ray enable-usage-stats
+        ray disable-usage-stats
         # Start Ray head with redis password
-        ray start --head \
+        ray start --head --temp-dir="$RAY_TMPDIR" \
             --node-ip-address=$MASTER_NODE_IP \
             --port=$RAY_PORT \
             --num-cpus=${SLURM_CPUS_PER_TASK} \
@@ -187,6 +192,7 @@ srun -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=1 --cpus-per-task=${SLURM_CPUS_P
         # Shutdown Ray
         echo "[Master] Shutting down Ray cluster..."
         ray stop
+        rm -rf "$RAY_TMPDIR"
 
         exit $EXITCODE
 
@@ -198,12 +204,14 @@ srun -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=1 --cpus-per-task=${SLURM_CPUS_P
         echo "[Worker-${SLURM_PROCID}] Starting Ray worker on ${NODE_IP}"
 
         ray start --address="${RAY_ADDRESS}" \
+                  --temp-dir="$RAY_TMPDIR" \
                   --num-cpus=${SLURM_CPUS_PER_TASK} \
                   --num-gpus='"${GPUS_PER_NODE}"' \
                   --redis-password=$REDIS_PASSWORD \
                   --block
 
         echo "[Worker-${SLURM_PROCID}] Ray worker stopped"
+        rm -rf "$RAY_TMPDIR"
     fi
 '
 

@@ -12,13 +12,15 @@
 #SBATCH --error=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/inspect_tok_%j.err
 
 # Inspect a tokenized Megatron dataset (bin/idx files).
-# Loads the text tokenizer and prints 10 random samples showing:
+# Loads the text tokenizer and prints NUM_SAMPLES random samples showing:
 #   - First/last 30 token IDs
 #   - First/last 300 characters of decoded text
 #
 # Usage:
 #   sbatch inspect_tokenized_dataset.slurm <data_prefix>
 #   sbatch inspect_tokenized_dataset.slurm <data_prefix> --tokenizer <tokenizer_path> --num-samples 20
+#   sbatch inspect_tokenized_dataset.slurm <data_prefix> --full-chars    # print full decoded text
+#   sbatch inspect_tokenized_dataset.slurm <data_prefix> --full-ids      # print full token ID lists
 #
 # Example:
 #   sbatch inspect_tokenized_dataset.slurm /path/to/tokenized_outputs/rank_0_shard_0_1
@@ -27,8 +29,10 @@ DATA_PREFIX="${1:?ERROR: Please provide data prefix as first argument (path with
 shift
 
 # Defaults
-TOKENIZER_PATH="/capstor/store/cscs/swissai/infra01/MLLM/apertus_emu3.5_tokenizer"
+TOKENIZER_PATH="/capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_instruct"
 NUM_SAMPLES=10
+FULL_CHARS=0
+FULL_IDS=0
 
 # Parse optional arguments
 while [[ $# -gt 0 ]]; do
@@ -40,6 +44,14 @@ while [[ $# -gt 0 ]]; do
         --num-samples)
             NUM_SAMPLES="$2"
             shift 2
+            ;;
+        --full-chars)
+            FULL_CHARS=1
+            shift
+            ;;
+        --full-ids)
+            FULL_IDS=1
+            shift
             ;;
         *)
             shift
@@ -58,11 +70,13 @@ echo "==========================================================================
 echo "Data prefix:  ${DATA_PREFIX}"
 echo "Tokenizer:    ${TOKENIZER_PATH}"
 echo "Num samples:  ${NUM_SAMPLES}"
+echo "Full chars:   ${FULL_CHARS}"
+echo "Full IDs:     ${FULL_IDS}"
 echo "Job ID:       ${SLURM_JOB_ID}"
 echo "Node:         $(hostname)"
 echo "=================================================================================="
 
-python - "$DATA_PREFIX" "$TOKENIZER_PATH" "$NUM_SAMPLES" <<'PYEOF'
+python - "$DATA_PREFIX" "$TOKENIZER_PATH" "$NUM_SAMPLES" "$FULL_CHARS" "$FULL_IDS" <<'PYEOF'
 import sys
 import struct
 import random
@@ -73,6 +87,8 @@ from transformers import AutoTokenizer
 data_prefix = sys.argv[1]
 tokenizer_path = sys.argv[2]
 num_samples = int(sys.argv[3])
+full_chars = int(sys.argv[4]) == 1
+full_ids = int(sys.argv[5]) == 1
 
 # ---------------------------------------------------------------------------
 # Megatron indexed dataset reader (from notebook)
@@ -145,13 +161,18 @@ for i, idx in enumerate(indices):
     # Decode full sequence
     decoded = text_tokenizer.decode(token_ids, skip_special_tokens=False)
 
-    # Truncated views
-    if total <= 2 * SHOW_IDS:
+    # Token IDs view
+    if full_ids:
+        ids_str = str(token_ids)
+    elif total <= 2 * SHOW_IDS:
         ids_str = str(token_ids)
     else:
         ids_str = f"{token_ids[:SHOW_IDS]}  ...  {token_ids[-SHOW_IDS:]}"
 
-    if len(decoded) <= 2 * SHOW_CHARS:
+    # Decoded text view
+    if full_chars:
+        text_str = decoded
+    elif len(decoded) <= 2 * SHOW_CHARS:
         text_str = decoded
     else:
         text_str = decoded[:SHOW_CHARS] + "\n  ...\n  " + decoded[-SHOW_CHARS:]

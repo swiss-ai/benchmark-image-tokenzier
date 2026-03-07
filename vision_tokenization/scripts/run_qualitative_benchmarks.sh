@@ -162,6 +162,13 @@ if [ -z "$EXPERIMENT_NAME" ]; then
     usage
 fi
 
+
+ensure_packages() {
+    echo "Make sure packages are installed...."
+    pip install -U "transformers>=4.56,<5.0.0" #"vllm>=0.14.0" "numpy<2"
+    pip install lpips scikit-image
+}
+
 cd /iopsstor/scratch/cscs/$USER/benchmark-image-tokenizer/vision_tokenization/qualitative_benchmark || exit
 export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH}"
 
@@ -204,10 +211,9 @@ else
 fi
 echo "=================================================================================="
 
-# make sure compatible transformers is installed to support apertus
+# make sure compatible packages are installed
 # Note: transformers 5.0.0 breaks Emu3VisionTokenizer loading, so pin to <5.0.0
-pip install -U "transformers>=4.56,<5.0.0" #"vllm>=0.14.0" "numpy<2"
-pip install lpips scikit-image
+ensure_packages
 
 python vlm_benchmark.py --tokenizer_path "$TOKENIZER_PATH" \
                         --model_path "$MODEL_PATH" \
