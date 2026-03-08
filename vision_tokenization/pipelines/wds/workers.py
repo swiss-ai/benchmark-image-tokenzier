@@ -38,6 +38,7 @@ class WDSWorker(BaseTokenizerWorker):
         max_image_pixels: Optional[int] = None,
         transform_pipeline: Optional[TransformPipeline] = None,
         conversation_transform: Optional[str] = None,
+        image_field_pattern: Optional[str] = None,
     ):
         super().__init__(
             tokenizer_path=tokenizer_path,
@@ -55,6 +56,7 @@ class WDSWorker(BaseTokenizerWorker):
             max_image_pixels=max_image_pixels,
             transform_pipeline=transform_pipeline,
             conversation_transform=conversation_transform,
+            image_field_pattern=image_field_pattern,
         )
 
         self.output_dir = output_dir
@@ -63,6 +65,26 @@ class WDSWorker(BaseTokenizerWorker):
         self.image_keys = [k.strip() for k in image_field.split(";")]
         self.text_keys = [k.strip() for k in text_field.split(";")]
 
+    def _extract_text(self, sample: Dict):
+        """Extract text from a WDS sample using fallback keys, with JSON sidecar for SFT."""
+        if self.mode not in ["image2text", "text2image", "sft"]:
+            return None
+
+        for key in self.text_keys:
+            if key in sample:
+                return sample[key]
+
+        # For SFT, fall back to json sidecar if no text key found
+        if self.mode == "sft" and "json" in sample:
+            import json
+
+            json_data = sample["json"]
+            if isinstance(json_data, str):
+                json_data = json.loads(json_data)
+            return json_data
+
+        return None
+
     def _extract_data(self, sample: Dict) -> tuple:
         """
         Extract image and text from a WebDataset sample.
@@ -70,32 +92,27 @@ class WDSWorker(BaseTokenizerWorker):
         WDS samples have extension-based keys (e.g., 'jpg', 'png', 'txt', 'json', '__key__').
         Tries image keys in fallback order. For text, tries text keys then falls back to
         'json' sidecar for SFT mode.
+
+        When multi_image mode is enabled (image_field_pattern), auto-discovers all matching
+        image keys sorted alphabetically and returns a list of images.
         """
-        # Extract image: try keys in fallback order
+        if self.multi_image:
+            # Auto-discover image keys matching pattern, sorted for consistent order
+            image_keys = sorted(
+                k for k in sample.keys()
+                if k.startswith(self.image_field_pattern) and not k.startswith("__")
+            )
+            images = [sample[k] for k in image_keys]
+            return images, self._extract_text(sample)
+
+        # Single-image mode: try keys in fallback order
         image = None
         for key in self.image_keys:
             if key in sample:
                 image = sample[key]
                 break
 
-        # Extract text (only for modes that need it)
-        text = None
-        if self.mode in ["image2text", "text2image", "sft"]:
-            for key in self.text_keys:
-                if key in sample:
-                    text = sample[key]
-                    break
-
-            # For SFT, fall back to json sidecar if no text key found
-            if text is None and self.mode == "sft" and "json" in sample:
-                import json
-
-                json_data = sample["json"]
-                if isinstance(json_data, str):
-                    json_data = json.loads(json_data)
-                text = json_data
-
-        return image, text
+        return image, self._extract_text(sample)
 
     def _load_tar_shard(self, tar_path: str):
         """

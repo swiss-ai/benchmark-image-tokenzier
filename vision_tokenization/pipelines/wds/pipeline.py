@@ -44,9 +44,14 @@ class WDSPipeline(BasePipeline):
         text_transforms: Optional[str] = None,
         transform_params: Optional[Dict[str, Dict[str, Any]]] = None,
         conversation_transform: Optional[str] = None,
+        image_field_pattern: Optional[str] = None,
         **kwargs,
     ):
         super().__init__(tokenizer_path, output_dir, num_gpus, device, **kwargs)
+
+        self.image_field_pattern = image_field_pattern
+        if self.image_field_pattern:
+            self.logger.info(f"Multi-image mode enabled with pattern: '{self.image_field_pattern}'")
 
         self.input_pattern = input_pattern
         self.mode = mode
@@ -303,6 +308,7 @@ class WDSPipeline(BasePipeline):
                 max_image_pixels=self.max_image_pixels,
                 transform_pipeline=self.transform_pipeline,
                 conversation_transform=self.conversation_transform,
+                image_field_pattern=self.image_field_pattern,
             )
             self.workers.append(worker)
 

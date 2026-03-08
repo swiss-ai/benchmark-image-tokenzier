@@ -233,12 +233,9 @@ class VLM(object):
 
         print(f"   Using {given_percentage}%: {given_rows} given rows, {expected_rows} expected rows")
 
-        # Get given indices for debug
         given_indices = visual_indices[: given_rows * width]
-
-        # Debug: Print last few tokens of given rows
         if debug:
-            print(f"\n   [DEBUG] Given rows: {given_rows}")
+            print(f"\n   [DEBUG] Num Given rows: {given_rows}")
             print(f"   [DEBUG] Last 10 tokens of given rows: {given_indices[-10:]}")
 
         prompt = self._create_partial_image_prompt(visual_indices, height, width, given_rows)
@@ -370,7 +367,7 @@ class VLM(object):
         """
         from emu3_reconstruct_helper import extract_visual_tokens_by_row
 
-        # Extract tokens by row to check consistency
+        # Extract tokens by row to check consistency TODO: improve hardcoded special token retrieval in method or use separate own one
         rows, stats = extract_visual_tokens_by_row(
             generated_token_ids, self.vision_tokenizer.vision_mapping, special_token_ids
         )

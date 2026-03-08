@@ -99,6 +99,7 @@ class Worker(BaseTokenizerWorker):
         max_image_pixels: Optional[int] = None,
         transform_pipeline: Optional[TransformPipeline] = None,
         conversation_transform: Optional[str] = None,
+        image_field_pattern: Optional[str] = None,
     ):
         """
         Initialize HF worker with tokenizer and output configuration.
@@ -116,6 +117,7 @@ class Worker(BaseTokenizerWorker):
             max_image_pixels: Max pixels to filter images (optional)
             transform_pipeline: Transform pipeline for image/text transforms (optional)
             conversation_transform: Conversation transform for SFT mode (optional)
+            image_field_pattern: Pattern prefix for multi-image auto-discovery (optional)
         """
         # Initialize base tokenizer with resolution filtering and batching parameters
         super().__init__(
@@ -134,6 +136,7 @@ class Worker(BaseTokenizerWorker):
             max_image_pixels=max_image_pixels,
             transform_pipeline=transform_pipeline,
             conversation_transform=conversation_transform,
+            image_field_pattern=image_field_pattern,
         )
 
         # Store output directory for per-shard files

@@ -1,0 +1,15 @@
+{
+  "tokenizer_path": "/path/to/emu3_tokenizer",
+  "output_dir": "./output/hf_multi_image",
+  "dataset_name": "your/dataset_name",
+  "config_name": null,
+  "dataset_split": "train",
+  "mode": "image2text",
+  "num_gpus": 4,
+  "num_shards": 8,
+  "device": "cuda",
+  "image_field_pattern": "img",
+  "text_field": "text",
+  "min_tokenizer_pixels": "384*384",
+  "max_tokenizer_pixels": "1024*1024"
+}

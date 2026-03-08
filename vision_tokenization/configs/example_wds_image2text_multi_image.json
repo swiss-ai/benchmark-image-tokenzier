@@ -1,0 +1,12 @@
+{
+  "tokenizer_path": "/path/to/emu3_tokenizer",
+  "output_dir": "./output/wds_multi_image",
+  "input_pattern": "/path/to/data/*.tar",
+  "mode": "image2text",
+  "num_gpus": 4,
+  "device": "cuda",
+  "image_field_pattern": "img",
+  "text_field": "txt",
+  "min_tokenizer_pixels": "384*384",
+  "max_tokenizer_pixels": "1024*1024"
+}

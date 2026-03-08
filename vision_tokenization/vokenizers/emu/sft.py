@@ -223,7 +223,8 @@ class EMUSftTokenizer(EMUImageOnlyTokenizer):
         Unified tokenization interface for SFT mode. One sample, non batched processing.
 
         Args:
-            images: List of PIL Images (required, one or more images)
+            images: PIL Image or list of PIL Images (required, one or more images).
+                    Single images are automatically wrapped in a list.
             text: Dataset-specific conversation format.
 
         Returns:
@@ -232,6 +233,10 @@ class EMUSftTokenizer(EMUImageOnlyTokenizer):
         Raises:
             ValueError: If images list is empty or number of images doesn't match placeholders
         """
+        # Wrap single image in list for uniform handling
+        if not isinstance(images, list):
+            images = [images]
+
         # Apply conversation transform if configured (goal: bring read text data from dataset in correct format for selected tokenizer chat template)
         if self.conversation_transform is not None:
             messages = self.conversation_transform.transform(text)
@@ -297,7 +302,6 @@ class EMUSftTokenizer(EMUImageOnlyTokenizer):
             # Get image tokens without BOS/EOS for replacement
             image_tokens_no_special = image_tokens[1:-1]
 
-            # Move text tokens to same device as image tokens
             text_tokens = text_tokens.to(image_tokens.device)
 
             # Replace <|image|> placeholder with actual vision tokens

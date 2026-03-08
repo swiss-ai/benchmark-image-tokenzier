@@ -102,6 +102,18 @@ def create_hf_parser(subparsers):
         ),
     )
     parser.add_argument(
+        "--image-field-pattern",
+        type=str,
+        default=None,
+        help=(
+            "Pattern prefix to auto-discover multiple image fields per sample. "
+            'For HF datasets, matches column names (e.g., "img" matches img1, img2, img3). '
+            'For WDS datasets, matches decoded sample keys (e.g., "img" matches img1.png, img2.png). '
+            "Keys are sorted alphabetically for consistent ordering. "
+            "Incompatible with batching (batch_mode) and image_only mode."
+        ),
+    )
+    parser.add_argument(
         "--dataset-streamed", action="store_true", help="If set, and a HF dataset is loaded with mode 'load_dataset'"
     )
     parser.add_argument(
@@ -171,6 +183,16 @@ def create_wds_parser(subparsers):
         "--conversation-transform",
         type=str,
         help="Conversation transform to apply in SFT tokenizer worker",
+    )
+    parser.add_argument(
+        "--image-field-pattern",
+        type=str,
+        default=None,
+        help=(
+            "Pattern prefix to auto-discover multiple image fields per sample. "
+            'For WDS, matches decoded sample keys (e.g., "img" matches img1.png, img2.png). '
+            "Incompatible with batching (batch_mode) and image_only mode."
+        ),
     )
 
     return parser
@@ -305,6 +327,22 @@ def main():
             logger.info(f"  {key}: {value}")
     logger.info("=" * 80)
 
+    # Validate multi-image configuration
+    image_field_pattern = config.get("image_field_pattern")
+    if image_field_pattern:
+        batch_mode = config.get("batch_mode")
+        if batch_mode is not None:
+            raise ValueError(
+                "Multi-image mode (image_field_pattern) is incompatible with batching (batch_mode). "
+                "Set batch_mode to null/None or remove it from the config."
+            )
+        mode = config.get("mode")
+        if mode == "image_only":
+            raise ValueError(
+                "Multi-image mode (image_field_pattern) is incompatible with image_only mode. "
+                "Use image2text, text2image, or sft mode instead."
+            )
+
     # Extract data format and remove non-pipeline keys
     data_format = args.data_format
     for key in ["config", "verbose", "data_format"]:
@@ -328,6 +366,9 @@ def main():
             logger.info("Running HuggingFace dataset pipeline")
             # Remove None values and pass to pipeline
             pipeline_config = {k: v for k, v in config.items() if v is not None}
+            # Multi-image requires no batching — override pipeline default batch_mode="sorted"
+            if config.get("image_field_pattern"):
+                pipeline_config["batch_mode"] = None
             # Add resolution dims for directory naming
             if parsed_resolutions.get("min_image_pixels"):
                 pipeline_config["min_image_dims"] = parsed_resolutions["min_image_pixels"]
@@ -339,6 +380,9 @@ def main():
         elif data_format == "wds":
             logger.info("Running WebDataset pipeline")
             pipeline_config = {k: v for k, v in config.items() if v is not None}
+            # Multi-image requires no batching — override pipeline default batch_mode="sorted"
+            if config.get("image_field_pattern"):
+                pipeline_config["batch_mode"] = None
             # Remove HF-specific keys that may leak from shared args
             for hf_key in [
                 "dataset_name",

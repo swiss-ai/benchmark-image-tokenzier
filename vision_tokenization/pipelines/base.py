@@ -583,6 +583,7 @@ class BaseTokenizerWorker:
         max_image_pixels: Optional[int] = None,  # For filtering images
         transform_pipeline: Optional[TransformPipeline] = None,  # For data transforms
         conversation_transform: Optional[str] = None,  # For SFT conversation transforms
+        image_field_pattern: Optional[str] = None,  # For multi-image auto-discovery
     ):
         self.worker_id = worker_id
         self.mode = mode
@@ -592,6 +593,10 @@ class BaseTokenizerWorker:
         self.min_image_pixels = min_image_pixels
         self.max_image_pixels = max_image_pixels
         self.transform_pipeline = transform_pipeline
+
+        # Multi-image support
+        self.image_field_pattern = image_field_pattern
+        self.multi_image = image_field_pattern is not None
 
         # Setup logging
         self.logger = setup_worker_logging(logging.WARNING)
@@ -686,15 +691,31 @@ class BaseTokenizerWorker:
         Determine the processing status of a sample.
 
         Args:
-            image: Image data (may be None)
+            image: Image data (single image or list of images for multi-image mode)
             text: Text data (may be None)
 
         Returns:
             SampleStatus enum value
         """
-        # Check for missing image
+        if self.multi_image:
+            # Multi-image: image is a list
+            if not image or len(image) == 0 or any(img is None for img in image):
+                return SampleStatus.DATA_SKIP
+
+            # Check if mode requires text and it's missing
+            if self.mode in ["image2text", "text2image", "sft"] and not text:
+                return SampleStatus.DATA_SKIP
+
+            # Check resolution for ALL images - if any fails, skip the sample
+            for img in image:
+                resolution_status = self.should_process_resolution(img)
+                if resolution_status != SampleStatus.OK:
+                    return resolution_status
+
+            return SampleStatus.OK
+
+        # Single-image mode
         if image is None:
-            # TODO: this will prevent txt-only sft tokenization form working!
             return SampleStatus.DATA_SKIP
 
         # Check if mode requires text and it's missing
@@ -763,16 +784,31 @@ class BaseTokenizerWorker:
     def _extract_data(self, sample: Dict) -> tuple:
         """
         Extract image and/or text from sample based on mode.
-        Can be overridden by specific implementations.
+        Can be overridden by specific implementations (e.g., WDSWorker).
 
-        Text loaded here can be either string only or any format of messages (ex. list of objects with {"content": ..., "role": ...})."})
+        When multi_image mode is enabled (image_field_pattern), auto-discovers all matching
+        column names sorted alphabetically and returns a list of images.
+
+        Text loaded here can be either string only or any format of messages
+        (ex. list of objects with {"content": ..., "role": ...}).
         """
         try:
+            if self.multi_image:
+                # Auto-discover image fields matching pattern
+                image_keys = sorted(k for k in sample.keys() if k.startswith(self.image_field_pattern))
+                images = []
+                for key in image_keys:
+                    img = sample[key]
+                    if isinstance(img, list) and len(img) == 1:
+                        img = img[0]
+                    images.append(img)
+
+                text = sample[self.text_field] if self.mode in ["image2text", "text2image", "sft"] else None
+                return images, text
+
             image = sample[self.image_field]
             # Unwrap single-item lists
-            if (
-                isinstance(image, list) and len(image) == 1
-            ):  # TODO: only supports single image!, might want to support multiple images in future
+            if isinstance(image, list) and len(image) == 1:
                 image = image[0]
 
             # Extract text (only for modes that need it)
@@ -791,7 +827,7 @@ class BaseTokenizerWorker:
         Apply transform pipeline to image and text if configured.
 
         Args:
-            image: PIL Image or None
+            image: PIL Image, list of PIL Images (multi-image), or None
             text: Text string or None
 
         Returns:
@@ -802,6 +838,16 @@ class BaseTokenizerWorker:
         """
         if self.transform_pipeline is None:
             return image, text
+
+        if self.multi_image and isinstance(image, list):
+            # Apply image transforms to each image individually, text transforms once
+            transformed_images = []
+            for img in image:
+                t_img, _ = self.transform_pipeline.apply(img, None)
+                transformed_images.append(t_img)
+            _, t_text = self.transform_pipeline.apply(None, text)
+            return transformed_images, t_text
+
         return self.transform_pipeline.apply(image, text)
 
     def _is_cuda_oom_error(self, exception: Exception) -> bool:

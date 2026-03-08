@@ -4,6 +4,7 @@ EMU tokenizer for image-text pairs with parallel GPU/CPU processing.
 """
 
 from concurrent.futures import ThreadPoolExecutor
+from typing import List
 
 import torch
 from PIL import Image
@@ -88,18 +89,77 @@ class EMUImageTextPairTokenizer(EMUImageOnlyTokenizer):
 
         return combined_tokens
 
-    def tokenize(self, image: Image, text: str) -> torch.Tensor:
+    def tokenize_multi_image_text_pair(self, images: List[Image.Image], text: str) -> torch.Tensor:
         """
-        Tokenize one image-text pair with one image per pair.
+        Tokenize multiple images with a single text.
+
+        For image2text: [BOS] + [img1_struct] + [img2_struct] + ... + [text_tokens] + [EOS]
+        For text2image: [BOS] + [text_tokens] + [img1_struct] + [img2_struct] + ... + [EOS]
+
+        Each img_struct is the output of tokenize_image() with BOS/EOS stripped.
 
         Args:
-            image: PIL Image to tokenize (required)
+            images: List of PIL Images to tokenize
+            text: Text string
+
+        Returns:
+            Combined tokens as tensor
+        """
+        if not images:
+            raise ValueError("images list cannot be empty for multi-image tokenization")
+
+        def tokenize_text_cpu():
+            with torch.cuda.device(-1):
+                text_tokens_dict = self.text_tokenizer(
+                    text, truncation=False, add_special_tokens=False, return_tensors="pt"
+                )
+                return text_tokens_dict["input_ids"].squeeze(0)
+
+        # Submit text tokenization on CPU
+        text_future = self.executor.submit(tokenize_text_cpu)
+
+        # Tokenize each image on GPU, strip BOS/EOS
+        image_futures = [
+            self.executor.submit(lambda img=img: self.tokenize_image(img)[1:-1])
+            for img in images
+        ]
+
+        # Collect results
+        text_tokens = text_future.result()
+        image_token_parts = [f.result() for f in image_futures]
+
+        # Move text tokens to same device as image tokens
+        if image_token_parts:
+            text_tokens = text_tokens.to(image_token_parts[0].device)
+
+        # Build BOS and EOS tensors
+        bos = torch.tensor([self.bos_id], dtype=image_token_parts[0].dtype, device=image_token_parts[0].device)
+        eos = torch.tensor([self.eos_id], dtype=image_token_parts[0].dtype, device=image_token_parts[0].device)
+
+        if self.mode == "image2text":
+            # [BOS] + [all image structs] + [text] + [EOS]
+            combined = torch.cat([bos] + image_token_parts + [text_tokens, eos])
+        elif self.mode == "text2image":
+            # [BOS] + [text] + [all image structs] + [EOS]
+            combined = torch.cat([bos, text_tokens] + image_token_parts + [eos])
+        else:
+            raise ValueError(f"Invalid mode for multi-image tokenization: {self.mode}")
+
+        return combined
+
+    def tokenize(self, image, text: str) -> torch.Tensor:
+        """
+        Tokenize image-text pair(s). Supports both single and multi-image.
+
+        Args:
+            image: PIL Image or list of PIL Images to tokenize (required)
             text: Text string to append after image (required)
 
         Returns:
             Combined tokenized output as tensor
         """
-        # Both image and text are required for image-text pair tokenizer
+        if isinstance(image, list):
+            return self.tokenize_multi_image_text_pair(image, text)
         return self.tokenize_image_text_pair(image, text)
 
     def tokenize_batch(self, images, resize_size, text=None):
