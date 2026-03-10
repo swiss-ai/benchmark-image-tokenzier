@@ -7,10 +7,10 @@ This script loads images from a folder, processes them through a tokenizer
 assets folder for metrics calculation.
 
 Usage:
-    python batch_reconstruct.py --tokenizer Emu3VisionTokenizer --input assets/original/ --output assets/Emu3VisionTokenizer/
+    python benchmarks/reconstruction/batch_reconstruct.py --tokenizer Emu3VisionTokenizer --input benchmarks/assets/original/ --output benchmarks/assets/Emu3VisionTokenizer/
 
     # With custom tokenizer path
-    python batch_reconstruct.py --tokenizer Cosmos --tokenizer-path /path/to/model --input assets/original/ --output assets/Cosmos/
+    python benchmarks/reconstruction/batch_reconstruct.py --tokenizer Cosmos --tokenizer-path /path/to/model --input benchmarks/assets/original/ --output benchmarks/assets/Cosmos/
 """
 
 import argparse
@@ -22,7 +22,7 @@ import torch
 from tqdm import tqdm
 
 from Tokenizer.base import Tokenizer
-from utils_benchmark import load_all_images
+from benchmarks.utils import load_all_images
 
 
 # Import available tokenizers
