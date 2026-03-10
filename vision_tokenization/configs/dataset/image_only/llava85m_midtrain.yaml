@@ -1,0 +1,7 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# LLaVA-OneVision 85M mid-training — image-only, HuggingFace
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - _base_hf
+
+output_name: llava85m_midtrain

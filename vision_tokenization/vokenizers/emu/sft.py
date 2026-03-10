@@ -4,17 +4,21 @@ EMU tokenizer for SFT (Supervised Fine-Tuning) data.
 Handles conversations with single images and text.
 """
 
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 
+import numpy as np
 import torch
 
-from vision_tokenization.vokenizers.conversation_transforms import (
-    BaseConversationTransform,
-    ConversationTransformRegistry,
+from vision_tokenization.vokenizers.conversation_policy import (
+    ConversationPolicy,
+    apply_conversation_policy,
 )
 
 from .image_only import EMUImageOnlyTokenizer
+
+logger = logging.getLogger(__name__)
 
 
 def _replace_images(
@@ -76,14 +80,13 @@ class EMUSftTokenizer(EMUImageOnlyTokenizer):
     Supports batched tokenization: only supports 1 image per conversation
     """
 
-    def __init__(self, *args, conversation_transform: Optional[str] = None, **kwargs):
+    def __init__(self, *args, conversation_policy: Optional[ConversationPolicy] = None, **kwargs):
         """
-        Initialize SFT tokenizer with optional conversation transform.
+        Initialize SFT tokenizer with optional conversation policy.
 
         Args:
             *args: Positional arguments for parent class
-            conversation_transform: Name of conversation transform to use (e.g., "llava_to_llama").
-                                   If None, text is passed directly to tokenize_conversation (no transform).
+            conversation_policy: ConversationPolicy controlling message normalization.
             **kwargs: Keyword arguments for parent class
         """
         super().__init__(*args, **kwargs)
@@ -94,11 +97,8 @@ class EMUSftTokenizer(EMUImageOnlyTokenizer):
         # Cache the image token ID for faster lookup
         self.image_token_id = self.text_tokenizer.convert_tokens_to_ids("<|image|>")
 
-        # Configure conversation transform
-        self.conversation_transform: Optional[BaseConversationTransform] = None
-        if conversation_transform is not None:
-            transform_cls = ConversationTransformRegistry.get_transform(conversation_transform)
-            self.conversation_transform = transform_cls()
+        # Configure conversation normalization policy
+        self.conversation_policy = conversation_policy or ConversationPolicy()
 
     def _add_special_tokens(self, tokens: torch.Tensor) -> torch.Tensor:
         """
@@ -232,79 +232,77 @@ class EMUSftTokenizer(EMUImageOnlyTokenizer):
         Raises:
             ValueError: If images list is empty or number of images doesn't match placeholders
         """
-        # Apply conversation transform if configured (goal: bring read text data from dataset in correct format for selected tokenizer chat template)
-        if self.conversation_transform is not None:
-            messages = self.conversation_transform.transform(text)
-        else:
-            messages = text
-
+        messages = apply_conversation_policy(text, self.conversation_policy)
         return self.tokenize_conversation(messages, images)
 
-    def tokenize_batch(self, images, resize_size, text=None):
+    def tokenize_batch(self, images, resize_size, text=None, group_slices=None):
         """
         Batched tokenization interface for SFT mode.
-        THIS ONLY WORKS WITH ONE IMG PER CONVERSATION!
 
-        NOTE: SFT has variable-length sequences due to different conversation lengths.
-        We batch the image preprocessing for efficiency, then process each conversation
-        with its corresponding image. Returns a list of variable-length token sequences.
+        Single-image is a special case of multi-image where every group has
+        exactly one image.  Both paths share the same code: GPU image
+        tokenization runs in parallel with CPU conversation tokenization.
 
         Args:
-            images: List of PIL Images to tokenize (one per sample)
-            resize_size: Target size for resizing images (batch wide size)
-            text: List of conversation data (required for SFT mode)
+            images: List of PIL Images to tokenize.
+            resize_size: Target size for resizing images (batch-wide).
+            text: List of conversation data (required for SFT mode).
+                One per image (single-image) or one per group (multi-image).
+            group_slices: Optional ``(num_groups, 2)`` array mapping groups
+                to positions in *images*.  When ``None``, each image is
+                treated as its own group.
 
         Returns:
-            List of token tensors, one per image-conversation pair (variable lengths)
+            List of token tensors (variable lengths).  ``None`` entries
+            indicate skipped groups (placeholder / image count mismatch).
         """
         if text is None or len(text) == 0:
             raise ValueError("Text (conversations) is required for SFT tokenization")
 
-        if len(images) != len(text):
-            raise ValueError(f"Number of images ({len(images)}) must match number of conversations ({len(text)})")
+        # Single-image is multi-image with trivial 1-image groups
+        if group_slices is None:
+            if len(images) != len(text):
+                raise ValueError(
+                    f"Number of images ({len(images)}) must match "
+                    f"number of conversations ({len(text)})"
+                )
+            group_slices = np.array(
+                [[i, i + 1] for i in range(len(images))], dtype=np.int64,
+            )
 
-        # Apply conversation transforms if configured
-        if self.conversation_transform is not None:
-            messages_batch = [self.conversation_transform.transform(t) for t in text]
-        else:
-            messages_batch = text
+        # GPU image tokenization ∥ CPU conversation tokenization
+        def tokenize_all_texts_cpu():
+            results = []
+            for g_idx in range(len(group_slices)):
+                messages = apply_conversation_policy(text[g_idx], self.conversation_policy)
+                results.append(self._tokenize_conversation_text_cpu(messages))
+            return results
 
-        def tokenize_conversation_texts_cpu():
-            """CPU thread for batch text tokenization"""
-            text_results = []
-            for messages in messages_batch:
-                result = self._tokenize_conversation_text_cpu(messages)
-                text_results.append(result)
-            return text_results
+        image_future = self.executor.submit(self.tokenize_images, images, resize_size)
+        text_future = self.executor.submit(tokenize_all_texts_cpu)
 
-        # Img tokenization on GPU and text tokenization on CPU!
-        image_future = self.executor.submit(self.tokenize_images, images, resize_size)  # [B, num-tokens]
-        text_future = self.executor.submit(tokenize_conversation_texts_cpu)
+        image_tokens_batch = image_future.result()  # [total_images, seq_len]
+        text_results = text_future.result()
 
-        image_tokens_batch = (
-            image_future.result()
-        )  # [B, image_seq_len] same seq len as img in one batch are resized to same size.
-        text_results_batch = text_future.result()  # List of (text_tokens, num_images, image_position)
+        image_tokens_batch = image_tokens_batch.cpu()
 
-        # Combine each image-conversation pair
-        combined_batch = []
-        for i in range(len(images)):
-            text_tokens, num_images, image_positions = text_results_batch[i]
-            image_tokens = image_tokens_batch[i]  # Full image sequence with BOS/EOS
+        # Per-group: replace <|image|> placeholders with vision tokens
+        results = []
+        for g_idx, (gs, ge) in enumerate(group_slices):
+            gs, ge = int(gs), int(ge)
+            text_tokens, num_images, image_positions = text_results[g_idx]
 
-            assert num_images == 1, "Only single image samples are supported for batched SFT"
+            num_group_images = ge - gs
+            if num_images != num_group_images:
+                logger.warning(
+                    f"Group has {num_group_images} images but conversation has "
+                    f"{num_images} <|image|> placeholders — skipping"
+                )
+                results.append(None)
+                continue
 
-            # Get image tokens without BOS/EOS for replacement
-            image_tokens_no_special = image_tokens[1:-1]
+            img_tokens_list = [image_tokens_batch[i, 1:-1] for i in range(gs, ge)]
+            final_tokens = _replace_images(text_tokens, image_positions, img_tokens_list)
+            results.append(final_tokens)
 
-            # Move text tokens to same device as image tokens
-            text_tokens = text_tokens.to(image_tokens.device)
-
-            # Replace <|image|> placeholder with actual vision tokens
-            # For single image case, use the first (and only) position
-            final_tokens = _replace_images(text_tokens, image_positions, [image_tokens_no_special])
-
-            combined_batch.append(final_tokens)
-
-        # Return list of variable-length sequences (not a stacked tensor)
-        return combined_batch
+        return results

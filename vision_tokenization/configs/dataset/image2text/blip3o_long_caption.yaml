@@ -1,0 +1,9 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# BLIP3o Pretrain Long Caption — image2text, HuggingFace
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - _base_hf
+
+output_name: blip3o_long_caption
+image_column: jpg
+text_column: txt

@@ -27,13 +27,13 @@ Example usage:
         --output-dir /output \
         --tokenizer-path /path/to/tokenizer
 
-    # Use conversation transform with debug output
+    # Use conversation policy with debug output
     python3 -m vision_tokenization.utils.apply_sft_chat_template \
         --dataset HuggingFaceM4/FineVision \
         --config lrv_chart \
         --output-dir /output \
         --tokenizer-path /path/to/tokenizer \
-        --conversation-transform finevision_to_llama \
+        --conversation-policy '{"add_image_placeholder": true}' \
         --debug-samples 3
 
     # Apply chat template to dataset (save as jsonl)
@@ -42,7 +42,7 @@ Example usage:
         --output-dir /capstor/store/cscs/swissai/infra01/vision-datasets \
         --output-format jsonl \
         --tokenizer-path /capstor/store/cscs/swissai/infra01/MLLM/llama3_emu3_tokenizer \
-        --conversation-transform normalize_format \
+        --conversation-policy '{}' \
         --debug-samples 5 \
         --max-samples 100000
 
@@ -54,21 +54,19 @@ Example usage:
         --tokenizer-path /path/to/tokenizer \
         --no-add-bos --no-add-eos
 
-    # Use llava_to_apertus in text-only mode (no image placeholder)
+    # Use conversation policy in text-only mode (no image placeholder)
     python3 -m vision_tokenization.utils.apply_sft_chat_template \
         --dataset mvp-lab/LLaVA-OneVision-1.5-Instruct-Data \
         --output-dir /output \
         --tokenizer-path /path/to/tokenizer \
-        --conversation-transform llava_to_apertus \
-        --transform-params '{"llava_to_apertus": {"add_image_placeholder": false}}'
+        --conversation-policy '{"add_system_message": true}'
 
-    # Or load transform params from a file
+    # Or load the policy from a file
     python3 -m vision_tokenization.utils.apply_sft_chat_template \
         --dataset mvp-lab/LLaVA-OneVision-1.5-Instruct-Data \
         --output-dir /output \
         --tokenizer-path /path/to/tokenizer \
-        --conversation-transform llava_to_apertus \
-        --transform-params @my_params.json
+        --conversation-policy @conversation_policy.json
 
     # Use pre-prepared dataset on cluster (offline, builder_load method)
     python3 -m vision_tokenization.utils.apply_sft_chat_template \
@@ -107,34 +105,26 @@ from typing import Any, Dict
 
 from transformers import AutoTokenizer
 
-from vision_tokenization.pipelines.hf.dataset_loader import load_hf_dataset
-from vision_tokenization.vokenizers.conversation_transforms import (
-    ConversationTransformRegistry,
+from vision_tokenization.utils.dataset_loader import load_hf_dataset
+from vision_tokenization.vokenizers.conversation_policy import (
+    ConversationPolicy,
+    apply_conversation_policy,
 )
 
 
-def parse_transform_params(params_arg: str) -> Dict[str, Dict[str, Any]]:
-    """
-    Parse transform params from JSON string or file.
-
-    Args:
-        params_arg: JSON string or @file path with transform parameters.
-            Format: '{"transform_name": {"param": value}}' or '@params.json'
-
-    Returns:
-        Dict mapping transform names to their parameters
-    """
-    if params_arg is None:
+def parse_json_arg(arg_name: str, value: str | None) -> Dict[str, Any]:
+    """Parse a JSON string or @file reference into a dict."""
+    if value is None:
         return {}
 
-    if params_arg.startswith("@"):
-        file_path = params_arg[1:]
+    if value.startswith("@"):
+        file_path = value[1:]
         if not os.path.isfile(file_path):
-            raise FileNotFoundError(f"Transform params file not found: {file_path}")
+            raise FileNotFoundError(f"{arg_name} file not found: {file_path}")
         with open(file_path, "r") as f:
             return json.load(f)
 
-    return json.loads(params_arg)
+    return json.loads(value)
 
 
 def parse_configs(config_arg: str) -> list:
@@ -176,35 +166,6 @@ def parse_configs(config_arg: str) -> list:
     return configs
 
 
-def normalize_messages(messages):
-    """
-    Normalize messages to standard format efficiently.
-
-    Handles two formats:
-    1. Standard: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
-    2. Conversation: [{"user": "...", "assistant": "..."}]
-
-    Returns standard format.
-    """
-    if not messages or not isinstance(messages, list):
-        return messages
-
-    first = messages[0]
-    if not isinstance(first, dict):
-        return messages
-
-    # Check format and convert if needed (single pass)
-    if "role" in first:  # Already correct format
-        return messages
-
-    if "user" in first:  # Conversation format - convert
-        return [
-            {"role": role, "content": conv[role]} for conv in messages for role in ("user", "assistant") if role in conv
-        ]
-
-    return messages  # Unknown format, return as-is
-
-
 def print_debug(raw, transformed, formatted, idx):
     """Print debug information for a sample."""
     print(f"\n{'='*60}")
@@ -232,7 +193,7 @@ def process_single_config(
     add_bos: bool,
     add_eos: bool,
     num_proc: int,
-    conversation_transform,
+    conversation_policy,
     debug_samples: int,
     max_samples: int,
     cache_dir: str = None,
@@ -291,11 +252,7 @@ def process_single_config(
             # Get raw messages from the specified column
             raw_messages = example[message_column]
 
-            # Apply conversation transform or fallback to normalize_messages
-            if conversation_transform:
-                messages = conversation_transform.transform(raw_messages)
-            else:
-                messages = normalize_messages(raw_messages)
+            messages = apply_conversation_policy(raw_messages, conversation_policy)
 
             # Apply chat template
             # LLAMA3.2 Vision Instruct Tokenizer hardcode the BOS token
@@ -363,19 +320,6 @@ def process_single_config(
 
 
 def main():
-    # Handle --list-transforms early before full argument parsing
-    import sys
-
-    if "--list-transforms" in sys.argv:
-        print("Available conversation transforms:")
-        for name in ConversationTransformRegistry.list_transforms():
-            transform_cls = ConversationTransformRegistry.get_transform(name)
-            doc = transform_cls.__doc__ or "No description"
-            # Get first line of docstring
-            first_line = doc.strip().split("\n")[0]
-            print(f"  {name}: {first_line}")
-        return
-
     parser = argparse.ArgumentParser(description="Apply chat template to SFT dataset")
     parser.add_argument("--dataset", required=True, help="HuggingFace dataset name or path")
     parser.add_argument(
@@ -409,17 +353,12 @@ def main():
     )
     parser.add_argument("--num-proc", type=int, default=64, help="Number of processes for parallel processing")
     parser.add_argument(
-        "--conversation-transform",
+        "--conversation-policy",
         default=None,
         help=(
-            "Name of conversation transform to apply (e.g., 'finevision_to_llama', 'normalize_format', "
-            "'llava_to_apertus'). Use --list-transforms to see available transforms."
+            "JSON string or @file path with ConversationPolicy fields. "
+            "Example: '{\"add_image_placeholder\": true, \"add_system_message\": true}'"
         ),
-    )
-    parser.add_argument(
-        "--list-transforms",
-        action="store_true",
-        help="List available conversation transforms and exit",
     )
     parser.add_argument(
         "--debug-samples",
@@ -451,17 +390,6 @@ def main():
         action="store_true",
         help="Enable HF datasets offline mode (sets HF_DATASETS_OFFLINE=1)",
     )
-    parser.add_argument(
-        "--transform-params",
-        type=str,
-        default=None,
-        help=(
-            "JSON string or @file path with transform parameters. "
-            "Format: '{\"transform_name\": {\"param\": value}}' or '@params.json'. "
-            'Example: \'{"llava_to_apertus": {"add_image_placeholder": false}}\''
-        ),
-    )
-
     args = parser.parse_args()
 
     # Set offline mode before any dataset loading
@@ -493,19 +421,9 @@ def main():
     else:
         print(f"EOS token: Disabled")
 
-    # Parse transform params and create conversation transform if specified
-    transform_params = parse_transform_params(args.transform_params)
-    conversation_transform = None
-    if args.conversation_transform:
-        transform_cls = ConversationTransformRegistry.get_transform(args.conversation_transform)
-        params = transform_params.get(args.conversation_transform, {})
-        conversation_transform = transform_cls(**params)
-        if params:
-            print(f"Conversation transform: {args.conversation_transform} with params: {params}")
-        else:
-            print(f"Conversation transform: {args.conversation_transform}")
-    else:
-        print("Conversation transform: None (using default normalize_messages)")
+    policy_dict = parse_json_arg("Conversation policy", args.conversation_policy)
+    conversation_policy = ConversationPolicy(**policy_dict)
+    print(f"Conversation policy: {conversation_policy}")
 
     # Process each config
     results = []
@@ -522,7 +440,7 @@ def main():
             add_bos=args.add_bos,
             add_eos=args.add_eos,
             num_proc=args.num_proc,
-            conversation_transform=conversation_transform,
+            conversation_policy=conversation_policy,
             debug_samples=args.debug_samples,
             max_samples=args.max_samples,
             cache_dir=args.cache_dir,

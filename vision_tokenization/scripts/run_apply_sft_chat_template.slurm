@@ -23,8 +23,7 @@
 #       --dataset-config Evol-Instruct-GPT4-Turbo,amc_aime,aops_forum,cn_k12,code_feedback_66k,gsm8k,ifeval_like,magpie_pro,magpie_ultra,math,mathinstruct_262k,mathqa,olympiads,open_orca,openmathinstruct,orca_994k,orca_agentinstruct,synthetic_amc,synthetic_math,wizardlm \
 #       --output-dir /iopsstor/scratch/cscs/rkreft/benchmark-image-tokenizer/vision_tokenization/output
 #       --tokenizer-path /capstor/store/cscs/swissai/infra01/MLLM/apertus_emu3.5_instruct_tokenizer
-#       --conversation-transform llava_to_apertus
-#       --transform-params '{"llava_to_apertus":{"add_image_placeholder":false}}' --offline
+#       --conversation-policy '{"auto_normalize":true,"add_image_placeholder":false,"add_system_message":true}' --offline
 
 # Get the project root directory
 PROJECT_ROOT="/iopsstor/scratch/cscs/${USER}/benchmark-image-tokenizer"
@@ -42,12 +41,11 @@ DATASET_SPLIT="train"
 TOKENIZER_PATH=""
 OUTPUT_DIR=""
 DATASET_LOAD_METHOD="default"
-CONVERSATION_TRANSFORM=""
+CONVERSATION_POLICY=""
 NUM_PROC=32
 MAX_SAMPLES=""
 OUTPUT_FORMAT="parquet"
 MESSAGE_COLUMN="conversations"
-TRANSFORM_PARAMS=""
 
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
@@ -76,12 +74,8 @@ while [[ $# -gt 0 ]]; do
             DATASET_LOAD_METHOD="$2"
             shift 2
             ;;
-        --conversation-transform)
-            CONVERSATION_TRANSFORM="$2"
-            shift 2
-            ;;
-        --transform-params)
-            TRANSFORM_PARAMS="$2"
+        --conversation-policy)
+            CONVERSATION_POLICY="$2"
             shift 2
             ;;
         --output-format)
@@ -120,8 +114,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --dataset-config <name>       Dataset configuration/subset name"
             echo "  --dataset-split <split>       Dataset split (default: train)"
             echo "  --dataset-load-method <m>     'default', 'builder_load', or 'disk_load' (default: default)"
-            echo "  --conversation-transform <n>  Conversation transform name"
-            echo "  --transform-params <json>     Transform params JSON string or @file"
+            echo "  --conversation-policy <json>  Conversation policy JSON string or @file"
             echo "  --output-format <fmt>         'parquet' or 'jsonl' (default: parquet)"
             echo "  --message-column <col>        Column containing messages (default: texts)"
             echo "  --num-proc <n>                Number of processes (default: 64)"
@@ -166,7 +159,7 @@ echo "Load method:         ${DATASET_LOAD_METHOD}"
 echo "Tokenizer:           ${TOKENIZER_PATH}"
 echo "Output dir:          ${OUTPUT_DIR}"
 echo "Output format:       ${OUTPUT_FORMAT}"
-echo "Conv. transform:     ${CONVERSATION_TRANSFORM:-<none>}"
+echo "Conversation policy: ${CONVERSATION_POLICY:-<default>}"
 echo "Num proc:            ${NUM_PROC}"
 echo "Debug mode:          ${DEBUG_MODE}"
 echo "Offline mode:        ${OFFLINE_MODE}"
@@ -208,12 +201,8 @@ if [ "$OFFLINE_MODE" = true ]; then
     CMD="${CMD} --offline"
 fi
 
-if [ -n "$CONVERSATION_TRANSFORM" ]; then
-    CMD="${CMD} --conversation-transform ${CONVERSATION_TRANSFORM}"
-fi
-
-if [ -n "$TRANSFORM_PARAMS" ]; then
-    CMD="${CMD} --transform-params '${TRANSFORM_PARAMS}'"
+if [ -n "$CONVERSATION_POLICY" ]; then
+    CMD="${CMD} --conversation-policy '${CONVERSATION_POLICY}'"
 fi
 
 if [ -n "$MAX_SAMPLES" ]; then

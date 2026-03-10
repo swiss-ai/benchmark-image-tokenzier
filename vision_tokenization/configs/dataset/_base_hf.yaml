@@ -1,0 +1,42 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Base defaults for HuggingFace Arrow/Parquet datasets
+# ──────────────────────────────────────────────────────────────────────────────
+# Inherit this in any HF dataset config:
+#
+#   defaults:
+#     - _base_hf
+#
+#   output_name: my_dataset
+#   manifest_path: /path/to/manifest.parquet
+#   arrow_dir: /path/to/arrow/
+#   image_column: image           # override if needed
+#   text_column: caption          # required for image2text / sft modes
+# ──────────────────────────────────────────────────────────────────────────────
+
+dataset_type: hf
+
+# --- Paths (must be set per dataset) -----------------------------------------
+manifest_path: ???
+arrow_dir: ???
+image_column: image
+
+# --- Image filtering ----------------------------------------------------------
+min_pixels: "64*128"
+max_pixels: "2048*2048"
+
+# --- Batch planning -----------------------------------------------------------
+batch_plan_path: null              # null = compute from manifest at startup
+max_batch_tokens: 25600            # token budget per batch
+batch_size: 32                     # max samples per batch
+spatial_factor: 16                 # vision tokenizer spatial down-sampling
+num_clusters: 2000                 # k-means clusters for aspect-ratio grouping
+niter: 10                          # k-means iterations
+gpu_kmeans: true                   # use GPU for k-means (faster for large manifests)
+resize_mode: avg                   # per-batch resize target: avg | min | max
+
+# --- Augmentation -------------------------------------------------------------
+augmentation: null                 # null = disabled
+
+# --- Checkpointing -----------------------------------------------------------
+checkpoint_interval_batches: 500   # finalize chunk + save progress every N batches
+max_consecutive_errors: 50         # abort after N consecutive batch failures
