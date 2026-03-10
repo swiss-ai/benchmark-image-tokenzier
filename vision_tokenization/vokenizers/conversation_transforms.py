@@ -408,6 +408,129 @@ class LLaVaInstructToApertusTransform(BaseConversationTransform):
         return messages
 
 
+@ConversationTransformRegistry.register("llava_to_llama")
+class LLaVaInstructToLLaMATransform(BaseConversationTransform):
+    """
+    Transform LLaVa-Onevision-Instruct conversation format to LLaMA multimodal chat template format.
+    Handles all conversation formats found in the LLaVA-OneVision-1.5-Instruct-Data dataset.
+    Llava-OneVision-Instruct: https://huggingface.co/datasets/mvp-lab/LLaVA-OneVision-1.5-Instruct-Data
+    LLaMa Multimodal: https://huggingface.co/meta-llama/Llama-3.2-11B-Vision
+
+    Supported input formats:
+        Format A: [{"role": "user", "content": "..."},  {"role": "assistant", "content": "..."}]
+        Format B: [{"from": "human", "value": "..."},   {"from": "gpt", "value": "..."}]
+        Format C: [{"content": null, "from": "human", "role": null, "value": "..."}]  (null role/content, data in from/value)
+        Format D: [{"content": "...", "from": null, "role": "user", "value": null, ...}]  (extra null keys, data in role/content)
+
+    Output format (LLaMA multimodal, with add_image_placeholder=True):
+        [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image"},
+                    {"type": "text", "text": "question1"}
+                ]
+            },
+            {"role": "assistant", "content": "answer1"},
+            {"role": "user", "content": "question2"},
+            {"role": "assistant", "content": "answer2"},
+        ]
+
+    The first user message includes an image placeholder that will be replaced
+    with actual vision tokens during tokenization.
+
+    Args:
+        add_image_placeholder: If True (default), adds image placeholder to first user message.
+            Set to False for text-only data.
+    """
+
+    name = "llava_to_llama"
+
+    # Mapping from "from" field values to standard role names
+    _ROLE_MAP = {"human": "user", "gpt": "assistant", "system": "system"}
+
+    def __init__(self, add_image_placeholder: bool = True):
+        self.add_image_placeholder = add_image_placeholder
+
+    def _normalize_message(self, msg: Dict[str, Any], index: int) -> tuple:
+        """
+        Extract (role, content) from any LLaVA OneVision conversation format.
+
+        Priority: role/content (if both non-None) > from/value (if both non-None).
+
+        Args:
+            msg: Message dict in any supported format
+            index: Message index (for error reporting)
+
+        Returns:
+            Tuple of (role, content) as strings
+
+        Raises:
+            ValueError: If neither key pair yields valid data
+        """
+        role = msg.get("role")
+        content = msg.get("content")
+        from_field = msg.get("from")
+        value = msg.get("value")
+
+        # Prefer role/content when both are non-None (Format A, D)
+        if role is not None and content is not None:
+            return str(role), str(content)
+
+        # Fall back to from/value (Format B, C)
+        if from_field is not None and value is not None:
+            mapped_role = self._ROLE_MAP.get(from_field)
+            if mapped_role is None:
+                raise ValueError(
+                    f"Message at index {index}: unknown 'from' value '{from_field}'. "
+                    f"Expected one of: {list(self._ROLE_MAP.keys())}"
+                )
+            return mapped_role, str(value)
+
+        raise ValueError(
+            f"Message at index {index}: cannot extract role/content. "
+            f"Expected non-null 'role'+'content' or 'from'+'value', "
+            f"got: role={role}, content={content}, from={from_field}, value={value}"
+        )
+
+    def transform(self, text: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Transform conversation from any LLaVA OneVision format to LLaMA multimodal chat template format.
+        The first user message gets the image placeholder if add_image_placeholder=True.
+        """
+        if not isinstance(text, list):
+            raise ValueError(f"Expected list of conversation dicts, got {type(text)}")
+
+        if not text:
+            raise ValueError("Conversation list cannot be empty")
+
+        messages = []
+
+        # Normalize all messages first
+        normalized = []
+        for i, conv in enumerate(text):
+            if not isinstance(conv, dict):
+                raise ValueError(f"Expected dict at index {i}, got {type(conv)}")
+            role, content = self._normalize_message(conv, i)
+            normalized.append((role, content))
+
+        # Process messages; first user message gets the image placeholder if enabled
+        first_user_seen = False
+        for role, content in normalized:
+            if role == "user" and not first_user_seen and self.add_image_placeholder:
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": [{"type": "image"}, {"type": "text", "text": content}],
+                    }
+                )
+                first_user_seen = True
+            else:
+                messages.append({"role": role, "content": content})
+
+        return messages
+
+
 @ConversationTransformRegistry.register("llava_normalize")
 class LLaVaNormalizeTransform(LLaVaInstructToApertusTransform):
     """

@@ -107,8 +107,17 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
         self.eof_id = self.text_tokenizer.convert_tokens_to_ids("<|img_end_of_frame|>")
 
         # Compute the actual offset for vision tokens
-        # Vision tokens are "<|visual token 000000|>" through "<|visual token XXXXXX|>"
+        # Vision tokens vary by tokenizer:
+        #   Apertus/Emu3: "<|visual token 000000|>" (zero-padded 6 digits)
+        #   LLaMA+Emu3.5: "<|visual token 0|>" (no padding)
         first_vision_token = self.text_tokenizer.convert_tokens_to_ids("<|visual token 000000|>")
+        if first_vision_token == 0:
+            first_vision_token = self.text_tokenizer.convert_tokens_to_ids("<|visual token 0|>")
+        if first_vision_token == 0:
+            raise ValueError(
+                "Could not find vision token in tokenizer vocabulary. "
+                "Tried '<|visual token 000000|>' and '<|visual token 0|>'."
+            )
         self.vision_token_offset = first_vision_token
 
     def _get_dim_tokens(self, height: int, width: int) -> List[int]:

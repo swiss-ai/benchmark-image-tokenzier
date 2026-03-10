@@ -71,6 +71,7 @@ def get_builder_split_info(
     cache_dir: Optional[str] = None,
     dataset_load_method: str = "default",
     data_files: Optional[str] = None,
+    data_dir: Optional[str] = None,
 ) -> Optional[Dict[str, Dict[str, int]]]:
     """
     Load dataset builder and extract split information without loading the dataset.
@@ -81,6 +82,7 @@ def get_builder_split_info(
         cache_dir: Cache directory for dataset files
         dataset_load_method: How to load the dataset ("default" or "disk_load")
         data_files: Explicit data file path(s) or pattern(s) as a comma-separated string.
+        data_dir: Local directory containing the dataset files (passed to builder as data_dir).
 
     Returns:
         Dictionary mapping split names to their info, or None if split info
@@ -107,7 +109,7 @@ def get_builder_split_info(
             parsed_data_files = parts if len(parts) > 1 else parts[0]
 
         builder = load_dataset_builder(
-            dataset_name, name=config_name, cache_dir=cache_dir, data_files=parsed_data_files
+            dataset_name, name=config_name, cache_dir=cache_dir, data_files=parsed_data_files, data_dir=data_dir
         )
         info = builder.info
 
@@ -368,6 +370,7 @@ def _load_with_default_method(
     num_proc: Optional[int],
     streaming: bool,
     data_files: Optional[str] = None,
+    data_dir: Optional[str] = None,
 ) -> Dataset:
     """Load dataset using load_dataset()."""
     if streaming and num_proc is not None:
@@ -391,6 +394,7 @@ def _load_with_default_method(
         num_proc=num_proc,
         streaming=streaming,
         data_files=parsed_data_files,
+        data_dir=data_dir,
     )
 
 
@@ -402,6 +406,7 @@ def _load_with_builder_method(
     num_proc: Optional[int],
     streaming: bool,
     data_files: Optional[str] = None,
+    data_dir: Optional[str] = None,
 ) -> Dataset:
     """Load dataset using builder.as_dataset() or builder.as_streaming_dataset()."""
     # Warn about ignored parameters
@@ -421,7 +426,7 @@ def _load_with_builder_method(
             "Using 'builder_load' without explicit cache_dir. " "Will use default: ~/.cache/huggingface/datasets"
         )
 
-    builder = load_dataset_builder(dataset_name, name=config_name, cache_dir=cache_dir)
+    builder = load_dataset_builder(dataset_name, name=config_name, cache_dir=cache_dir, data_dir=data_dir)
 
     try:
         # Use appropriate method based on streaming mode
@@ -508,6 +513,7 @@ def load_hf_dataset(
     method: str = "default",
     streaming: bool = False,
     data_files: Optional[str] = None,
+    data_dir: Optional[str] = None,
 ) -> Dataset:
     """
     Load a HuggingFace dataset using specified method ("default", "builder_load", or "disk_load")
@@ -524,6 +530,7 @@ def load_hf_dataset(
         streaming: Whether to use streaming mode (not supported with "disk_load")
         data_files: Explicit data file path(s) or pattern(s) as a comma-separated string.
             Only used with "default" and "builder_load" methods (warning logged for builder_load).
+        data_dir: Local directory containing the dataset files (passed to builder as data_dir).
 
     Returns:
         Dataset object
@@ -559,6 +566,7 @@ def load_hf_dataset(
             num_proc=num_proc,
             streaming=streaming,
             data_files=data_files,
+            data_dir=data_dir,
         )
     elif method == "builder_load":
         logger.info(
@@ -572,6 +580,7 @@ def load_hf_dataset(
             num_proc=num_proc,
             streaming=streaming,
             data_files=data_files,
+            data_dir=data_dir,
         )
     else:  # disk_load
         logger.info(f"[MODE: disk_load] Loading dataset using load_from_disk(): {dataset_name}")
@@ -600,6 +609,7 @@ def load_hf_dataset(
                 config_name=config_name,
                 cache_dir=cache_dir,
                 data_files=data_files,
+                data_dir=data_dir,
             )
 
             if split_info is None or base_split not in split_info:

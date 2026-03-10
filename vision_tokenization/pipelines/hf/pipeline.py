@@ -58,6 +58,7 @@ class HFDatasetPipeline(BasePipeline):
         dataset_load_method: str = "default",
         dataset_streamed: bool = False,
         data_files: Optional[str] = None,
+        data_dir: Optional[str] = None,
         image_field_pattern: Optional[str] = None,
         **kwargs,
     ):
@@ -77,6 +78,7 @@ class HFDatasetPipeline(BasePipeline):
         self.dataset_load_method = dataset_load_method
         self.dataset_streamed = dataset_streamed
         self.data_files = data_files
+        self.data_dir = data_dir
 
         # Set tokenizer pixels with intelligent defaults
         # If min_image_pixels is set but min_tokenizer_pixels is not, use min_image_pixels
@@ -200,6 +202,7 @@ class HFDatasetPipeline(BasePipeline):
                 cache_dir=self.cache_dir,
                 dataset_load_method=self.dataset_load_method,
                 data_files=self.data_files,
+                data_dir=self.data_dir,
             )
 
             if split_info is not None:
@@ -261,6 +264,7 @@ class HFDatasetPipeline(BasePipeline):
                 method=self.dataset_load_method,
                 streaming=False,
                 data_files=self.data_files,
+                data_dir=self.data_dir,
             )
 
             if split_info is None:
@@ -419,6 +423,7 @@ class HFDatasetPipeline(BasePipeline):
             "load_method": self.dataset_load_method,
             "dataset_streamed": self.dataset_streamed,
             "data_files": self.data_files,
+            "data_dir": self.data_dir,
             "log_interval": self.kwargs.get("log_interval", 1000),
         }
 

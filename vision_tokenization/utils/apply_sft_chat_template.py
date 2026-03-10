@@ -237,6 +237,8 @@ def process_single_config(
     max_samples: int,
     cache_dir: str = None,
     dataset_load_method: str = "default",
+    data_files: str = None,
+    data_dir: str = None,
 ) -> dict:
     """
     Process a single dataset config.
@@ -270,6 +272,8 @@ def process_single_config(
         cache_dir=cache_dir,
         num_proc=num_proc,
         method=dataset_load_method,
+        data_files=data_files,
+        data_dir=data_dir,
     )
 
     # Select subset if max_samples is specified
@@ -447,6 +451,25 @@ def main():
         ),
     )
     parser.add_argument(
+        "--data-files",
+        type=str,
+        default=None,
+        help=(
+            "Explicit data file path(s) or pattern(s) to pass to load_dataset(). "
+            "Comma-separated for multiple files."
+        ),
+    )
+    parser.add_argument(
+        "--data-dir",
+        type=str,
+        default=None,
+        help=(
+            "Local directory containing the raw dataset files. "
+            "Passed as data_dir to load_dataset()/load_dataset_builder() so the builder "
+            "script uses local files instead of downloading from the Hub."
+        ),
+    )
+    parser.add_argument(
         "--offline",
         action="store_true",
         help="Enable HF datasets offline mode (sets HF_DATASETS_OFFLINE=1)",
@@ -527,6 +550,8 @@ def main():
             max_samples=args.max_samples,
             cache_dir=args.cache_dir,
             dataset_load_method=args.dataset_load_method,
+            data_files=args.data_files,
+            data_dir=args.data_dir,
         )
         results.append(result)
 
