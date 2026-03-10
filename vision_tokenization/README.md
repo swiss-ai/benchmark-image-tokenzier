@@ -839,3 +839,11 @@ See [`profile/README.md`](./profile/README.md) for Emu3.5 VQ encoder profiling r
 
 > [!TIP]
 > **Recommended settings**: `max_batch_tokens=32768`, `batch_size=32`, `max_images_per_encode=16` — 99.5% peak throughput with 30% VRAM headroom.
+
+---
+
+## TODO
+
+- [ ] **URL-based robots.txt filtering in manifest** — filter out samples whose source URLs are disallowed by robots.txt during manifest creation
+- [ ] **SFT conversation parsing** — improve conversation format detection and normalization to handle more edge cases and structured content
+- [ ] **Sequence-length-based split writing** — split output micro-shards by sequence length so longer sequences can be reserved for long-context training phases
