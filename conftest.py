@@ -7,8 +7,9 @@ This file is automatically loaded by pytest and configures:
 - Custom markers
 """
 
-import sys
 import os
+import sys
+
 import pytest
 
 # Add project root to Python path
@@ -40,12 +41,6 @@ def temp_dir(tmp_path_factory):
 
 def pytest_configure(config):
     """Configure pytest with custom markers."""
-    config.addinivalue_line(
-        "markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')"
-    )
-    config.addinivalue_line(
-        "markers", "integration: marks tests as integration tests"
-    )
-    config.addinivalue_line(
-        "markers", "gpu: marks tests that require GPU"
-    )
+    config.addinivalue_line("markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')")
+    config.addinivalue_line("markers", "integration: marks tests as integration tests")
+    config.addinivalue_line("markers", "gpu: marks tests that require GPU")

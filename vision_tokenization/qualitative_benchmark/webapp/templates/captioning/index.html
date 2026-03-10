@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}Captioning Experiments - Benchmark Viewer{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Captioning Benchmark Experiments</h1>
+    <p class="subtitle">Image captioning benchmarks</p>
+</div>
+
+{% if experiments %}
+{% if experiments|length > 1 %}
+<div class="compare-link-section">
+    <a href="/captioning/compare" class="btn btn-secondary">Compare Experiments</a>
+</div>
+{% endif %}
+
+{% for folder, folder_experiments in grouped_experiments.items() %}
+<div class="folder-section collapsed">
+    <div class="folder-header">
+        <span class="folder-toggle">&#9660;</span>
+        <span class="folder-icon">&#128193;</span>
+        <span class="folder-name">{{ folder if folder else '/' }}</span>
+        <span class="folder-count">({{ folder_experiments|length }} experiment{% if folder_experiments|length != 1 %}s{% endif %})</span>
+    </div>
+    <div class="folder-content">
+    <div class="experiments-grid">
+        {% for experiment in folder_experiments %}
+        <div class="experiment-card captioning-experiment-card">
+            <h2>{{ experiment.display_name }}</h2>
+            {% if experiment.folder %}
+            <p class="experiment-folder"><span class="folder-badge">{{ experiment.folder }}</span></p>
+            {% endif %}
+            <p class="experiment-info">
+                <strong>Result file:</strong> <span class="file-badge">{{ experiment.file }}</span>
+            </p>
+
+            {% if experiment.summary %}
+            <div class="captioning-summary-mini">
+                <div class="summary-stat">
+                    <span class="stat-value">{{ experiment.summary.total_runs }}</span>
+                    <span class="stat-label">Total Runs</span>
+                </div>
+                {% if experiment.summary.aggregated_metrics %}
+                {% for metric_name, stats in experiment.summary.aggregated_metrics.items() %}
+                <div class="summary-stat metrics">
+                    <span class="stat-value">{{ "%.3f"|format(stats.avg) }}</span>
+                    <span class="stat-label">Avg {{ metric_name.replace('_', ' ').title() }}</span>
+                    <span class="stat-sublabel">({{ stats.count }}/{{ experiment.summary.total_runs }})</span>
+                </div>
+                {% endfor %}
+                {% endif %}
+            </div>
+            {% endif %}
+
+            <a href="/captioning/{{ experiment.name }}" class="btn btn-primary">View Results</a>
+        </div>
+        {% endfor %}
+    </div>
+    </div>
+</div>
+{% endfor %}
+{% else %}
+<div class="empty-state">
+    <h2>No captioning experiments found</h2>
+    <p>Run the captioning benchmark script to generate results:</p>
+    <pre><code>python vision_tokenization/qualitative_benchmark/vlm_benchmark.py \
+    --mode captioning \
+    --tokenizer_path /path/to/tokenizer \
+    --model_path /path/to/model \
+    --experiment_name my_captioning_experiment \
+    --results_folder results/</code></pre>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,50 +1,54 @@
-import torch
-import numpy as np
-from PIL import Image
-from typing import Tuple, Any
-from torchvision import transforms
 import os
 import sys
+from typing import Any, Tuple
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import numpy as np
+import torch
+from PIL import Image
+from torchvision import transforms
 
-from utils_benchmark import load_all_images
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from pathlib import Path
+
+from base import Tokenizer
 from torchvision.utils import make_grid
 
-
 from Tiler import Tiler
-from base import Tokenizer
+from utils_benchmark import load_all_images
 
-os.chdir('/users/nirmiger/DetailFlow')
-sys.path.append('/users/nirmiger/DetailFlow')
+os.chdir("/users/nirmiger/DetailFlow")
+sys.path.append("/users/nirmiger/DetailFlow")
 
 from inference.load_vq import load_vq_model
 
-TOKENIZER = 'datailflow_256'
-if TOKENIZER == 'datailflow':
-    TOKENIZER_PATH = '/iopsstor/scratch/cscs/nirmiger/512.pt'
-    CONFIG_PATH = '/users/nirmiger/DetailFlow/config_512.json'
-    YAML_PATH = '/users/nirmiger/DetailFlow/config_512.yaml'
-elif TOKENIZER == 'datailflow_256':
-    TOKENIZER_PATH = '/iopsstor/scratch/cscs/nirmiger/256.pt'
-    CONFIG_PATH = '/users/nirmiger/DetailFlow/config.json'
-    YAML_PATH = '/users/nirmiger/DetailFlow/config.yaml'
+TOKENIZER = "datailflow_256"
+if TOKENIZER == "datailflow":
+    TOKENIZER_PATH = "/iopsstor/scratch/cscs/nirmiger/512.pt"
+    CONFIG_PATH = "/users/nirmiger/DetailFlow/config_512.json"
+    YAML_PATH = "/users/nirmiger/DetailFlow/config_512.yaml"
+elif TOKENIZER == "datailflow_256":
+    TOKENIZER_PATH = "/iopsstor/scratch/cscs/nirmiger/256.pt"
+    CONFIG_PATH = "/users/nirmiger/DetailFlow/config.json"
+    YAML_PATH = "/users/nirmiger/DetailFlow/config.yaml"
 
-RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}'
+RECONSTRUCTION_PATH = f"/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}"
+
 
 class DetailFlowTokenizer(Tokenizer):
     """DetailFlow tokenizer implementation"""
 
-    def __init__(self,
-                 ckpt_path: str,
-                 device: str = "cuda",
-                 image_size: int = 256,
-                 seed: int = 0,
-                 use_ema: bool = False,
-                 config_path: str = CONFIG_PATH,
-                 yaml_path: str = YAML_PATH,
-                 **kwargs):
+    def __init__(
+        self,
+        ckpt_path: str,
+        device: str = "cuda",
+        image_size: int = 256,
+        seed: int = 0,
+        use_ema: bool = False,
+        config_path: str = CONFIG_PATH,
+        yaml_path: str = YAML_PATH,
+        **kwargs,
+    ):
         self.device = device
         self.image_size = image_size
         self.vq_model_path = ckpt_path
@@ -57,10 +61,12 @@ class DetailFlowTokenizer(Tokenizer):
         torch.set_grad_enabled(False)
 
         # Preprocessing transform
-        self.preprocess_transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5] * 3, std=[0.5] * 3),
-        ])
+        self.preprocess_transform = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.5] * 3, std=[0.5] * 3),
+            ]
+        )
 
         super().__init__(**kwargs)
 
@@ -78,7 +84,6 @@ class DetailFlowTokenizer(Tokenizer):
         self.vq_model = self.vq_model.to(self.device)
         # Convert to fp16 if supported
         self.vq_model = self.vq_model.half()
-
 
     def preprocess(self, image: Image.Image) -> torch.Tensor:
         """Preprocess image to tensor format"""
@@ -107,19 +112,20 @@ class DetailFlowTokenizer(Tokenizer):
 
     def get_num_tokens(self, indices: torch.Tensor) -> int:
         """Get total number of tokens"""
-        return int(indices.numel()/8) # 8 is the embedding dimension for DetailFlow
+        return int(indices.numel() / 8)  # 8 is the embedding dimension for DetailFlow
+
 
 if __name__ == "__main__":
     # Example usage
     tokenizer = DetailFlowTokenizer(ckpt_path=TOKENIZER_PATH, config_path=CONFIG_PATH, yaml_path=YAML_PATH)
     tiler = Tiler(tile_size=256, pad_value=-1.0)
-    images, _, image_paths = load_all_images('/users/nirmiger/benchmark-image-tokenzier/assets/original')
+    images, _, image_paths = load_all_images("/users/nirmiger/benchmark-image-tokenzier/assets/original")
     batch_size = 8  # Adjust based on GPU memory
     os.makedirs(RECONSTRUCTION_PATH, exist_ok=True)
     for idx, image_path in enumerate(image_paths):
         name = Path(image_path).name
         print(f"\nProcessing image {idx+1}: {name}")
-        
+
         # Load and normalize image manually
         image = Image.open(image_path).convert("RGB")
         image_tensor = tokenizer.preprocess(image).squeeze(0)  # Shape: (3, H, W)
@@ -127,8 +133,8 @@ if __name__ == "__main__":
 
         # Tile the image
         result = tiler(image_tensor)
-        tiles = result['tiles']  # (N, C, H, W)
-        metadata = result['metadata']
+        tiles = result["tiles"]  # (N, C, H, W)
+        metadata = result["metadata"]
         print(f"Number of tiles: {tiles.shape[0]} | Tile shape: {tiles.shape[1:]}")
 
         total_tiles = tiles.shape[0]
@@ -169,13 +175,13 @@ if __name__ == "__main__":
         compression_ratio = original_pixels / total_tokens
 
         metrics = {
-            'input_shape': image_tensor.shape,
-            'num_tokens': total_tokens,
-            'original_pixels': original_pixels,
-            'compression_ratio': compression_ratio,
-            'indices_shape': all_indices_tensor.shape,
-            'num_tiles': total_tiles,
-            'tile_size': tiler.tile_size
+            "input_shape": image_tensor.shape,
+            "num_tokens": total_tokens,
+            "original_pixels": original_pixels,
+            "compression_ratio": compression_ratio,
+            "indices_shape": all_indices_tensor.shape,
+            "num_tiles": total_tiles,
+            "tile_size": tiler.tile_size,
         }
 
         # Log

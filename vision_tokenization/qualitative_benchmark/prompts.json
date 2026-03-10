@@ -1,0 +1,82 @@
+[
+        {
+            "text": "Describe what you see in the image",
+            "tags": ["general"],
+            "require_all_tags": false
+        },
+        {
+            "text": "Describe what you see in the image in detail",
+            "tags": ["general"],
+            "require_all_tags": false
+        },
+        {
+            "text": "What objects or subjects can you identify in the image?",
+            "tags": ["objects"],
+            "require_all_tags": false
+        },
+        {
+            "text": "Count the objects in the image. List each type of object with its count.",
+            "tags": ["objects"],
+            "require_all_tags": false
+        },
+        {
+            "text": "What are the main colors present in the image?",
+            "tags": ["colors"],
+            "require_all_tags": false
+        },
+        {
+            "text": "Describe the color of each object in the image?",
+            "tags": ["colors", "objects"],
+            "require_all_tags": true
+        },
+        {
+            "text": "Describe the position of each object in the image?",
+            "tags": ["objects"],
+            "require_all_tags": false
+        },
+        {
+            "text": "Describe the data shown in this chart in detail.",
+            "tags": ["chart", "statistics"],
+            "require_all_tags": false
+        },
+        {
+            "text": "What trends can you identify in this visualization?",
+            "tags": ["chart", "statistics"],
+            "require_all_tags": false
+        },
+        {
+            "text": "Describe the scene in this image.",
+            "tags": ["natural_image"],
+            "require_all_tags": false
+        },
+        {
+            "text": "What is the main subject of this photograph?",
+            "tags": ["natural_image"],
+            "require_all_tags": false
+        },
+        {
+            "text": "Extract and transcribe the text from this document.",
+            "tags": ["document", "ocr"],
+            "require_all_tags": false
+        },
+        {
+            "text": "What is the title of the document shown in the image?",
+            "tags": ["document", "ocr"],
+            "require_all_tags": true
+        },
+        {
+            "text": "Extract all math from this image and transcribe it in LaTeX format.",
+            "tags": ["math", "ocr"],
+            "require_all_tags": true
+        },
+        {
+            "text": "Solve the mathematical problem shown in the image.",
+            "tags": ["math"],
+            "require_all_tags": true
+        },
+        {
+            "text": "You are a helpful medical assistant. What can you see in this image?",
+            "tags": ["medical"],
+            "require_all_tags": true
+        }
+    ]

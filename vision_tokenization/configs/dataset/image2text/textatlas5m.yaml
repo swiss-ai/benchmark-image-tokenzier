@@ -1,0 +1,8 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# TextAtlas 5M — image2text, HuggingFace
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - _base_hf
+
+output_name: textatlas5m
+text_column: annotation

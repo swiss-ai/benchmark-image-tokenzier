@@ -1,0 +1,385 @@
+{% extends "base.html" %}
+
+{% block title %}{{ experiment_name }} - Image Completion Benchmark{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <nav class="breadcrumb">
+        <a href="/completion">Experiments</a>
+        {% if folder %}
+        <span class="breadcrumb-separator">/</span>
+        <span class="breadcrumb-folder">{{ folder }}</span>
+        {% endif %}
+        <span class="breadcrumb-separator">/</span>
+        <span class="breadcrumb-current">{{ display_name }}</span>
+    </nav>
+    <div class="header-content">
+        <h1>{{ display_name }}</h1>
+        <a href="/completion" class="btn btn-secondary">Back to Experiments</a>
+    </div>
+    <div class="experiment-meta">
+        <p><strong>Timestamp:</strong> {{ results.timestamp }}</p>
+        <p><strong>Total runs:</strong> {{ results.total_runs }}</p>
+        <p><strong>Filtered runs:</strong> {{ filtered_runs|length }}</p>
+    </div>
+    {% if results.model_path or results.tokenizer_path or results.vision_tokenizer %}
+    <div class="model-info">
+        <h3>Model Configuration</h3>
+        {% if results.vision_tokenizer %}
+        <p><strong>Vision Tokenizer:</strong> {{ results.vision_tokenizer }}</p>
+        {% endif %}
+        {% if results.model_path %}
+        <p><strong>Model Path:</strong> <code>{{ results.model_path }}</code></p>
+        {% endif %}
+        {% if results.tokenizer_path %}
+        <p><strong>Tokenizer Path:</strong> <code>{{ results.tokenizer_path }}</code></p>
+        {% endif %}
+        {% if results.strict_row_count is defined %}
+        <p><strong>Strict Row Count:</strong> {{ results.strict_row_count }}</p>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% if results.inference_args %}
+    <div class="model-info">
+        <h3>Inference Configuration</h3>
+        <p><strong>Temperature:</strong> {{ results.inference_args.temperature }}</p>
+        <p><strong>Top-p:</strong> {{ results.inference_args.top_p }}</p>
+        <p><strong>Max new tokens:</strong> {{ results.inference_args.max_new_tokens }}</p>
+        {% if results.inference_args.stop_token_ids %}
+        <p><strong>Stop token IDs:</strong> {{ results.inference_args.stop_token_ids|join(', ') }}</p>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+<!-- Summary Statistics -->
+<div class="completion-summary-section">
+    <h2>Summary Statistics</h2>
+    <div class="completion-summary-grid">
+        <div class="summary-card">
+            <span class="summary-value">{{ summary.total_runs }}</span>
+            <span class="summary-label">Total Runs</span>
+        </div>
+        <div class="summary-card valid">
+            <span class="summary-value">{{ summary.valid_runs }}</span>
+            <span class="summary-label">Valid Runs</span>
+        </div>
+        <div class="summary-card invalid">
+            <span class="summary-value">{{ summary.invalid_runs }}</span>
+            <span class="summary-label">Invalid Runs</span>
+        </div>
+        <div class="summary-card success-rate">
+            <span class="summary-value">{{ "%.1f"|format(summary.success_rate) }}%</span>
+            <span class="summary-label">Overall Success Rate</span>
+        </div>
+    </div>
+
+    <!-- Row Count Difference Metrics -->
+    <h3>Row Count Accuracy</h3>
+    <div class="completion-summary-grid">
+        <div class="summary-card">
+            <span class="summary-value">{{ summary.correct_row_count }}</span>
+            <span class="summary-label">Correct Row Count</span>
+        </div>
+        <div class="summary-card">
+            <span class="summary-value">{{ summary.incorrect_row_count }}</span>
+            <span class="summary-label">Incorrect Row Count</span>
+        </div>
+        <div class="summary-card">
+            <span class="summary-value">{{ "%.2f"|format(summary.avg_row_diff_all) }}</span>
+            <span class="summary-label">Avg Row Diff (All)</span>
+        </div>
+        <div class="summary-card">
+            <span class="summary-value">{{ "%.2f"|format(summary.avg_row_diff_excluding_correct) }}</span>
+            <span class="summary-label">Avg Row Diff (Excl. Correct)</span>
+        </div>
+    </div>
+
+    <!-- Perceptual Quality Metrics -->
+    {% if summary.aggregated_metrics %}
+    <h3>Perceptual Quality Metrics Summary</h3>
+    <p class="summary-subtitle">Aggregated across {{ summary.total_runs }} total samples</p>
+
+    <div class="metrics-table-wrapper">
+        <table class="metrics-table">
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    <th>Min</th>
+                    <th>Max</th>
+                    <th>Avg</th>
+                    <th>Samples</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for metric_name, stats in summary.aggregated_metrics.items() %}
+                <tr class="{% if 'generated' in metric_name %}metric-generated-row{% endif %}">
+                    <td><strong>{{ metric_name.replace('_', ' ').title() }}</strong></td>
+                    {% if 'psnr' in metric_name %}
+                    <td>{{ "%.2f"|format(stats.min) }}</td>
+                    <td>{{ "%.2f"|format(stats.max) }}</td>
+                    <td>{{ "%.2f"|format(stats.avg) }}</td>
+                    {% else %}
+                    <td>{{ "%.4f"|format(stats.min) }}</td>
+                    <td>{{ "%.4f"|format(stats.max) }}</td>
+                    <td>{{ "%.4f"|format(stats.avg) }}</td>
+                    {% endif %}
+                    <td>{{ stats.count }} / {{ summary.total_runs }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Metrics by Completion Percentage -->
+    {% if summary.metrics_by_percentage %}
+    <h3>Average Metrics by Completion Percentage</h3>
+    <div class="metrics-table-wrapper">
+        <table class="metrics-table">
+            <thead>
+                <tr>
+                    <th>%</th>
+                    {% for metric_name in summary.aggregated_metrics.keys() %}
+                    <th>{{ metric_name.replace('_', ' ').title() }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for pct, pct_metrics in summary.metrics_by_percentage.items() %}
+                {% if pct_metrics %}
+                <tr>
+                    <td><strong>{{ pct }}%</strong></td>
+                    {% for metric_name in summary.aggregated_metrics.keys() %}
+                    {% if pct_metrics[metric_name] is defined %}
+                    {% if 'psnr' in metric_name %}
+                    <td>{{ "%.2f"|format(pct_metrics[metric_name].avg) }} <span class="metric-count">({{ pct_metrics[metric_name].count }})</span></td>
+                    {% else %}
+                    <td>{{ "%.4f"|format(pct_metrics[metric_name].avg) }} <span class="metric-count">({{ pct_metrics[metric_name].count }})</span></td>
+                    {% endif %}
+                    {% else %}
+                    <td>-</td>
+                    {% endif %}
+                    {% endfor %}
+                </tr>
+                {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+    {% endif %}
+
+    <!-- Breakdown by completion percentage -->
+    <h3>Success Rate by Completion Percentage</h3>
+    <div class="percentage-breakdown">
+        {% for pct, stats in summary.stats_by_percentage.items() %}
+        <div class="percentage-stat">
+            <div class="percentage-header">
+                <span class="percentage-label">{{ pct }}% Completion</span>
+                <span class="percentage-rate {% if stats.success_rate >= 90 %}high{% elif stats.success_rate >= 70 %}medium{% else %}low{% endif %}">
+                    {{ "%.1f"|format(stats.success_rate) }}% success
+                </span>
+            </div>
+            <div class="percentage-bar-container">
+                <div class="percentage-bar valid" style="width: {{ stats.success_rate }}%"></div>
+            </div>
+            <div class="percentage-counts">
+                <span class="count valid">{{ stats.valid }} valid</span>
+                <span class="count invalid">{{ stats.invalid }} invalid</span>
+                <span class="count total">{{ stats.total }} total</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Filters -->
+<div class="filters-section">
+    <h2>Filters</h2>
+    <form method="get" class="filters-form">
+        <div class="filter-group">
+            <label for="image_tag">Image Tag:</label>
+            <select name="image_tag" id="image_tag" onchange="this.form.submit()">
+                <option value="">All</option>
+                {% for tag in all_tags.image_tags %}
+                <option value="{{ tag }}" {% if current_image_tag == tag %}selected{% endif %}>{{ tag }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label for="percentage">Completion %:</label>
+            <select name="percentage" id="percentage" onchange="this.form.submit()">
+                <option value="">All</option>
+                {% for pct in all_percentages %}
+                <option value="{{ pct }}" {% if current_percentage == pct|string %}selected{% endif %}>{{ pct }}%</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label for="validity">Validity:</label>
+            <select name="validity" id="validity" onchange="this.form.submit()">
+                <option value="">All</option>
+                <option value="valid" {% if current_validity == 'valid' %}selected{% endif %}>Valid Only</option>
+                <option value="invalid" {% if current_validity == 'invalid' %}selected{% endif %}>Invalid Only</option>
+            </select>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Apply Filters</button>
+        <a href="/completion/{{ experiment_name }}" class="btn btn-secondary">Clear Filters</a>
+    </form>
+</div>
+
+<!-- Results -->
+<div class="results-section">
+    <h2>Completion Results</h2>
+
+    {% if filtered_runs %}
+    <div class="results-list">
+        {% for run in filtered_runs %}
+        <div class="result-card completion-result-card {% if run.is_valid %}valid{% else %}invalid{% endif %}">
+            <div class="result-header">
+                <h3>
+                    {{ run.image.path.split('/')[-1] }} @ {{ run.completion_percentage }}%
+                    {% if run.is_valid %}
+                    <span class="validity-badge valid">Valid</span>
+                    {% else %}
+                    <span class="validity-badge invalid">Invalid</span>
+                    {% endif %}
+                </h3>
+            </div>
+
+            <div class="completion-result-content">
+                <!-- Image Comparison -->
+                <div class="image-comparison">
+                    <div class="comparison-image-panel original">
+                        <h4>Original Image</h4>
+                        <img src="/{{ run.image.path }}" alt="Original image" loading="lazy">
+                        {% if run.image.path.lower().endswith(('.tif', '.tiff')) %}
+                        <p class="tiff-note">Note: TIFF image converted to PNG for web display</p>
+                        {% endif %}
+                        <div class="image-info">
+                            <p><strong>Token dimensions:</strong> {{ run.image.token_dimensions.height }} x {{ run.image.token_dimensions.width }}</p>
+                            <p><strong>Total rows:</strong> {{ run.original_image_rows }}</p>
+                        </div>
+                    </div>
+                    <div class="comparison-image-panel completed">
+                        <h4>Completed Image ({{ run.completion_percentage }}%)</h4>
+                        {% if run.result_image_path %}
+                        <img src="/results/{{ run.result_image_path }}" alt="Completed image" loading="lazy">
+                        {% else %}
+                        <div class="no-image-placeholder">
+                            <p>No image generated</p>
+                            <p class="error-hint">Completion failed to produce valid output</p>
+                        </div>
+                        {% endif %}
+                        <div class="image-info">
+                            <p><strong>Given rows:</strong> {{ run.given_rows }} ({{ run.completion_percentage }}%)</p>
+                            <p><strong>Generated rows:</strong> {{ run.generated_rows }} / {{ run.expected_rows }} expected</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tags -->
+                <div class="tags completion-tags">
+                    {% for tag in run.image.tags %}
+                    <span class="tag tag-image">{{ tag }}</span>
+                    {% endfor %}
+                    <span class="tag tag-percentage">{{ run.completion_percentage }}%</span>
+                </div>
+
+                <!-- Details Sections -->
+                {% set run_metrics = run.metrics or run.perceptual_metrics %}
+                <div class="completion-details {% if run_metrics %}has-metrics{% endif %}">
+                    <!-- Validation Status -->
+                    <div class="validation-section">
+                        <h4>Validation Status</h4>
+                        <div class="validation-grid">
+                            {% for key, value in run.validation.items() %}
+                            <div class="validation-item {% if value %}pass{% else %}fail{% endif %}">
+                                <span class="validation-icon">{% if value %}&#10003;{% else %}&#10007;{% endif %}</span>
+                                <span class="validation-label">{{ key.replace('_', ' ').title() }}</span>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <!-- Token Statistics -->
+                    <div class="statistics-section">
+                        <h4>Token Statistics</h4>
+                        <div class="stats-grid">
+                            <div class="stat-item">
+                                <span class="stat-label">Given Tokens</span>
+                                <span class="stat-value">{{ run.statistics.given_tokens }}</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Generated Tokens</span>
+                                <span class="stat-value">{{ run.statistics.generated_tokens }}</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Expected Tokens</span>
+                                <span class="stat-value">{{ run.statistics.expected_tokens }}</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Total Tokens</span>
+                                <span class="stat-value">{{ run.statistics.total_tokens }}</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Unique Generated</span>
+                                <span class="stat-value">{{ run.statistics.unique_generated_tokens }}</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">EOL Count</span>
+                                <span class="stat-value">{{ run.statistics.eol_count }}</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">EOF Count</span>
+                                <span class="stat-value">{{ run.statistics.eof_count }}</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">EOI Count</span>
+                                <span class="stat-value">{{ run.statistics.eoi_count }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Metrics (handles both old_apertus perceptual_metrics and new metrics format) -->
+                    {% if run_metrics %}
+                    <div class="perceptual-metrics-section">
+                        <h4>Metrics</h4>
+                        <div class="stats-grid">
+                            {% for key, value in run_metrics.items() %}
+                            {% if value is not none and value is number %}
+                            <div class="stat-item {% if 'generated' in key %}metric-generated{% endif %}">
+                                <span class="stat-label">{{ key.replace('_', ' ').title() }}</span>
+                                {% if value is number and value < 1 and value > -1 and 'psnr' not in key %}
+                                <span class="stat-value">{{ "%.4f"|format(value) }}</span>
+                                {% else %}
+                                <span class="stat-value">{{ "%.2f"|format(value) }}</span>
+                                {% endif %}
+                            </div>
+                            {% elif value is sameas true or value is sameas false %}
+                            <div class="stat-item">
+                                <span class="stat-label">{{ key.replace('_', ' ').title() }}</span>
+                                <span class="stat-value {% if value %}metric-good{% else %}metric-bad{% endif %}">
+                                    {% if value %}Yes{% else %}No{% endif %}
+                                </span>
+                            </div>
+                            {% endif %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p>No results match the current filters.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

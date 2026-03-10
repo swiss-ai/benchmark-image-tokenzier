@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+
+{% block title %}{{ experiment_name }} - Captioning Benchmark Viewer{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <nav class="breadcrumb">
+        <a href="/captioning">Experiments</a>
+        {% if folder %}
+        <span class="breadcrumb-separator">/</span>
+        <span class="breadcrumb-folder">{{ folder }}</span>
+        {% endif %}
+        <span class="breadcrumb-separator">/</span>
+        <span class="breadcrumb-current">{{ display_name }}</span>
+    </nav>
+    <div class="header-content">
+        <h1>{{ display_name }}</h1>
+        <a href="/captioning" class="btn btn-secondary">Back to Captioning Experiments</a>
+    </div>
+    <div class="experiment-meta">
+        <p><strong>Timestamp:</strong> {{ results.timestamp }}</p>
+        <p><strong>Total runs:</strong> {{ results.total_runs }}</p>
+        <p><strong>Filtered runs:</strong> {{ filtered_runs|length }}</p>
+    </div>
+    {% if results.model_path or results.tokenizer_path or results.vision_tokenizer or results.inferencer %}
+    <div class="model-info">
+        <h3>Model Configuration</h3>
+        {% if results.vision_tokenizer %}
+        <p><strong>Vision Tokenizer:</strong> {{ results.vision_tokenizer }}</p>
+        {% endif %}
+        {% if results.inferencer %}
+        <p><strong>Inferencer:</strong> {{ results.inferencer }}</p>
+        {% endif %}
+        {% if results.model_path %}
+        <p><strong>Model Path:</strong> <code>{{ results.model_path }}</code></p>
+        {% endif %}
+        {% if results.tokenizer_path %}
+        <p><strong>Tokenizer Path:</strong> <code>{{ results.tokenizer_path }}</code></p>
+        {% endif %}
+        {% if results.caption_init_phrase %}
+        <p><strong>Caption Init Phrase:</strong> "{{ results.caption_init_phrase }}"</p>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% if results.inference_args %}
+    <div class="model-info">
+        <h3>Inference Configuration</h3>
+        <p><strong>Apply chat template:</strong> {{ results.inference_args.apply_chat_template }}</p>
+        <p><strong>Temperature:</strong> {{ results.inference_args.temperature }}</p>
+        <p><strong>Top-p:</strong> {{ results.inference_args.top_p }}</p>
+        <p><strong>Max new tokens:</strong> {{ results.inference_args.max_new_tokens }}</p>
+        <p><strong>Min tokenizer pixels:</strong> {{ results.inference_args.min_emu_aspect_ratio }}</p>
+        <p><strong>Max tokenizer pixels:</strong> {{ results.inference_args.max_emu_aspect_ratio }}</p>
+        {% if results.inference_args.stop_token_ids %}
+        <p><strong>Stop token IDs:</strong> {{ results.inference_args.stop_token_ids|join(', ') }}</p>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+<!-- Aggregated Metrics Summary -->
+{% if summary and summary.aggregated_metrics %}
+<div class="captioning-summary-section">
+    <h2>Metrics Summary</h2>
+    <p class="summary-subtitle">Aggregated across {{ summary.total_runs }} total samples</p>
+
+    <div class="metrics-table-wrapper">
+        <table class="metrics-table">
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    <th>Min</th>
+                    <th>Max</th>
+                    <th>Avg</th>
+                    <th>Samples</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for metric_name, stats in summary.aggregated_metrics.items() %}
+                <tr>
+                    <td><strong>{{ metric_name.replace('_', ' ').title() }}</strong></td>
+                    <td>{{ "%.4f"|format(stats.min) }}</td>
+                    <td>{{ "%.4f"|format(stats.max) }}</td>
+                    <td>{{ "%.4f"|format(stats.avg) }}</td>
+                    <td>{{ stats.count }} / {{ summary.total_runs }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<div class="filters-section">
+    <h2>Filters</h2>
+    <form method="get" class="filters-form">
+        <div class="filter-group">
+            <label for="image_tag">Image Tag:</label>
+            <select name="image_tag" id="image_tag" onchange="this.form.submit()">
+                <option value="">All</option>
+                {% for tag in all_tags.image_tags %}
+                <option value="{{ tag }}" {% if current_image_tag == tag %}selected{% endif %}>{{ tag }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Apply Filters</button>
+        <a href="/captioning/{{ experiment_name }}" class="btn btn-secondary">Clear Filters</a>
+    </form>
+</div>
+
+<div class="results-section">
+    <h2>Results</h2>
+
+    {% if filtered_runs %}
+    <div class="results-list">
+        {% for run in filtered_runs %}
+        <div class="result-card">
+            <div class="result-header">
+                <h3>Result #{{ loop.index }}</h3>
+            </div>
+
+            <div class="result-content">
+                <!-- Left Column: Image -->
+                <div class="left-column">
+                    <div class="result-image">
+                        <h4>Image</h4>
+                        <img src="/{{ run.image.path }}" alt="Input image" loading="lazy">
+                        {% if run.image.path.lower().endswith(('.tif', '.tiff')) %}
+                        <p class="tiff-note">Note: TIFF image converted to PNG for web display</p>
+                        {% endif %}
+                        <div class="tags">
+                            {% for tag in run.image.tags %}
+                            <span class="tag tag-image">{{ tag }}</span>
+                            {% endfor %}
+                        </div>
+                        <p class="image-path">{{ run.image.path }}</p>
+                    </div>
+
+                    {% if run.init_phrase %}
+                    <div class="result-prompt">
+                        <h4>Init Phrase</h4>
+                        <p class="prompt-text">{{ run.init_phrase }}</p>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- Right Column: Caption -->
+                <div class="result-output">
+                    <h4>Generated Caption</h4>
+                    <div class="output-text">{{ run.caption }}</div>
+
+                    <!-- Metrics (CLIP score, etc.) -->
+                    {% set run_metrics = run.metrics %}
+                    {% if run_metrics %}
+                    <div class="caption-metrics">
+                        <h4>Metrics</h4>
+                        <div class="metrics-inline">
+                            {% for key, value in run_metrics.items() %}
+                            {% if value is not none and value is number %}
+                            <span class="metric-badge">
+                                <span class="metric-name">{{ key.replace('_', ' ').title() }}:</span>
+                                <span class="metric-value">{{ "%.4f"|format(value) }}</span>
+                            </span>
+                            {% endif %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p>No results match the current filters.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

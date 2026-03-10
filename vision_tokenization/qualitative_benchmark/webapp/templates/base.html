@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Benchmark Viewer{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="/" class="nav-brand">Benchmark Viewer</a>
+            <div class="nav-links">
+                <a href="/vlm">VLM</a>
+                <a href="/captioning">Captioning</a>
+                <a href="/completion">Image Completion</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>Qualitative Benchmark Explorer</p>
+        </div>
+    </footer>
+
+    <script>
+        // Folder toggle functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            // Handle folder headers in index pages
+            document.querySelectorAll('.folder-header').forEach(function(header) {
+                header.addEventListener('click', function() {
+                    var section = this.closest('.folder-section');
+                    section.classList.toggle('collapsed');
+                });
+            });
+
+            // Handle checkbox folder headers in compare pages
+            document.querySelectorAll('.checkbox-folder-header').forEach(function(header) {
+                header.addEventListener('click', function() {
+                    var section = this.closest('.checkbox-folder-section');
+                    section.classList.toggle('collapsed');
+                });
+            });
+        });
+    </script>
+</body>
+</html>

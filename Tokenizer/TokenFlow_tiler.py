@@ -1,57 +1,62 @@
-import torch
-import numpy as np
-from PIL import Image
-from typing import Tuple, Any
-from torchvision import transforms
 import os
 import sys
+from typing import Any, Tuple
 
-base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+import numpy as np
+import torch
+from PIL import Image
+from torchvision import transforms
+
+base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(base_dir)
 sys.path.insert(0, os.path.join(base_dir, "TokenFlow"))
 
-from utils_benchmark import load_all_images
 from pathlib import Path
 
 from Tiler import Tiler
 from Tokenizer.base import Tokenizer
-os.chdir('/users/nirmiger/TokenFlow')
-sys.path.append('/users/nirmiger/TokenFlow')
+from utils_benchmark import load_all_images
+
+os.chdir("/users/nirmiger/TokenFlow")
+sys.path.append("/users/nirmiger/TokenFlow")
 
 from tokenflow.tokenizer.vq_model import VQ_models
 
-TOKENIZER = 'tokenflow_384'
-if TOKENIZER == 'tokenflow_384':
-    TOKENIZER_PATH = '/iopsstor/scratch/cscs/nirmiger/tokenflow_siglip_32k.pt'
-    TEACHER = 'siglip_384'
+TOKENIZER = "tokenflow_384"
+if TOKENIZER == "tokenflow_384":
+    TOKENIZER_PATH = "/iopsstor/scratch/cscs/nirmiger/tokenflow_siglip_32k.pt"
+    TEACHER = "siglip_384"
     IMAGE_SIZE = 384
     ENHANCED_DECODER = False
-if TOKENIZER == 'tokenflow_224':
-    TOKENIZER_PATH = '/iopsstor/scratch/cscs/nirmiger/tokenflow_clipb_32k_enhanced.pt'
-    TEACHER = 'clipb_224'
+if TOKENIZER == "tokenflow_224":
+    TOKENIZER_PATH = "/iopsstor/scratch/cscs/nirmiger/tokenflow_clipb_32k_enhanced.pt"
+    TEACHER = "clipb_224"
     IMAGE_SIZE = 224
     ENHANCED_DECODER = True
 
 TILE_SIZE = 384
 
-RECONSTRUCTION_PATH = f'/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}_ratio_{(IMAGE_SIZE/TILE_SIZE)*(IMAGE_SIZE/TILE_SIZE)}_tests'
+RECONSTRUCTION_PATH = f"/users/nirmiger/benchmark-image-tokenzier/assets/{TOKENIZER}_ratio_{(IMAGE_SIZE/TILE_SIZE)*(IMAGE_SIZE/TILE_SIZE)}_tests"
 
 
 class TokenFlowTokenizer(Tokenizer):
     """UniTok tokenizer implementation"""
-    def __init__(self,
-                 ckpt_path: str,
-                 vq_model_name: str = "TokenFlow",
-                 teacher: str = "siglip_384",
-                 codebook_size: int = 32768,
-                 codebook_embed_dim: int = 8,
-                 semantic_code_dim: int = 32,
-                 image_size: int = 384,
-                 enhanced_decoder: bool = False,
-                 infer_interpolate: bool = False,
-                 device: str = "cuda",
-                 seed: int = 0,
-                 **kwargs):
+
+    def __init__(
+        self,
+        ckpt_path: str,
+        vq_model_name: str = "TokenFlow",
+        teacher: str = "siglip_384",
+        codebook_size: int = 32768,
+        codebook_embed_dim: int = 8,
+        semantic_code_dim: int = 32,
+        image_size: int = 384,
+        enhanced_decoder: bool = False,
+        infer_interpolate: bool = False,
+        device: str = "cuda",
+        seed: int = 0,
+        **kwargs,
+    ):
 
         self.device = device
         self.image_size = image_size
@@ -71,14 +76,18 @@ class TokenFlowTokenizer(Tokenizer):
 
     def _load_model(self) -> None:
         """Load TokenFlow VQ model from checkpoint."""
-        self.model = VQ_models[self.vq_model_name](
-            codebook_size=self.codebook_size,
-            codebook_embed_dim=self.codebook_embed_dim,
-            semantic_code_dim=self.semantic_code_dim,
-            teacher=self.teacher,
-            enhanced_decoder=self.enhanced_decoder,
-            infer_interpolate=self.infer_interpolate
-        ).to(self.device).eval()
+        self.model = (
+            VQ_models[self.vq_model_name](
+                codebook_size=self.codebook_size,
+                codebook_embed_dim=self.codebook_embed_dim,
+                semantic_code_dim=self.semantic_code_dim,
+                teacher=self.teacher,
+                enhanced_decoder=self.enhanced_decoder,
+                infer_interpolate=self.infer_interpolate,
+            )
+            .to(self.device)
+            .eval()
+        )
 
         checkpoint = torch.load(self.ckpt_path, map_location="cpu")
         state_dict = checkpoint.get("ema") or checkpoint.get("model") or checkpoint.get("state_dict")
@@ -88,15 +97,23 @@ class TokenFlowTokenizer(Tokenizer):
 
     def preprocess(self, image: Image.Image) -> torch.Tensor:
         """Preprocess image (PIL → normalized tensor)"""
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5] * 3, std=[0.5] * 3),  # [0,1] → [-1,1]
-        ])
+        transform = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.5] * 3, std=[0.5] * 3),  # [0,1] → [-1,1]
+            ]
+        )
         return transform(image).unsqueeze(0).to(self.device)
 
     def postprocess(self, tensor: torch.Tensor) -> Image.Image:
         """Convert output tensor back to PIL Image"""
-        tensor = torch.clamp(127.5 * tensor + 128.0, 0, 255).permute(0, 2, 3, 1).squeeze(0).to("cpu", dtype=torch.uint8).numpy()
+        tensor = (
+            torch.clamp(127.5 * tensor + 128.0, 0, 255)
+            .permute(0, 2, 3, 1)
+            .squeeze(0)
+            .to("cpu", dtype=torch.uint8)
+            .numpy()
+        )
         return Image.fromarray(tensor)
 
     def encode(self, tensor: torch.Tensor) -> Tuple[torch.Tensor, dict]:
@@ -116,19 +133,21 @@ class TokenFlowTokenizer(Tokenizer):
     def get_num_tokens(self, indices: torch.Tensor) -> int:
         """Return number of tokens in flattened index tensor"""
         return indices.numel()
-    
+
 
 if __name__ == "__main__":
     # Example usage
-    tokenizer = TokenFlowTokenizer(ckpt_path=TOKENIZER_PATH, teacher=TEACHER, image_size=IMAGE_SIZE, enhanced_decoder=ENHANCED_DECODER)
+    tokenizer = TokenFlowTokenizer(
+        ckpt_path=TOKENIZER_PATH, teacher=TEACHER, image_size=IMAGE_SIZE, enhanced_decoder=ENHANCED_DECODER
+    )
     tiler = Tiler(tile_size=TILE_SIZE, pad_value=-1.0, tile_resize=IMAGE_SIZE)
-    images, _, image_paths = load_all_images('/users/nirmiger/benchmark-image-tokenzier/assets/original')
+    images, _, image_paths = load_all_images("/users/nirmiger/benchmark-image-tokenzier/assets/original")
     batch_size = 8  # Adjust based on GPU memory
     os.makedirs(RECONSTRUCTION_PATH, exist_ok=True)
     for idx, image_path in enumerate(image_paths):
         name = Path(image_path).name
         print(f"\nProcessing image {idx+1}: {name}")
-        
+
         # Load and normalize image manually
         image = Image.open(image_path).convert("RGB")
         image_tensor = tokenizer.preprocess(image).squeeze(0)  # Shape: (3, H, W)
@@ -136,8 +155,8 @@ if __name__ == "__main__":
 
         # Tile the image
         result = tiler(image_tensor)
-        tiles = result['tiles']  # (N, C, H, W)
-        metadata = result['metadata']
+        tiles = result["tiles"]  # (N, C, H, W)
+        metadata = result["metadata"]
         print(f"Number of tiles: {tiles.shape[0]} | Tile shape: {tiles.shape[1:]}")
 
         total_tiles = tiles.shape[0]
@@ -178,13 +197,13 @@ if __name__ == "__main__":
         compression_ratio = original_pixels / total_tokens
 
         metrics = {
-            'input_shape': image_tensor.shape,
-            'num_tokens': total_tokens,
-            'original_pixels': original_pixels,
-            'compression_ratio': compression_ratio,
-            'indices_shape': all_indices_tensor.shape,
-            'num_tiles': total_tiles,
-            'tile_size': tiler.tile_size
+            "input_shape": image_tensor.shape,
+            "num_tokens": total_tokens,
+            "original_pixels": original_pixels,
+            "compression_ratio": compression_ratio,
+            "indices_shape": all_indices_tensor.shape,
+            "num_tiles": total_tiles,
+            "tile_size": tiler.tile_size,
         }
 
         # Log

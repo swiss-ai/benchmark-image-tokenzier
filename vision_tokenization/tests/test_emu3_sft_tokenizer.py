@@ -1,30 +1,34 @@
 #!/usr/bin/env python3
 """
-Test suite for EMU3ImageSftDataTokenizer.
+Test suite for EMU3SftTokenizer.
 Tests single-image SFT data tokenization with FineVision format.
 """
 
-import torch
-import pytest
-from PIL import Image
-import numpy as np
-import sys
 import os
+import sys
+
+import numpy as np
+import pytest
+import torch
+from PIL import Image
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from vision_tokenization.utils.tokenization_emu3_image_only import EMU3ImageSftDataTokenizer
+from vision_tokenization.tokenizers.emu3 import EMU3SftTokenizer
 
 
 class TestEMU3SftTokenizer:
-    """Test cases for EMU3ImageSftDataTokenizer."""
+    """Test cases for EMU3SftTokenizer."""
 
     @pytest.fixture
     def tokenizer(self):
         """Initialize tokenizer for tests."""
         # Use the tokenizer with EMU3 special tokens
         tokenizer_path = "/capstor/store/cscs/swissai/infra01/MLLM/llama3_vision_instruct_emu3_tokenizer"
-        return EMU3ImageSftDataTokenizer(
+        return EMU3SftTokenizer(
             text_tokenizer_path=tokenizer_path,
-            device="cuda" if torch.cuda.is_available() else "cpu"
+            min_pixels=384 * 384,
+            max_pixels=1024 * 1024,
+            device="cuda" if torch.cuda.is_available() else "cpu",
         )
 
     @pytest.fixture
@@ -32,31 +36,30 @@ class TestEMU3SftTokenizer:
         """Create a sample test image."""
         # Create a simple RGB image for testing
         img_array = np.random.randint(0, 255, (512, 512, 3), dtype=np.uint8)
-        return Image.fromarray(img_array, mode='RGB')
+        return Image.fromarray(img_array, mode="RGB")
 
     @pytest.fixture
     def finevision_sample(self, sample_image):
         """Create a sample FineVision format data."""
         return {
-            'texts': [
+            "texts": [
                 {
                     "user": "What is shown in this image?",
-                    "assistant": "This image shows a random color pattern used for testing."
+                    "assistant": "This image shows a random color pattern used for testing.",
                 },
                 {
                     "user": "Can you describe the colors?",
-                    "assistant": "The image contains various random RGB colors in a 512x512 pixel grid."
-                }
+                    "assistant": "The image contains various random RGB colors in a 512x512 pixel grid.",
+                },
             ],
-            'image': sample_image
+            "image": sample_image,
         }
-
 
     def test_skip_no_image_placeholder(self, tokenizer, sample_image):
         """Test that messages without image placeholder are skipped."""
         messages = [
             {"role": "user", "content": "No image here"},
-            {"role": "assistant", "content": "Text only response"}
+            {"role": "assistant", "content": "Text only response"},
         ]
         tokens = tokenizer.tokenize_conversation(messages, sample_image)
         assert len(tokens) == 0, "Should skip sample without image placeholder"
@@ -65,14 +68,8 @@ class TestEMU3SftTokenizer:
     def test_single_image_tokenization(self, tokenizer, sample_image):
         """Test successful tokenization of single image message."""
         messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": "What is this?"}
-                ]
-            },
-            {"role": "assistant", "content": "This is a test image."}
+            {"role": "user", "content": [{"type": "image"}, {"type": "text", "text": "What is this?"}]},
+            {"role": "assistant", "content": "This is a test image."},
         ]
         tokens = tokenizer.tokenize_conversation(messages, sample_image)
 
@@ -83,14 +80,8 @@ class TestEMU3SftTokenizer:
     def test_conversation_structure(self, tokenizer, sample_image):
         """Test that conversation headers are properly formatted."""
         messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": "What is this?"}
-                ]
-            },
-            {"role": "assistant", "content": "This is a test image."}
+            {"role": "user", "content": [{"type": "image"}, {"type": "text", "text": "What is this?"}]},
+            {"role": "assistant", "content": "This is a test image."},
         ]
         tokens = tokenizer.tokenize_conversation(messages, sample_image)
         decoded = tokenizer.text_tokenizer.decode(tokens, skip_special_tokens=False)
@@ -110,14 +101,8 @@ class TestEMU3SftTokenizer:
     def test_emu3_vision_tokens(self, tokenizer, sample_image):
         """Test that EMU3 vision tokens are properly inserted."""
         messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": "Describe this"}
-                ]
-            },
-            {"role": "assistant", "content": "Description"}
+            {"role": "user", "content": [{"type": "image"}, {"type": "text", "text": "Describe this"}]},
+            {"role": "assistant", "content": "Description"},
         ]
         tokens = tokenizer.tokenize_conversation(messages, sample_image)
         token_list = tokens.tolist()
@@ -148,18 +133,12 @@ class TestEMU3SftTokenizer:
         from PIL import Image
 
         # Create a 512x512 image (will be resized to 64x64 patches by EMU3)
-        test_img = Image.new('RGB', (512, 512), color=(128, 128, 128))
+        test_img = Image.new("RGB", (512, 512), color=(128, 128, 128))
 
         # Simple message
         messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": "Hi"}
-                ]
-            },
-            {"role": "assistant", "content": "Hello"}
+            {"role": "user", "content": [{"type": "image"}, {"type": "text", "text": "Hi"}]},
+            {"role": "assistant", "content": "Hello"},
         ]
 
         # Tokenize
@@ -184,7 +163,7 @@ class TestEMU3SftTokenizer:
             "<|eot_id|>",
             "<|start_header_id|>assistant<|end_header_id|>",
             "Hello",
-            "<|eot_id|>"
+            "<|eot_id|>",
         ]
 
         # Check each component exists and is in correct order
@@ -218,8 +197,9 @@ class TestEMU3SftTokenizer:
 
             vision_section_length = end_idx - start_idx - 1
             expected_length = 3 + 1 + 4096 + 64 + 1  # = 4165
-            assert expected_length - 2 <= vision_section_length <= expected_length + 2, \
-                f"Vision section length: {vision_section_length}, expected ~{expected_length}"
+            assert (
+                expected_length - 2 <= vision_section_length <= expected_length + 2
+            ), f"Vision section length: {vision_section_length}, expected ~{expected_length}"
 
         print("✓ Complete tokenization matches expected structure")
 
@@ -241,19 +221,13 @@ class TestEMU3SftTokenizer:
 
     def test_missing_image_handling(self, tokenizer):
         """Test handling of missing image."""
-        texts = [
-            {
-                "user": "What is shown?",
-                "assistant": "Something."
-            }
-        ]
+        texts = [{"user": "What is shown?", "assistant": "Something."}]
         # No image provided
         image = None
 
         tokens = tokenizer.process_finevision_sample(texts, image)
         assert len(tokens) == 0  # Should skip sample without image
         print("✓ Missing image handled correctly")
-
 
     def test_token_structure(self, tokenizer, finevision_sample):
         """Test the structure of generated tokens."""
@@ -278,22 +252,12 @@ class TestEMU3SftTokenizer:
 
         print("✓ Token structure validated")
 
-
     def test_multi_turn_conversation(self, tokenizer, sample_image):
         """Test multi-turn conversation tokenization."""
         texts = [
-            {
-                "user": "What's the main subject?",
-                "assistant": "The main subject is a test pattern."
-            },
-            {
-                "user": "What colors do you see?",
-                "assistant": "I see various RGB colors."
-            },
-            {
-                "user": "Is there any text?",
-                "assistant": "No, there is no text visible."
-            }
+            {"user": "What's the main subject?", "assistant": "The main subject is a test pattern."},
+            {"user": "What colors do you see?", "assistant": "I see various RGB colors."},
+            {"user": "Is there any text?", "assistant": "No, there is no text visible."},
         ]
 
         tokens = tokenizer.process_finevision_sample(texts, sample_image)
@@ -310,7 +274,7 @@ class TestEMU3SftTokenizer:
 
 def main():
     """Run tests manually."""
-    print("🧪 Testing EMU3ImageSftDataTokenizer\n")
+    print("🧪 Testing EMU3SftTokenizer\n")
 
     # Create test instance
     test = TestEMU3SftTokenizer()
@@ -337,6 +301,7 @@ def main():
     except Exception as e:
         print(f"\n❌ Test failed: {e}")
         import traceback
+
         traceback.print_exc()
 
 

@@ -3,9 +3,9 @@
 import os
 import os.path as osp
 
-from PIL import Image
 import torch
-from transformers import AutoModel, AutoImageProcessor
+from PIL import Image
+from transformers import AutoImageProcessor, AutoModel
 
 MODEL_HUB = "BAAI/Emu3-VisionTokenizer"
 

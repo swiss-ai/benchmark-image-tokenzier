@@ -1,0 +1,18 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# MedPix medical cases — image2text, WebDataset, multi-image
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - _base_wds
+
+output_name: medpix
+manifest_path: /capstor/store/cscs/swissai/infra01/vision-datasets/medical/apertus_image_text_v1/medpix/manifest.parquet
+text_column: txt
+
+# --- Multi-image: each sample has img1.png, img2.png, ... --------------------
+image_field_pattern: img
+
+# --- Overrides (smaller dataset → fewer clusters, bigger token budget) --------
+max_batch_tokens: 32768
+num_clusters: 100
+gpu_kmeans: false
+checkpoint_interval_batches: 100

@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
-from PIL import Image
-from transformers import AutoTokenizer, AutoModel, AutoImageProcessor, AutoModelForCausalLM
-from transformers.generation.configuration_utils import GenerationConfig
-from transformers.generation import LogitsProcessorList, PrefixConstrainedLogitsProcessor, UnbatchedClassifierFreeGuidanceLogitsProcessor
 import torch
-
 from emu3.mllm.processing_emu3 import Emu3Processor
-
+from PIL import Image
+from transformers import AutoImageProcessor, AutoModel, AutoModelForCausalLM, AutoTokenizer
+from transformers.generation import (
+    LogitsProcessorList,
+    PrefixConstrainedLogitsProcessor,
+    UnbatchedClassifierFreeGuidanceLogitsProcessor,
+)
+from transformers.generation.configuration_utils import GenerationConfig
 
 # model path
 EMU_HUB = "BAAI/Emu3-Gen"
@@ -36,7 +38,7 @@ prompt = ["a portrait of young girl.", "a shiba inu"]
 prompt = [p + POSITIVE_PROMPT for p in prompt]
 
 kwargs = dict(
-    mode='G',
+    mode="G",
     ratio=["1:1", "16:9"],
     image_area=model.config.image_area,
     return_tensors="pt",
@@ -58,17 +60,19 @@ GENERATION_CONFIG = GenerationConfig(
 h = pos_inputs.image_size[:, 0]
 w = pos_inputs.image_size[:, 1]
 constrained_fn = processor.build_prefix_constrained_fn(h, w)
-logits_processor = LogitsProcessorList([
-    UnbatchedClassifierFreeGuidanceLogitsProcessor(
-        classifier_free_guidance,
-        model,
-        unconditional_ids=neg_inputs.input_ids.to("cuda:0"),
-    ),
-    PrefixConstrainedLogitsProcessor(
-        constrained_fn ,
-        num_beams=1,
-    ),
-])
+logits_processor = LogitsProcessorList(
+    [
+        UnbatchedClassifierFreeGuidanceLogitsProcessor(
+            classifier_free_guidance,
+            model,
+            unconditional_ids=neg_inputs.input_ids.to("cuda:0"),
+        ),
+        PrefixConstrainedLogitsProcessor(
+            constrained_fn,
+            num_beams=1,
+        ),
+    ]
+)
 
 # generate
 outputs = model.generate(
