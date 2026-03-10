@@ -103,10 +103,10 @@ graph TD
 
     BIN --> TRAIN["Megatron-LM Training"]
 
-    click SCAN_WDS href "https://github.com/swiss-ai/benchmark-image-tokenizer/blob/main/vision_tokenization/indexing/scanner_wds.py"
-    click SCAN_HF href "https://github.com/swiss-ai/benchmark-image-tokenizer/blob/main/vision_tokenization/indexing/scanner_hf.py"
-    click CLUSTER href "https://github.com/swiss-ai/benchmark-image-tokenizer/blob/main/vision_tokenization/indexing/clustered_batch_planner.py"
-    click LOOP href "https://github.com/swiss-ai/benchmark-image-tokenizer/blob/main/vision_tokenization/pipelines/distributed/handler.py"
+    click SCAN_WDS href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/indexing/scanner_wds.py"
+    click SCAN_HF href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/indexing/scanner_hf.py"
+    click CLUSTER href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/indexing/clustered_batch_planner.py"
+    click LOOP href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/pipelines/distributed/handler.py"
 
     style Manifest fill:#e3f2fd,stroke:#1565C0
     style Plan fill:#fff3e0,stroke:#EF6C00
@@ -142,8 +142,8 @@ flowchart LR
         COL_HF["HF: sample_index,<br/>width, height,<br/>group_id, image_index"]
     end
 
-    click SCAN_WDS href "https://github.com/swiss-ai/benchmark-image-tokenizer/blob/main/vision_tokenization/indexing/scanner_wds.py"
-    click SCAN_HF href "https://github.com/swiss-ai/benchmark-image-tokenizer/blob/main/vision_tokenization/indexing/scanner_hf.py"
+    click SCAN_WDS href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/indexing/scanner_wds.py"
+    click SCAN_HF href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/indexing/scanner_hf.py"
 
     style src fill:#e3f2fd,stroke:#1565C0
     style mfst fill:#fff9c4,stroke:#F9A825
@@ -203,7 +203,7 @@ flowchart TD
     PACK --> RESIZE["Compute resize target<br/>(avg/min/max per batch)"]
     RESIZE --> BP[("BatchPlan<br/>List[BatchAssignment]")]
 
-    click KM href "https://github.com/swiss-ai/benchmark-image-tokenizer/blob/main/vision_tokenization/indexing/clustered_batch_planner.py"
+    click KM href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/indexing/clustered_batch_planner.py"
 
     style MFST fill:#fff9c4,stroke:#F9A825
     style BP fill:#fff9c4,stroke:#F9A825
@@ -373,8 +373,8 @@ flowchart TD
     MainLoop --> Finalize["finalize_writer() + save final checkpoint"]
     Finalize --> Done([Return stats])
 
-    click LoadPlan href "https://github.com/swiss-ai/benchmark-image-tokenizer/blob/main/vision_tokenization/pipelines/distributed/core.py"
-    click CreateTok href "https://github.com/swiss-ai/benchmark-image-tokenizer/blob/main/vision_tokenization/vokenizers/emu/__init__.py"
+    click LoadPlan href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/pipelines/distributed/core.py"
+    click CreateTok href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/vokenizers/emu/__init__.py"
 
     style MainLoop fill:#f3e5f5,stroke:#7B1FA2
 ```
@@ -416,8 +416,8 @@ flowchart TB
     DT -->|"wds"| WDS
     DT -->|"hf"| HFL
 
-    click WL href "https://github.com/swiss-ai/benchmark-image-tokenizer/blob/main/vision_tokenization/pipelines/distributed/data.py"
-    click HL href "https://github.com/swiss-ai/benchmark-image-tokenizer/blob/main/vision_tokenization/pipelines/distributed/data.py"
+    click WL href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/pipelines/distributed/data.py"
+    click HL href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/pipelines/distributed/data.py"
 
     style Factory fill:#e3f2fd,stroke:#1565C0
     style WDS fill:#fff3e0,stroke:#EF6C00
@@ -495,8 +495,8 @@ flowchart LR
     IMG --> CHAT
     REPLACE --> FINAL["Final token sequence"]
 
-    click DET href "https://github.com/swiss-ai/benchmark-image-tokenizer/blob/main/vision_tokenization/vokenizers/conversation_policy.py"
-    click REPLACE href "https://github.com/swiss-ai/benchmark-image-tokenizer/blob/main/vision_tokenization/vokenizers/emu/sft.py"
+    click DET href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/vokenizers/conversation_policy.py"
+    click REPLACE href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/vokenizers/emu/sft.py"
 
     style Input fill:#e3f2fd,stroke:#1565C0
     style Normalize fill:#fff3e0,stroke:#EF6C00
@@ -591,7 +591,7 @@ graph TD
         LN["Data Loader"] --> HN["Handler +<br/>EMU Tokenizer<br/>GPU N"] --> ON["rank_NNNN_chunk_*"]
     end
 
-    click SPLIT href "https://github.com/swiss-ai/benchmark-image-tokenizer/blob/main/vision_tokenization/indexing/clustered_batch_planner.py"
+    click SPLIT href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/indexing/clustered_batch_planner.py"
 
     style BP fill:#fff9c4,stroke:#F9A825
     style R0 fill:#fce4ec,stroke:#C62828
