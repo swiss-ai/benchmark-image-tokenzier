@@ -1,0 +1,86 @@
+[
+    {
+        "path": "assets/3objects.png",
+        "tags": ["objects", "general", "colors"]
+    },
+    {
+        "path": "assets/building.jpg",
+        "tags": ["general", "natural_image", "outdoor", "objects"]
+    },
+    {
+        "path": "assets/checkerboard_pattern.png",
+        "tags": ["general", "pattern", "general"]
+    },
+    {
+        "path": "assets/csyn400chart_1.jpg",
+        "tags": ["general", "chart", "statistics"]
+    },
+    {
+        "path": "assets/csyn400chart_2.jpg",
+        "tags": ["general", "chart", "statistics"]
+    },
+    {
+        "path": "assets/cute_dog.jpg",
+        "tags": ["general", "natural_image", "objects"]
+    },
+    {
+        "path": "assets/line_chart.png",
+        "tags": ["general", "chart", "statistics", "ocr"]
+    },
+    {
+        "path": "assets/logo1.png",
+        "tags": ["general", "colors"]
+    },
+    {
+        "path": "assets/math_draft1.png",
+        "tags": ["math", "ocr", "document"]
+    },
+    {
+        "path": "assets/mri_human_brain.png",
+        "tags": ["general", "ocr"]
+    },
+    {
+        "path": "assets/olmOcrDocuments_1.jpg",
+        "tags": ["document", "ocr"]
+    },
+    {
+        "path": "assets/physics2.png",
+        "tags": ["math", "ocr", "document"]
+    },
+    {
+        "path": "assets/renderedtext_1.jpg",
+        "tags": ["general", "ocr", "document"]
+    },
+    {
+        "path": "assets/renderedtext_2.jpg",
+        "tags": ["general", "ocr", "document"]
+    },
+    {
+        "path": "assets/spark_1.jpg",
+        "tags": ["general", "natural_image", "objects"]
+    },
+    {
+        "path": "assets/spark_2.jpg",
+        "tags": ["general", "natural_image", "objects"]
+    },
+    {
+        "path": "assets/latexformulas80M_bmsample01.jpg",
+        "tags": ["math", "ocr"]
+    },
+    {
+        "path": "assets/latexformulas80m_bmsample02.jpg",
+        "tags": ["math", "ocr"]
+    },
+    {
+        "path": "assets/medmnist_train_01.tif",
+        "tags": ["general", "medical"]
+    },
+    {
+        "path": "assets/medmnist_train_02.tif",
+        "tags": ["general", "medical"]
+    },
+    {
+        "path": "assets/medmnist_train_03.tif",
+        "tags": ["general", "medical"]
+    }
+]

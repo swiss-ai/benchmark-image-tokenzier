@@ -1,0 +1,3 @@
+[submodule "submodules/Emu3.5"]
+	path = Tokenizer/submodules/Emu3.5
+	url = https://github.com/baaivision/Emu3.5.git

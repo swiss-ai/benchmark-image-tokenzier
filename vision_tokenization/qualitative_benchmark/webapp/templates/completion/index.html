@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+
+{% block title %}Image Completion Experiments - Benchmark Viewer{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Image Completion Experiments</h1>
+    <p class="subtitle">Select an experiment to view completion results</p>
+</div>
+
+{% if experiments %}
+{% if experiments|length > 1 %}
+<div class="compare-link-section">
+    <a href="/completion/compare" class="btn btn-secondary">Compare Experiments</a>
+</div>
+{% endif %}
+
+{% for folder, folder_experiments in grouped_experiments.items() %}
+<div class="folder-section collapsed">
+    <div class="folder-header">
+        <span class="folder-toggle">&#9660;</span>
+        <span class="folder-icon">&#128193;</span>
+        <span class="folder-name">{{ folder if folder else '/' }}</span>
+        <span class="folder-count">({{ folder_experiments|length }} experiment{% if folder_experiments|length != 1 %}s{% endif %})</span>
+    </div>
+    <div class="folder-content">
+    <div class="experiments-grid">
+        {% for experiment in folder_experiments %}
+        <div class="experiment-card completion-experiment-card">
+            <h2>{{ experiment.display_name }}</h2>
+            {% if experiment.folder %}
+            <p class="experiment-folder"><span class="folder-badge">{{ experiment.folder }}</span></p>
+            {% endif %}
+            <p class="experiment-info">
+                <strong>Result file:</strong> <span class="file-badge">{{ experiment.file }}</span>
+            </p>
+
+            <!-- Completion percentages -->
+            <div class="completion-percentages">
+                {% for pct in experiment.completion_percentages %}
+                <span class="percentage-badge">{{ pct }}%</span>
+                {% endfor %}
+            </div>
+
+            <!-- Summary stats -->
+            <div class="completion-summary-mini">
+                <div class="summary-stat">
+                    <span class="stat-value">{{ experiment.summary.total_runs }}</span>
+                    <span class="stat-label">Total Runs</span>
+                </div>
+                <div class="summary-stat valid">
+                    <span class="stat-value">{{ experiment.summary.valid_runs }}</span>
+                    <span class="stat-label">Valid</span>
+                </div>
+                <div class="summary-stat invalid">
+                    <span class="stat-value">{{ experiment.summary.invalid_runs }}</span>
+                    <span class="stat-label">Invalid</span>
+                </div>
+                <div class="summary-stat success-rate">
+                    <span class="stat-value">{{ "%.1f"|format(experiment.summary.success_rate) }}%</span>
+                    <span class="stat-label">Success Rate</span>
+                </div>
+            </div>
+
+            <!-- Row count accuracy -->
+            <div class="completion-summary-mini">
+                <div class="summary-stat">
+                    <span class="stat-value">{{ experiment.summary.correct_row_count }}/{{ experiment.summary.total_runs }}</span>
+                    <span class="stat-label">Correct Rows</span>
+                </div>
+                <div class="summary-stat">
+                    <span class="stat-value">{{ "%.2f"|format(experiment.summary.avg_row_diff_all) }}</span>
+                    <span class="stat-label">Avg Row Diff</span>
+                </div>
+            </div>
+
+            <!-- Perceptual metrics summary -->
+            {% if experiment.summary.aggregated_metrics %}
+            <div class="completion-summary-mini metrics-mini">
+                {% for metric_name, stats in experiment.summary.aggregated_metrics.items() %}
+                {% if 'generated' in metric_name %}
+                <div class="summary-stat metrics">
+                    {% if 'psnr' in metric_name %}
+                    <span class="stat-value">{{ "%.1f"|format(stats.avg) }}</span>
+                    {% else %}
+                    <span class="stat-value">{{ "%.3f"|format(stats.avg) }}</span>
+                    {% endif %}
+                    <span class="stat-label">{{ metric_name.replace('_', ' ').title() }}</span>
+                    <span class="stat-sublabel">({{ stats.count }}/{{ experiment.summary.total_runs }})</span>
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <a href="/completion/{{ experiment.name }}" class="btn btn-primary">View Results</a>
+        </div>
+        {% endfor %}
+    </div>
+    </div>
+</div>
+{% endfor %}
+{% else %}
+<div class="empty-state">
+    <h2>No image completion experiments found</h2>
+    <p>Run the image completion benchmark to generate results:</p>
+    <pre><code>python vision_tokenization/qualitative_benchmark/vlm_benchmark.py \
+    --mode image_completion \
+    --tokenizer_path /path/to/tokenizer \
+    --model_path /path/to/model \
+    --experiment_name my_completion_experiment \
+    --completion_percentages 30 60 80 90 \
+    --results_folder results/</code></pre>
+</div>
+{% endif %}
+{% endblock %}

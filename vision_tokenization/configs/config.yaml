@@ -1,0 +1,52 @@
+# ══════════════════════════════════════════════════════════════════════════════
+#  Vision Tokenization Pipeline — Main Config
+# ══════════════════════════════════════════════════════════════════════════════
+#
+#  Usage:
+#    python -m vision_tokenization.tokenize dataset=image_only/llava85m_midtrain \
+#        output_dir=/output/path tokenizer.path=/path/to/omni-tokenizer num_gpus=4
+#
+#  Override any field from CLI:
+#    ... dataset.max_batch_tokens=32768 tokenizer.max_pixels="2048*2048"
+#
+# ──────────────────────────────────────────────────────────────────────────────
+
+defaults:
+  - dataset: image_only/llava85m_midtrain
+  - _self_
+
+# --- Pipeline -----------------------------------------------------------------
+
+output_dir: ???                    # where to write micro-shards
+num_gpus: ???                      # total GPU count (verified against SLURM_NTASKS)
+mode: image_only                   # image_only | sft | image2text | text2image
+
+# --- Tokenizer ----------------------------------------------------------------
+# Path to omni-tokenizer (vision tokenizer auto-loaded from its config).
+# min/max_pixels control the tokenizer's aspect-ratio-aware resize grid.
+# Format: "H*W" string (e.g. "128*128") or plain integer.
+
+tokenizer:
+  path: ???
+  min_pixels: "128*128"
+  max_pixels: "1400*1400"
+  max_images_per_encode: 16        # chunk large batches to avoid GPU OOM
+
+# --- Checkpointing & Resume --------------------------------------------------
+
+resume: false                      # resume from per-rank checkpoints
+checkpoint_interval_batches: 1000  # finalize chunk + save progress every N batches
+
+# --- Dry Run ------------------------------------------------------------------
+
+dry_run: false                     # estimate token counts without GPU
+
+# --- Weights & Biases --------------------------------------------------------
+
+wandb:
+  enabled: true
+  log_interval_seconds: 1
+  project: vision-tokenization
+  entity: null
+  name: null
+  tags: []

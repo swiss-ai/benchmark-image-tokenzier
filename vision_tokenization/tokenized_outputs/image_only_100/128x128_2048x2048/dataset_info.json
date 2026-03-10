@@ -1,0 +1,58 @@
+{
+  "statistics": {
+    "total_samples_processed": 98,
+    "samples_skipped": 0,
+    "resolution_skipped": 2,
+    "transform_errors": 0,
+    "total_tokens": 132927,
+    "image_tokens": 0,
+    "text_tokens": 0,
+    "errors": 0
+  },
+  "averages": {
+    "tokens_per_sample": 1356.3979591836735,
+    "image_tokens_per_sample": 0.0,
+    "text_tokens_per_sample": 0.0
+  },
+  "token_distribution": {
+    "image_percentage": 0.0,
+    "text_percentage": 0.0
+  },
+  "processing": {
+    "num_gpus": 1,
+    "processing_time_seconds": 37.11435341835022,
+    "samples_per_second": 2.6404878698909644,
+    "tokens_per_second": 3581.552357969349
+  },
+  "worker_details": [
+    {
+      "worker_id": 0,
+      "samples_processed": 98,
+      "tokens_generated": 132927,
+      "image_tokens": 0,
+      "text_tokens": 0,
+      "errors": 0,
+      "samples_skipped": 0,
+      "resolution_skipped": 2,
+      "transform_errors": 0,
+      "throughput": 3581.552357969349
+    }
+  ],
+  "dataset_type": "image_only tokenization",
+  "dataset_name": "mvp-lab/LLaVA-OneVision-1.5-Mid-Training-85M",
+  "config_name": null,
+  "split": "train[:100]",
+  "mode": "image_only",
+  "image_field": "image",
+  "text_field": "texts",
+  "batch_size": null,
+  "tokenizer": {
+    "path": "/capstor/store/cscs/swissai/infra01/MLLM/apertus_emu3.5_tokenizer",
+    "min_pixels": 65536,
+    "max_pixels": 1048576
+  },
+  "image_filtering": {
+    "min_pixels": 16384,
+    "max_pixels": 4194304
+  }
+}

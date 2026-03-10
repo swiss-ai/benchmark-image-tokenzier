@@ -1,0 +1,21 @@
+diff --git a/src/vision_tokenizer/modules/vqvae/quantize.py b/src/vision_tokenizer/modules/vqvae/quantize.py
+index 114797a..da23b41 100644
+--- a/src/vision_tokenizer/modules/vqvae/quantize.py
++++ b/src/vision_tokenizer/modules/vqvae/quantize.py
+@@ -494,11 +494,13 @@ class IndexPropagationQuantize(nn.Module):
+             ) # logits [b d h w] -> [b * h * w, n]
+             diff = (quant_loss, sample_entropy, avg_entropy, entropy_loss)
+ 
+-        ind = torch.flatten(ind)
++        # Modified to keep spatial dimensions [B, H, W] instead of flattening
++        ind = ind.squeeze(1)  # Remove channel dimension: [B, 1, H, W] -> [B, H, W]
++
+         if self.remap is not None:
+-            ind = ind.reshape(z.shape[0], -1)
++            # remap_to_used preserves input shape, so [B, H, W] stays [B, H, W]
+             ind = self.remap_to_used(ind)
+-            ind = ind.reshape(-1, 1)
++            # Note: Not flattening again, keeping spatial
+ 
+         return z_q, diff, (None, None, ind)
+ 

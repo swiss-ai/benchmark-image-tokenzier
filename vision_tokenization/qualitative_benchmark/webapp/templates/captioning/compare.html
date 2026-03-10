@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+
+{% block title %}Compare Captioning Experiments - Benchmark Viewer{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Compare Captioning Experiments</h1>
+    <p class="subtitle">Select experiments to compare captions side-by-side</p>
+</div>
+
+<!-- Experiment Selection Form -->
+<div class="compare-selection">
+    <h2>Select Experiments to Compare</h2>
+    <form method="get" action="/captioning/compare">
+        {% for folder, folder_experiments in grouped_experiments.items() %}
+        <div class="checkbox-folder-section collapsed">
+            <div class="checkbox-folder-header">
+                <span class="folder-toggle">&#9660;</span>
+                <span class="folder-icon">&#128193;</span>
+                <span class="folder-name">{{ folder if folder else '/' }}</span>
+                <span class="folder-count">({{ folder_experiments|length }})</span>
+            </div>
+            <div class="checkbox-folder-content">
+            <div class="checkbox-grid">
+                {% for experiment in folder_experiments %}
+                <label class="checkbox-item">
+                    <input type="checkbox" name="experiments" value="{{ experiment.name }}"
+                        {% if experiment.name in selected_experiments %}checked{% endif %}>
+                    <span>
+                        {{ experiment.display_name }}
+                        {% if experiment.folder and not folder %}
+                        <span class="folder-badge-small">{{ experiment.folder }}</span>
+                        {% endif %}
+                    </span>
+                </label>
+                {% endfor %}
+            </div>
+            </div>
+        </div>
+        {% endfor %}
+
+        <div class="compare-actions">
+            <button type="submit" class="btn btn-primary">Compare Selected</button>
+            <a href="/captioning/compare" class="btn btn-secondary">Clear Selection</a>
+        </div>
+    </form>
+</div>
+
+<!-- Error Message -->
+{% if error %}
+<div class="error-message">
+    <p>{{ error }}</p>
+</div>
+{% endif %}
+
+<!-- Comparison Results -->
+{% if comparison_data %}
+<div class="comparison-section">
+    <div class="comparison-header">
+        <h2>Comparison Results</h2>
+        <div class="experiments-row">
+            <strong>Experiments:</strong>
+            <div class="experiment-badges">
+                {% for exp_name in selected_experiments %}
+                <span class="experiment-badge">{{ exp_name }}</span>
+                {% endfor %}
+            </div>
+        </div>
+        <p><strong>Common images:</strong> {{ comparison_data|length }}</p>
+
+        <!-- Show model info for selected experiments -->
+        <div class="experiments-info">
+            {% for exp_name in selected_experiments %}
+            {% if exp_name in experiment_results %}
+            <div class="experiment-info-card captioning-info-card">
+                <h3>{{ exp_name }}</h3>
+                {% if experiment_results[exp_name].vision_tokenizer %}
+                <p><strong>Vision Tokenizer:</strong> {{ experiment_results[exp_name].vision_tokenizer }}</p>
+                {% endif %}
+                {% if experiment_results[exp_name].inferencer %}
+                <p><strong>Inferencer:</strong> {{ experiment_results[exp_name].inferencer }}</p>
+                {% endif %}
+                {% if experiment_results[exp_name].model_path %}
+                <p><strong>Model:</strong> <code>{{ experiment_results[exp_name].model_path }}</code></p>
+                {% endif %}
+                {% if experiment_results[exp_name].caption_init_phrase %}
+                <p><strong>Init Phrase:</strong> "{{ experiment_results[exp_name].caption_init_phrase }}"</p>
+                {% endif %}
+                {% if experiment_results[exp_name].inference_args %}
+                <p><strong>Temperature:</strong> {{ experiment_results[exp_name].inference_args.temperature }}</p>
+                <p><strong>Top-p:</strong> {{ experiment_results[exp_name].inference_args.top_p }}</p>
+                <p><strong>Max tokens:</strong> {{ experiment_results[exp_name].inference_args.max_new_tokens }}</p>
+                {% endif %}
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+
+    {% if comparison_data|length == 0 %}
+    <div class="empty-state">
+        <p>No common images found across all selected experiments.</p>
+        <p>Make sure the selected experiments were run with overlapping images.</p>
+    </div>
+    {% else %}
+    <div class="comparison-list">
+        {% for item in comparison_data %}
+        <div class="comparison-card">
+            <div class="comparison-card-header">
+                <h3>{{ item.image_path.split('/')[-1] }}</h3>
+            </div>
+
+            <div class="comparison-content">
+                <!-- Left Column: Image and Init Phrase -->
+                <div class="left-column">
+                    <!-- Image Section -->
+                    <div class="comparison-image-section">
+                        <h4>Image</h4>
+                        <img src="/{{ item.image_path }}" alt="Input image" loading="lazy">
+                        {% if item.image_path.lower().endswith(('.tif', '.tiff')) %}
+                        <p class="tiff-note">Note: TIFF image converted to PNG for web display</p>
+                        {% endif %}
+                        <div class="tags">
+                            {% for tag in item.image_tags %}
+                            <span class="tag tag-image">{{ tag }}</span>
+                            {% endfor %}
+                        </div>
+                        <p class="image-path">{{ item.image_path }}</p>
+                    </div>
+
+                    {% if item.init_phrase %}
+                    <!-- Init Phrase Section -->
+                    <div class="comparison-prompt-section">
+                        <h4>Init Phrase</h4>
+                        <p class="prompt-text">{{ item.init_phrase }}</p>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- Right Column: Captions -->
+                <div class="comparison-outputs-section">
+                    <h4>Generated Captions</h4>
+                    <div class="outputs-grid">
+                        {% for exp_name in selected_experiments %}
+                        <div class="output-item">
+                            <h5>{{ exp_name }}</h5>
+                            <div class="output-text">{{ item.captions[exp_name] }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% elif selected_experiments|length >= 2 %}
+<div class="info-message">
+    <p>Click "Compare Selected" to view the comparison.</p>
+</div>
+{% elif selected_experiments|length == 1 %}
+<div class="info-message">
+    <p>Please select at least 2 experiments to compare.</p>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,25 +1,28 @@
 #!/bin/bash
 #SBATCH --account=a-infra01
 #SBATCH --job-name=merge-all
-#SBATCH --environment=nemo
+#SBATCH --environment=/iopsstor/scratch/cscs/ahernnde/ncg_new_v2.toml
 #SBATCH --nodes=1
-#SBATCH --partition=debug
-#SBATCH --ntasks-per-node=4
-#SBATCH --cpus-per-task=72
-#SBATCH --time=01:30:00
-#SBATCH --output=/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/vision_tokenization/logs/merge_all_%j.out
-#SBATCH --error=/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/vision_tokenization/logs/merge_all_%j.err
+#SBATCH --partition=normal
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=288
+#SBATCH --time=00:30:00
+#SBATCH --output=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/merge_all_%j.out
+#SBATCH --error=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/merge_all_%j.err
 
 ###################### Merge Multiple Datasets from Different Sources ######################
 # This script can merge specific folders/files from different datasets into one combined dataset
 
 # Configuration
-MEGATRON_PATH="/iopsstor/scratch/cscs/xyixuan/Megatron-LM"
+MEGATRON_PATH="/iopsstor/scratch/cscs/rkreft/Megatron-LM"
 BASE_DIR="/capstor/store/cscs/swissai/infra01/vision-datasets"
 
 # Output configuration
 OUTPUT_BASE="${OUTPUT_BASE:-${BASE_DIR}/merged}"
-OUTPUT_NAME="${OUTPUT_NAME:-image_only_merged}"
+#OUTPUT_NAME="${OUTPUT_NAME:-llava-ov1_5_imgonly_apertus_emu3_5_fstpart_preliminary_merged}"
+OUTPUT_NAME="${OUTPUT_NAME:-llava-ov1_5_paired_apertus_emu3_5_sndpart_preliminary_merged}"
+SHUFFLE_MERGE="${SHUFFLE_MERGE:-false}"
+SHUFFLE_SEED="${SHUFFLE_SEED:-42}"
 
 # Define source datasets as "dataset_path:pattern" pairs
 # You can customize this list by setting SOURCE_DATASETS environment variable
@@ -32,12 +35,56 @@ OUTPUT_NAME="${OUTPUT_NAME:-image_only_merged}"
 if [ -z "${SOURCE_DATASETS}" ]; then
     # Default: merge ImageNet and FineVision merged files
     SOURCE_DATASETS=(
-        # ImageNet merged file (in base directory)
-        "${BASE_DIR}:imagenet-w21_range_0-2048_res_65536_1048576_merged.bin"
-
-        # FineVision merged file (in FineVision directory)
-        "${BASE_DIR}/FineVision:finevision_merged.bin"
-    )
+    # Stage 1 apertus emu3.5 tokenized first part preliminary
+    #"${BASE_DIR}/LLaVA-OneVision-1.5-Mid-Training/tokenized_apertus_emu3_5_image_only/first_part/64x128_2048x2048:*"
+    #"${BASE_DIR}/LLaVA-OneVision-1.5-Mid-Training/tokenized_apertus_emu3_5_paired/64x128_2048x2048:*"
+    # OCR Data Stage 1
+    #/bigDocs7_5m/tokenized_apertus_emu3_5_imgonly/ArxivOCR_image_only/64x128_2048x2048:*"
+    #"${BASE_DIR}/bigDocs7_5m/tokenized_apertus_emu3_5_imgonly/ArxivTableCap_image_only/64x128_2048x2048:*"
+    #"${BASE_DIR}/bigDocs7_5m/tokenized_apertus_emu3_5_imgonly/cord-v2_image_only/64x128_2048x2048:*"
+    #"${BASE_DIR}/LateXFormulas80m/tokenized_apertus_emu3_5_imgonly/handwritten_nature_image_only/64x128_2048x2048:*"
+    #"${BASE_DIR}/LateXFormulas80m/tokenized_apertus_emu3_5_imgonly/handwritten_online_image_only/64x128_2048x2048:*"
+    # OCR Data S2
+    #"${BASE_DIR}/textAtlas5M/tokenized_apertus_emu3_5_paired/CleanTextSynth_image2text/64x128_2048x2048:*"
+    #"${BASE_DIR}/textAtlas5M/tokenized_apertus_emu3_5_paired/CoverBook_image2text/64x128_2048x2048:*"
+    #"${BASE_DIR}/textAtlas5M/tokenized_apertus_emu3_5_paired/LongWordsSubset-A_image2text/64x128_2048x2048:*"
+    #"${BASE_DIR}/textAtlas5M/tokenized_apertus_emu3_5_paired/LongWordsSubset-M_image2text/64x128_2048x2048:*"
+    #"${BASE_DIR}/textAtlas5M/tokenized_apertus_emu3_5_paired/Paper2Text_image2text/64x128_2048x2048:*"
+    #"${BASE_DIR}/textAtlas5M/tokenized_apertus_emu3_5_paired/PPT2Details_image2text/64x128_2048x2048:*"
+    #"${BASE_DIR}/textAtlas5M/tokenized_apertus_emu3_5_paired/PPT2Structured_image2text/64x128_2048x2048:*"
+    #"${BASE_DIR}/textAtlas5M/tokenized_apertus_emu3_5_paired/StyledTextSynth_image2text/64x128_2048x2048:*"
+    #"${BASE_DIR}/textAtlas5M/tokenized_apertus_emu3_5_paired/TextScenesHQ_image2text/64x128_2048x2048:*"
+    #"${BASE_DIR}/textAtlas5M/tokenized_apertus_emu3_5_paired/TextVisionBlend_image2text/64x128_2048x2048:*"
+    # ImageNet merged file (in base directory)
+    #"${BASE_DIR}/text_OpenMathInstruct-2_tokenized:*"
+    #"${BASE_DIR}/text_openorca_tokenized:*"
+    #"${BASE_DIR}/text_openhermes_2_5_tokenized:*"
+    #"${BASE_DIR}/text_numinamath_cot_tokenized:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/ai2d_merged_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/clevr_math_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/cocoqa_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/cocotext_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/dvqa_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/geo3k_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/latexformulas_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/LLaVA_Instruct_150K_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/lvis_instruct4v_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/mathwriting-google_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/ocrvqa_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/scienceqa_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/st_vqa_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/tabmwp_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/tallyqa_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/Unichart_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/ureader_qa_processed_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/visual7w_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/visualwebinstruct(filtered)_sft:*"
+    #"${BASE_DIR}/FineVision/tokenized_sft/vqav2_sft:*"
+    #"${BASE_DIR}/LLaVA-OneVision-1.5-Instruct-Data/tokenized_sft/aokvqa_sft:*"
+    #"${BASE_DIR}/LLaVA-OneVision-1.5-Instruct-Data/tokenized_sft/tinychart_train_sft:*"
+    #"${BASE_DIR}/LLaVA-OneVision-1.5-Instruct-Data/tokenized_apertus_emu3_5:*"
+    "${BASE_DIR}/LLaVA-OneVision-1.5-Instruct-Data/text_only_sft:*"
+)
 else
     # Parse user-provided datasets
     IFS=' ' read -r -a SOURCE_DATASETS <<< "${SOURCE_DATASETS}"
@@ -84,10 +131,10 @@ collect_source_files() {
     local bin_files=()
     if [ "${pattern}" = "*" ]; then
         # Match all .bin files
-        mapfile -t bin_files < <(find "${source_path}" -maxdepth 1 -name "*.bin" -type f 2>/dev/null | sort)
+        mapfile -t bin_files < <(find "${source_path}" -maxdepth 3 -name "*.bin" -type f 2>/dev/null | sort)
     else
         # Use pattern matching
-        mapfile -t bin_files < <(find "${source_path}" -maxdepth 1 -name "${pattern}" -type f 2>/dev/null | sort)
+        mapfile -t bin_files < <(find "${source_path}" -maxdepth 3 -name "${pattern}" -type f 2>/dev/null | sort)
     fi
 
     local num_files=${#bin_files[@]}
@@ -198,10 +245,19 @@ main() {
     echo "Output will be saved to: ${OUTPUT_PATH}.bin and ${OUTPUT_PATH}.idx"
     echo ""
 
-    echo "Running merge command..."
-    python "${MEGATRON_PATH}/scripts/merge_datasets/merge_datasets.py" \
-        --input "${TEMP_DIR}" \
-        --output-prefix "${OUTPUT_PATH}"
+    # Build merge command
+    MERGE_CMD=(python "${MEGATRON_PATH}/scripts/merge_datasets/merge_datasets.py"
+        --input "${TEMP_DIR}"
+        --output-prefix "${OUTPUT_PATH}")
+
+    if [ "${SHUFFLE_MERGE}" = "true" ]; then
+        MERGE_CMD+=(--shuffle --seed "${SHUFFLE_SEED}")
+        echo "Running merge command (shuffled, seed=${SHUFFLE_SEED})..."
+    else
+        echo "Running merge command (sorted order)..."
+    fi
+
+    "${MERGE_CMD[@]}"
 
     merge_status=$?
 
@@ -233,8 +289,19 @@ main() {
             python3 << EOF
 import json
 import os
+import struct
 from datetime import datetime
 from pathlib import Path
+
+def read_idx_counts(idx_path):
+    """Read sequence_count and document_count from a Megatron .idx file."""
+    with open(idx_path, "rb") as f:
+        f.read(9)   # magic header
+        f.read(8)   # version
+        f.read(1)   # dtype code
+        sequence_count = struct.unpack("<Q", f.read(8))[0]
+        document_count = struct.unpack("<Q", f.read(8))[0]
+    return sequence_count, document_count
 
 output_base = "${OUTPUT_BASE}"
 output_name = "${OUTPUT_NAME}"
@@ -242,6 +309,15 @@ bin_size = ${bin_size}
 output_tokens = ${output_tokens}
 total_input_tokens = ${total_input_tokens}
 temp_dir = "${TEMP_DIR}"
+
+# Read sample/document counts from the merged output idx file
+output_idx = os.path.join(output_base, f"{output_name}.idx")
+total_sequences = 0
+total_documents = 0
+if os.path.exists(output_idx):
+    total_sequences, _doc_array_len = read_idx_counts(output_idx)
+    # _doc_array_len is len(document_indices) = N+1; actual documents = N
+    total_documents = _doc_array_len - 1
 
 # Parse source datasets and calculate their tokens
 source_stats = []
@@ -252,14 +328,25 @@ for source in source_datasets:
         path, pattern = source.rsplit(':', 1)
         # Find the actual bin files
         import glob
-        bin_files = glob.glob(os.path.join(path, pattern))
+        # Filter to .bin files only — glob with "*" picks up .idx, .meta.json,
+        # shard_stats dirs, current_run logs, etc. and corrupts token counts.
+        all_matches = glob.glob(os.path.join(path, pattern))
+        bin_files = [f for f in all_matches if f.endswith('.bin') and os.path.isfile(f)]
 
         total_source_tokens = 0
+        source_sequences = 0
+        source_documents = 0
         for bin_file in bin_files:
             if os.path.exists(bin_file):
                 file_size = os.path.getsize(bin_file)
                 tokens = file_size // 4
                 total_source_tokens += tokens
+                idx_file = bin_file[:-4] + '.idx'
+                if os.path.exists(idx_file):
+                    seq_c, doc_c = read_idx_counts(idx_file)
+                    source_sequences += seq_c
+                    # doc_c from .idx is len(document_indices) = N+1; actual docs = N
+                    source_documents += doc_c - 1
 
         if total_source_tokens > 0:
             source_stats.append({
@@ -267,6 +354,8 @@ for source in source_datasets:
                 'pattern': pattern,
                 'files': len(bin_files),
                 'tokens': total_source_tokens,
+                'sequences': source_sequences,
+                'documents': source_documents,
                 'size_gb': round(sum(os.path.getsize(f) for f in bin_files if os.path.exists(f)) / (1024**3), 2)
             })
 
@@ -283,6 +372,8 @@ final_info = {
     'statistics': {
         'input_tokens': total_input_tokens,
         'output_tokens': output_tokens,
+        'total_sequences': total_sequences,
+        'total_documents': total_documents,
         'merge_efficiency_percent': round(output_tokens * 100 / total_input_tokens, 2) if total_input_tokens > 0 else 0,
         'sources_detail': source_stats
     },
@@ -291,7 +382,9 @@ final_info = {
         'bin_size_bytes': bin_size,
         'bin_size_gb': round(bin_size / (1024**3), 2),
         'idx_file': f"{output_name}.idx",
-        'total_tokens': output_tokens
+        'total_tokens': output_tokens,
+        'total_sequences': total_sequences,
+        'total_documents': total_documents
     }
 }
 
@@ -301,6 +394,8 @@ with open(info_output, 'w') as f:
     json.dump(final_info, f, indent=2)
 
 print(f"\n✓ Dataset info saved to {info_output}")
+print(f"  Total sequences: {total_sequences:,}")
+print(f"  Total documents: {total_documents:,}")
 EOF
 
         else

@@ -2,26 +2,23 @@
 # https://cog.run/python
 
 import os
-import time
 import subprocess
-from PIL import Image
-from transformers import (
-    AutoTokenizer,
-    AutoModel,
-    AutoImageProcessor,
-    AutoModelForCausalLM,
-)
-from transformers.generation.configuration_utils import GenerationConfig
+import time
+
 import torch
 from cog import BasePredictor, Input, Path
-
 from emu3.mllm.processing_emu3 import Emu3Processor
-
+from PIL import Image
+from transformers import (
+    AutoImageProcessor,
+    AutoModel,
+    AutoModelForCausalLM,
+    AutoTokenizer,
+)
+from transformers.generation.configuration_utils import GenerationConfig
 
 MODEL_CACHE = "model_cache_chat"
-MODEL_URL = (
-    f"https://weights.replicate.delivery/default/baaivision/Emu3/{MODEL_CACHE}.tar"
-)
+MODEL_URL = f"https://weights.replicate.delivery/default/baaivision/Emu3/{MODEL_CACHE}.tar"
 os.environ["HF_DATASETS_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 os.environ["HF_HOME"] = MODEL_CACHE
@@ -98,9 +95,7 @@ class Predictor(BasePredictor):
             ge=0.0,
             le=1.0,
         ),
-        max_new_tokens: int = Input(
-            description="Maximum number of tokens to generate", default=256, ge=1
-        ),
+        max_new_tokens: int = Input(description="Maximum number of tokens to generate", default=256, ge=1),
     ) -> str:
         """Run a single prediction on the model"""
 

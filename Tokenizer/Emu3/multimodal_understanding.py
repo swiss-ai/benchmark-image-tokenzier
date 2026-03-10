@@ -1,11 +1,9 @@
 # -*- coding: utf-8 -*-
-from PIL import Image
-from transformers import AutoTokenizer, AutoModel, AutoImageProcessor, AutoModelForCausalLM
-from transformers.generation.configuration_utils import GenerationConfig
 import torch
-
 from emu3.mllm.processing_emu3 import Emu3Processor
-
+from PIL import Image
+from transformers import AutoImageProcessor, AutoModel, AutoModelForCausalLM, AutoTokenizer
+from transformers.generation.configuration_utils import GenerationConfig
 
 # model path
 EMU_HUB = "BAAI/Emu3-Chat"
@@ -34,14 +32,16 @@ image = [image, image]
 inputs = processor(
     text=text,
     image=image,
-    mode='U',
+    mode="U",
     padding_image=True,
     padding="longest",
     return_tensors="pt",
 )
 
 # prepare hyper parameters
-GENERATION_CONFIG = GenerationConfig(pad_token_id=tokenizer.pad_token_id, bos_token_id=tokenizer.bos_token_id, eos_token_id=tokenizer.eos_token_id)
+GENERATION_CONFIG = GenerationConfig(
+    pad_token_id=tokenizer.pad_token_id, bos_token_id=tokenizer.bos_token_id, eos_token_id=tokenizer.eos_token_id
+)
 
 # generate
 outputs = model.generate(
@@ -51,7 +51,7 @@ outputs = model.generate(
     attention_mask=inputs.attention_mask.to("cuda:0"),
 )
 
-outputs = outputs[:, inputs.input_ids.shape[-1]:]
+outputs = outputs[:, inputs.input_ids.shape[-1] :]
 answers = processor.batch_decode(outputs, skip_special_tokens=True)
 for ans in answers:
     print(ans)

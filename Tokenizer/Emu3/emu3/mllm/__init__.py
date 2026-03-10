@@ -19,7 +19,6 @@ from transformers.utils import (
     is_torch_available,
 )
 
-
 _import_structure = {
     "configuration_emu3": ["Emu3Config"],
     "tokenization_emu3": ["Emu3Tokenizer"],
@@ -40,8 +39,8 @@ else:
 
 if TYPE_CHECKING:
     from .configuration_emu3 import Emu3Config
-    from .tokenization_emu3 import Emu3Tokenizer
     from .processing_emu3 import Emu3Processor
+    from .tokenization_emu3 import Emu3Tokenizer
 
     try:
         if not is_torch_available():
@@ -50,9 +49,9 @@ if TYPE_CHECKING:
         pass
     else:
         from .modeling_emu3 import (
+            Emu3ForCausalLM,
             Emu3Model,
             Emu3PretrainedModel,
-            Emu3ForCausalLM,
         )
 
 else:
