@@ -126,6 +126,15 @@ def create_hf_parser(subparsers):
             "Useful for loading webdatasets or custom file collections through the HF datasets API."
         ),
     )
+    parser.add_argument(
+        "--data-dir",
+        type=str,
+        help=(
+            "Local directory containing the raw dataset files. "
+            "Passed as data_dir to load_dataset()/load_dataset_builder() so the builder "
+            "script uses local files instead of downloading from the Hub."
+        ),
+    )
     return parser
 
 
