@@ -1,0 +1,8 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# LLaVA-OneVision 85M mid-training paired — image2text, HuggingFace
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - _base_hf
+
+output_name: llava85m_midtrain_paired
+text_column: caption

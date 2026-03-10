@@ -1,0 +1,7 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Nicola Handwriting Data — image-only, HuggingFace
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - _base_hf
+
+output_name: nicola_handwriting_data

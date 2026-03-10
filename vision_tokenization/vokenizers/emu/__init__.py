@@ -20,8 +20,9 @@ def create_tokenizer(
     mode: str,
     text_tokenizer_path: str,
     device: str = "cuda",
-    min_pixels: int = 512 * 512,
-    max_pixels: int = 1024 * 1024,
+    *,
+    min_pixels: int,
+    max_pixels: int,
     **kwargs,
 ) -> Union[EMUImageOnlyTokenizer, EMUImageTextPairTokenizer, EMUSftTokenizer]:
     """
@@ -31,8 +32,8 @@ def create_tokenizer(
         mode: Tokenization mode ("image_only", "image2text", "text2image", or "sft")
         text_tokenizer_path: Path to the text tokenizer
         device: Device for tokenization (cuda or cpu)
-        min_pixels: Minimum pixels for image preprocessing
-        max_pixels: Maximum pixels for image preprocessing
+        min_pixels: Minimum pixels for tokenizer resize (required, no default)
+        max_pixels: Maximum pixels for tokenizer resize (required, no default)
         **kwargs: Additional tokenizer-specific arguments
 
     Returns:

@@ -1,0 +1,43 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Base defaults for WebDataset (.tar) datasets
+# ──────────────────────────────────────────────────────────────────────────────
+# Inherit this in any WDS dataset config:
+#
+#   defaults:
+#     - _base_wds
+#
+#   output_name: my_dataset
+#   manifest_path: /path/to/manifest.parquet
+#   image_column: image           # override if needed
+#   text_column: txt              # required for image2text / sft modes
+# ──────────────────────────────────────────────────────────────────────────────
+
+dataset_type: wds
+
+# --- Paths (must be set per dataset) -----------------------------------------
+manifest_path: ???
+image_column: image
+
+# --- Image filtering ----------------------------------------------------------
+min_pixels: "64*128"
+max_pixels: "2048*2048"
+
+# --- Batch planning -----------------------------------------------------------
+batch_plan_path: null              # null = compute from manifest at startup
+max_batch_tokens: 25600            # token budget per batch
+batch_size: 32                     # max samples per batch
+spatial_factor: 16                 # vision tokenizer spatial down-sampling
+num_clusters: 2000                 # k-means clusters for aspect-ratio grouping
+niter: 10                          # k-means iterations
+gpu_kmeans: true                   # use GPU for k-means (faster for large manifests)
+resize_mode: avg                   # per-batch resize target: avg | min | max
+
+# --- Augmentation -------------------------------------------------------------
+augmentation: null                 # null = disabled
+
+# --- Checkpointing -----------------------------------------------------------
+checkpoint_interval_batches: 500   # finalize chunk + save progress every N batches
+max_consecutive_errors: 50         # abort after N consecutive batch failures
+
+# --- WDS-specific -------------------------------------------------------------
+max_open_files: 64                 # LRU cache size for open tar file handles

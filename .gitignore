@@ -83,5 +83,9 @@ CLAUDE.md
 core_clariden*
 core_nid*
 
+# Profiling artifacts (large binary traces)
+vision_tokenization/profile/logs/
+vision_tokenization/profile/reports/
+
 # Isolated metric venvs
 vision_tokenization/qualitative_benchmark/metrics/.polos_env/

@@ -1,8 +1,8 @@
 diff --git a/src/vision_tokenizer/modules/vqvae/quantize.py b/src/vision_tokenizer/modules/vqvae/quantize.py
-index 8e797ff..bd51dc6 100644
+index 114797a..da23b41 100644
 --- a/src/vision_tokenizer/modules/vqvae/quantize.py
 +++ b/src/vision_tokenizer/modules/vqvae/quantize.py
-@@ -489,11 +489,13 @@ class IndexPropagationQuantize(nn.Module):
+@@ -494,11 +494,13 @@ class IndexPropagationQuantize(nn.Module):
              ) # logits [b d h w] -> [b * h * w, n]
              diff = (quant_loss, sample_entropy, avg_entropy, entropy_loss)
  

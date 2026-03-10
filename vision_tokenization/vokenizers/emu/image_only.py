@@ -8,7 +8,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import torch
 from transformers import AutoTokenizer
@@ -27,7 +27,7 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
     Supports both Emu3 and Emu3.5 vision tokenizers.
     """
 
-    def __init__(self, text_tokenizer_path: str, min_pixels: int, max_pixels: int, device: str = "cuda", **kwargs):
+    def __init__(self, text_tokenizer_path: str, min_pixels: int, max_pixels: int, device: str = "cuda", max_images_per_encode: int = 32, **kwargs):
         """
         Initialize with text tokenizer that has EMU vision tokens and image tokenizer.
 
@@ -84,13 +84,16 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
                 f"Unsupported vision tokenizer type: {vision_tokenizer_type}. " f"Supported types: Emu3, Emu3.5"
             )
 
+        # Chunk large multi-image groups to avoid GPU OOM
+        self.max_images_per_encode = max_images_per_encode
+
         # Cache for dimension tokens to avoid repeated encoding
         self.dim_cache = {}
 
         # Cache frequently used token IDs
-        self._cache_special_tokens()
+        self._cache_special_tokens(tokenizer_config)
 
-    def _cache_special_tokens(self):
+    def _cache_special_tokens(self, tokenizer_config: dict):
         """Cache special token IDs to avoid repeated lookups."""
         # Structure tokens
         assert self.text_tokenizer.bos_token is not None, "BOS token must be defined"
@@ -99,17 +102,42 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
         self.bos_id = self.text_tokenizer.bos_token_id
         self.eos_id = self.text_tokenizer.eos_token_id
 
-        # EMU3 special tokens
-        self.img_start_id = self.text_tokenizer.convert_tokens_to_ids("<|img_start|>")
-        self.img_end_id = self.text_tokenizer.convert_tokens_to_ids("<|img_end|>")
-        self.img_token_start_id = self.text_tokenizer.convert_tokens_to_ids("<|img_token_start|>")
-        self.eol_id = self.text_tokenizer.convert_tokens_to_ids("<|img_end_of_row|>")
-        self.eof_id = self.text_tokenizer.convert_tokens_to_ids("<|img_end_of_frame|>")
+        # EMU3 special tokens — validate none resolved to UNK
+        unk_id = self.text_tokenizer.unk_token_id
+        special_tokens = {
+            "img_start": "<|img_start|>",
+            "img_end": "<|img_end|>",
+            "img_token_start": "<|img_token_start|>",
+            "eol": "<|img_end_of_row|>",
+            "eof": "<|img_end_of_frame|>",
+        }
+        resolved = {}
+        for name, token in special_tokens.items():
+            tid = self.text_tokenizer.convert_tokens_to_ids(token)
+            if tid == unk_id:
+                raise ValueError(
+                    f"Special token {token} resolved to UNK (id={unk_id}). "
+                    f"Ensure the tokenizer vocabulary contains this token."
+                )
+            resolved[name] = tid
 
-        # Compute the actual offset for vision tokens
-        # Vision tokens are "<|visual token 000000|>" through "<|visual token XXXXXX|>"
-        first_vision_token = self.text_tokenizer.convert_tokens_to_ids("<|visual token 000000|>")
-        self.vision_token_offset = first_vision_token
+        self.img_start_id = resolved["img_start"]
+        self.img_end_id = resolved["img_end"]
+        self.img_token_start_id = resolved["img_token_start"]
+        self.eol_id = resolved["eol"]
+        self.eof_id = resolved["eof"]
+
+        # Read vision token offset from omnimodal_config in tokenizer_config.json
+        omni_cfg = tokenizer_config.get("omnimodal_config", {})
+        vision_modality = next(
+            (m for m in omni_cfg.get("modalities", []) if m["name"] == "vision"), None
+        )
+        if vision_modality is None:
+            raise ValueError(
+                "No vision modality found in tokenizer_config.json omnimodal_config. "
+                "Ensure the tokenizer has omnimodal_config.modalities with a 'vision' entry."
+            )
+        self.vision_token_offset = vision_modality["offset"]
 
     def _get_dim_tokens(self, height: int, width: int) -> List[int]:
         """
@@ -286,8 +314,6 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
         # Vectorized assignment across the batch dimension (0)
 
         # Fill Prefix
-        # output[:, 0:prefix_len] = prefix_tensor
-        # output.shape[1] should be: B, T_total
         output[:, 0:prefix_len] = prefix_tensor.unsqueeze(0)  # [1, prefix_len] broadcasted to [B, prefix_len]
 
         # Fill Vision Tokens
@@ -364,7 +390,7 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
         return self.tokenize_image(image)
 
     @torch.inference_mode()
-    def tokenize_images(self, images: List, resize_size: int) -> torch.Tensor:
+    def tokenize_images(self, images: List, resize_size: Tuple[int, int]) -> torch.Tensor:
         """
         Batched tokenization of images.
         As a batch is resized to have similar shape, output num tokens is equal.
@@ -374,39 +400,60 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
             resize_size: Target size for resizing images
 
         Returns:
-            Batch of encoded images: B x num_img_tokens
+            Batch of encoded images: B x num_img_tokens (on CPU)
         """
         assert self.image_tokenizer is not None, "Image tokenizer required for processing images"
         # Step 1: Preprocess image (PIL → tensor)
         img_tensors = self.image_tokenizer.preprocess_batch(images, resize_size)
-        # Step 2: Encode to vision indices
-        indices, _ = self.image_tokenizer.encode(img_tensors)
-        # Step 3: Get dimensions and flatten
+        # Step 2: Encode to vision indices (chunked to avoid GPU OOM on large groups)
+        chunk_size = self.max_images_per_encode
+        if chunk_size is not None and len(img_tensors) > chunk_size:
+            all_indices = []
+            for i in range(0, len(img_tensors), chunk_size):
+                idx, _ = self.image_tokenizer.encode(img_tensors[i : i + chunk_size])
+                all_indices.append(idx)
+            indices = torch.cat(all_indices, dim=0)
+        else:
+            indices, _ = self.image_tokenizer.encode(img_tensors)
+        # Free GPU pixel tensor immediately after encode
+        del img_tensors
+        # Step 3: Move indices to CPU — encapsulate is pure int ops, no model weights
         batch_size, height, width = indices.shape
-        image_indices = indices.flatten(start_dim=1)
-        del img_tensors, indices
-        # Step 4: Encapsulate with EMU3 structure tokens
-        result = self.encapsulate_batch(image_indices, height, width)
-        del image_indices
+        image_indices = indices.flatten(start_dim=1).cpu()
+        del indices
+        # Step 4: Encapsulate with EMU3 structure tokens (runs on CPU)
+        return self.encapsulate_batch(image_indices, height, width)
 
-        return result
-
-    def tokenize_batch(self, images, resize_size, text=None):
+    def tokenize_batch(self, images, resize_size, text=None, group_slices=None):
         """
-        Unified tokenization interface for batched image-only mode.
+        Batched tokenization interface for image-only mode.
 
         Args:
             images: List of PIL Images to tokenize (required)
             resize_size: Target size for resizing images
             text: Ignored for image-only tokenization
+            group_slices: Optional ``(num_groups, 2)`` array mapping groups
+                to positions in *images*.  When provided, returns one
+                concatenated sequence per group instead of one per image.
 
         Returns:
-            List of tokenized image tensors (one per image)
+            List of tokenized image tensors (one per image, or one per group)
         """
-        # Images are required for image-only tokenizer
-        # Ignore text parameter, only process images
         batched_tokens = self.tokenize_images(images, resize_size)  # [B, seq_len]
 
-        # Convert batched tensor to list of individual sequences
-        # This provides a uniform interface with image-text pair tokenizer
-        return [batched_tokens[i] for i in range(len(batched_tokens))]
+        if group_slices is None:
+            return [batched_tokens[i] for i in range(len(batched_tokens))]
+
+        # Multi-image: concatenate per group (strip per-image BOS/EOS, wrap group)
+        results = []
+        batched_tokens_cpu = batched_tokens.cpu()
+        for gs, ge in group_slices:
+            gs, ge = int(gs), int(ge)
+            group_img_tokens = batched_tokens_cpu[gs:ge]  # [num_imgs, seq_len]
+            # Strip per-image BOS/EOS, keep inner structure
+            img_structs = [group_img_tokens[i, 1:-1] for i in range(group_img_tokens.shape[0])]
+            # Wrap with single BOS/EOS from first image
+            bos = group_img_tokens[0, :1]
+            eos = group_img_tokens[0, -1:]
+            results.append(torch.cat([bos] + img_structs + [eos]))
+        return results

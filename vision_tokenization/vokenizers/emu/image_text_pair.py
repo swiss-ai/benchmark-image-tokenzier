@@ -4,7 +4,9 @@ EMU tokenizer for image-text pairs with parallel GPU/CPU processing.
 """
 
 from concurrent.futures import ThreadPoolExecutor
+from typing import List, Optional
 
+import numpy as np
 import torch
 from PIL import Image
 
@@ -102,83 +104,84 @@ class EMUImageTextPairTokenizer(EMUImageOnlyTokenizer):
         # Both image and text are required for image-text pair tokenizer
         return self.tokenize_image_text_pair(image, text)
 
-    def tokenize_batch(self, images, resize_size, text=None):
+    def tokenize_batch(self, images, resize_size, text=None, group_slices=None):
         """
         Batched tokenization interface for image-text pair mode.
 
-        NOTE: Image-text pairs have variable-length sequences due to different text lengths.
-        We batch the image preprocessing for efficiency, then combine each image with its
-        corresponding text. Returns a list of variable-length token sequences.
+        Single-image is a special case of multi-image where every group has
+        exactly one image.  Both paths share the same code: GPU image
+        tokenization runs in parallel with CPU text tokenization.
+
+        Per-group output::
+
+            image2text: [BOS] [img0_struct] [img1_struct] ... [text] [EOS]
+            text2image: [BOS] [text] [img0_struct] [img1_struct] ... [EOS]
 
         Args:
-            images: List of PIL Images to tokenize (one per sample)
-            resize_size: Target size for resizing images (batch wide size)
-            text: List of text strings (required for image-text pair mode) - one per image
+            images: List of PIL Images to tokenize.
+            resize_size: Target size for resizing images (batch-wide).
+            text: List of text strings (required).  One per image
+                (single-image) or one per group (multi-image).
+            group_slices: Optional ``(num_groups, 2)`` array mapping groups
+                to positions in *images*.  When ``None``, each image is
+                treated as its own group.
 
         Returns:
-            List of token tensors, one per image-text pair (variable lengths)
-            Worker code should handle this by processing each sequence individually
+            List of token tensors (variable lengths).
         """
         if text is None or len(text) == 0:
             raise ValueError("Text is required for image-text pair tokenization")
 
-        if len(images) != len(text):
-            raise ValueError(f"Number of images ({len(images)}) must match number of texts ({len(text)})")
+        # Single-image is multi-image with trivial 1-image groups
+        if group_slices is None:
+            if len(images) != len(text):
+                raise ValueError(
+                    f"Number of images ({len(images)}) must match "
+                    f"number of texts ({len(text)})"
+                )
+            group_slices = np.array(
+                [[i, i + 1] for i in range(len(images))], dtype=np.int64,
+            )
 
+        # GPU image tokenization ∥ CPU text tokenization
         def tokenize_texts_cpu():
-            """CPU thread for batch text tokenization."""
-            # Force text tokenization to CPU
-            with torch.cuda.device(-1):  # Use CPU
+            with torch.cuda.device(-1):
                 text_tokens_dict = self.text_tokenizer(
                     text,
                     truncation=False,
                     add_special_tokens=False,
-                    return_tensors=None,  # Don't return tensors - sequences have different lengths
-                    padding=False,  # Don't pad - we want individual sequences
+                    return_tensors=None,
+                    padding=False,
                 )
-                # Manually convert each sequence to tensor (they have different lengths)
                 return [torch.tensor(ids) for ids in text_tokens_dict["input_ids"]]
 
-        # Image tokenization on GPU (bottleneck), text on CPU
         image_future = self.executor.submit(self.tokenize_images, images, resize_size)
         text_future = self.executor.submit(tokenize_texts_cpu)
 
-        # Wait for both and get results
-        image_tokens_batch = image_future.result()  # [B, image_seq_len] - each image encapsulated with BOS/EOS
-        text_tokens_batch = text_future.result()  # List of [text_seq_len] tensors
+        image_tokens_batch = image_future.result()  # [total_images, seq_len]
+        text_tokens_list = text_future.result()
 
-        # Move text tokens to same device as image tokens for concatenation
-        text_tokens_batch = [t.to(image_tokens_batch.device) for t in text_tokens_batch]
+        image_tokens_batch = image_tokens_batch.cpu()
 
-        # Combine each image-text pair based on mode
-        combined_batch = []
-        for i in range(len(images)):
-            image_tokens = image_tokens_batch[i]  # [image_seq_len]
-            text_tokens = text_tokens_batch[i]  # [text_seq_len]
+        # Per-group assembly
+        results = []
+        for g_idx, (gs, ge) in enumerate(group_slices):
+            gs, ge = int(gs), int(ge)
+            group_img_tokens = image_tokens_batch[gs:ge]  # [num_imgs, seq_len]
+            text_tokens = text_tokens_list[g_idx]
 
-            if self.mode == "text2image":
-                # Text first, then image: [BOS] + [text] + [image without BOS]
-                combined = torch.cat(
-                    [
-                        image_tokens[:1],  # BOS token
-                        text_tokens,  # Text tokens
-                        image_tokens[1:],  # Image tokens (including EOS)
-                    ]
-                )
-            elif self.mode == "image2text":
-                # Image first, then text: [image without EOS] + [text] + [EOS]
-                combined = torch.cat(
-                    [
-                        image_tokens[:-1],  # Image tokens without EOS
-                        text_tokens,  # Text tokens
-                        image_tokens[-1:],  # EOS token
-                    ]
-                )
+            # Strip per-image BOS/EOS to get bare image structure tokens
+            img_structs = [group_img_tokens[i, 1:-1] for i in range(group_img_tokens.shape[0])]
+            bos = group_img_tokens[0, :1]
+            eos = group_img_tokens[0, -1:]
+
+            if self.mode == "image2text":
+                parts = [bos] + img_structs + [text_tokens, eos]
+            elif self.mode == "text2image":
+                parts = [bos, text_tokens] + img_structs + [eos]
             else:
-                raise ValueError(f"Invalid mode for image_text_pair tokenizer: {self.mode}")
+                raise ValueError(f"Invalid mode: {self.mode}")
 
-            combined_batch.append(combined)
+            results.append(torch.cat(parts))
 
-        # Return list of variable-length sequences (not a stacked tensor)
-        # Worker code will detect this and process each sequence individually
-        return combined_batch
+        return results
