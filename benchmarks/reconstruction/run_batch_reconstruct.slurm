@@ -45,13 +45,13 @@ Examples:
   sbatch run_batch_reconstruct.slurm \
       --tokenizer Emu3_5_IBQ \
       --tokenizer-path /capstor/store/cscs/swissai/infra01/MLLM/Emu3.5-VisionTokenizer \
-      --input assets/original/spectrum25m \
-      --output assets/EMU3.5/spectrum25m
+      --input benchmarks/assets/original/spectrum25m \
+      --output benchmarks/assets/EMU3.5/spectrum25m
 
   # With Emu3 tokenizer & custom paths
   sbatch run_batch_reconstruct.slurm \
-      --input assets/original/spectrum25m \
-      --output assets/EMU3VisionTokenizer/spectrum25m
+      --input benchmarks/assets/original/spectrum25m \
+      --output benchmarks/assets/EMU3VisionTokenizer/spectrum25m
 
   # Custom resolution
   sbatch run_batch_reconstruct.slurm \
@@ -69,7 +69,7 @@ PROJECT_ROOT="/iopsstor/scratch/cscs/${USER}/benchmark-image-tokenizer"
 # Default values
 TOKENIZER="Emu3VisionTokenizer"
 TOKENIZER_PATH=""
-INPUT_FOLDER="${PROJECT_ROOT}/assets/original"
+INPUT_FOLDER="${PROJECT_ROOT}/benchmarks/assets/original"
 OUTPUT_FOLDER=""  # Will be set based on tokenizer
 MIN_PIXELS=262144
 MAX_PIXELS=1048576
@@ -121,7 +121,7 @@ done
 
 # Set default output folder if not specified
 if [ -z "$OUTPUT_FOLDER" ]; then
-    OUTPUT_FOLDER="${PROJECT_ROOT}/assets/${TOKENIZER}"
+    OUTPUT_FOLDER="${PROJECT_ROOT}/benchmarks/assets/${TOKENIZER}"
 fi
 
 # Set up Python path
@@ -158,7 +158,7 @@ if [ "$TOKENIZER" = "Emu3_5_IBQ" ] && [ -z "$TOKENIZER_PATH" ]; then
 fi
 
 # Build command
-CMD="python ${PROJECT_ROOT}/batch_reconstruct.py"
+CMD="python ${PROJECT_ROOT}/benchmarks/reconstruction/batch_reconstruct.py"
 CMD="$CMD --tokenizer ${TOKENIZER}"
 CMD="$CMD --input ${INPUT_FOLDER}"
 CMD="$CMD --output ${OUTPUT_FOLDER}"
@@ -209,7 +209,7 @@ if [ $EXITCODE -eq 0 ]; then
 
     echo ""
     echo "You can now run metrics calculation:"
-    echo "  python calculate_metrics.py --comparison-path ${OUTPUT_FOLDER}"
+    echo "  python benchmarks/metrics/calculate_metrics.py --comparison-path ${OUTPUT_FOLDER}"
 
 else
     echo ""

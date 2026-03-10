@@ -1,15 +1,43 @@
 # Benchmark: Discrete Image Tokenizers
 
-Repo supports benchmarking and tokenization with discrete Image tokenizers.
+Repo supports benchmarking and large-scale tokenization with discrete image tokenizers.
+
+**Authors:** Yixuan Xu, Raphael Krest, Nicola Irmiger
+
+## Repository Structure
+
+```
+.
+├── vision_tokenization/    # Distributed tokenization pipeline (torch.distributed + Hydra)
+│   ├── configs/            # Hydra config files
+│   ├── pipelines/          # Distributed pipeline (core loop, data loading, writing)
+│   ├── vokenizers/         # Tokenizer wrappers (EMU image-only, SFT, image-text-pair)
+│   └── indexing/           # Manifest creation, batch planning, tar reading
+├── Tokenizer/              # Vision tokenizer implementations (submodules + patches)
+├── benchmarks/             # Benchmarking scripts and results
+│   ├── notebooks/          # Tokenizer exploration notebooks
+│   ├── reconstruction/     # Image encode-decode reconstruction
+│   ├── inference/          # Conditional generation and vLLM inference
+│   ├── metrics/            # Quality metrics (LPIPS, PSNR, SSIM, FID)
+│   ├── tiling/             # Image tiling utilities
+│   └── assets/             # Reconstructed images for metric comparison
+├── conftest.py             # Pytest configuration
+├── pyproject.toml          # Project configuration
+└── format.sh               # Auto-formatting (black, isort, flake8)
+```
 
 ## Setup Autoformatting
 
-This repo supports auto-formatting using, flake8, black and isort. Submodules are ignored by default.
+This repo supports auto-formatting using flake8, black and isort. Submodules are ignored by default.
 
-Install dev requirements
-`pip install -r requirements-dev.txt`
+Install dev requirements:
+```bash
+pip install -r requirements-dev.txt
+```
 Then run formatting any time using:
-`./format.sh`
+```bash
+./format.sh
+```
 
 ## Benchmarked Tokenizers
 
