@@ -1,6 +1,12 @@
-"""Random-access tar reader with LRU file handle cache."""
+"""Random-access tar reader with LRU file handle cache.
+
+Thread-safe: each thread gets its own LRU cache of file handles via
+``threading.local()``, so multiple prefetch workers can read from the
+same ``TarRandomAccessReader`` instance without lock contention.
+"""
 
 import logging
+import threading
 from collections import OrderedDict
 from io import BytesIO
 from typing import List, Optional, Tuple
@@ -13,8 +19,9 @@ logger = logging.getLogger(__name__)
 class TarRandomAccessReader:
     """Read individual images from tar files by byte offset.
 
-    Maintains an LRU cache of open file handles so that repeated reads
-    from the same tar file reuse the same ``open()`` handle.
+    Maintains a **per-thread** LRU cache of open file handles so that
+    repeated reads from the same tar file reuse the same ``open()``
+    handle, and multiple threads can read concurrently without races.
 
     Usage::
 
@@ -24,8 +31,10 @@ class TarRandomAccessReader:
 
     def __init__(self, max_open_files: int = 32):
         self.max_open_files = max_open_files
-        # OrderedDict used as LRU: most-recently-used at the end
-        self._handles: OrderedDict[str, object] = OrderedDict()
+        self._local = threading.local()
+        # Track all thread-local handle dicts for cleanup in close()
+        self._all_handles_lock = threading.Lock()
+        self._all_handles: list = []
 
     # -- context manager ---------------------------------------------------
     def __enter__(self):
@@ -35,19 +44,28 @@ class TarRandomAccessReader:
         self.close()
 
     # -- internal ----------------------------------------------------------
+    def _get_handles(self) -> OrderedDict:
+        """Return the per-thread LRU handle dict, creating it on first access."""
+        if not hasattr(self._local, "handles"):
+            self._local.handles = OrderedDict()
+            with self._all_handles_lock:
+                self._all_handles.append(self._local.handles)
+        return self._local.handles
+
     def _get_handle(self, tar_path: str):
         """Return an open file handle for *tar_path*, creating or promoting it in the LRU."""
-        if tar_path in self._handles:
-            self._handles.move_to_end(tar_path)
-            return self._handles[tar_path]
+        handles = self._get_handles()
+        if tar_path in handles:
+            handles.move_to_end(tar_path)
+            return handles[tar_path]
 
         # Evict oldest if at capacity
-        while len(self._handles) >= self.max_open_files:
-            _, old_fh = self._handles.popitem(last=False)
+        while len(handles) >= self.max_open_files:
+            _, old_fh = handles.popitem(last=False)
             old_fh.close()
 
         fh = open(tar_path, "rb")
-        self._handles[tar_path] = fh
+        handles[tar_path] = fh
         return fh
 
     # -- public API --------------------------------------------------------
@@ -90,7 +108,9 @@ class TarRandomAccessReader:
         fh = self._get_handle(tar_path)
         fh.seek(offset_data)
         data = fh.read(file_size)
-        return Image.open(BytesIO(data))
+        img = Image.open(BytesIO(data))
+        img.load()  # eager decode — force JPEG/PNG decompress now
+        return img
 
     def read_batch(
         self,
@@ -114,7 +134,10 @@ class TarRandomAccessReader:
         return results
 
     def close(self):
-        """Close all cached file handles."""
-        for fh in self._handles.values():
-            fh.close()
-        self._handles.clear()
+        """Close all cached file handles across all threads."""
+        with self._all_handles_lock:
+            for handles in self._all_handles:
+                for fh in handles.values():
+                    fh.close()
+                handles.clear()
+            self._all_handles.clear()

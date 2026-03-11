@@ -88,7 +88,7 @@ def main(cfg: DictConfig):
         "max_images_per_encode": tokenizer_cfg.get("max_images_per_encode"),
         "filter_min_pixels": filter_min_pixels,
         "filter_max_pixels": filter_max_pixels,
-        "output_dir": cfg.output_dir,
+        "output_dir": cfg.dataset.output_dir,
         "num_gpus": cfg.get("num_gpus"),
         "mode": cfg.get("mode", "image_only"),
         "resume": cfg.get("resume", False),
@@ -116,6 +116,9 @@ def main(cfg: DictConfig):
         # Checkpointing
         "checkpoint_interval_batches": cfg.dataset.get("checkpoint_interval_batches", 500),
         "max_consecutive_errors": cfg.dataset.get("max_consecutive_errors", 50),
+        "prefetch": OmegaConf.to_container(cfg.dataset.get("prefetch", {}), resolve=True),
+        # Sequence-length split
+        "seglen_threshold": cfg.dataset.get("seglen_threshold"),
         # WDS-specific
         "max_open_files": cfg.dataset.get("max_open_files", 64),
         # Multi-image
@@ -141,7 +144,7 @@ def main(cfg: DictConfig):
     logger.info("Pipeline completed!")
     logger.info(f"Total processed: {result.get('samples_processed', 0)}")
     logger.info(f"Total tokens: {result.get('tokens_generated', 0)}")
-    logger.info(f"Output directory: {result.get('output_dir', cfg.output_dir)}")
+    logger.info(f"Output directory: {result.get('output_dir', cfg.dataset.output_dir)}")
 
     return result
 

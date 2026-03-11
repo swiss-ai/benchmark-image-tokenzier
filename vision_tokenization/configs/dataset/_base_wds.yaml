@@ -15,6 +15,7 @@
 dataset_type: wds
 
 # --- Paths (must be set per dataset) -----------------------------------------
+output_dir: ???
 manifest_path: ???
 image_column: image
 
@@ -36,8 +37,12 @@ resize_mode: avg                   # per-batch resize target: avg | min | max
 augmentation: null                 # null = disabled
 
 # --- Checkpointing -----------------------------------------------------------
-checkpoint_interval_batches: 500   # finalize chunk + save progress every N batches
+checkpoint_interval_batches: 1000  # finalize chunk + save progress every N batches
 max_consecutive_errors: 50         # abort after N consecutive batch failures
+prefetch:
+  queue_size: 4                    # output queue depth (batches buffered ahead of GPU)
+  num_workers: 3                   # I/O threads in the prefetch pool (1 = single-thread)
+seglen_threshold: null             # null = no split; integer = sequences > N tokens → lct/
 
 # --- WDS-specific -------------------------------------------------------------
 max_open_files: 64                 # LRU cache size for open tar file handles

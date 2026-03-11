@@ -38,6 +38,7 @@ from .checkpoint import (
     save_checkpoint,
 )
 from .data import ImageAugmenter, create_loader
+from .prefetch import BatchPrefetcher
 
 logger = logging.getLogger(__name__)
 
@@ -106,9 +107,17 @@ def tokenize_loop(
         6. Finalize writer, save final checkpoint.
     """
     output_dir = cfg["output_dir"]
+    split_mode = cfg.get("seglen_threshold") is not None
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     # Clean up stale .tmp files from killed runs
+    if split_mode:
+        for subdir in ("stage2", "lct"):
+            sub = Path(output_dir) / subdir
+            if sub.exists():
+                for tmp in sub.glob(f"rank_{rank:04d}_*.tmp"):
+                    logger.warning(f"[rank {rank}] Removing stale temp file: {subdir}/{tmp.name}")
+                    tmp.unlink()
     for tmp in Path(output_dir).glob(f"rank_{rank:04d}_*.tmp"):
         logger.warning(f"[rank {rank}] Removing stale temp file: {tmp.name}")
         tmp.unlink()
@@ -139,6 +148,8 @@ def tokenize_loop(
     resume = cfg.get("resume", False)
     start_batch_index = 0
     start_chunk_id = 0
+    start_stage2_chunk_id = 0
+    start_lct_chunk_id = 0
     cumulative_stats = WorkerStats()
 
     if resume:
@@ -151,9 +162,27 @@ def tokenize_loop(
                     f"world_size ({world_size}). Ignoring checkpoint."
                 )
                 ckpt = None
+        # Incompatible resume guard: split_mode vs non-split checkpoint
+        if ckpt is not None:
+            ckpt_has_split = "stage2_chunk_id" in ckpt
+            if split_mode and not ckpt_has_split:
+                logger.warning(
+                    f"[rank {rank}] Split mode enabled but checkpoint lacks "
+                    f"stage2_chunk_id. Ignoring checkpoint."
+                )
+                ckpt = None
+            elif not split_mode and ckpt_has_split:
+                logger.warning(
+                    f"[rank {rank}] Split mode disabled but checkpoint has "
+                    f"stage2_chunk_id. Ignoring checkpoint."
+                )
+                ckpt = None
         if ckpt is not None:
             start_batch_index = ckpt["batch_index"] + 1
             start_chunk_id = ckpt["chunk_id"] + 1
+            if split_mode:
+                start_stage2_chunk_id = ckpt["stage2_chunk_id"] + 1
+                start_lct_chunk_id = ckpt["lct_chunk_id"] + 1
             prev = ckpt.get("stats", {})
             cumulative_stats.samples_processed = prev.get("samples_processed", 0)
             cumulative_stats.tokens_generated = prev.get("tokens_generated", 0)
@@ -162,6 +191,8 @@ def tokenize_loop(
             cumulative_stats.errors = prev.get("errors", 0)
             cumulative_stats.samples_skipped = prev.get("samples_skipped", 0)
             cumulative_stats.cuda_oom_errors = prev.get("cuda_oom_errors", 0)
+            cumulative_stats.stage2_tokens = prev.get("stage2_tokens", 0)
+            cumulative_stats.lct_tokens = prev.get("lct_tokens", 0)
             logger.info(
                 f"[rank {rank}] Resumed from batch {start_batch_index}, "
                 f"chunk {start_chunk_id}, samples={cumulative_stats.samples_processed}"
@@ -188,7 +219,12 @@ def tokenize_loop(
     # 5. Setup writer, data loader, augmenter, W&B
     # ------------------------------------------------------------------
     chunk_id = start_chunk_id
-    handler.setup_writer(output_dir, rank, chunk_id, tokenizer)
+    if split_mode:
+        handler.setup_writer(
+            output_dir, rank, start_stage2_chunk_id, start_lct_chunk_id, tokenizer,
+        )
+    else:
+        handler.setup_writer(output_dir, rank, chunk_id, tokenizer)
 
     data_loader = create_loader(cfg)
     augmenter = None
@@ -218,6 +254,7 @@ def tokenize_loop(
     # 6. Main loop
     # ------------------------------------------------------------------
     checkpoint_interval = cfg.get("checkpoint_interval_batches", 500)
+    timing_enabled = wandb_logger is not None
     stats = cumulative_stats
     batch_count = 0                     # successful batches since resume (for periodic checkpoint cadence)
     last_batch_index = start_batch_index - 1  # last visited batch index (for resume correctness)
@@ -225,32 +262,48 @@ def tokenize_loop(
     max_consecutive_errors = cfg.get("max_consecutive_errors", 50)
     _loop_error = None
 
+    prefetch_cfg = cfg.get("prefetch", {})
+    prefetch_queue_size = prefetch_cfg.get("queue_size", 2)
+    prefetch_num_workers = prefetch_cfg.get("num_workers", 1)
+    prefetcher = BatchPrefetcher(
+        data_loader, augmenter,
+        queue_size=prefetch_queue_size,
+        num_workers=prefetch_num_workers,
+    )
+
     logger.info(
         f"[rank {rank}] Starting tokenization loop "
         f"(chunk_id={chunk_id}, checkpoint_interval={checkpoint_interval}, "
-        f"start_batch={start_batch_index})"
+        f"start_batch={start_batch_index}, "
+        f"prefetch_workers={prefetch_num_workers}, prefetch_queue={prefetch_queue_size})"
     )
 
     try:
-        for batch_index, batch_assignment in enumerate(my_batches[start_batch_index:], start=start_batch_index):
-            last_batch_index = batch_index
+        for result in prefetcher.iter_batches(my_batches, start=start_batch_index):
+            last_batch_index = result.batch_index
+
+            # Prefetch-stage error — apply same retry logic as GPU errors
+            if result.error is not None:
+                stats.errors += 1
+                consecutive_errors += 1
+                logger.warning(
+                    f"[rank {rank}] Prefetch error on batch {result.batch_index} "
+                    f"({consecutive_errors}/{max_consecutive_errors}): {result.error}"
+                )
+                if consecutive_errors >= max_consecutive_errors:
+                    raise RuntimeError(
+                        f"[rank {rank}] {max_consecutive_errors} consecutive batch errors, aborting"
+                    ) from result.error
+                continue
 
             try:
-                group_slices = batch_assignment.group_slices
-                images, texts = data_loader.load_batch(
-                    batch_assignment.sample_indices,
-                    group_slices=group_slices,
-                )
+                resize_size = (result.assignment.resize_height, result.assignment.resize_width)
 
-                if augmenter is not None:
-                    images = augmenter.augment_batch(images)
-
-                resize_size = (batch_assignment.resize_height, batch_assignment.resize_width)
-
-                handler.process_batch(
-                    images, resize_size, tokenizer, stats, device,
-                    texts=texts,
-                    group_slices=group_slices,
+                process_timing = handler.process_batch(
+                    result.images, resize_size, tokenizer, stats, device,
+                    texts=result.texts,
+                    group_slices=result.assignment.group_slices,
+                    timing_enabled=timing_enabled,
                 )
                 consecutive_errors = 0
 
@@ -262,7 +315,7 @@ def tokenize_loop(
                     torch.cuda.empty_cache()
                     stats.cuda_oom_errors += 1
                     logger.warning(
-                        f"[rank {rank}] CUDA OOM on batch {batch_index}, freed cache "
+                        f"[rank {rank}] CUDA OOM on batch {result.batch_index}, freed cache "
                         f"({consecutive_errors}/{max_consecutive_errors})"
                     )
                 else:
@@ -279,8 +332,16 @@ def tokenize_loop(
 
             batch_count += 1
 
-            # W&B log (rate-limited)
+            # W&B log (rate-limited) — merge prefetch + handler timing
             if wandb_logger is not None:
+                timing = {
+                    "load_ms": result.timing["load_s"] * 1000,
+                    "augment_ms": result.timing["augment_s"] * 1000,
+                }
+                if process_timing:
+                    timing["tokenize_gpu_ms"] = process_timing["tokenize_gpu_s"] * 1000
+                    timing["tokenize_wall_ms"] = process_timing["tokenize_wall_s"] * 1000
+                    timing["write_ms"] = process_timing["write_s"] * 1000
                 wandb_logger.log(
                     samples=stats.samples_processed,
                     tokens=stats.tokens_generated,
@@ -288,45 +349,90 @@ def tokenize_loop(
                     text_tokens=stats.text_tokens,
                     errors=stats.errors,
                     skipped=stats.samples_skipped,
+                    timing=timing,
                 )
 
             # Periodic checkpoint
             if batch_count % checkpoint_interval == 0 and handler.chunk_samples > 0:
                 done_chunk = handler.checkpoint_writer()
-                logger.info(
-                    f"[rank {rank}] Finalized chunk {done_chunk} "
-                    f"({stats.tokens_generated:,} total tokens)"
-                )
-                save_checkpoint(
-                    output_dir, rank,
-                    batch_index=batch_index,
-                    chunk_id=done_chunk,
-                    stats=stats.to_dict(),
-                    world_size=world_size,
-                )
-                chunk_id = done_chunk + 1
+                if split_mode:
+                    s2_done, lct_done = done_chunk
+                    logger.info(
+                        f"[rank {rank}] Finalized split chunks "
+                        f"(stage2={s2_done}, lct={lct_done}, "
+                        f"{stats.tokens_generated:,} total tokens)"
+                    )
+                    save_checkpoint(
+                        output_dir, rank,
+                        batch_index=result.batch_index,
+                        chunk_id=result.batch_index,  # not meaningful in split mode
+                        stats=stats.to_dict(),
+                        world_size=world_size,
+                        extra={
+                            "stage2_chunk_id": s2_done,
+                            "lct_chunk_id": lct_done,
+                        },
+                    )
+                else:
+                    logger.info(
+                        f"[rank {rank}] Finalized chunk {done_chunk} "
+                        f"({stats.tokens_generated:,} total tokens)"
+                    )
+                    save_checkpoint(
+                        output_dir, rank,
+                        batch_index=result.batch_index,
+                        chunk_id=done_chunk,
+                        stats=stats.to_dict(),
+                        world_size=world_size,
+                    )
+                    chunk_id = done_chunk + 1
 
     except Exception as e:
         logger.error(f"[rank {rank}] Fatal error in tokenization loop: {e}", exc_info=True)
         stats.errors += 1
         _loop_error = e
+    finally:
+        prefetcher.shutdown()
 
     # ------------------------------------------------------------------
     # 7. Finalize (always save progress, even on failure)
     # ------------------------------------------------------------------
     handler.finalize_writer()
 
-    save_checkpoint(
-        output_dir, rank,
-        batch_index=last_batch_index,
-        chunk_id=chunk_id,
-        stats=stats.to_dict(),
-        world_size=world_size,
-    )
+    if split_mode:
+        save_checkpoint(
+            output_dir, rank,
+            batch_index=last_batch_index,
+            chunk_id=last_batch_index,
+            stats=stats.to_dict(),
+            world_size=world_size,
+            extra={
+                "stage2_chunk_id": handler.writer.stage2_chunk_id,
+                "lct_chunk_id": handler.writer.lct_chunk_id,
+            },
+        )
+    else:
+        save_checkpoint(
+            output_dir, rank,
+            batch_index=last_batch_index,
+            chunk_id=chunk_id,
+            stats=stats.to_dict(),
+            world_size=world_size,
+        )
 
     result = stats.finalize()
     result["rank"] = rank
-    result["chunks_written"] = chunk_id - start_chunk_id + (1 if handler.chunk_samples > 0 else 0)
+    if split_mode:
+        result["stage2_chunks_written"] = (
+            handler.writer.stage2_chunk_id - start_stage2_chunk_id
+            + (1 if handler.writer.stage2_chunk_samples > 0 else 0)
+        )
+        result["lct_chunks_written"] = (
+            handler.writer.lct_chunk_id - start_lct_chunk_id
+            + (1 if handler.writer.lct_chunk_samples > 0 else 0)
+        )
+    else:
+        result["chunks_written"] = chunk_id - start_chunk_id + (1 if handler.chunk_samples > 0 else 0)
 
     if wandb_logger is not None:
         wandb_logger.finish()
@@ -341,7 +447,6 @@ def tokenize_loop(
         f"{result['image_tokens']:,} image tokens{text_tok_msg}, "
         f"{result['errors']} errors, {result['elapsed_time']:.1f}s"
     )
-
     result["output_dir"] = output_dir
 
     if _loop_error is not None:
