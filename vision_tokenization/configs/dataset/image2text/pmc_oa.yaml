@@ -14,5 +14,6 @@ multi_image: false
 image_field_pattern: img
 
 # --- Overrides ----------------------------------------------------------------
-max_batch_tokens: 32768
+gpu_kmeans: false                  # faiss-gpu has no Python 3.12 wheels
 batch_plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/pmc_oa.pt
+checkpoint_interval_batches: 5000
