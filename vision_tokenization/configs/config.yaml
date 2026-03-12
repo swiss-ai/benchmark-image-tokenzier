@@ -3,8 +3,8 @@
 # ══════════════════════════════════════════════════════════════════════════════
 #
 #  Usage:
-#    python -m vision_tokenization.tokenize dataset=image_only/llava85m_midtrain \
-#        output_dir=/output/path tokenizer.path=/path/to/omni-tokenizer num_gpus=4
+#    python -m vision_tokenization.tokenize \
+#        mode=image2text dataset=pmc_oa num_gpus=4
 #
 #  Override any field from CLI:
 #    ... dataset.max_batch_tokens=32768 tokenizer.max_pixels="2048*2048"
@@ -17,9 +17,8 @@ defaults:
 
 # --- Pipeline -----------------------------------------------------------------
 
-output_dir: ???                    # where to write micro-shards
 num_gpus: ???                      # total GPU count (verified against SLURM_NTASKS)
-mode: image_only                   # image_only | sft | image2text | text2image
+mode: ???                          # required: image_only | sft | image2text | text2image
 
 # --- Tokenizer ----------------------------------------------------------------
 # Path to omni-tokenizer (vision tokenizer auto-loaded from its config).
@@ -27,7 +26,7 @@ mode: image_only                   # image_only | sft | image2text | text2image
 # Format: "H*W" string (e.g. "128*128") or plain integer.
 
 tokenizer:
-  path: ???
+  path: /capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_wavtok
   min_pixels: "128*128"
   max_pixels: "1400*1400"
   max_images_per_encode: 16        # chunk large batches to avoid GPU OOM

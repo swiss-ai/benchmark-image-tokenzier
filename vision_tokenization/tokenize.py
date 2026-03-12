@@ -4,10 +4,7 @@
 Usage::
 
     python -m vision_tokenization.tokenize \
-        dataset=image_only/llava85m_midtrain num_gpus=4
-
-    python -m vision_tokenization.tokenize \
-        dataset=sft/llava_onevision_sft num_gpus=16 mode=sft
+        mode=image2text dataset=pmc_oa num_gpus=4
 """
 
 # Avoid thread oversubscription with many dataloader workers
@@ -19,6 +16,7 @@ os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
 import logging
+import sys
 
 import hydra
 from hydra.core.hydra_config import HydraConfig
@@ -26,35 +24,50 @@ from omegaconf import DictConfig, OmegaConf
 
 logger = logging.getLogger(__name__)
 
+_VALID_MODES = {"image_only", "sft", "image2text", "text2image"}
 
-def _validate_mode_from_dataset_folder(cfg: DictConfig) -> None:
-    """Fail fast if dataset folder semantics conflict with selected mode.
 
-    If dataset is chosen from a nested Hydra group like ``dataset=sft/foo``,
-    we treat the first segment as the expected mode and verify it matches
-    ``cfg.mode``.
+def _preprocess_dataset_override():
+    """Allow ``mode=X dataset=Y`` shorthand for ``dataset=X/Y``.
+
+    Rewrites sys.argv before Hydra parses it so that the Hydra config group
+    resolves to ``configs/dataset/{mode}/{dataset}.yaml``.
     """
-    mode = cfg.get("mode", "image_only")
+    mode_val = None
+    dataset_val = None
+    dataset_idx = None
+    for i, arg in enumerate(sys.argv[1:], 1):
+        if arg.startswith("mode="):
+            mode_val = arg.split("=", 1)[1]
+        elif arg.startswith("dataset="):
+            dataset_val = arg.split("=", 1)[1]
+            dataset_idx = i
+    if dataset_idx is not None and dataset_val and mode_val:
+        if "/" not in dataset_val:
+            sys.argv[dataset_idx] = f"dataset={mode_val}/{dataset_val}"
+        elif not dataset_val.startswith(f"{mode_val}/"):
+            raise ValueError(
+                f"mode={mode_val} conflicts with dataset={dataset_val}. "
+                f"Use: mode={mode_val} dataset={dataset_val.split('/', 1)[1]}"
+            )
 
-    dataset_choice = None
-    try:
-        dataset_choice = HydraConfig.get().runtime.choices.get("dataset")
-    except Exception:
-        return
 
-    if not dataset_choice or "/" not in dataset_choice:
-        return
+def _resolve_mode(cfg: DictConfig) -> None:
+    """Set cfg.mode from the resolved dataset path.
 
-    folder_mode = dataset_choice.split("/", 1)[0]
-    valid_modes = {"image_only", "sft", "image2text", "text2image"}
-    if folder_mode not in valid_modes:
-        return
-
-    if mode != folder_mode:
+    After ``_preprocess_dataset_override`` rewrites ``dataset=X/Y`` →
+    ``dataset={mode}/Y``, the Hydra runtime choice for dataset contains
+    the mode as the first path segment.  This function reads it and sets
+    ``cfg.mode`` accordingly.
+    """
+    mode = cfg.get("mode")
+    if mode is None:
         raise ValueError(
-            f"Mode mismatch: dataset={dataset_choice!r} implies mode={folder_mode!r} "
-            f"from folder name, but cfg.mode={mode!r}. "
-            f"Set mode={folder_mode} or pick a dataset under {mode}/."
+            "mode is required. Use: mode=image_only | sft | image2text | text2image"
+        )
+    if mode not in _VALID_MODES:
+        raise ValueError(
+            f"mode={mode!r} is not valid. Expected one of: {sorted(_VALID_MODES)}"
         )
 
 
@@ -64,7 +77,7 @@ def main(cfg: DictConfig):
     if int(os.environ.get("RANK", os.environ.get("SLURM_PROCID", 0))) == 0:
         logger.info(f"Config:\n{OmegaConf.to_yaml(cfg)}")
 
-    _validate_mode_from_dataset_folder(cfg)
+    _resolve_mode(cfg)
 
     from vision_tokenization.utils.parse_utils import parse_resolution
 
@@ -90,7 +103,7 @@ def main(cfg: DictConfig):
         "filter_max_pixels": filter_max_pixels,
         "output_dir": cfg.dataset.output_dir,
         "num_gpus": cfg.get("num_gpus"),
-        "mode": cfg.get("mode", "image_only"),
+        "mode": cfg.mode,
         "resume": cfg.get("resume", False),
         "dry_run": cfg.get("dry_run", False),
         # Dataset config (flattened from dataset group)
@@ -100,6 +113,7 @@ def main(cfg: DictConfig):
         "arrow_dir": cfg.dataset.get("arrow_dir"),
         "image_column": cfg.dataset.get("image_column", "image"),
         "text_column": cfg.dataset.get("text_column"),
+        "multi_image": cfg.dataset.get("multi_image"),
         # Batch planning
         "batch_plan_path": cfg.dataset.get("batch_plan_path"),
         "batch_size": cfg.dataset.get("batch_size"),
@@ -118,7 +132,7 @@ def main(cfg: DictConfig):
         "max_consecutive_errors": cfg.dataset.get("max_consecutive_errors", 50),
         "prefetch": OmegaConf.to_container(cfg.dataset.get("prefetch", {}), resolve=True),
         # Sequence-length split
-        "seglen_threshold": cfg.dataset.get("seglen_threshold"),
+        "seqlen_threshold": cfg.dataset.get("seqlen_threshold"),
         # WDS-specific
         "max_open_files": cfg.dataset.get("max_open_files", 64),
         # Multi-image
@@ -150,4 +164,5 @@ def main(cfg: DictConfig):
 
 
 if __name__ == "__main__":
+    _preprocess_dataset_override()
     main()
