@@ -133,6 +133,105 @@ class TestWDSScanner:
         expected = {"sample_key", "tar_path", "offset_data", "file_size", "width", "height", "image_ext"}
         assert set(schema.names) == expected
 
+    def test_image_field_pattern_without_multi_image_keeps_single_image_manifest(self, tmp_path):
+        """image_field_pattern should normalize sample keys without forcing grouped output."""
+        samples = [
+            {"key": "000001.img1", "ext": "jpg", "width": 32, "height": 32, "text": "caption"},
+        ]
+        tar_path = str(tmp_path / "shard.tar")
+        _create_tar(tar_path, samples)
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        scan_wds_dataset(
+            input_pattern=tar_path,
+            output_manifest=manifest_path,
+            text_extensions={"txt"},
+            image_field_pattern="img",
+            num_workers=1,
+        )
+
+        table = load_wds_manifest(manifest_path)
+        schema = pq.read_schema(manifest_path)
+        assert "group_id" not in schema.names
+        assert "image_index" not in schema.names
+        assert table.column("sample_key")[0].as_py() == "000001"
+        assert table.column("offset_text")[0].as_py() >= 0
+
+    def test_image_field_pattern_with_multi_image_writes_grouped_manifest(self, tmp_path):
+        """Grouped output should require explicit multi_image=True."""
+        samples = [
+            {"key": "000001.img0", "ext": "jpg", "width": 32, "height": 32, "text": "caption"},
+            {"key": "000001.img1", "ext": "jpg", "width": 48, "height": 48},
+            {"key": "000002.img0", "ext": "jpg", "width": 64, "height": 64, "text": "other"},
+        ]
+        tar_path = str(tmp_path / "shard.tar")
+        _create_tar(tar_path, samples)
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        scan_wds_dataset(
+            input_pattern=tar_path,
+            output_manifest=manifest_path,
+            text_extensions={"txt"},
+            image_field_pattern="img",
+            multi_image=True,
+            num_workers=1,
+        )
+
+        table = load_wds_manifest(manifest_path)
+        schema = pq.read_schema(manifest_path)
+        assert "group_id" in schema.names
+        assert "image_index" in schema.names
+
+        sample_keys = table.column("sample_key").to_pylist()
+        group_ids = table.column("group_id").to_pylist()
+        image_indices = table.column("image_index").to_pylist()
+        assert sample_keys == ["000001", "000001", "000002"]
+        assert image_indices == [0, 1, 0]
+        assert group_ids[0] == group_ids[1]
+        assert group_ids[2] != group_ids[0]
+
+    def test_single_image_validation_rejects_multiple_images_per_sample(self, tmp_path):
+        """multi_image=False should fail if normalized sample keys have >1 image."""
+        samples = [
+            {"key": "000001.img0", "ext": "jpg", "width": 32, "height": 32, "text": "caption"},
+            {"key": "000001.img1", "ext": "jpg", "width": 48, "height": 48},
+        ]
+        tar_path = str(tmp_path / "shard.tar")
+        _create_tar(tar_path, samples)
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        with pytest.raises(ValueError, match="multiple images"):
+            scan_wds_dataset(
+                input_pattern=tar_path,
+                output_manifest=manifest_path,
+                text_extensions={"txt"},
+                image_field_pattern="img",
+                multi_image=False,
+                num_workers=1,
+            )
+
+    def test_multi_image_validation_warns_on_singleton_groups(self, tmp_path, caplog):
+        """multi_image=True should warn when all parsed groups have size 1."""
+        samples = [
+            {"key": "000001.img0", "ext": "jpg", "width": 32, "height": 32, "text": "caption"},
+            {"key": "000002.img0", "ext": "jpg", "width": 48, "height": 48, "text": "other"},
+        ]
+        tar_path = str(tmp_path / "shard.tar")
+        _create_tar(tar_path, samples)
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        with caplog.at_level("WARNING"):
+            scan_wds_dataset(
+                input_pattern=tar_path,
+                output_manifest=manifest_path,
+                text_extensions={"txt"},
+                image_field_pattern="img",
+                multi_image=True,
+                num_workers=1,
+            )
+
+        assert "only singleton groups" in caplog.text
+
 
 # ======================================================================
 # TestWDSRandomAccess
@@ -196,15 +295,17 @@ class TestWDSRandomAccess:
             rec1 = scan_single_tar(tar_paths[1])[0]
             reader.read_image(tar_paths[0], rec0["offset_data"], rec0["file_size"])
             reader.read_image(tar_paths[1], rec1["offset_data"], rec1["file_size"])
-            assert len(reader._handles) == 2
+            handles = reader._get_handles()
+            assert len(handles) == 2
 
             # Access tar 2 — should evict tar 0 (oldest)
             rec2 = scan_single_tar(tar_paths[2])[0]
             reader.read_image(tar_paths[2], rec2["offset_data"], rec2["file_size"])
-            assert len(reader._handles) == 2
-            assert tar_paths[0] not in reader._handles
-            assert tar_paths[1] in reader._handles
-            assert tar_paths[2] in reader._handles
+            handles = reader._get_handles()
+            assert len(handles) == 2
+            assert tar_paths[0] not in handles
+            assert tar_paths[1] in handles
+            assert tar_paths[2] in handles
         finally:
             reader.close()
 

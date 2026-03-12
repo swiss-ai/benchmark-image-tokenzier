@@ -3,6 +3,7 @@
 import glob
 import logging
 import os
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import FrozenSet, Optional, Union
@@ -52,6 +53,11 @@ def _discover_shards(input_pattern: str) -> list:
     return tar_paths
 
 
+def _sample_group_sizes(records: list[dict]) -> Counter:
+    """Count images per logical sample across all scanned tar members."""
+    return Counter((rec["tar_path"], rec["sample_key"]) for rec in records)
+
+
 def scan_wds_dataset(
     input_pattern: str,
     output_manifest: Union[str, Path],
@@ -59,6 +65,7 @@ def scan_wds_dataset(
     image_extensions: Optional[FrozenSet[str]] = None,
     text_extensions: Optional[FrozenSet[str]] = None,
     image_field_pattern: Optional[str] = None,
+    multi_image: bool = False,
 ) -> str:
     """Scan all WDS tars in parallel and write a Parquet manifest.
 
@@ -71,21 +78,29 @@ def scan_wds_dataset(
             Pass ``None`` for image-only manifests, or ``DEFAULT_TEXT_EXTENSIONS``
             for manifests that need text loading at tokenization time.
         image_field_pattern: Prefix for multi-image field names (e.g.
-            ``"img"``).  ``None`` → single-image mode (default).
+            ``"img"``). Used to normalize image stems like
+            ``sample.img1.jpg`` to ``sample`` when matching text sidecars.
+        multi_image: When true, emit grouped rows with ``group_id`` and
+            ``image_index``. When false, write a plain single-image manifest
+            even if ``image_field_pattern`` is set.
 
     Returns:
         The output manifest path as a string.
     """
     if image_extensions is None:
         image_extensions = DEFAULT_IMAGE_EXTENSIONS
+    if multi_image and image_field_pattern is None:
+        raise ValueError(
+            "scan_wds_dataset(..., multi_image=True) requires image_field_pattern."
+        )
 
     tar_paths = _discover_shards(input_pattern)
     include_text = text_extensions is not None
-    is_multi = image_field_pattern is not None
     logger.info(
         f"Scanning {len(tar_paths)} tar files with {num_workers} workers"
         f"{' (with text sidecars)' if include_text else ''}"
-        f"{f' (multi-image: {image_field_pattern}*)' if is_multi else ''}..."
+        f"{f' (field pattern: {image_field_pattern}*)' if image_field_pattern is not None else ''}"
+        f"{' (grouped multi-image)' if multi_image else ''}..."
     )
 
     all_records: list = []
@@ -96,7 +111,7 @@ def scan_wds_dataset(
         futures = {
             pool.submit(
                 scan_single_tar, tp, image_extensions, text_extensions,
-                image_field_pattern,
+                image_field_pattern, multi_image,
             ): tp
             for tp in tar_paths
         }
@@ -123,9 +138,26 @@ def scan_wds_dataset(
             f"{failed_tars[:10]}{'...' if len(failed_tars) > 10 else ''}"
         )
 
+    group_sizes = _sample_group_sizes(all_records)
+    if not multi_image and image_field_pattern is not None:
+        oversized = [(tar_path, sample_key, size) for (tar_path, sample_key), size in group_sizes.items() if size > 1]
+        if oversized:
+            tar_path, sample_key, size = oversized[0]
+            raise ValueError(
+                "scan_wds_dataset(..., multi_image=False) found a sample with multiple images "
+                f"after normalizing {image_field_pattern!r}: sample_key={sample_key!r}, "
+                f"tar_path={tar_path!r}, images={size}. Set multi_image=true for grouped output."
+            )
+
     # For multi-image manifests, reassign global group_ids.
     # Workers produce local group_ids per tar; we need globally unique ones.
-    if is_multi and all_records:
+    if multi_image and all_records:
+        if group_sizes and all(size == 1 for size in group_sizes.values()):
+            logger.warning(
+                "scan_wds_dataset(..., multi_image=True) found only singleton groups after "
+                "parsing with image_field_pattern=%r. Consider multi_image=false.",
+                image_field_pattern,
+            )
         # Sort by (tar_path, sample_key, image_index) for determinism
         all_records.sort(
             key=lambda r: (r["tar_path"], r["sample_key"], r["image_index"])
@@ -143,7 +175,7 @@ def scan_wds_dataset(
 
     logger.info(f"Scan complete: {len(all_records):,} images from {len(tar_paths)} tars")
 
-    if is_multi:
+    if multi_image:
         from vision_tokenization.indexing.manifest import (
             WDS_SCHEMA_MULTI_IMAGE,
             WDS_SCHEMA_MULTI_IMAGE_WITH_TEXT,
