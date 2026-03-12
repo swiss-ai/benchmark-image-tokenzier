@@ -12,8 +12,10 @@ text_column: txt
 multi_image: true
 image_field_pattern: img
 
-# --- Overrides (smaller dataset → fewer clusters, bigger token budget) --------
-max_batch_tokens: 32768
+# --- Overrides (smaller dataset → fewer clusters) ----------------------------
 num_clusters: 100
 gpu_kmeans: false
 checkpoint_interval_batches: 100
+seqlen_threshold: 8192
+output_dir: /capstor/scratch/cscs/xyixuan/vision-datasets-tokenized
+batch_plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/medpix.pt

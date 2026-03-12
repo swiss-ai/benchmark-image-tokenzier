@@ -294,7 +294,15 @@ def tokenize_loop(
     )
 
     try:
-        for result in prefetcher.iter_batches(my_batches, start=start_batch_index):
+        batch_iter = prefetcher.iter_batches(my_batches, start=start_batch_index)
+        if rank == 0:
+            from tqdm import tqdm
+            total_batches = len(my_batches) - start_batch_index
+            batch_iter = tqdm(
+                batch_iter, total=total_batches, desc="rank 0",
+                unit="batch", dynamic_ncols=True,
+            )
+        for result in batch_iter:
             last_batch_index = result.batch_index
 
             # Prefetch-stage error — apply same retry logic as GPU errors
