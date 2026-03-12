@@ -26,6 +26,12 @@ Repo supports benchmarking and large-scale tokenization with discrete image toke
 └── format.sh               # Auto-formatting (black, isort, flake8)
 ```
 
+## Distributed Tokenization Pipeline
+
+The pipeline in `vision_tokenization/` tokenizes large image datasets using `torch.distributed` (one independent rank per GPU, no NCCL). A background prefetch thread overlaps CPU I/O with GPU encoding. Per-batch timing metrics are streamed to W&B when enabled.
+
+See [`vision_tokenization/README.md`](vision_tokenization/README.md) for full architecture diagrams, configuration reference, and usage examples.
+
 ## Setup Autoformatting
 
 This repo supports auto-formatting using flake8, black and isort. Submodules are ignored by default.

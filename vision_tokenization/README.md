@@ -160,6 +160,8 @@ scan_wds_dataset(
     input_pattern='/data/shards/{00000..01000}.tar',
     output_manifest='manifest.parquet',
     text_extensions=['json', 'txt'],  # optional: index text sidecars
+    image_field_pattern='img',        # optional: parse sample.img1.jpg naming
+    multi_image=True,                 # only set for logical multi-image datasets
     num_workers=64,
 )
 "
@@ -223,7 +225,7 @@ Each `BatchAssignment` contains:
 
 ### Single-image vs Multi-image Clustering
 
-The planner uses explicit `multi_image=True/False` (derived from `image_list_column` or `image_field_pattern` in the dataset config). If the manifest has a `group_id` column but `multi_image=False`, a warning is logged.
+The planner uses explicit `multi_image=True/False` when set. If `multi_image` is unset, it falls back to `image_list_column is not None`. If the manifest has a `group_id` column but `multi_image=False`, a warning is logged.
 
 <details>
 <summary><b>Single-image</b> — each image is its own clustering unit</summary>
@@ -339,7 +341,7 @@ Each image is encoded into a structured token sequence by [`encapsulate_image()`
 
 ## 6. GPU Tokenization Loop
 
-All modes share the same per-rank loop ([`tokenize_loop()`](./pipelines/distributed/core.py)): load batches via manifest indices, tokenize on GPU, write Megatron micro-shards, checkpoint periodically.
+All modes share the same per-rank loop ([`tokenize_loop()`](./pipelines/distributed/core.py)): a background [`BatchPrefetcher`](./pipelines/distributed/prefetch.py) thread loads and augments batches while the main thread tokenizes on GPU and writes micro-shards. This overlaps CPU I/O with GPU compute, eliminating GPU idle stalls.
 
 ```mermaid
 flowchart TD
@@ -353,31 +355,54 @@ flowchart TD
 
     CreateTok["Create tokenizer on GPU<br/>create_tokenizer(mode, ...)"]
     CreateTok --> Setup["handler.setup_writer()<br/>create_loader() + augmenter"]
-    Setup --> LoopStart
+    Setup --> StartPrefetch["Start BatchPrefetcher<br/>(daemon thread, queue_size=2)"]
+    StartPrefetch --> LoopStart
 
-    subgraph MainLoop["Main Loop"]
-        LoopStart{"Next batch"} --> LoadBatch["loader.load_batch(sample_indices)"]
-        LoadBatch --> Augment["augmenter.augment_batch()"]
-        Augment --> Process["handler.process_batch()"]
-        Process --> ChkPt{"checkpoint<br/>interval?"}
-        ChkPt -->|Yes| DoChkPt["checkpoint_writer() + save_checkpoint()"]
-        ChkPt -->|No| NextBatch
-        DoChkPt --> NextBatch
-        NextBatch --> LoopStart
+    subgraph PrefetchThread["Prefetch Thread (background)"]
+        direction TB
+        PF_Load["loader.load_batch(N+1)"] --> PF_Aug["augmenter.augment_batch(N+1)"]
+        PF_Aug --> PF_Queue["queue.put(images, texts,<br/>load_s, augment_s)"]
     end
+
+    subgraph MainLoop["Main Thread Loop"]
+        LoopStart{"queue.get()"} --> Process["handler.process_batch()<br/>(GPU tokenize + write)"]
+        Process --> WandB["wandb.log(timing/*)<br/>(rate-limited)"]
+        WandB --> ChkPt{"checkpoint<br/>interval?"}
+        ChkPt -->|Yes| DoChkPt["checkpoint_writer()<br/>+ save_checkpoint()"]
+        ChkPt -->|No| LoopStart
+        DoChkPt --> LoopStart
+    end
+
+    PF_Queue -.->|"Queue(maxsize=2)"| LoopStart
 
     Process -.->|"on error"| ErrHandle["stats.errors++<br/>CUDA OOM -> empty cache"]
     ErrHandle -.->|"< max"| LoopStart
     ErrHandle -.->|">= max"| Abort([Abort])
 
-    MainLoop --> Finalize["finalize_writer() + save final checkpoint"]
+    MainLoop --> Finalize["prefetcher.shutdown()<br/>finalize_writer()<br/>save final checkpoint"]
     Finalize --> Done([Return stats])
 
     click LoadPlan href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/pipelines/distributed/core.py"
     click CreateTok href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/vokenizers/emu/__init__.py"
+    click StartPrefetch href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/pipelines/distributed/prefetch.py"
 
+    style PrefetchThread fill:#e8f5e9,stroke:#2E7D32
     style MainLoop fill:#f3e5f5,stroke:#7B1FA2
 ```
+
+### Timing & Monitoring
+
+When W&B is enabled, per-batch timing metrics from both threads are merged and logged as time-series under the `timing/` prefix:
+
+| Metric | Source | Description |
+|--------|--------|-------------|
+| `timing/load_ms` | prefetch thread | Batch I/O (tar/arrow read + PIL decode) |
+| `timing/augment_ms` | prefetch thread | Image augmentation |
+| `timing/tokenize_gpu_ms` | CUDA events | GPU tokenization kernel time |
+| `timing/tokenize_wall_ms` | wall clock | Tokenization wall time (includes launch overhead) |
+| `timing/write_ms` | wall clock | Micro-shard write |
+
+CUDA event timing is gated behind `wandb.enabled` to avoid overhead when disabled.
 
 > [!TIP]
 > **GPU/CPU bounce optimization** — Images are tokenized in batch on GPU, transferred to CPU once, then assembled with text tokens on CPU. This avoids per-sample GPU-CPU transfers.
@@ -578,17 +603,17 @@ graph TD
 
     subgraph R0["Rank 0"]
         direction TB
-        L0["Data Loader"] --> H0["Handler +<br/>EMU Tokenizer<br/>GPU 0"] --> O0["rank_0000_chunk_*"]
+        PF0["Prefetch Thread<br/>load + augment"] -.->|"Queue"| H0["Main Thread<br/>GPU tokenize + write<br/>GPU 0"] --> O0["rank_0000_chunk_*"]
     end
 
     subgraph R1["Rank 1"]
         direction TB
-        L1["Data Loader"] --> H1["Handler +<br/>EMU Tokenizer<br/>GPU 1"] --> O1["rank_0001_chunk_*"]
+        PF1["Prefetch Thread<br/>load + augment"] -.->|"Queue"| H1["Main Thread<br/>GPU tokenize + write<br/>GPU 1"] --> O1["rank_0001_chunk_*"]
     end
 
     subgraph RN["Rank N"]
         direction TB
-        LN["Data Loader"] --> HN["Handler +<br/>EMU Tokenizer<br/>GPU N"] --> ON["rank_NNNN_chunk_*"]
+        PFN["Prefetch Thread<br/>load + augment"] -.->|"Queue"| HN["Main Thread<br/>GPU tokenize + write<br/>GPU N"] --> ON["rank_NNNN_chunk_*"]
     end
 
     click SPLIT href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/indexing/clustered_batch_planner.py"
@@ -792,6 +817,7 @@ vision_tokenization/
 +-- pipelines/distributed/               # torch.distributed pipeline
 |   +-- __init__.py                      # run_distributed_pipeline()
 |   +-- core.py                          # tokenize_loop() -- main per-rank loop
+|   +-- prefetch.py                      # BatchPrefetcher (threaded I/O overlap)
 |   +-- handler.py                       # TokenizationHandler (tokenizer-agnostic)
 |   +-- writer.py                        # MicroShardWriter (micro-shard lifecycle)
 |   +-- checkpoint.py                    # Micro-shard I/O, WorkerStats, W&B

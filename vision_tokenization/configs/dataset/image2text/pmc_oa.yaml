@@ -6,13 +6,13 @@ defaults:
 
 output_name: pmc_oa
 output_dir: /capstor/scratch/cscs/xyixuan/vision-datasets-tokenized
-manifest_path: /capstor/store/cscs/swissai/infra01/vision-datasets/medical/apertus_image_text_v1/pmc_oa/manifest.parquet
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/pmc_oa/manifest.parquet
 text_column: txt
 
 # --- Single-image: each sample has img1.png ----------------------------------
+multi_image: false
 image_field_pattern: img
 
 # --- Overrides ----------------------------------------------------------------
 max_batch_tokens: 32768
-seglen_threshold: 8192
 batch_plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/pmc_oa.pt

@@ -9,6 +9,7 @@ manifest_path: /capstor/store/cscs/swissai/infra01/vision-datasets/medical/apert
 text_column: txt
 
 # --- Multi-image: each sample has img1.png, img2.png, ... --------------------
+multi_image: true
 image_field_pattern: img
 
 # --- Overrides (smaller dataset → fewer clusters, bigger token budget) --------
