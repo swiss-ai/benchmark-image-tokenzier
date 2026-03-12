@@ -7,10 +7,12 @@ Calls ``tokenizer.tokenize_batch()`` and writes results via
 """
 
 import logging
+import time
 from typing import Any, List, Optional, Tuple
 
 import numpy as np
 from PIL import Image
+import torch
 
 from vision_tokenization.pipelines.distributed.checkpoint import WorkerStats
 from vision_tokenization.pipelines.distributed.writer import MicroShardWriter
@@ -36,8 +38,8 @@ class TokenizationHandler:
     def chunk_samples(self):
         return self.writer.chunk_samples
 
-    def setup_writer(self, output_dir, rank, chunk_id, tokenizer):
-        self.writer.setup_writer(output_dir, rank, chunk_id, tokenizer)
+    def setup_writer(self, *args, **kwargs):
+        self.writer.setup_writer(*args, **kwargs)
 
     def checkpoint_writer(self):
         return self.writer.checkpoint_writer()
@@ -56,7 +58,8 @@ class TokenizationHandler:
         device: str,
         texts: Optional[List[Any]] = None,
         group_slices: Optional[np.ndarray] = None,
-    ) -> None:
+        timing_enabled: bool = False,
+    ) -> dict:
         """Tokenize a batch and write results to micro-shard.
 
         Args:
@@ -67,28 +70,68 @@ class TokenizationHandler:
             device: CUDA device string (unused here, kept for interface).
             texts: Optional text data (captions, conversations).
             group_slices: Optional ``(num_groups, 2)`` array for multi-image.
+            timing_enabled: When true, populate wall-clock timings for the
+                tokenization and write stages. GPU tokenization time is
+                measured with CUDA events.
+
+        Returns:
+            Timing dict with keys ``tokenize_wall_s``, ``tokenize_gpu_s``,
+            ``write_s`` (zeros when *timing_enabled* is false).
         """
+        timings = {
+            "tokenize_wall_s": 0.0,
+            "tokenize_gpu_s": 0.0,
+            "write_s": 0.0,
+        }
+
         valid_images, valid_texts, valid_slices = self._filter_none(
             images, texts, group_slices, stats,
         )
 
         if not valid_images:
-            return
+            return timings
 
-        # Call tokenizer — tokenizer-agnostic interface
-        token_sequences = tokenizer.tokenize_batch(
-            valid_images,
-            resize_size,
-            text=valid_texts if self.needs_text else None,
-            group_slices=valid_slices,
-        )
+        if timing_enabled:
+            tokenize_start = time.perf_counter()
+            cuda_device = None
+            start_event = None
+            end_event = None
+            if torch.cuda.is_available() and str(device).startswith("cuda"):
+                cuda_device = torch.device(device)
+                torch.cuda.synchronize(cuda_device)
+                start_event = torch.cuda.Event(enable_timing=True)
+                end_event = torch.cuda.Event(enable_timing=True)
+                with torch.cuda.device(cuda_device):
+                    start_event.record()
+
+        try:
+            # Call tokenizer — tokenizer-agnostic interface
+            token_sequences = tokenizer.tokenize_batch(
+                valid_images,
+                resize_size,
+                text=valid_texts if self.needs_text else None,
+                group_slices=valid_slices,
+            )
+        finally:
+            if timing_enabled:
+                if start_event is not None and end_event is not None:
+                    with torch.cuda.device(cuda_device):
+                        end_event.record()
+                    torch.cuda.synchronize(cuda_device)
+                    timings["tokenize_gpu_s"] = start_event.elapsed_time(end_event) / 1000.0
+                timings["tokenize_wall_s"] = time.perf_counter() - tokenize_start
 
         # Write results (skip None entries from multi-image skips)
+        if timing_enabled:
+            write_start = time.perf_counter()
         for seq in token_sequences:
             if seq is None:
                 stats.samples_skipped += 1
                 continue
             self.writer.write_sequence(seq.cpu() if seq.is_cuda else seq, stats)
+        if timing_enabled:
+            timings["write_s"] = time.perf_counter() - write_start
+        return timings
 
     @staticmethod
     def _filter_none(images, texts, group_slices, stats):

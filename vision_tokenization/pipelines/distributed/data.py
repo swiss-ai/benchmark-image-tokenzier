@@ -263,14 +263,21 @@ class HFImageLoader:
 
     @staticmethod
     def _decode_image(img_data) -> Image.Image:
-        """Decode a single image from an arrow cell value."""
+        """Decode a single image from an arrow cell value.
+
+        Eagerly decodes (``img.load()``) so that JPEG/PNG decompression
+        happens here in the prefetch thread, not later on the GPU thread.
+        """
         if isinstance(img_data, dict) and img_data.get("bytes") is not None:
-            return Image.open(BytesIO(img_data["bytes"]))
-        if isinstance(img_data, dict) and img_data.get("path") is not None:
-            return Image.open(img_data["path"])
-        if isinstance(img_data, bytes):
-            return Image.open(BytesIO(img_data))
-        return img_data  # Already PIL or similar
+            img = Image.open(BytesIO(img_data["bytes"]))
+        elif isinstance(img_data, dict) and img_data.get("path") is not None:
+            img = Image.open(img_data["path"])
+        elif isinstance(img_data, bytes):
+            img = Image.open(BytesIO(img_data))
+        else:
+            return img_data  # Already PIL or similar
+        img.load()  # eager decode
+        return img
 
     def _count_rows(self, path: Path) -> int:
         """Count rows in an arrow or parquet file."""
