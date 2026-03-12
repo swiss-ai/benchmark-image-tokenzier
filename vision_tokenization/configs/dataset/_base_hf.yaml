@@ -20,6 +20,7 @@ output_dir: ???
 manifest_path: ???
 arrow_dir: ???
 image_column: image
+multi_image: null                  # set true/false explicitly; null = infer only from image_list_column
 
 # --- Image filtering ----------------------------------------------------------
 min_pixels: "64*128"
@@ -44,4 +45,4 @@ max_consecutive_errors: 50         # abort after N consecutive batch failures
 prefetch:
   queue_size: 4                    # output queue depth (batches buffered ahead of GPU)
   num_workers: 3                   # I/O threads in the prefetch pool (1 = single-thread)
-seglen_threshold: null             # null = no split; integer = sequences > N tokens → lct/
+seqlen_threshold: null             # null = no split; integer = sequences > N tokens → lct/
