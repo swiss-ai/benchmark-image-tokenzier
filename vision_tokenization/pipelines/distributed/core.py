@@ -8,15 +8,11 @@ Launch examples::
 
     # Single node, 4 GPUs
     srun --ntasks-per-node=4 --gpus-per-node=4 \
-        python -m vision_tokenization.tokenize dataset=image_only/llava85m_midtrain
-
-    # Multi-node SLURM
-    srun --nodes=4 --ntasks-per-node=4 --gpus-per-node=4 \
-        python -m vision_tokenization.tokenize dataset=image_only/llava85m_midtrain
+        python -m vision_tokenization.tokenize mode=image2text dataset=pmc_oa num_gpus=4
 
     # Resume from checkpoint
     srun --ntasks-per-node=4 --gpus-per-node=4 \
-        python -m vision_tokenization.tokenize dataset=image_only/llava85m_midtrain resume=true
+        python -m vision_tokenization.tokenize mode=image2text dataset=pmc_oa num_gpus=4 resume=true
 """
 
 import logging
@@ -43,7 +39,15 @@ from .prefetch import BatchPrefetcher
 logger = logging.getLogger(__name__)
 
 
-def _load_or_compute_batch_plan(cfg: Dict[str, Any]) -> BatchPlan:
+def _resolve_multi_image(cfg: Dict[str, Any]) -> bool:
+    """Resolve whether the dataset should use logical multi-image handling."""
+    explicit = cfg.get("multi_image")
+    if explicit is not None:
+        return bool(explicit)
+    return cfg.get("image_list_column") is not None
+
+
+def _load_or_compute_batch_plan(cfg: Dict[str, Any], is_multi_image: bool) -> BatchPlan:
     """Load a pre-computed BatchPlan from file, or compute one from the manifest."""
     plan_path = cfg.get("batch_plan_path")
     if plan_path and Path(plan_path).exists():
@@ -74,7 +78,7 @@ def _load_or_compute_batch_plan(cfg: Dict[str, Any]) -> BatchPlan:
         resize_mode=cfg.get("resize_mode", "avg"),
         gpu=cfg.get("gpu_kmeans", True),
         niter=cfg.get("niter", 10),
-        multi_image=cfg.get("image_list_column") is not None or cfg.get("image_field_pattern") is not None,
+        multi_image=is_multi_image,
     )
 
     # Optionally save for reuse
@@ -107,7 +111,8 @@ def tokenize_loop(
         6. Finalize writer, save final checkpoint.
     """
     output_dir = cfg["output_dir"]
-    split_mode = cfg.get("seglen_threshold") is not None
+    is_multi_image = _resolve_multi_image(cfg)
+    split_mode = cfg.get("seqlen_threshold") is not None
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     # Clean up stale .tmp files from killed runs
@@ -125,7 +130,7 @@ def tokenize_loop(
     # ------------------------------------------------------------------
     # 1. Load / compute BatchPlan
     # ------------------------------------------------------------------
-    batch_plan = _load_or_compute_batch_plan(cfg)
+    batch_plan = _load_or_compute_batch_plan(cfg, is_multi_image=is_multi_image)
 
     # ------------------------------------------------------------------
     # 2. Split for workers → my_batches
@@ -205,13 +210,23 @@ def tokenize_loop(
 
     mode = cfg["mode"]
     device = f"cuda:{cfg.get('local_rank', 0)}"
+    configured_max_images_per_encode = cfg.get("max_images_per_encode")
+    effective_max_images_per_encode = (
+        configured_max_images_per_encode if is_multi_image else None
+    )
+    if rank == 0 and not is_multi_image and configured_max_images_per_encode is not None:
+        logger.warning(
+            "Ignoring tokenizer.max_images_per_encode=%s for single-image dataset; "
+            "batch_size and max_batch_tokens control batch memory.",
+            configured_max_images_per_encode,
+        )
     tokenizer = create_tokenizer(
         mode=mode,
         text_tokenizer_path=cfg["tokenizer_path"],
         device=device,
         min_pixels=cfg["tokenizer_min_pixels"],
         max_pixels=cfg["tokenizer_max_pixels"],
-        max_images_per_encode=cfg.get("max_images_per_encode"),
+        max_images_per_encode=effective_max_images_per_encode,
         **(cfg.get("tokenizer_kwargs", {})),
     )
 

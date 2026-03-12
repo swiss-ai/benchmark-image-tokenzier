@@ -5,6 +5,7 @@ For SFT, optionally loads text and tokenizes with a CPU-fast HF tokenizer
 to estimate text tokens (~0.5ms/sample, no GPU needed).
 """
 
+import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -96,3 +97,22 @@ def dry_run_batch_plan(
         f"{len(batch_plan.batches)} batches"
     )
     return result
+
+
+def export_dry_run(result: Dict[str, Any], output_dir: str) -> str:
+    """Save dry-run stats to a JSON file in the output directory.
+
+    Args:
+        result: Dict returned by ``dry_run_batch_plan``.
+        output_dir: Directory where the stats file will be written.
+
+    Returns:
+        Path to the written JSON file.
+    """
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    stats_path = out / "dry_run_stats.json"
+    with open(stats_path, "w") as f:
+        json.dump(result, f, indent=2)
+    logger.info(f"Dry run stats saved to {stats_path}")
+    return str(stats_path)

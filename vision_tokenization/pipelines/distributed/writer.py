@@ -2,11 +2,14 @@
 
 Manages IndexedDatasetBuilder for writing token sequences to Megatron
 MMIDIDX ``.bin/.idx`` files.  Extracted from the former ``BaseHandler``.
+
+Also provides ``SplitMicroShardWriter`` which routes sequences to two
+sub-writers based on a token-length threshold (stage2 / lct).
 """
 
 import logging
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 from vision_tokenization.pipelines.distributed.checkpoint import (
     WorkerStats,
@@ -88,3 +91,77 @@ class MicroShardWriter:
         else:
             stats.image_tokens += n_tokens
         self.chunk_samples += 1
+
+
+class SplitMicroShardWriter:
+    """Routes sequences to ``stage2/`` or ``lct/`` based on token length.
+
+    Sequences with ``numel() <= seqlen_threshold`` go to ``stage2/``;
+    longer sequences go to ``lct/``.  Each bucket has its own independent
+    ``MicroShardWriter`` with its own chunk counter.
+    """
+
+    def __init__(self, seqlen_threshold: int):
+        self._threshold = seqlen_threshold
+        self._stage2 = MicroShardWriter()
+        self._lct = MicroShardWriter()
+
+    @property
+    def chunk_samples(self) -> int:
+        return self._stage2.chunk_samples + self._lct.chunk_samples
+
+    def setup_writer(
+        self, output_dir: str, rank: int,
+        stage2_chunk_id: int, lct_chunk_id: int, tokenizer,
+    ) -> None:
+        os.makedirs(os.path.join(output_dir, "stage2"), exist_ok=True)
+        os.makedirs(os.path.join(output_dir, "lct"), exist_ok=True)
+        self._stage2.setup_writer(
+            os.path.join(output_dir, "stage2"), rank, stage2_chunk_id, tokenizer,
+        )
+        self._lct.setup_writer(
+            os.path.join(output_dir, "lct"), rank, lct_chunk_id, tokenizer,
+        )
+
+    def write_sequence(self, seq_cpu, stats: WorkerStats) -> None:
+        n = seq_cpu.numel()
+        if n <= self._threshold:
+            self._stage2.write_sequence(seq_cpu, stats)
+            stats.stage2_tokens += n
+        else:
+            self._lct.write_sequence(seq_cpu, stats)
+            stats.lct_tokens += n
+
+    def checkpoint_writer(self) -> Tuple[int, int]:
+        """Finalize sub-writers that have samples, return (stage2_chunk, lct_chunk)."""
+        s2 = (
+            self._stage2.checkpoint_writer()
+            if self._stage2.chunk_samples > 0
+            else self._stage2._chunk_id - 1
+        )
+        lct = (
+            self._lct.checkpoint_writer()
+            if self._lct.chunk_samples > 0
+            else self._lct._chunk_id - 1
+        )
+        return (s2, lct)
+
+    def finalize_writer(self) -> None:
+        self._stage2.finalize_writer()
+        self._lct.finalize_writer()
+
+    @property
+    def stage2_chunk_id(self) -> int:
+        return self._stage2._chunk_id
+
+    @property
+    def lct_chunk_id(self) -> int:
+        return self._lct._chunk_id
+
+    @property
+    def stage2_chunk_samples(self) -> int:
+        return self._stage2.chunk_samples
+
+    @property
+    def lct_chunk_samples(self) -> int:
+        return self._lct.chunk_samples

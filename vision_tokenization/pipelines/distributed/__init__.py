@@ -31,7 +31,7 @@ def _build_output_subdir(cfg: Dict[str, Any]) -> str:
     output_name = cfg.get("output_name")
     if not output_name:
         raise ValueError("'output_name' is required in the dataset config.")
-    mode = cfg.get("mode", "image_only")
+    mode = cfg["mode"]
     return str(Path(mode) / output_name)
 
 
@@ -55,13 +55,16 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
         cfg["local_rank"] = 0
         cfg["output_dir"] = str(Path(cfg["output_dir"]) / _build_output_subdir(cfg))
 
-        from .core import _load_or_compute_batch_plan
-        batch_plan = _load_or_compute_batch_plan(cfg)
+        from .core import _load_or_compute_batch_plan, _resolve_multi_image
+        from .dry_run import export_dry_run
+
+        batch_plan = _load_or_compute_batch_plan(cfg, _resolve_multi_image(cfg))
         result = dry_run_batch_plan(
             batch_plan,
             spatial_factor=cfg.get("spatial_factor", 16),
         )
         result["output_dir"] = cfg["output_dir"]
+        export_dry_run(result, cfg["output_dir"])
         return result
 
     # Cross-check num_gpus against env-derived world_size
@@ -110,10 +113,14 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
 
     # Build tokenizer-agnostic handler
     from .handler import TokenizationHandler
-    from .writer import MicroShardWriter
+    from .writer import MicroShardWriter, SplitMicroShardWriter
 
-    mode = cfg.get("mode", "image_only")
-    writer = MicroShardWriter()
+    mode = cfg["mode"]
+    seqlen_threshold = cfg.get("seqlen_threshold")
+    if seqlen_threshold is not None:
+        writer = SplitMicroShardWriter(seqlen_threshold=seqlen_threshold)
+    else:
+        writer = MicroShardWriter()
     needs_text = mode in ("sft", "image2text", "text2image")
     handler = TokenizationHandler(writer, needs_text)
 

@@ -70,6 +70,8 @@ class WorkerStats:
     errors: int = 0
     samples_skipped: int = 0
     cuda_oom_errors: int = 0
+    stage2_tokens: int = 0
+    lct_tokens: int = 0
     start_time: float = field(default_factory=time.time)
     elapsed_time: float = 0.0
     throughput: float = 0.0
@@ -83,6 +85,8 @@ class WorkerStats:
             "errors": self.errors,
             "samples_skipped": self.samples_skipped,
             "cuda_oom_errors": self.cuda_oom_errors,
+            "stage2_tokens": self.stage2_tokens,
+            "lct_tokens": self.lct_tokens,
             "elapsed_time": self.elapsed_time,
             "throughput": self.throughput,
         }
@@ -168,8 +172,13 @@ def save_checkpoint(
     chunk_id: int,
     stats: Dict[str, Any],
     world_size: int = 1,
+    extra: Optional[Dict[str, Any]] = None,
 ) -> None:
-    """Atomically save checkpoint via ``.tmp`` + ``os.replace()``."""
+    """Atomically save checkpoint via ``.tmp`` + ``os.replace()``.
+
+    *extra* is an optional dict merged into the payload (e.g.
+    ``stage2_chunk_id`` / ``lct_chunk_id`` for split-mode writing).
+    """
     ckpt_path = _checkpoint_path(output_dir, rank)
     tmp_path = str(ckpt_path) + ".tmp"
     payload = {
@@ -178,6 +187,8 @@ def save_checkpoint(
         "stats": stats,
         "world_size": world_size,
     }
+    if extra:
+        payload.update(extra)
     torch.save(payload, tmp_path)
     os.replace(tmp_path, str(ckpt_path))
     logger.debug(f"[rank {rank}] Saved checkpoint batch_index={batch_index}, chunk_id={chunk_id}")
@@ -239,6 +250,7 @@ class SimpleWandbLogger:
         text_tokens: int = 0,
         errors: int = 0,
         skipped: int = 0,
+        timing: Optional[Dict[str, float]] = None,
         force: bool = False,
     ) -> None:
         """Log absolute totals if the flush interval has elapsed."""
@@ -248,20 +260,20 @@ class SimpleWandbLogger:
         import wandb
 
         elapsed = now - self._start_time
-        wandb.log(
-            {
-                "samples_processed": samples,
-                "tokens_generated": tokens,
-                "image_tokens": image_tokens,
-                "text_tokens": text_tokens,
-                "errors": errors,
-                "samples_skipped": skipped,
-                "samples_per_second": samples / elapsed if elapsed > 0 else 0,
-                "tokens_per_second": tokens / elapsed if elapsed > 0 else 0,
-                "elapsed_seconds": elapsed,
-            },
-            step=self._step,
-        )
+        payload = {
+            "samples_processed": samples,
+            "tokens_generated": tokens,
+            "image_tokens": image_tokens,
+            "text_tokens": text_tokens,
+            "errors": errors,
+            "samples_skipped": skipped,
+            "samples_per_second": samples / elapsed if elapsed > 0 else 0,
+            "tokens_per_second": tokens / elapsed if elapsed > 0 else 0,
+            "elapsed_seconds": elapsed,
+        }
+        if timing:
+            payload.update({f"timing/{k}": v for k, v in timing.items()})
+        wandb.log(payload, step=self._step)
         self._step += 1
         self._last_flush = now
 
