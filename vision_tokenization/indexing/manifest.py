@@ -48,6 +48,16 @@ WDS_SCHEMA_MULTI_IMAGE_WITH_TEXT = pa.schema(
     list(WDS_SCHEMA_WITH_TEXT) + _MULTI_IMAGE_FIELDS
 )
 
+# Physical-location columns for HF manifests. ``chunk_index`` means:
+#   - parquet row-group index
+#   - arrow record-batch index
+# ``row_in_chunk`` is the row position within that chunk.
+_HF_LOCATION_FIELDS = [
+    pa.field("shard_path", pa.dictionary(pa.int32(), pa.string())),
+    pa.field("chunk_index", pa.int32()),
+    pa.field("row_in_chunk", pa.int32()),
+]
+
 HF_SCHEMA_MULTI_IMAGE = pa.schema(
     [
         pa.field("sample_index", pa.int64()),
@@ -67,6 +77,12 @@ HF_SCHEMA = pa.schema(
         pa.field("width", pa.int32()),
         pa.field("height", pa.int32()),
     ]
+)
+
+HF_SCHEMA_PHYSICAL = pa.schema(list(HF_SCHEMA) + _HF_LOCATION_FIELDS)
+
+HF_SCHEMA_PHYSICAL_MULTI_IMAGE = pa.schema(
+    list(HF_SCHEMA_MULTI_IMAGE) + _HF_LOCATION_FIELDS
 )
 
 # ---------------------------------------------------------------------------

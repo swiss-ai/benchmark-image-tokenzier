@@ -9,7 +9,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-node=4
-#SBATCH --cpus-per-task=18
+#SBATCH --cpus-per-task=72
 #SBATCH --partition=normal
 #SBATCH --exclusive
 

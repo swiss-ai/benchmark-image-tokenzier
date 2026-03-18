@@ -9,14 +9,18 @@ import faiss
 import numpy as np
 import pyarrow.parquet as pq
 
-from vision_tokenization.indexing.manifest import load_group_arrays, load_resolution_arrays
+from vision_tokenization.indexing.manifest import load_group_arrays
+from vision_tokenization.utils.image_geometry import (
+    estimate_image_tokens,
+    smart_resize_dims,
+)
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class BatchAssignment:
-    """A single batch: indices into the manifest table + target resize dims."""
+    """A single batch: indices into the manifest table + final encode dims."""
 
     sample_indices: np.ndarray  # int64 indices into manifest
     resize_height: int
@@ -65,9 +69,55 @@ def _compute_resize(
         raise ValueError(f"Unknown resize_mode: {mode}")
 
 
-def _estimate_tokens(h: np.ndarray, w: np.ndarray, spatial_factor: int) -> np.ndarray:
-    """Estimate token count per sample: (h // sf) * (w // sf)."""
-    return (h // spatial_factor) * (w // spatial_factor)
+def _estimate_single_image_tokens(
+    heights: np.ndarray,
+    widths: np.ndarray,
+    spatial_factor: int,
+    resize_min_pixels: Optional[int],
+    resize_max_pixels: Optional[int],
+) -> np.ndarray:
+    """Estimate final per-image token counts after tokenizer smart resize."""
+    tokens = np.empty(len(heights), dtype=np.int64)
+    for idx, (height, width) in enumerate(zip(heights, widths)):
+        final_height, final_width = smart_resize_dims(
+            int(height),
+            int(width),
+            min_pixels=resize_min_pixels,
+            max_pixels=resize_max_pixels,
+            factor=spatial_factor,
+        )
+        tokens[idx] = estimate_image_tokens(
+            final_height,
+            final_width,
+            spatial_factor=spatial_factor,
+        )
+    return tokens
+
+
+def _compute_final_batch_geometry(
+    widths: np.ndarray,
+    heights: np.ndarray,
+    resize_mode: str,
+    spatial_factor: int,
+    resize_min_pixels: Optional[int],
+    resize_max_pixels: Optional[int],
+) -> tuple[int, int, int]:
+    """Return final batch encode size and total token count for the batch."""
+    resize_height, resize_width = _compute_resize(widths, heights, resize_mode)
+    final_height, final_width = smart_resize_dims(
+        resize_height,
+        resize_width,
+        min_pixels=resize_min_pixels,
+        max_pixels=resize_max_pixels,
+        factor=spatial_factor,
+    )
+    per_image_tokens = estimate_image_tokens(
+        final_height,
+        final_width,
+        spatial_factor=spatial_factor,
+    )
+    batch_tokens = per_image_tokens * len(widths)
+    return final_height, final_width, batch_tokens
 
 
 def _chunk_by_token_budget(
@@ -78,6 +128,8 @@ def _chunk_by_token_budget(
     max_batch_tokens: int,
     spatial_factor: int,
     resize_mode: str,
+    resize_min_pixels: Optional[int],
+    resize_max_pixels: Optional[int],
     batch_size: Optional[int] = None,
 ) -> List[BatchAssignment]:
     """Greedily pack sorted members into batches respecting a token budget.
@@ -87,21 +139,36 @@ def _chunk_by_token_budget(
     batches: List[BatchAssignment] = []
     start = 0
     while start < len(members):
-        budget = 0
         end = start
+        final_height = 0
+        final_width = 0
         while end < len(members):
             if batch_size is not None and (end - start) >= batch_size:
                 break
-            gidx = valid_indices[members[end]]
-            tok = int(heights[gidx] // spatial_factor) * int(widths[gidx] // spatial_factor)
-            if budget + tok > max_batch_tokens and end > start:
+            candidate = members[start : end + 1]
+            global_idx = valid_indices[candidate]
+            cand_height, cand_width, cand_tokens = _compute_final_batch_geometry(
+                widths[global_idx],
+                heights[global_idx],
+                resize_mode,
+                spatial_factor,
+                resize_min_pixels,
+                resize_max_pixels,
+            )
+            if cand_tokens > max_batch_tokens and end > start:
                 break
-            budget += tok
+            final_height = cand_height
+            final_width = cand_width
             end += 1
         chunk = members[start:end]
         global_idx = valid_indices[chunk]
-        rh, rw = _compute_resize(widths[global_idx], heights[global_idx], resize_mode)
-        batches.append(BatchAssignment(sample_indices=global_idx, resize_height=rh, resize_width=rw))
+        batches.append(
+            BatchAssignment(
+                sample_indices=global_idx,
+                resize_height=final_height,
+                resize_width=final_width,
+            )
+        )
         start = end
     return batches
 
@@ -118,6 +185,8 @@ def plan_clustered_batches(
     gpu: bool = True,
     niter: int = 10,
     multi_image: bool = False,
+    resize_min_pixels: Optional[int] = None,
+    resize_max_pixels: Optional[int] = None,
 ) -> BatchPlan:
     """Plan globally-clustered batches from a manifest file.
 
@@ -195,6 +264,8 @@ def plan_clustered_batches(
             resize_mode=resize_mode,
             gpu=gpu,
             niter=niter,
+            resize_min_pixels=resize_min_pixels,
+            resize_max_pixels=resize_max_pixels,
         )
 
     # --- Single-image path (original) ---
@@ -232,10 +303,12 @@ def plan_clustered_batches(
     N = len(features)
 
     # Estimate average batch size for k-means cluster count
-    tok_per_sample = _estimate_tokens(
-        heights[valid_indices].astype(np.float32),
-        widths[valid_indices].astype(np.float32),
+    tok_per_sample = _estimate_single_image_tokens(
+        heights[valid_indices].astype(np.int32),
+        widths[valid_indices].astype(np.int32),
         spatial_factor,
+        resize_min_pixels,
+        resize_max_pixels,
     )
     mean_tok = max(1.0, float(tok_per_sample.mean()))
     avg_batch = min(max(1, int(max_batch_tokens / mean_tok)), batch_size)
@@ -267,6 +340,7 @@ def plan_clustered_batches(
             _chunk_by_token_budget(
                 members, heights, widths, valid_indices,
                 max_batch_tokens, spatial_factor, resize_mode,
+                resize_min_pixels, resize_max_pixels,
                 batch_size=batch_size,
             )
         )
@@ -302,6 +376,8 @@ def _plan_grouped_batches(
     resize_mode: str,
     gpu: bool,
     niter: int,
+    resize_min_pixels: Optional[int],
+    resize_max_pixels: Optional[int],
 ) -> BatchPlan:
     """Group-aware batch planning: groups are atomic (all-in or all-out).
 
@@ -346,7 +422,13 @@ def _plan_grouped_batches(
         group_rep_w[g] = int(gw.max())
         group_rep_h[g] = int(gh.max())
         group_total_tokens[g] = int(
-            ((gh // spatial_factor) * (gw // spatial_factor)).sum()
+            _estimate_single_image_tokens(
+                gh,
+                gw,
+                spatial_factor,
+                resize_min_pixels,
+                resize_max_pixels,
+            ).sum()
         )
 
         # Group-level pixel filter: drop if ANY member fails
@@ -441,6 +523,7 @@ def _plan_grouped_batches(
                 _build_grouped_batch(
                     chunk_groups, valid_groups, member_rows,
                     widths, heights, resize_mode,
+                    spatial_factor, resize_min_pixels, resize_max_pixels,
                 )
             )
             start = end
@@ -463,6 +546,9 @@ def _build_grouped_batch(
     widths: np.ndarray,
     heights: np.ndarray,
     resize_mode: str,
+    spatial_factor: int,
+    resize_min_pixels: Optional[int],
+    resize_max_pixels: Optional[int],
 ) -> BatchAssignment:
     """Build a BatchAssignment from a set of groups, with group_slices."""
     all_rows: List[int] = []
@@ -477,7 +563,14 @@ def _build_grouped_batch(
 
     sample_indices = np.array(all_rows, dtype=np.int64)
     group_slices = np.array(slices, dtype=np.int64)
-    rh, rw = _compute_resize(widths[sample_indices], heights[sample_indices], resize_mode)
+    rh, rw, _ = _compute_final_batch_geometry(
+        widths[sample_indices],
+        heights[sample_indices],
+        resize_mode,
+        spatial_factor,
+        resize_min_pixels,
+        resize_max_pixels,
+    )
     return BatchAssignment(
         sample_indices=sample_indices,
         resize_height=rh,

@@ -1,0 +1,20 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# MedTrinity-Full — image2text, WebDataset, single-image + caption
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - _base_wds
+
+output_name: medtrinity_full
+output_dir: /capstor/scratch/cscs/xyixuan/vision-datasets-tokenized
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/medtrinity_full/manifest.parquet
+text_column: txt
+
+# --- Single-image: each sample has img1.png ----------------------------------
+multi_image: false
+image_field_pattern: img
+
+# --- Overrides ----------------------------------------------------------------
+batch_size: 32
+gpu_kmeans: false
+batch_plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/medtrinity_full.pt
+checkpoint_interval_batches: 5000
