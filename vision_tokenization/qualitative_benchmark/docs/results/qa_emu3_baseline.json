@@ -1,0 +1,1307 @@
+{
+  "timestamp": "2026-02-03T15:07:04.500434",
+  "model_path": "BAAI/Emu3-Chat",
+  "tokenizer_path": "BAAI/Emu3-Chat",
+  "vision_tokenizer": "EMU3",
+  "inferencer": "HFInferencer",
+  "inference_args": {
+    "apply_chat_template": true,
+    "prompt_builder": "emu3",
+    "temperature": 0.3,
+    "top_p": 0.9,
+    "max_new_tokens": 300,
+    "max_emu_aspect_ratio": 262144,
+    "min_emu_aspect_ratio": 65536,
+    "stop_token_ids": [
+      151850
+    ]
+  },
+  "total_runs": 74,
+  "runs": [
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image features three distinct fruits: a red apple with a green leaf, a yellow banana with brown spots, and an orange with a brown stem and green leaf. These fruits are displayed against a plain white background, emphasizing their vibrant colors.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image features three distinct fruits: a red apple with a green leaf, a yellow banana with brown spots, and an orange with a green leaf, all set against a plain white background. The apple is located on the left, the banana is centrally placed, and the orange is situated to the right. Each fruit is illustrated in a simple, cartoon-like style with bold outlines and solid colors.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "What objects or subjects can you identify in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": " In the image, there are three distinct objects: a red apple, a yellow banana, and an orange. These items are presented against a plain background, which helps to highlight their vibrant colors and simple shapes.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Count the objects in the image. List each type of object with its count.",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": " Apple, banana, orange<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "What are the main colors present in the image?",
+        "tags": [
+          "colors"
+        ]
+      },
+      "output": " The main colors present in the image are red, yellow, green, and orange. There are two apples, one red and one yellow, along with a yellow banana and an orange.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the color of each object in the image?",
+        "tags": [
+          "colors",
+          "objects"
+        ]
+      },
+      "output": " The red apple has a vibrant red hue with a slight gradient, giving it a three-dimensional appearance. The banana is a bright yellow, typical of ripe bananas, and the orange has a warm, orange color with some subtle shading to indicate its round shape.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the position of each object in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": " In the image, the red apple is located on the left, the banana is in the center, and the orange is on the right.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image shows a cityscape with a prominent high-rise building in the center. This building is tall and has a modern architectural design, featuring numerous balconies and large windows. It is surrounded by a spacious plaza with some trees and greenery, and there are other buildings in the background, including a smaller high-rise to the right. The sky is partly cloudy, and the overall atmosphere is calm and serene.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image depicts a cityscape with a prominent high-rise building in the foreground, characterized by its numerous balconies and a mix of light and dark green glass. Surrounding this building are several other structures, including a smaller building to the left and a taller building in the background. The scene is set against a backdrop of a clear sky with scattered clouds, and there is a hint of greenery at the bottom of the frame, suggesting a park or garden area.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What objects or subjects can you identify in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": " In the image, I can identify several key objects and subjects. There is a tall, modern residential building that dominates the center of the image. To its right, there is a shorter building with a more traditional architectural style. In the foreground, there are several smaller buildings, possibly part of an urban complex. Additionally, there are numerous trees scattered throughout the area, which add a touch of greenery to the urban landscape.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Count the objects in the image. List each type of object with its count.",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": " There are 16 objects in the image, consisting of 12 high-rise buildings, 16 trees, 10 roads, and 1 car.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the position of each object in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": " The tall white building dominates the center of the image, with the smaller buildings to its sides and the trees in the foreground creating a balanced composition.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the scene in this image.",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": " The image depicts a cityscape with a prominent high-rise residential building in the center, surrounded by smaller buildings and greenery. The sky is partly cloudy, and the overall atmosphere appears calm and orderly.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What is the main subject of this photograph?",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": " The main subject of this photograph is a prominent high-rise building that stands out due to its size and architectural design. It is surrounded by other smaller buildings and greenery, creating a balanced urban landscape.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/checkerboard_pattern.png",
+        "tags": [
+          "general",
+          "pattern",
+          "general"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image displays a classic 8x8 chessboard with alternating light and dark squares. The light squares are a vivid white, while the dark squares are a deep black. This pattern is consistent throughout the board, creating a visually striking contrast that is typical of a chessboard. The arrangement of the squares follows a standard 8x8 grid, with each square occupying an equal amount of space, both horizontally and vertically, contributing to the board's symmetrical appearance.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/checkerboard_pattern.png",
+        "tags": [
+          "general",
+          "pattern",
+          "general"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image depicts a chessboard with a classic 8x8 grid layout. The grid is composed of alternating light and dark squares, arranged in a checkerboard pattern. Starting from the top left corner and moving diagonally right to left, the first row consists of light squares (white), followed by a second row of dark squares (black), then another second row of light squares, and so on. This alternating pattern continues throughout the grid, with each subsequent row alternating between light and dark squares. The entire grid is divided into 64 squares, making it a 64-square grid.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_1.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image is a pie chart titled 'Access to Irrigated vs. Non-Irrigated Land'. The chart is divided into two sections, with the left side colored green representing 'Irrigated Land' and the right side colored orange representing 'Non-Irrigated Land'. The chart is a visual representation of the distribution of land distribution between irrigation and non-irrigated areas.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_1.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image depicts a pie chart titled \"Access to Irrigated vs. Non-Irrigated Land.\" The chart is divided into two sections, with the larger section colored green representing \"Irrigated Land\" and the smaller section colored orange representing \"Non-Irrigated Land.\" The chart is labeled with the title at the top and includes a legend at the bottom, which identifies the green and orange sections.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_1.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the data shown in this chart in detail.",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": " This is a pie chart titled Access to Irrigated vs. Non-Irrigated Land. The x-axis shows Land Distribution with two categories: Irrigated Land and Non-Irrigated Land. The y-axis shows Land Distribution. The chart shows that 10% of land is irrigation land and 90% is non-irrigated land.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_1.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "What trends can you identify in this visualization?",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": " The visualization presents a clear trend of 'Non-Irrigated Land' being a dominant category in the area chart. The 'Irrigated Land' segment is significantly smaller in comparison, indicating that the majority of the land area is non-irrigated. This suggests a possible trend of increasing irrigation in land areas or a focus on non-irrigated land management.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_2.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image presents a bar chart titled \"HVAC Maintenance Requests Per Month.\" The chart is designed to provide an overview of the maintenance requests for heating, ventilation, and air conditioning (HVAC) systems each month. The x-axis represents the months, starting from January and ending at December. The y-axis indicates the number of requests, ranging from 0 to 80. Each bar corresponds to a specific month, showing the number of requests made during that month. The highest number of requests is in July, while the lowest is in January. The chart is visually clean and straightforward, making it easy to compare the number of requests across different months.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_2.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image is a bar chart titled \"HVAC Maintenance Requests per Month.\" The chart is a visual representation of the number of HVAC maintenance requests made per month, with the x-axis labeled \"Last Year Overview\" and the y-axis labeled \"Last Year Overview\" with numerical values ranging from 0 to 80. The chart is divided into months from January to December. Each bar represents the number of HVAC maintenance requests made in a specific month. The bars are uniformly colored in blue, and the chart is set against a light blue background. The title of the chart is written in bold, black text at the top. The chart does not provide specific values for each bar, but the height of each bar indicates the number of requests made in that month.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_2.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the data shown in this chart in detail.",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": " Here a is a bar chart titled HVAC Maintenance Requests per Month. The x-axis shows Last Year Overview while the y-axis plots Jan on a scale from 0 to 80. The highest number of HVAC maintenance requests were in July and August. The lowest number of requests were in January and February.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_2.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "prompt": {
+        "text": "What trends can you identify in this visualization?",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": " The visualization presents a trend of increasing HVAC maintenance requests per month from January to December. Additionally, there is peaks in specific months, with the highest request during July and the lowest during January.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image features a fluffy white dog with pointy ears and a happy expression, sitting on a green grassy field. The background is out of focus, emphasizing the dog as the main subject.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image features a small, fluffy white dog sitting on a lush, green grassy field. The dog has a joyful expression, with its mouth open and tongue slightly out, suggesting it might be panting or smiling. The dog's ears are perked up, and its eyes are bright and alert. The background is blurred, focusing attention on the dog. The overall scene conveys a sense of happiness and relaxation, typical of a day spent outdoors in a park or garden.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What objects or subjects can you identify in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": " The image prominently features a small, fluffy white dog with pointy ears and a happy expression. The dog is sitting on a well-maintained, vibrant green lawn. The background is blurred, focusing attention on the dog.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Count the objects in the image. List each type of object with its count.",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": " There is one dog in the image.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the position of each object in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": " The small white dog is sitting on the grass, the paws are on the ground, and the tail is on the back. The grass covers the entire ground in the image.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the scene in this image.",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": " The image captures a delightful moment of a small white dog with fluffy fur sitting on a lush green lawn. The dog's bright, curious eyes and open mouth, revealing a pink tongue, suggest it might be panting or excited. The background is out of focus, emphasizing the dog as the central subject. The overall scene evokes a sense of joy and playfulness.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What is the main subject of this photograph?",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": " The main subject of the photograph is a small, fluffy white dog with pointy ears and a happy expression, sitting on a grassy field.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/line_chart.png",
+        "tags": [
+          "general",
+          "chart",
+          "statistics",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image displays a line graph titled 'Oil Prices Jump' with a time series from January 2025 to June 12, indicating the fluctuations in the price of oil over this period. The graph shows a sharp increase in oil prices, peaking at $80 a barrel in February 2025, followed by a steep and frequent decline, reaching a low near $55 in May 2025.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/line_chart.png",
+        "tags": [
+          "general",
+          "chart",
+          "statistics",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image displays a line graph titled \"Oil Prices Jump\" with a time series from January 2025 to June 2025. The graph shows a sharp increase in oil prices, reaching a peak of approximately $80 a barrel in February 2025, followed by a steep decline to around $55 by June 2025. The text below the graph explains that U.S. crude oil prices have risen by more than 8% to trade above $73 a barrel, making it the highest price since February.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/line_chart.png",
+        "tags": [
+          "general",
+          "chart",
+          "statistics",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the data shown in this chart in detail.",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": " This line graph displays the average annual oil prices from 2012 to 2017, in U.S. dollars per barrel, with a time series from January 2012 to June 2013. The price of oil rose to approximately 75 U.S. dollars per barrel in January 2012.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/line_chart.png",
+        "tags": [
+          "general",
+          "chart",
+          "statistics",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "What trends can you identify in this visualization?",
+        "tags": [
+          "chart",
+          "statistics"
+        ]
+      },
+      "output": " The visualization shows a sharp increase in oil prices from $55 to $70 a barrel between January 2020 and February 2020. This suggests that there has been a significant rise in the cost of oil during this period. Additionally, the graph indicates that the price of oil rose by more than 8% over a two-month period, which is the highest price since February 2018.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/line_chart.png",
+        "tags": [
+          "general",
+          "chart",
+          "statistics",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": " The graph shows the price of oil prices in the United States from January 2015 to June 2012, with a forecast up to and including June 2016. The price of oil is more than 8 percent higher than it was in February 2015.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/logo1.png",
+        "tags": [
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image displays a shield that is divided into four quadrants. The top left and bottom right quadrants are blue, while the top right and bottom left quadrants are white. At the center top of the shield, there is an open book with pages that are white and black. Above the book, there is a red circle with a white crescent moon inside it. Below the book, there is a red dragon with blue wings and yellow claws.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/logo1.png",
+        "tags": [
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image depicts a heraldic shield that is divided into four quadrants. The top left and bottom right quadrants are blue, while the top right and bottom left quadrants are white. In the center of the shield, there is a red dragon with blue accents, positioned over a white book with black lines, which is open and placed horizontally. Above the book, there is a white crescent moon. The overall design is symmetrical and has a medieval or heraldic aesthetic.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/logo1.png",
+        "tags": [
+          "general",
+          "colors"
+        ]
+      },
+      "prompt": {
+        "text": "What are the main colors present in the image?",
+        "tags": [
+          "colors"
+        ]
+      },
+      "output": " The main colors present in the image are red, white, blue, and yellow.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/math_draft1.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": " Exercise 9.  Dark blue text generated with the ML-Minence font, displayed on a grid page.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/math_draft1.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What is the title of the document shown in the image?",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": " The title of the document is \"Figure 9. Dark blue text generated with the ML-Minence font displayed on a grid page.\"<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/math_draft1.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What mathematical expressions or equations are present in the image?",
+        "tags": [
+          "math",
+          "ocr"
+        ]
+      },
+      "output": " The image contains a series of mathematical expressions, specifically a set of equations related to a geometric sequence. These equations are: x - x^2 = x^3, x^4 - x^5 = x^6, x^6 - x^7 = x^8, and x^8 - x^9 = x^1 = 0. These equations represent a geometric progression where each term after the first is multiplied by a constant, and the last term is the base of the next sequence.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/math_draft1.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Solve the mathematical problem shown in the image.",
+        "tags": [
+          "math",
+          "ocr"
+        ]
+      },
+      "output": " Step 9: Dark blue text generated with the ML-Minute font displayed on a grid page.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/mri_human_brain.png",
+        "tags": [
+          "general",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image is a composite of two brain scans, each presented in a different color to highlight differences. The top row shows a scan in grayscale, while the bottom row uses color to enhance the visibility of specific features. Both scans are presented in a lateral view, showing the brain from the left side. The scans are annotated with labels indicating the type of brain imaging used, the type of scan (FA25 or Synthesized FLASH25), and the duration of the scan (125 hours for FA25 and 100 hours for Synthesized FLASH25).<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/mri_human_brain.png",
+        "tags": [
+          "general",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image is a composite of two brain scans, each presented in a monochromatic color scheme. The scans are arranged vertically, one above the other, with the top scan labeled \"Acquired FA25\u00b0\" and the bottom scan labeled \"Synthesized FLASH25\u00b0\". Each scan is marked with \"100 hours\" at the bottom, indicating the duration of the imaging process.\n\n### Top Scan Description:\n- **Orientation**: The scan is presented in a axial view, showing a horizontal cross-section of the brain.\n- **Color**: The image is in grayscale, with varying shades of gray indicating different tissue densities.\n- **Tissue Density**: The darker areas represent denser regions, while the lighter areas represent less dense regions.\n- **Lesion**: There is a noticeable lesion in the top right quadrant of the brain, characterized by a bright, irregular shape. This area is distinct from the surrounding brain tissue, which appears normal in appearance.\n\n### Bottom Scan Description:\n- **Orientation**: Similar to the top scan, this is also an axial view of the brain.\n- **Color**: The image is in grayscale, with varying shades of gray indicating different tissue densities.\n- **Tissue Density**: The darker areas represent denser regions, while the lighter areas represent less dense regions.\n- **Lesion**: There is a noticeable lesion in the bottom right quadrant of the brain, similar in appearance to the one in the top right quadrant. The lesion is also bright, indicating a"
+    },
+    {
+      "image": {
+        "path": "assets/mri_human_brain.png",
+        "tags": [
+          "general",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": " Acquired FA25* (*100 hours) Synthesized FLASH25 **100 hours)<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/olmOcrDocuments_1.jpg",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": " 76 CALORIFIC VALUE closed by means of screw plugs. Through the centre of the cover there passes a platform wire which is inscribed from the cover itself and reaches to about the centre of the bench. A platform takes to which is attached a small platform encrusted with wire. The wire is also suspended from the lower surface of the lid and this and the wire both serve little books to which the Ignition wire is attached. The Ignition is caused by means of an iron or thin platinum wire embedded in the seal, and which can be treated to redness or fixed by the short passage of an electric current from an iron or thin platinum wire embedded in the seal. The determination is made as follows: A piece of iron wire of appropriate diameter is weighed, made into a little acid, and incorporated in about one gram of coal by compressing the two in a small biquoting press. The whole is weighed and the weight of the coal found by difference. The biquoting press is then placed in the platinum crucible and the ends of the iron wire connected with the platinum terminals. The cover is screwed lightly to the bank, which is then filled with oxygen at about twenty-five atmosphere pressure. The whole is placed in a nickel-plated iron container which is about 5000 grams of water at room temperature. This vessel contains the biquoting pressure. The cover is screwed lightly to the bank, which is then filled with oxygen at about twenty-five atmosphere"
+    },
+    {
+      "image": {
+        "path": "assets/olmOcrDocuments_1.jpg",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "prompt": {
+        "text": "What is the title of the document shown in the image?",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": " The title of the document is \"Calorific Value.\"<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/physics2.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": " The figure shows a setup for a experiment involving the production of high-energy particles. By using a second magnetic field, a target voltage of 1.23 V is generated. The particles produced have a mass of 2 x 10^-21 cm^3 and an energy of 21 cm^2, which is above the initial target. The results indicate that the particles produced are from the production of two different bands. The first band has a mass of 1.5 eV, while the second band has a mass of 0.65 eV. By comparing the mass of the particles produced, it can be inferred that the two bands are not identical, with the mass difference being 1.5 eV. The particles produced in the two bands have different energies, with the first band producing particles at an energy of 21 cm^2 and the second band producing particles at an energy of 21 cm^2.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/physics2.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What is the title of the document shown in the image?",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": " The title of the document is not explicitly provided in the image. However, it seems to be related to the electrical circuit and voltage calculations, as mentioned in the equations and comments.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/physics2.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What mathematical expressions or equations are present in the image?",
+        "tags": [
+          "math",
+          "ocr"
+        ]
+      },
+      "output": " The image contains the mathematical expression \\( n(g = 2 x 10^{21} c m ^3 e ^ {1} ) \\), which appears to be a complex equation involving a sum of products of powers of \\( g \\) and \\( x \\), and a constant factor.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/physics2.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Solve the mathematical problem shown in the image.",
+        "tags": [
+          "math",
+          "ocr"
+        ]
+      },
+      "output": " The diagram shows a pair of waves with different frequencies. The wave with a frequency of 1.23 is traveling from a source towards the right, while the wave with a frequency of 1.11 is traveling from the source towards the left. The distance between the two waves is given as 1.23 - 1.11 = 0.02. By adjusting the wave numbers, we can determine the distance between the two waves.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_1.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image shows a piece of paper with text on it. The text reads: 'And that they will begin recording their next album in August 2016. On January 1.'<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_1.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image shows a piece of paper with handwritten text. The text reads: \"And that they will begin recording their next album in August 2016. On January 1.\"<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_1.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": " and that they will begin recording their next album in August 2016. On January 1<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_1.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What is the title of the document shown in the image?",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": " The title of the document is \"And that they will begin recording their next album in August 2016. On January 1\".<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_2.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image shows a piece of paper with handwritten text on it. The text reads: 'Our current house is starting to feel a little cramped. I see.' The paper is placed on a tiled floor, and the lighting suggests it might be in a dimly lit area. The shadows on the paper indicate a light source from the upper left.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_2.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image shows a handwritten note on a piece of paper placed on a tiled floor. The note reads: \"Our current house is starting to feel a little cramped. I see.\"<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_2.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "Extract and transcribe the text from this document.",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": " our current house is starting to feel a little cramped. I see.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_2.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "prompt": {
+        "text": "What is the title of the document shown in the image?",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "output": " The title of the document is \"Our Current House is Starting to Feel a Little Cramped.\"<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image shows a well-lit, cozy living room with wooden flooring and a variety of furniture and decor. There is a flat-screen TV on a wooden stand, a large window with white frames allowing natural light to enter, and a dining area with a table and chairs. A woman in a black dress is standing by the counter, possibly preparing something. The kitchen area has yellow cabinets, a refrigerator, and a microwave. There is also a basket with a pink flower and a yellow vase on a table. The ceiling has hanging light fixtures, and there is a white radiator cover below the windows.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image depicts a well-lit, spacious living room with a warm and inviting ambiance. The room features a polished wooden floor that reflects the natural light coming through the large windows on the right side. The walls are painted in a soft peach tone, complementing the overall warm and cozy atmosphere. \n\nOn the left side of the image, there is a large flat-screen TV mounted on the wall. Below the TV, there is a white entertainment unit that houses various electronic devices, including a DVD player and possibly a gaming console. Adjacent to the TV, there is a small table with a vase holding a single flower, adding a touch of elegance to the room.\n\nIn the middle of the room, there is a dining area with a wooden table and four chairs. The table is set with a few decorative items, including a vase with flowers and a couple of candles, suggesting that the space is used for dining and socializing. The chairs are arranged around the table, indicating a comfortable seating arrangement for dining or conversation.\n\nTo the right of the dining area, there is a kitchen with a countertop and a sink. The kitchen has a modern design with stainless steel appliances and a black backsplash. A woman is standing at the kitchen counter, seemingly engaged in some activity, possibly preparing food or cleaning. The kitchen also features a refrigerator, an oven, and a microwave, all of which are neatly arranged and contribute to the overall functionality of the space.\n\nThe ceiling is equipped with recessed lighting"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What objects or subjects can you identify in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": " In the image, I can identify several objects and subjects, including:\n1. A television set on a stand.\n2. A fireplace with a white mantle.\n3. A dining table with chairs around it.\n4. A woman standing at the kitchen counter.\n5. A woman in a black dress standing at the kitchen counter.\n6. A woman in a black dress standing at the kitchen counter.\n7. A woman in a black dress standing at the kitchen counter.\n8. A woman in a black dress standing at the kitchen counter.\n9. A woman in a black dress standing at the kitchen counter.\n10. A woman in a black dress standing at the kitchen counter.\n11. A woman in a black dress standing at the kitchen counter.\n12. A woman in a black dress standing at the kitchen counter.\n13. A woman in a black dress standing at the kitchen counter.\n14. A woman in a black dress standing at the kitchen counter.\n15. A woman in a black dress standing at the kitchen counter.\n16. A woman in a black dress standing at the kitchen counter.\n17. A woman in a black dress standing at the kitchen counter.\n18. A woman in a black dress standing at the kitchen counter.\n19. A woman in a black dress standing at the kitchen counter.\n20. A woman in a black dress standing at the kitchen counter.\n21. A woman in a black dress standing at the kitchen"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Count the objects in the image. List each type of object with its count.",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": " There are 16 objects in total: 1 television, 1 fireplace, 1 dining table with 4 chairs, 1 woman standing at the sink, 1 clock on the wall, 1 vase on the table, 1 basket on the floor, 1 rug on the floor, 1 ceiling light, and 1 window.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the position of each object in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": " A flat screen TV is on the left, a dining table with chairs is in the center, a woman is standing at the counter on the right, and a basket with a flower is on a table in the foreground.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the scene in this image.",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": " The image depicts a cozy and well-lit living room with a dining area. There is a flat-screen TV on a stand, a fireplace with a mantel, and a dining table with chairs. The room has large windows, allowing natural light to fill the space. A woman is standing by the counter, possibly preparing something. The walls are painted in a warm yellow tone, and there are decorative elements like a framed picture and a hanging light fixture. The floor is wooden, adding to the room's rustic charm.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What is the main subject of this photograph?",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": " The main subject of the photograph is a well-lit, modern living room with a dining area and a kitchen.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image shows a group of elephants, with a prominent young elephant in the foreground. The young elephant is facing the camera, displaying its large ears, long trunk, and small tusks. The background includes a body of water, some greenery, and a partly cloudy sky. The ground is a reddish-brown dirt, indicative of a natural habitat.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe what you see in the image in detail",
+        "tags": [
+          "general"
+        ]
+      },
+      "output": " The image depicts a group of elephants in a natural setting. The primary elephant in the foreground is facing the camera, with its trunk extended towards the viewer. This elephant has large, floppy ears and a wrinkled, grayish-brown skin, typical of African elephants. The eyes are open, and the expression seems calm. The background shows more elephants, partially obscured by the primary elephant and the angle of the shot. These elephants are also covered in similar skin texture and coloration, suggesting they are part of the same group. The environment appears to be a savanna or a similar habitat, with a body of water visible in the background, and some greenery indicating the presence of trees or bushes. The sky is partly cloudy, suggesting a day with mixed weather conditions.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What objects or subjects can you identify in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": " In the image, I can identify elephants, a body of water, and some vegetation. The elephants appear to be in a natural habitat, possibly a savannah or a forested area near a water source.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Count the objects in the image. List each type of object with its count.",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": " There are three elephants in the image.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the position of each object in the image?",
+        "tags": [
+          "objects"
+        ]
+      },
+      "output": " The baby elephant is in the foreground, facing the camera. The adult elephant is in the background, partially obscured by the baby, and appears to be walking away. The river and greenery are behind the elephants, and the sky is visible above.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "Describe the scene in this image.",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": " The image depicts a group of elephants, likely in a natural habitat such as a savanna or a protected area. The prominent elephant in the foreground is looking directly at the camera, with its large ears and trunk clearly visible. The background includes a body of water, some greenery, and a partly cloudy sky, creating a serene and natural setting.<|extra_204|>"
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "prompt": {
+        "text": "What is the main subject of this photograph?",
+        "tags": [
+          "natural_image"
+        ]
+      },
+      "output": " The main subject of this photograph is a young elephant, captured in close-up. Its large ears and expressive eyes are particularly striking features.<|extra_204|>"
+    }
+  ]
+}

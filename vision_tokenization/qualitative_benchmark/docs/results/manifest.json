@@ -1,0 +1,6 @@
+{
+  "experiments": [
+    {"file": "qa_emu3_baseline.json", "name": "QA - Emu3 Baseline"},
+    {"file": "qa_apertus8b_emu3_5_s2_onlytxt_sft.json", "name": "QA - Apertus 8B Emu3.5 S2 OnlyTxt SFT"}
+  ]
+}
