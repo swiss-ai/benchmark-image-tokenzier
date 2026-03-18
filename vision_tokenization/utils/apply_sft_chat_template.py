@@ -101,11 +101,13 @@ Example usage:
 import argparse
 import json
 import os
+import re
 from typing import Any, Dict
+
+from datasets import DatasetDict, load_dataset, load_dataset_builder, load_from_disk
 
 from transformers import AutoTokenizer
 
-from vision_tokenization.utils.dataset_loader import load_hf_dataset
 from vision_tokenization.vokenizers.conversation_policy import (
     ConversationPolicy,
     apply_conversation_policy,
@@ -164,6 +166,80 @@ def parse_configs(config_arg: str) -> list:
     # Otherwise treat as comma-separated list
     configs = [c.strip() for c in config_arg.split(",") if c.strip()]
     return configs
+
+
+def _parse_split_slice(split: str) -> tuple[str, int | None, int | None, bool, bool]:
+    """Parse split strings like train, train[:100], or train[10%:50%]."""
+    match = re.fullmatch(r"(\w+)(?:\[(\d*)(%)?:(\d*)(%)?])?", split)
+    if match is None:
+        return split, None, None, False, False
+
+    base_split = match.group(1)
+    start = int(match.group(2)) if match.group(2) else None
+    end = int(match.group(4)) if match.group(4) else None
+    start_is_pct = match.group(3) == "%"
+    end_is_pct = match.group(5) == "%"
+    return base_split, start, end, start_is_pct, end_is_pct
+
+
+def _convert_percentage_to_absolute(value: int | None, is_percentage: bool, total_size: int) -> int | None:
+    if value is None:
+        return None
+    if not is_percentage:
+        return value
+    return (value * total_size) // 100
+
+
+def load_hf_dataset(
+    dataset_name: str,
+    config_name: str | None = None,
+    split: str = "train",
+    cache_dir: str | None = None,
+    num_proc: int | None = None,
+    method: str = "default",
+):
+    """
+    Load a dataset for this script without the old general-purpose helper.
+
+    Supported methods:
+    - default: datasets.load_dataset(...)
+    - builder_load: load_dataset_builder(...).as_dataset(...)
+    - disk_load: datasets.load_from_disk(...)
+    """
+    if method == "default":
+        return load_dataset(
+            dataset_name,
+            name=config_name,
+            split=split,
+            cache_dir=cache_dir,
+            num_proc=num_proc,
+        )
+
+    if method == "builder_load":
+        builder = load_dataset_builder(dataset_name, name=config_name, cache_dir=cache_dir)
+        return builder.as_dataset(split=split)
+
+    if method != "disk_load":
+        raise ValueError(f"Invalid dataset load method: {method}")
+
+    base_split, start, end, start_is_pct, end_is_pct = _parse_split_slice(split)
+    dataset = load_from_disk(dataset_name)
+
+    if isinstance(dataset, DatasetDict):
+        if base_split not in dataset:
+            available = ", ".join(dataset.keys())
+            raise ValueError(f"Split '{base_split}' not found in dataset at '{dataset_name}'. Available: {available}")
+        dataset = dataset[base_split]
+
+    if start is None and end is None:
+        return dataset
+
+    total_size = len(dataset)
+    abs_start = _convert_percentage_to_absolute(start, start_is_pct, total_size)
+    abs_end = _convert_percentage_to_absolute(end, end_is_pct, total_size)
+    abs_start = 0 if abs_start is None else abs_start
+    abs_end = total_size if abs_end is None else abs_end
+    return dataset.select(range(abs_start, abs_end))
 
 
 def print_debug(raw, transformed, formatted, idx):

@@ -170,17 +170,17 @@ scan_wds_dataset(
 </details>
 
 <details>
-<summary><b>HuggingFace example</b> — header-only dimension extraction, parallel with Dataset.map</summary>
+<summary><b>HuggingFace example</b> — shard-parallel header-only dimension extraction</summary>
 
 ```bash
 python -c "
 from vision_tokenization.indexing import scan_hf_dataset
 scan_hf_dataset(
-    dataset_name='HuggingFaceM4/FineVision',
+    input_pattern='/data/hf/train-*.parquet',  # or /data/hf/*.arrow
     output_manifest='manifest.parquet',
     image_column='image',
     image_list_column='images',  # optional: for multi-image datasets
-    num_workers=8,               # parallel Dataset.map workers
+    num_workers=8,
 )
 "
 ```
@@ -355,16 +355,25 @@ flowchart TD
 
     CreateTok["Create tokenizer on GPU<br/>create_tokenizer(mode, ...)"]
     CreateTok --> Setup["handler.setup_writer()<br/>create_loader() + augmenter"]
-    Setup --> StartPrefetch["Start BatchPrefetcher<br/>(daemon thread, queue_size=2)"]
+    Setup --> StartPrefetch["Start BatchPrefetcher<br/>(dispatcher thread + ThreadPoolExecutor)"]
     StartPrefetch --> LoopStart
 
-    subgraph PrefetchThread["Prefetch Thread (background)"]
+    subgraph PrefetchThread["Prefetch (background)"]
         direction TB
-        PF_Load["loader.load_batch(N+1)"] --> PF_Aug["augmenter.augment_batch(N+1)"]
-        PF_Aug --> PF_Queue["queue.put(images, texts,<br/>load_s, augment_s)"]
+        DISPATCH["Dispatcher thread<br/>pool.map(load_one, batches)"]
+
+        subgraph Pool["ThreadPoolExecutor (num_workers=3)"]
+            direction LR
+            W1["Worker 1<br/>load + augment"]
+            W2["Worker 2<br/>load + augment"]
+            W3["Worker 3<br/>load + augment"]
+        end
+
+        DISPATCH --> Pool
+        Pool --> PF_Queue["queue.put(result)<br/>in order"]
     end
 
-    subgraph MainLoop["Main Thread Loop"]
+    subgraph MainLoop["Main Thread (GPU)"]
         LoopStart{"queue.get()"} --> Process["handler.process_batch()<br/>(GPU tokenize + write)"]
         Process --> WandB["wandb.log(timing/*)<br/>(rate-limited)"]
         WandB --> ChkPt{"checkpoint<br/>interval?"}
@@ -373,7 +382,7 @@ flowchart TD
         DoChkPt --> LoopStart
     end
 
-    PF_Queue -.->|"Queue(maxsize=2)"| LoopStart
+    PF_Queue -.->|"Queue(maxsize=4)"| LoopStart
 
     Process -.->|"on error"| ErrHandle["stats.errors++<br/>CUDA OOM -> empty cache"]
     ErrHandle -.->|"< max"| LoopStart
@@ -686,10 +695,19 @@ classDiagram
         +write_sequence(seq_cpu, stats)
     }
 
+    class SplitMicroShardWriter {
+        -_threshold: int
+        -_stage2: MicroShardWriter
+        -_lct: MicroShardWriter
+        +write_sequence(seq_cpu, stats)
+        +checkpoint_writer() Tuple
+    }
+
     TokenizationHandler --> MicroShardWriter : uses
+    SplitMicroShardWriter *-- MicroShardWriter : stage2 + lct
 ```
 
-`TokenizationHandler` is tokenizer-agnostic — it calls `tokenizer.tokenize_batch()` and writes results via `MicroShardWriter`. Any tokenizer implementing `BaseTokenizer.tokenize_batch()` works.
+`TokenizationHandler` is tokenizer-agnostic — it calls `tokenizer.tokenize_batch()` and writes results via `MicroShardWriter` (or `SplitMicroShardWriter` when `seqlen_threshold` is set, routing short sequences to `stage2/` and long ones to `lct/`).
 
 ---
 
@@ -722,7 +740,7 @@ configs/
 
 | Key | Description | Default |
 |-----|-------------|---------|
-| `mode` | `image_only`, `sft`, `image2text`, or `text2image` | `image_only` |
+| `mode` | `image_only`, `sft`, `image2text`, or `text2image` | required |
 | `tokenizer.path` | Path to omni-tokenizer (vision tokenizer auto-loaded from config) | required |
 | `tokenizer.min_pixels` | Minimum pixels for image preprocessing | `"128*128"` |
 | `tokenizer.max_pixels` | Maximum pixels for image preprocessing | `"1400*1400"` |
@@ -740,7 +758,7 @@ configs/
 | `dataset_type` | `wds` (WebDataset tars) or `hf` (HuggingFace Arrow) |
 | `output_name` | Name for output subdirectory |
 | `manifest_path` | Path to Parquet manifest |
-| `arrow_dir` | Path to HF arrow/parquet files (HF only) |
+| `input_pattern` | File, glob, braceexpand pattern, or directory for HF arrow/parquet shards (HF only) |
 | `image_column` / `text_column` | Column names in the dataset |
 | `max_batch_tokens` | Token budget per batch (required) |
 | `batch_size` | Max samples per batch (required, acts as sample cap) |
@@ -753,42 +771,34 @@ configs/
 ## 14. CLI Usage
 
 ```bash
-# Single node, 4 GPUs (torchrun)
-CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 \
-    -m vision_tokenization.tokenize \
-    dataset=image_only/my_dataset num_gpus=4 \
-    output_dir=/output/path tokenizer.path=/path/to/omni-tokenizer
+# Single node, 4 GPUs (srun — each task is one independent rank)
+srun --ntasks-per-node=4 --gpus-per-node=4 \
+    python -m vision_tokenization.tokenize \
+    mode=image2text dataset=pmc_oa num_gpus=4
 ```
 
 <details>
 <summary><b>More launch examples</b></summary>
 
 ```bash
-# Single node, 4 GPUs (srun)
-srun --ntasks-per-node=4 --gpus-per-node=4 \
-    python -m vision_tokenization.tokenize \
-    dataset=image_only/my_dataset num_gpus=4 \
-    output_dir=/output/path tokenizer.path=/path/to/omni-tokenizer
-
 # Multi-node (4 nodes x 4 GPUs = 16 GPUs)
 srun --nodes=4 --ntasks-per-node=4 --gpus-per-node=4 \
     python -m vision_tokenization.tokenize \
-    dataset=sft/llava_onevision_sft num_gpus=16 \
-    output_dir=/output/path tokenizer.path=/path/to/omni-tokenizer
+    mode=sft dataset=llava_onevision_sft num_gpus=16
 
 # Resume from checkpoint
-CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 \
-    -m vision_tokenization.tokenize \
-    dataset=image_only/my_dataset num_gpus=4 resume=true
+srun --ntasks-per-node=4 --gpus-per-node=4 \
+    python -m vision_tokenization.tokenize \
+    mode=image2text dataset=pmc_oa num_gpus=4 resume=true
 
 # Dry run (estimate tokens, no GPU needed)
 python -m vision_tokenization.tokenize \
-    dataset=image_only/my_dataset dry_run=true
+    mode=image_only dataset=my_dataset num_gpus=1 dry_run=true
 
 # Override any config field from CLI
-CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 \
-    -m vision_tokenization.tokenize \
-    dataset=sft/llava_sft num_gpus=8 \
+srun --ntasks-per-node=4 --gpus-per-node=4 \
+    python -m vision_tokenization.tokenize \
+    mode=sft dataset=llava_sft num_gpus=4 \
     dataset.max_batch_tokens=25600 \
     dataset.checkpoint_interval_batches=200
 ```
@@ -812,7 +822,7 @@ vision_tokenization/
 |   +-- manifest.py                      # Parquet schema + I/O helpers
 |   +-- reader.py                        # TarRandomAccessReader (LRU cache)
 |   +-- clustered_batch_planner.py       # k-means -> BatchPlan
-|   +-- _scan_worker.py                  # Parallel tar scanning logic
+|   +-- _scan_wds_worker.py              # Parallel tar scanning logic
 |
 +-- pipelines/distributed/               # torch.distributed pipeline
 |   +-- __init__.py                      # run_distributed_pipeline()
@@ -872,4 +882,4 @@ See [`profile/README.md`](./profile/README.md) for Emu3.5 VQ encoder profiling r
 
 - [ ] **URL-based robots.txt filtering in manifest** — filter out samples whose source URLs are disallowed by robots.txt during manifest creation
 - [ ] **SFT conversation parsing** — improve conversation format detection and normalization to handle more edge cases and structured content
-- [ ] **Sequence-length-based split writing** — split output micro-shards by sequence length so longer sequences can be reserved for long-context training phases
+- [x] **Sequence-length-based split writing** — `SplitMicroShardWriter` routes sequences to `stage2/` or `lct/` based on `seqlen_threshold`

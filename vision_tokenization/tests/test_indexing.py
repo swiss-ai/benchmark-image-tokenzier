@@ -6,22 +6,29 @@ import tarfile
 import tempfile
 
 import numpy as np
+import pyarrow as pa
+import pyarrow.ipc as ipc
 import pyarrow.parquet as pq
 import pytest
 from PIL import Image
 
-from vision_tokenization.indexing._scan_worker import scan_single_tar
+from vision_tokenization.indexing._scan_wds_worker import scan_single_tar
 from vision_tokenization.indexing.clustered_batch_planner import (
     BatchPlan,
     plan_clustered_batches,
 )
 from vision_tokenization.indexing.manifest import (
+    load_hf_manifest,
     load_resolution_arrays,
     load_wds_manifest,
     save_wds_manifest,
 )
+from vision_tokenization.indexing.scanner_hf import scan_hf_dataset
 from vision_tokenization.indexing.reader import TarRandomAccessReader
 from vision_tokenization.indexing.scanner_wds import scan_wds_dataset
+from vision_tokenization.pipelines.distributed.data import HFImageLoader
+from vision_tokenization.pipelines.distributed.dry_run import dry_run_batch_plan
+from vision_tokenization.utils.image_geometry import estimate_image_tokens, smart_resize_dims
 
 
 # ---------------------------------------------------------------------------
@@ -58,6 +65,73 @@ def _create_tar(tar_path: str, samples: list):
                 tinfo = tarfile.TarInfo(name=f"{s['key']}.txt")
                 tinfo.size = len(txt)
                 tf.addfile(tinfo, io.BytesIO(txt))
+
+
+_HF_IMAGE_TYPE = pa.struct(
+    [
+        pa.field("bytes", pa.binary()),
+        pa.field("path", pa.string()),
+    ]
+)
+
+
+def _hf_image_cell(width: int, height: int) -> dict:
+    return {
+        "bytes": _image_bytes(_make_image(width, height)),
+        "path": None,
+    }
+
+
+def _write_hf_arrow_shard(
+    shard_path: str,
+    rows: list,
+    column_name: str = "image",
+    multi_image: bool = False,
+    batch_size: int | None = None,
+):
+    if multi_image:
+        array = pa.array(
+            [
+                [_hf_image_cell(width, height) for width, height in sample]
+                for sample in rows
+            ],
+            type=pa.list_(_HF_IMAGE_TYPE),
+        )
+    else:
+        array = pa.array(
+            [_hf_image_cell(width, height) for width, height in rows],
+            type=_HF_IMAGE_TYPE,
+        )
+
+    table = pa.table({column_name: array})
+    with pa.OSFile(shard_path, "wb") as sink:
+        with ipc.new_stream(sink, table.schema) as writer:
+            for batch in table.to_batches(max_chunksize=batch_size):
+                writer.write_batch(batch)
+
+
+def _write_hf_parquet_shard(
+    shard_path: str,
+    rows: list,
+    column_name: str = "image",
+    multi_image: bool = False,
+    row_group_size: int | None = None,
+):
+    if multi_image:
+        array = pa.array(
+            [
+                [_hf_image_cell(width, height) for width, height in sample]
+                for sample in rows
+            ],
+            type=pa.list_(_HF_IMAGE_TYPE),
+        )
+    else:
+        array = pa.array(
+            [_hf_image_cell(width, height) for width, height in rows],
+            type=_HF_IMAGE_TYPE,
+        )
+
+    pq.write_table(pa.table({column_name: array}), shard_path, row_group_size=row_group_size)
 
 
 # ======================================================================
@@ -231,6 +305,165 @@ class TestWDSScanner:
             )
 
         assert "only singleton groups" in caplog.text
+
+
+# ======================================================================
+# TestHFScanner
+# ======================================================================
+class TestHFScanner:
+
+    def test_scan_hf_arrow_single_image(self, tmp_path):
+        rows_a = [(32, 48), (64, 96)]
+        rows_b = [(20, 30)]
+        _write_hf_arrow_shard(str(tmp_path / "part_000.arrow"), rows_a)
+        _write_hf_arrow_shard(str(tmp_path / "part_001.arrow"), rows_b)
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        scan_hf_dataset(
+            input_pattern=str(tmp_path / "*.arrow"),
+            output_manifest=manifest_path,
+            num_workers=2,
+        )
+
+        table = load_hf_manifest(manifest_path)
+        assert table.column("sample_index").to_pylist() == [0, 1, 2]
+        assert table.column("width").to_pylist() == [32, 64, 20]
+        assert table.column("height").to_pylist() == [48, 96, 30]
+        assert table.column("chunk_index").to_pylist() == [0, 0, 0]
+        assert table.column("row_in_chunk").to_pylist() == [0, 1, 0]
+        assert table.column("shard_path").to_pylist() == [
+            str(tmp_path / "part_000.arrow"),
+            str(tmp_path / "part_000.arrow"),
+            str(tmp_path / "part_001.arrow"),
+        ]
+
+    def test_scan_hf_parquet_single_image(self, tmp_path):
+        rows_a = [(80, 40), (120, 60)]
+        rows_b = [(25, 35)]
+        _write_hf_parquet_shard(str(tmp_path / "part_000.parquet"), rows_a)
+        _write_hf_parquet_shard(str(tmp_path / "part_001.parquet"), rows_b)
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        scan_hf_dataset(
+            input_pattern=str(tmp_path / "*.parquet"),
+            output_manifest=manifest_path,
+            num_workers=2,
+        )
+
+        table = load_hf_manifest(manifest_path)
+        assert table.column("sample_index").to_pylist() == [0, 1, 2]
+        assert table.column("width").to_pylist() == [80, 120, 25]
+        assert table.column("height").to_pylist() == [40, 60, 35]
+        assert table.column("chunk_index").to_pylist() == [0, 0, 0]
+        assert table.column("row_in_chunk").to_pylist() == [0, 1, 0]
+        assert table.column("shard_path").to_pylist() == [
+            str(tmp_path / "part_000.parquet"),
+            str(tmp_path / "part_000.parquet"),
+            str(tmp_path / "part_001.parquet"),
+        ]
+
+    def test_scan_hf_parquet_skips_shards_missing_image_column(self, tmp_path, caplog):
+        (tmp_path / "good").mkdir()
+        (tmp_path / "bad").mkdir()
+        _write_hf_parquet_shard(
+            str(tmp_path / "good" / "part_000.parquet"),
+            [(80, 40), (120, 60)],
+        )
+        pq.write_table(
+            pa.table({"caption": pa.array(["a", "b"], type=pa.string())}),
+            str(tmp_path / "bad" / "part_001.parquet"),
+        )
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        with caplog.at_level("WARNING"):
+            scan_hf_dataset(
+                input_pattern=str(tmp_path),
+                output_manifest=manifest_path,
+                num_workers=2,
+            )
+
+        table = load_hf_manifest(manifest_path)
+        assert table.column("sample_index").to_pylist() == [0, 1]
+        assert table.column("width").to_pylist() == [80, 120]
+        assert table.column("height").to_pylist() == [40, 60]
+        assert "Skipping HF shard" in caplog.text
+        assert "missing column 'image'" in caplog.text
+
+    def test_scan_hf_arrow_multi_image(self, tmp_path):
+        rows_a = [
+            [(10, 20), (30, 40)],
+            [(50, 60)],
+        ]
+        rows_b = [
+            [(70, 80), (90, 100)],
+        ]
+        _write_hf_arrow_shard(
+            str(tmp_path / "part_000.arrow"),
+            rows_a,
+            column_name="images",
+            multi_image=True,
+        )
+        _write_hf_arrow_shard(
+            str(tmp_path / "part_001.arrow"),
+            rows_b,
+            column_name="images",
+            multi_image=True,
+        )
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        scan_hf_dataset(
+            input_pattern=str(tmp_path / "*.arrow"),
+            output_manifest=manifest_path,
+            image_list_column="images",
+            num_workers=2,
+        )
+
+        table = load_hf_manifest(manifest_path)
+        assert table.column("sample_index").to_pylist() == [0, 0, 1, 2, 2]
+        assert table.column("group_id").to_pylist() == [0, 0, 1, 2, 2]
+        assert table.column("image_index").to_pylist() == [0, 1, 0, 0, 1]
+        assert table.column("width").to_pylist() == [10, 30, 50, 70, 90]
+        assert table.column("height").to_pylist() == [20, 40, 60, 80, 100]
+        assert table.column("chunk_index").to_pylist() == [0, 0, 0, 0, 0]
+        assert table.column("row_in_chunk").to_pylist() == [0, 0, 1, 0, 0]
+
+    def test_scan_hf_parquet_multi_image(self, tmp_path):
+        rows_a = [
+            [(11, 21), (31, 41)],
+            [(51, 61)],
+        ]
+        rows_b = [
+            [(71, 81), (91, 101)],
+        ]
+        _write_hf_parquet_shard(
+            str(tmp_path / "part_000.parquet"),
+            rows_a,
+            column_name="images",
+            multi_image=True,
+        )
+        _write_hf_parquet_shard(
+            str(tmp_path / "part_001.parquet"),
+            rows_b,
+            column_name="images",
+            multi_image=True,
+        )
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        scan_hf_dataset(
+            input_pattern=str(tmp_path / "*.parquet"),
+            output_manifest=manifest_path,
+            image_list_column="images",
+            num_workers=2,
+        )
+
+        table = load_hf_manifest(manifest_path)
+        assert table.column("sample_index").to_pylist() == [0, 0, 1, 2, 2]
+        assert table.column("group_id").to_pylist() == [0, 0, 1, 2, 2]
+        assert table.column("image_index").to_pylist() == [0, 1, 0, 0, 1]
+        assert table.column("width").to_pylist() == [11, 31, 51, 71, 91]
+        assert table.column("height").to_pylist() == [21, 41, 61, 81, 101]
+        assert table.column("chunk_index").to_pylist() == [0, 0, 0, 0, 0]
+        assert table.column("row_in_chunk").to_pylist() == [0, 0, 1, 0, 0]
 
 
 # ======================================================================
@@ -437,6 +670,44 @@ class TestClusteredBatchPlanner:
         with pytest.raises(ValueError, match="multi_image=True but manifest has no group_id"):
             plan_clustered_batches(path, batch_size=4, max_batch_tokens=999999, multi_image=True)
 
+    def test_planner_uses_smart_resize_budget(self, tmp_path):
+        """Large page images should pack by post-smart-resize token counts."""
+        widths = np.array([2560] * 4)
+        heights = np.array([1440] * 4)
+        path = self._create_manifest(tmp_path, widths, heights)
+
+        plan = plan_clustered_batches(
+            path,
+            batch_size=8,
+            max_batch_tokens=25600,
+            resize_min_pixels=128 * 128,
+            resize_max_pixels=1400 * 1400,
+        )
+
+        assert [len(batch.sample_indices) for batch in plan.batches] == [3, 1]
+
+        expected_height, expected_width = smart_resize_dims(
+            1440,
+            2560,
+            min_pixels=128 * 128,
+            max_pixels=1400 * 1400,
+            factor=16,
+        )
+        assert plan.batches[0].resize_height == expected_height
+        assert plan.batches[0].resize_width == expected_width
+
+        per_image_tokens = estimate_image_tokens(
+            expected_height,
+            expected_width,
+            spatial_factor=16,
+        )
+        assert per_image_tokens * 3 <= 25600
+        assert per_image_tokens * 4 > 25600
+
+        dry_run = dry_run_batch_plan(plan, spatial_factor=16)
+        assert dry_run["total_batches"] == 2
+        assert dry_run["max_tokens_per_batch"] == per_image_tokens * 3
+
 
 # ======================================================================
 # TestEndToEnd
@@ -500,3 +771,127 @@ class TestEndToEnd:
                 for img, idx in zip(images, batch.sample_indices):
                     assert img is not None
                     assert img.size == (widths_col[idx], heights_col[idx])
+
+
+# ======================================================================
+# TestHFLoader
+# ======================================================================
+class TestHFLoader:
+
+    def test_parquet_loader_excludes_manifest_and_reads_row_groups(self, tmp_path):
+        rows_a = [(32, 48), (64, 96), (80, 120)]
+        rows_b = [(20, 30)]
+        _write_hf_parquet_shard(
+            str(tmp_path / "part_000.parquet"),
+            rows_a,
+            row_group_size=1,
+        )
+        _write_hf_parquet_shard(
+            str(tmp_path / "part_001.parquet"),
+            rows_b,
+            row_group_size=1,
+        )
+        pq.write_table(
+            pa.table(
+                {
+                    "sample_index": pa.array([0], type=pa.int64()),
+                    "width": pa.array([1], type=pa.int32()),
+                    "height": pa.array([1], type=pa.int32()),
+                }
+            ),
+            str(tmp_path / "manifest.parquet"),
+        )
+
+        loader = HFImageLoader(input_pattern=tmp_path)
+        images, _ = loader.load_batch(np.array([0, 2, 3], dtype=np.int64))
+        loader.close()
+
+        assert loader._total_rows == 4
+        assert [img.size for img in images] == [(32, 48), (80, 120), (20, 30)]
+
+    def test_arrow_loader_reads_across_record_batches(self, tmp_path):
+        rows = [(10, 20), (30, 40), (50, 60)]
+        _write_hf_arrow_shard(
+            str(tmp_path / "part_000.arrow"),
+            rows,
+            batch_size=1,
+        )
+
+        loader = HFImageLoader(input_pattern=str(tmp_path / "*.arrow"))
+        images, _ = loader.load_batch(np.array([0, 2], dtype=np.int64))
+        loader.close()
+
+        assert [img.size for img in images] == [(10, 20), (50, 60)]
+
+    def test_parquet_loader_uses_physical_manifest_coordinates(self, tmp_path):
+        rows_a = [(32, 48), (64, 96), (80, 120)]
+        rows_b = [(20, 30)]
+        _write_hf_parquet_shard(
+            str(tmp_path / "part_000.parquet"),
+            rows_a,
+            row_group_size=1,
+        )
+        _write_hf_parquet_shard(
+            str(tmp_path / "part_001.parquet"),
+            rows_b,
+            row_group_size=1,
+        )
+
+        manifest_path = str(tmp_path / "physical_manifest.parquet")
+        scan_hf_dataset(
+            input_pattern=str(tmp_path / "*.parquet"),
+            output_manifest=manifest_path,
+            num_workers=2,
+        )
+
+        loader = HFImageLoader(
+            input_pattern=str(tmp_path / "*.does_not_matter"),
+            manifest_path=manifest_path,
+        )
+        images, _ = loader.load_batch(np.array([0, 2, 3], dtype=np.int64))
+        loader.close()
+
+        assert loader._uses_physical_manifest is True
+        assert [img.size for img in images] == [(32, 48), (80, 120), (20, 30)]
+
+    def test_parquet_multi_image_loader_uses_physical_manifest_coordinates(self, tmp_path):
+        rows_a = [
+            [(11, 21), (31, 41)],
+            [(51, 61)],
+        ]
+        rows_b = [
+            [(71, 81), (91, 101)],
+        ]
+        _write_hf_parquet_shard(
+            str(tmp_path / "part_000.parquet"),
+            rows_a,
+            column_name="images",
+            multi_image=True,
+            row_group_size=1,
+        )
+        _write_hf_parquet_shard(
+            str(tmp_path / "part_001.parquet"),
+            rows_b,
+            column_name="images",
+            multi_image=True,
+            row_group_size=1,
+        )
+
+        manifest_path = str(tmp_path / "physical_multi_manifest.parquet")
+        scan_hf_dataset(
+            input_pattern=str(tmp_path / "*.parquet"),
+            output_manifest=manifest_path,
+            image_list_column="images",
+            num_workers=2,
+        )
+
+        loader = HFImageLoader(
+            input_pattern=str(tmp_path / "*.does_not_matter"),
+            manifest_path=manifest_path,
+            image_list_column="images",
+        )
+        images, _ = loader.load_batch(np.array([0, 1, 3, 4], dtype=np.int64))
+        loader.close()
+
+        assert loader._uses_physical_manifest is True
+        assert [img.size for img in images] == [(11, 21), (31, 41), (71, 81), (91, 101)]

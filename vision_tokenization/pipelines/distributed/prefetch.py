@@ -3,10 +3,10 @@
 import logging
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from queue import Queue
-from typing import Optional
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +32,8 @@ class BatchPrefetcher:
     augment call fails, the result carries ``error`` instead of data so
     the main loop can apply its existing retry/skip logic.
 
-    With ``num_workers > 1`` a :class:`~concurrent.futures.ThreadPoolExecutor`
-    parallelises I/O-bound ``load_batch`` calls while a single dispatcher
-    thread feeds results into the output queue **in order**.
+    Memory is bounded: at most ``queue_size + num_workers`` decoded
+    batches are kept in memory at any time.
     """
 
     def __init__(self, data_loader, augmenter=None, queue_size=2, num_workers=1):
@@ -76,14 +75,54 @@ class BatchPrefetcher:
             )
 
     def _worker(self, batches, start):
-        """Dispatcher thread: load batches via thread pool and enqueue in order."""
+        """Dispatcher thread: load batches and enqueue in order.
+
+        Uses a bounded sliding window of futures so that at most
+        ``num_workers + queue_size`` decoded batches exist at once,
+        preventing unbounded memory growth from eager submission.
+        """
         try:
-            with ThreadPoolExecutor(max_workers=self._num_workers) as pool:
-                for result in pool.map(
-                    lambda args: self._load_one(*args),
-                    enumerate(batches[start:], start=start),
-                ):
+            max_pending = self._num_workers + self._queue.maxsize
+            batch_iter = iter(enumerate(batches[start:], start=start))
+
+            if self._num_workers <= 1:
+                # Fast path: no thread pool overhead, just sequential I/O.
+                for batch_index, ba in batch_iter:
+                    result = self._load_one(batch_index, ba)
                     self._queue.put(result)
+            else:
+                # Bounded parallel: sliding window of futures with ordered drain.
+                with ThreadPoolExecutor(max_workers=self._num_workers) as pool:
+                    pending: Dict[Future, int] = {}
+                    ready: Dict[int, PrefetchResult] = {}
+                    next_emit = start
+
+                    def _submit_next() -> bool:
+                        try:
+                            idx, ba = next(batch_iter)
+                        except StopIteration:
+                            return False
+                        pending[pool.submit(self._load_one, idx, ba)] = idx
+                        return True
+
+                    # Seed the initial sliding window.
+                    for _ in range(max_pending):
+                        if not _submit_next():
+                            break
+
+                    while pending:
+                        done, _ = wait(tuple(pending), return_when=FIRST_COMPLETED)
+                        for future in done:
+                            batch_index = pending.pop(future)
+                            ready[batch_index] = future.result()
+
+                        while next_emit in ready:
+                            self._queue.put(ready.pop(next_emit))
+                            next_emit += 1
+
+                            while len(pending) + len(ready) < max_pending:
+                                if not _submit_next():
+                                    break
         finally:
             self._queue.put(_SENTINEL)
 

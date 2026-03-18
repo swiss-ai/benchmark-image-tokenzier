@@ -15,8 +15,10 @@ Launch examples::
         python -m vision_tokenization.tokenize mode=image2text dataset=pmc_oa num_gpus=4 resume=true
 """
 
+import json
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Any, Dict
 
@@ -79,6 +81,8 @@ def _load_or_compute_batch_plan(cfg: Dict[str, Any], is_multi_image: bool) -> Ba
         gpu=cfg.get("gpu_kmeans", True),
         niter=cfg.get("niter", 10),
         multi_image=is_multi_image,
+        resize_min_pixels=cfg.get("tokenizer_min_pixels"),
+        resize_max_pixels=cfg.get("tokenizer_max_pixels"),
     )
 
     # Optionally save for reuse
@@ -293,6 +297,20 @@ def tokenize_loop(
         f"prefetch_workers={prefetch_num_workers}, prefetch_queue={prefetch_queue_size})"
     )
 
+    def _get_rss_gb():
+        """Read RSS from /proc/self/status (no psutil dependency)."""
+        try:
+            with open("/proc/self/status") as f:
+                for line in f:
+                    if line.startswith("VmRSS:"):
+                        return int(line.split()[1]) / 1024 / 1024  # kB → GB
+        except Exception:
+            return -1.0
+
+    _mem_log_interval = 50  # log every N batches
+    mem_warn_rss_gb = cfg.get("memory_warning_rss_gb")
+    mem_warn_cuda_reserved_gb = cfg.get("memory_warning_cuda_reserved_gb")
+
     try:
         batch_iter = prefetcher.iter_batches(my_batches, start=start_batch_index)
         if rank == 0:
@@ -304,6 +322,42 @@ def tokenize_loop(
             )
         for result in batch_iter:
             last_batch_index = result.batch_index
+
+            extra_metrics = {
+                "batch/index": result.batch_index,
+                "batch/resize_height": result.assignment.resize_height,
+                "batch/resize_width": result.assignment.resize_width,
+                "batch/n_images": len(result.assignment.sample_indices),
+            }
+
+            if batch_count % _mem_log_interval == 0 or wandb_logger is not None:
+                rss_gb = _get_rss_gb()
+                cuda_alloc = torch.cuda.memory_allocated() / 1024**3
+                cuda_reserved = torch.cuda.memory_reserved() / 1024**3
+                extra_metrics.update(
+                    {
+                        "memory/rss_gb": rss_gb,
+                        "memory/cuda_alloc_gb": cuda_alloc,
+                        "memory/cuda_reserved_gb": cuda_reserved,
+                    }
+                )
+                if batch_count % _mem_log_interval == 0:
+                    should_warn = wandb_logger is None
+                    if mem_warn_rss_gb is not None and rss_gb >= float(mem_warn_rss_gb):
+                        should_warn = True
+                    if (
+                        mem_warn_cuda_reserved_gb is not None
+                        and cuda_reserved >= float(mem_warn_cuda_reserved_gb)
+                    ):
+                        should_warn = True
+                    if should_warn:
+                        logger.warning(
+                            f"[rank {rank}] batch={result.batch_index} "
+                            f"RSS={rss_gb:.2f} GB "
+                            f"CUDA_alloc={cuda_alloc:.2f} GB CUDA_rsv={cuda_reserved:.2f} GB "
+                            f"resize=({result.assignment.resize_height}x{result.assignment.resize_width}) "
+                            f"n_images={len(result.assignment.sample_indices)}"
+                        )
 
             # Prefetch-stage error — apply same retry logic as GPU errors
             if result.error is not None:
@@ -373,6 +427,7 @@ def tokenize_loop(
                     errors=stats.errors,
                     skipped=stats.samples_skipped,
                     timing=timing,
+                    metrics=extra_metrics,
                 )
 
             # Periodic checkpoint
@@ -471,6 +526,18 @@ def tokenize_loop(
         f"{result['errors']} errors, {result['elapsed_time']:.1f}s"
     )
     result["output_dir"] = output_dir
+    result["mode"] = mode
+    result["world_size"] = world_size
+    result["total_batches_assigned"] = len(my_batches)
+
+    # ------------------------------------------------------------------
+    # 8. Write per-rank stats to shared JSONL; rank 0 aggregates
+    # ------------------------------------------------------------------
+    stats_path = Path(output_dir) / "stats.jsonl"
+    _append_rank_stats(stats_path, result)
+
+    if rank == 0:
+        _write_aggregate_stats(stats_path, output_dir, world_size)
 
     if _loop_error is not None:
         raise RuntimeError(
@@ -479,3 +546,84 @@ def tokenize_loop(
         ) from _loop_error
 
     return result
+
+
+def _append_rank_stats(stats_path: Path, result: Dict[str, Any]) -> None:
+    """Append one rank's stats as a JSON line (atomic for small writes on POSIX)."""
+    line = json.dumps(result, default=str) + "\n"
+    with open(stats_path, "a") as f:
+        f.write(line)
+
+
+def _write_aggregate_stats(
+    stats_path: Path, output_dir: str, world_size: int,
+    timeout: float = 120.0, poll: float = 2.0,
+) -> None:
+    """Wait for all ranks to write, then append an aggregate summary line."""
+    deadline = time.time() + timeout
+    rank_stats: List[Dict[str, Any]] = []
+    seen_ranks = set()
+    last_err: Optional[Exception] = None
+    while time.time() < deadline:
+        try:
+            lines = stats_path.read_text().splitlines()
+            parsed = [json.loads(l) for l in lines if l.strip()]
+            rank_stats = [s for s in parsed if "rank" in s]
+            seen_ranks = {s["rank"] for s in rank_stats}
+            last_err = None
+            if len(seen_ranks) >= world_size:
+                break
+        except Exception as exc:
+            last_err = exc
+        time.sleep(poll)
+    else:
+        detail = f", last error: {last_err}" if last_err is not None else ""
+        logger.warning(
+            f"[rank 0] Timed out waiting for all {world_size} ranks to write stats "
+            f"(got {len(seen_ranks)}){detail}"
+        )
+
+    # Keep only the latest entry per rank (in case of resume appends)
+    by_rank = {}
+    for s in rank_stats:
+        by_rank[s["rank"]] = s
+    rank_stats = [by_rank[r] for r in sorted(by_rank)]
+
+    agg = {
+        "type": "aggregate",
+        "num_ranks": len(rank_stats),
+        "samples_processed": sum(s.get("samples_processed", 0) for s in rank_stats),
+        "tokens_generated": sum(s.get("tokens_generated", 0) for s in rank_stats),
+        "image_tokens": sum(s.get("image_tokens", 0) for s in rank_stats),
+        "text_tokens": sum(s.get("text_tokens", 0) for s in rank_stats),
+        "stage2_tokens": sum(s.get("stage2_tokens", 0) for s in rank_stats),
+        "lct_tokens": sum(s.get("lct_tokens", 0) for s in rank_stats),
+        "errors": sum(s.get("errors", 0) for s in rank_stats),
+        "samples_skipped": sum(s.get("samples_skipped", 0) for s in rank_stats),
+        "cuda_oom_errors": sum(s.get("cuda_oom_errors", 0) for s in rank_stats),
+        "max_elapsed_s": max((s.get("elapsed_time", 0) for s in rank_stats), default=0),
+        "per_rank": rank_stats,
+    }
+    # Derived
+    elapsed = agg["max_elapsed_s"]
+    if elapsed > 0:
+        agg["tokens_per_second"] = agg["tokens_generated"] / elapsed
+        agg["samples_per_second"] = agg["samples_processed"] / elapsed
+    else:
+        agg["tokens_per_second"] = 0
+        agg["samples_per_second"] = 0
+
+    # Write aggregate as final summary JSON (separate file for easy consumption)
+    summary_path = Path(output_dir) / "stats_summary.json"
+    with open(summary_path, "w") as f:
+        json.dump(agg, f, indent=2, default=str)
+
+    logger.info(
+        f"[rank 0] Aggregate stats: "
+        f"{agg['samples_processed']:,} samples, "
+        f"{agg['tokens_generated']:,} tokens "
+        f"({agg['image_tokens']:,} image + {agg['text_tokens']:,} text), "
+        f"{agg['errors']} errors, "
+        f"{agg['tokens_per_second']:,.0f} tok/s, "
+        f"{elapsed:.1f}s"
+    )

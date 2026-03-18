@@ -13,40 +13,9 @@ from typing import Any, Dict, List, Optional, Union
 import numpy as np
 
 from vision_tokenization.indexing.clustered_batch_planner import BatchAssignment, BatchPlan
+from vision_tokenization.utils.image_geometry import estimate_image_tokens
 
 logger = logging.getLogger(__name__)
-
-
-def estimate_image_tokens(
-    h: int,
-    w: int,
-    spatial_factor: int = 16,
-) -> int:
-    """Estimate token count for a single image from its resize dimensions.
-
-    The vision tokenizer down-samples spatially by ``spatial_factor`` in each
-    dimension, so token count ≈ ``(h // sf) * (w // sf)``.
-
-    This is the *vision-content* token count only.  Structure tokens (BOS,
-    img_start, dims, EOL per row, img_end, EOS) add a small fixed overhead
-    that scales with ``h // sf`` (one EOL per row).
-    """
-    th = h // spatial_factor
-    tw = w // spatial_factor
-    # vision tokens + structural overhead
-    vision_tokens = th * tw
-    structural = (
-        1  # BOS
-        + 1  # img_start
-        + 3  # dimension tokens (approximate)
-        + 1  # img_token_start
-        + th  # EOL per row
-        + 1  # EOF
-        + 1  # img_end
-        + 1  # EOS
-    )
-    return vision_tokens + structural
-
 
 def dry_run_batch_plan(
     batch_plan: BatchPlan,
@@ -69,7 +38,11 @@ def dry_run_batch_plan(
     for batch in batch_plan.batches:
         n_images = len(batch.sample_indices)
         n_docs = len(batch.group_slices) if batch.group_slices is not None else n_images
-        per_image = estimate_image_tokens(batch.resize_height, batch.resize_width, spatial_factor)
+        per_image = estimate_image_tokens(
+            batch.resize_height,
+            batch.resize_width,
+            spatial_factor=spatial_factor,
+        )
         batch_tokens = per_image * n_images
         total_image_tokens += batch_tokens
         total_images += n_images

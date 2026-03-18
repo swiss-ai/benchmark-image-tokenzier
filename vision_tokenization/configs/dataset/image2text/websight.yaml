@@ -1,0 +1,18 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# WebSight v0.2 — image2text, HF Parquet, single-image (screenshot + HTML)
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - _base_hf
+
+output_name: websight
+output_dir: /capstor/scratch/cscs/xyixuan/vision-datasets-tokenized
+manifest_path: /capstor/store/cscs/swissai/infra01/vision-datasets/HuggingFaceM4___WebSight/v0.2_normalized/manifest.parquet
+input_pattern: /capstor/store/cscs/swissai/infra01/vision-datasets/HuggingFaceM4___WebSight/v0.2_normalized/*.parquet
+image_column: image
+text_column: text
+multi_image: false
+
+# --- Overrides ----------------------------------------------------------------
+gpu_kmeans: false
+batch_plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/websight.pt
+checkpoint_interval_batches: 5000

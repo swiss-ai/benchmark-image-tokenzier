@@ -8,7 +8,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import FrozenSet, Optional, Union
 
-from vision_tokenization.indexing._scan_worker import (
+from vision_tokenization.indexing._scan_wds_worker import (
     DEFAULT_IMAGE_EXTENSIONS,
     DEFAULT_TEXT_EXTENSIONS,
     scan_single_tar,

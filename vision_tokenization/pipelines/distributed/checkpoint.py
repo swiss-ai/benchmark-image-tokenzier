@@ -251,6 +251,7 @@ class SimpleWandbLogger:
         errors: int = 0,
         skipped: int = 0,
         timing: Optional[Dict[str, float]] = None,
+        metrics: Optional[Dict[str, Any]] = None,
         force: bool = False,
     ) -> None:
         """Log absolute totals if the flush interval has elapsed."""
@@ -273,6 +274,8 @@ class SimpleWandbLogger:
         }
         if timing:
             payload.update({f"timing/{k}": v for k, v in timing.items()})
+        if metrics:
+            payload.update(metrics)
         wandb.log(payload, step=self._step)
         self._step += 1
         self._last_flush = now

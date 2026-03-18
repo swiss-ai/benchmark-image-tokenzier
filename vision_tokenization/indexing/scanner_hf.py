@@ -1,167 +1,324 @@
-"""HF dataset scanner — iterates a HuggingFace dataset and writes an HF manifest."""
+"""Parallel HF dataset scanner for Arrow and Parquet shard files."""
 
+import glob
 import logging
-from io import BytesIO
+import os
+import time
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import Iterable, Optional, Union
 
-import imagesize
+import numpy as np
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
 
-from vision_tokenization.indexing.manifest import save_hf_manifest
+from vision_tokenization.indexing._scan_hf_arrow_worker import scan_single_hf_arrow_shard
+from vision_tokenization.indexing._scan_hf_parquet_worker import scan_single_hf_parquet_shard
+from vision_tokenization.indexing.manifest import (
+    HF_SCHEMA_PHYSICAL,
+    HF_SCHEMA_PHYSICAL_MULTI_IMAGE,
+)
 
 logger = logging.getLogger(__name__)
 
+_HF_SHARD_SUFFIXES = {".arrow", ".parquet"}
+_HF_WRITE_BUFFER_ROWS = 500_000
+_HF_MAX_IN_FLIGHT_FACTOR = 2
 
-def _get_image_dimensions(img_data) -> Tuple[int, int]:
-    """Get dimensions from raw (undecoded) HF image cell via imagesize.
 
-    Handles the dict formats produced by ``datasets.Image(decode=False)``
-    (``{"bytes": ..., "path": ...}``), raw ``bytes``, and PIL fallback.
-    """
-    if isinstance(img_data, dict) and img_data.get("bytes") is not None:
-        return imagesize.get(BytesIO(img_data["bytes"]))
-    if isinstance(img_data, dict) and img_data.get("path") is not None:
-        return imagesize.get(img_data["path"])
-    if isinstance(img_data, bytes):
-        return imagesize.get(BytesIO(img_data))
-    if hasattr(img_data, "size"):  # PIL fallback
-        return img_data.size
-    return (-1, -1)
+def _filter_shards(paths: Iterable[Union[str, Path]]) -> list[str]:
+    shards = []
+    for path in paths:
+        p = Path(path)
+        if not p.is_file():
+            continue
+        if p.suffix not in _HF_SHARD_SUFFIXES:
+            continue
+        if p.name.startswith("manifest"):
+            continue
+        shards.append(str(p))
+    return sorted(shards)
+
+
+def _discover_shards(input_pattern: Union[str, Path]) -> list[str]:
+    """Discover HF Arrow/Parquet shards from a directory, path, or glob."""
+    input_pattern = str(input_pattern)
+    path = Path(input_pattern)
+
+    if path.is_dir():
+        shard_paths = _filter_shards(path.rglob("*"))
+        if shard_paths:
+            return shard_paths
+
+    if path.is_file():
+        shard_paths = _filter_shards([path])
+        if shard_paths:
+            return shard_paths
+
+    if "{" in input_pattern and ".." in input_pattern:
+        try:
+            import braceexpand
+
+            expanded = list(braceexpand.braceexpand(input_pattern))
+            shard_paths = _filter_shards(expanded)
+            if shard_paths:
+                logger.info(
+                    f"Braceexpand: {len(expanded)} paths expanded, "
+                    f"{len(shard_paths)} shard files found"
+                )
+                return shard_paths
+            logger.warning(
+                "Braceexpand produced paths but no Arrow/Parquet shards were found. "
+                "Falling back to glob."
+            )
+        except ImportError:
+            logger.warning("braceexpand not installed, falling back to glob")
+        except Exception as exc:
+            logger.warning(f"braceexpand failed ({exc}), falling back to glob")
+
+    shard_paths = _filter_shards(glob.glob(input_pattern, recursive=True))
+    if not shard_paths:
+        raise FileNotFoundError(
+            f"No Arrow/Parquet shard files found matching: {input_pattern}"
+        )
+    return shard_paths
+
+
+def _make_shard_path_array(shard_path: str, n_rows: int) -> pa.DictionaryArray:
+    indices = pa.array(np.zeros(n_rows, dtype=np.int32), type=pa.int32())
+    dictionary = pa.array([shard_path], type=pa.string())
+    return pa.DictionaryArray.from_arrays(indices, dictionary)
+
+
+def _finalize_shard_table(
+    table: pa.Table,
+    sample_offset: int,
+    shard_path: str,
+    schema: pa.Schema,
+    is_multi: bool,
+) -> pa.Table:
+    sample_offset_scalar = pa.scalar(sample_offset, type=pa.int64())
+    arrays = {
+        "sample_index": pc.add(table.column("sample_index"), sample_offset_scalar),
+        "width": table.column("width"),
+        "height": table.column("height"),
+        "shard_path": _make_shard_path_array(shard_path, len(table)),
+        "chunk_index": table.column("chunk_index"),
+        "row_in_chunk": table.column("row_in_chunk"),
+    }
+    if is_multi:
+        arrays["group_id"] = pc.add(table.column("group_id"), sample_offset_scalar)
+        arrays["image_index"] = table.column("image_index")
+    return pa.table(arrays, schema=schema)
+
+
+def _flush_table_buffer(writer: pq.ParquetWriter, buffer: list[pa.Table]) -> None:
+    if not buffer:
+        return
+    writer.write_table(pa.concat_tables(buffer, promote_options="none"))
+    buffer.clear()
+
+
+def _scan_single_hf_shard(
+    shard_path: str,
+    image_column: str = "image",
+    image_list_column: Optional[str] = None,
+):
+    if shard_path.endswith(".arrow"):
+        return scan_single_hf_arrow_shard(
+            shard_path,
+            image_column=image_column,
+            image_list_column=image_list_column,
+        )
+    if shard_path.endswith(".parquet"):
+        return scan_single_hf_parquet_shard(
+            shard_path,
+            image_column=image_column,
+            image_list_column=image_list_column,
+        )
+    raise ValueError(f"Unsupported HF shard format: {shard_path}")
+
+
+def _process_shard_result(
+    shard_path: str,
+    result,
+    *,
+    total_source_rows: int,
+    total_manifest_rows: int,
+    total_failed_dims: int,
+    skipped_shards: int,
+    is_multi: bool,
+    buffer: list[pa.Table],
+    buffered_rows: int,
+    writer: pq.ParquetWriter,
+    schema: pa.Schema,
+):
+    table, source_rows, failed_dims, skip_reason = result
+    if skip_reason is not None:
+        skipped_shards += 1
+        logger.warning("Skipping HF shard %s: %s", shard_path, skip_reason)
+        return (
+            total_source_rows,
+            total_manifest_rows,
+            total_failed_dims,
+            skipped_shards,
+            buffered_rows,
+        )
+
+    table = _finalize_shard_table(
+        table,
+        total_source_rows,
+        shard_path,
+        schema,
+        is_multi,
+    )
+    total_source_rows += source_rows
+    total_failed_dims += failed_dims
+    total_manifest_rows += len(table)
+
+    if len(table):
+        buffer.append(table)
+        buffered_rows += len(table)
+        if buffered_rows >= _HF_WRITE_BUFFER_ROWS:
+            _flush_table_buffer(writer, buffer)
+            buffered_rows = 0
+
+    return (
+        total_source_rows,
+        total_manifest_rows,
+        total_failed_dims,
+        skipped_shards,
+        buffered_rows,
+    )
 
 
 def scan_hf_dataset(
-    dataset_name: str,
-    dataset_split: str = "train",
-    output_manifest: Union[str, Path] = "hf_manifest.parquet",
+    input_pattern: Union[str, Path],
+    output_manifest: Union[str, Path],
     image_column: str = "image",
     image_list_column: Optional[str] = None,
-    config_name: Optional[str] = None,
-    cache_dir: Optional[str] = None,
-    dataset_load_method: str = "default",
-    data_files: Optional[str] = None,
     num_workers: int = 8,
 ) -> str:
-    """Scan an HF dataset and write width/height to a Parquet manifest.
-
-    Image dimensions are extracted from raw bytes via ``imagesize`` (header-
-    only, no pixel decode).  The dataset image column is cast to
-    ``Image(decode=False)`` so PIL is never instantiated.  Scanning is
-    parallelised with ``Dataset.map(num_proc=num_workers)``.
-
-    **Multi-image mode** (``image_list_column`` is set):
-    The column contains ``List[Image]``.  Each list element becomes a
-    separate manifest row sharing the same ``group_id = sample_index``,
-    with ``image_index`` = position in the list.
+    """Scan HF Arrow/Parquet shards and write a Parquet manifest.
 
     Args:
-        dataset_name: HuggingFace dataset name or local path.
-        dataset_split: Split to scan (e.g. ``"train"``).
+        input_pattern: Directory, file path, braceexpand pattern, or glob
+            matching HF ``.arrow`` or ``.parquet`` shards.
         output_manifest: Destination Parquet path.
         image_column: Column name containing a single image.
-        image_list_column: Column name containing ``List[Image]``
-            for multi-image samples.  Mutually exclusive with
-            ``image_column`` when set.
-        config_name: Dataset config/subset name.
-        cache_dir: HF cache directory.
-        dataset_load_method: Loading method (``"default"``, ``"builder_load"``, ``"disk_load"``).
-        data_files: Comma-separated data file paths.
-        num_workers: Number of parallel workers for ``Dataset.map``.
+        image_list_column: Column name for multi-image ``List[Image]`` data.
+        num_workers: Number of worker processes to scan shards in parallel.
 
     Returns:
         The output manifest path as a string.
     """
-    from vision_tokenization.utils.dataset_loader import load_hf_dataset
-
-    logger.info(f"Loading HF dataset: {dataset_name} split={dataset_split}")
-    dataset = load_hf_dataset(
-        dataset_name=dataset_name,
-        config_name=config_name,
-        split=dataset_split,
-        cache_dir=cache_dir,
-        method=dataset_load_method,
-        streaming=False,
-        data_files=data_files,
-    )
-
+    t0 = time.time()
     is_multi = image_list_column is not None
-    col = image_list_column if is_multi else image_column
+    schema = HF_SCHEMA_PHYSICAL_MULTI_IMAGE if is_multi else HF_SCHEMA_PHYSICAL
 
-    # ------------------------------------------------------------------
-    # Disable PIL decoding — gives raw {"bytes": ..., "path": ...} dicts
-    # ------------------------------------------------------------------
-    try:
-        from datasets import Image as HFImage, Sequence
-
-        if is_multi:
-            dataset = dataset.cast_column(col, Sequence(HFImage(decode=False)))
-        else:
-            dataset = dataset.cast_column(col, HFImage(decode=False))
-        logger.info("Cast image column to decode=False (raw bytes mode)")
-    except Exception:
-        logger.warning(
-            "cast_column(decode=False) failed, falling back to PIL path",
-            exc_info=True,
-        )
-
-    # ------------------------------------------------------------------
-    # Extract dimensions via Dataset.map
-    # ------------------------------------------------------------------
-    map_kwargs = {
-        "batched": True,
-        "remove_columns": dataset.column_names,
-        "num_proc": num_workers if num_workers > 1 else None,
-        "desc": "Scanning image dimensions",
-    }
-
-    if is_multi:
-
-        def _extract_dims_multi(batch, indices):
-            sample_indices, widths, heights = [], [], []
-            group_ids, image_indices = [], []
-            for idx, img_list in zip(indices, batch[col]):
-                for img_idx, img_data in enumerate(img_list):
-                    w, h = _get_image_dimensions(img_data)
-                    sample_indices.append(idx)
-                    widths.append(w)
-                    heights.append(h)
-                    group_ids.append(idx)
-                    image_indices.append(img_idx)
-            return {
-                "sample_index": sample_indices,
-                "width": widths,
-                "height": heights,
-                "group_id": group_ids,
-                "image_index": image_indices,
-            }
-
-        mapped = dataset.map(_extract_dims_multi, with_indices=True, **map_kwargs)
-    else:
-
-        def _extract_dims(batch, indices):
-            widths, heights = [], []
-            for img_data in batch[col]:
-                w, h = _get_image_dimensions(img_data)
-                widths.append(w)
-                heights.append(h)
-            return {
-                "sample_index": list(indices),
-                "width": widths,
-                "height": heights,
-            }
-
-        mapped = dataset.map(_extract_dims, with_indices=True, **map_kwargs)
-
-    # ------------------------------------------------------------------
-    # Pass Arrow table directly to avoid materializing Python dicts
-    # (85M+ rows would exhaust RAM as a list of dicts)
-    # ------------------------------------------------------------------
-    table = mapped.data.table
+    shard_paths = _discover_shards(input_pattern)
+    num_arrow = sum(path.endswith(".arrow") for path in shard_paths)
+    num_parquet = sum(path.endswith(".parquet") for path in shard_paths)
     logger.info(
-        f"HF scan complete: {len(table):,} {'rows' if is_multi else 'samples'}"
+        f"Scanning {len(shard_paths)} HF shards "
+        f"({num_arrow} arrow, {num_parquet} parquet) "
+        f"with {num_workers} workers"
     )
 
-    if is_multi:
-        from vision_tokenization.indexing.manifest import HF_SCHEMA_MULTI_IMAGE
+    output_manifest = str(output_manifest)
+    Path(output_manifest).parent.mkdir(parents=True, exist_ok=True)
 
-        return save_hf_manifest(table, output_manifest, schema=HF_SCHEMA_MULTI_IMAGE)
-    return save_hf_manifest(table, output_manifest)
+    total_source_rows = 0
+    total_manifest_rows = 0
+    total_failed_dims = 0
+    skipped_shards = 0
+
+    with ProcessPoolExecutor(max_workers=num_workers) as pool:
+        max_in_flight = max(1, num_workers * _HF_MAX_IN_FLIGHT_FACTOR)
+        next_submit_idx = 0
+        next_emit_idx = 0
+        future_to_idx = {}
+        completed_results = {}
+
+        while next_submit_idx < len(shard_paths) and len(future_to_idx) < max_in_flight:
+            future = pool.submit(
+                _scan_single_hf_shard,
+                shard_paths[next_submit_idx],
+                image_column,
+                image_list_column,
+            )
+            future_to_idx[future] = next_submit_idx
+            next_submit_idx += 1
+
+        writer = pq.ParquetWriter(output_manifest, schema, compression="zstd")
+        buffer: list[pa.Table] = []
+        buffered_rows = 0
+        try:
+            while next_emit_idx < len(shard_paths):
+                while next_emit_idx in completed_results:
+                    shard_path = shard_paths[next_emit_idx]
+                    (
+                        total_source_rows,
+                        total_manifest_rows,
+                        total_failed_dims,
+                        skipped_shards,
+                        buffered_rows,
+                    ) = _process_shard_result(
+                        shard_path,
+                        completed_results.pop(next_emit_idx),
+                        total_source_rows=total_source_rows,
+                        total_manifest_rows=total_manifest_rows,
+                        total_failed_dims=total_failed_dims,
+                        skipped_shards=skipped_shards,
+                        is_multi=is_multi,
+                        buffer=buffer,
+                        buffered_rows=buffered_rows,
+                        writer=writer,
+                        schema=schema,
+                    )
+
+                    shard_idx = next_emit_idx + 1
+                    next_emit_idx += 1
+                    if shard_idx % 100 == 0 or shard_idx == len(shard_paths):
+                        logger.info(
+                            f"Progress: {shard_idx}/{len(shard_paths)} shards scanned, "
+                            f"{total_source_rows:,} source rows, "
+                            f"{total_manifest_rows:,} manifest rows "
+                            f"(latest: {os.path.basename(shard_path)})"
+                        )
+
+                if next_emit_idx >= len(shard_paths):
+                    break
+
+                if not future_to_idx:
+                    raise RuntimeError("HF scanner stalled with no shard futures in flight")
+
+                done, _ = wait(tuple(future_to_idx), return_when=FIRST_COMPLETED)
+                for future in done:
+                    shard_idx = future_to_idx.pop(future)
+                    completed_results[shard_idx] = future.result()
+
+                while next_submit_idx < len(shard_paths) and len(future_to_idx) < max_in_flight:
+                    future = pool.submit(
+                        _scan_single_hf_shard,
+                        shard_paths[next_submit_idx],
+                        image_column,
+                        image_list_column,
+                    )
+                    future_to_idx[future] = next_submit_idx
+                    next_submit_idx += 1
+        finally:
+            for future in future_to_idx:
+                future.cancel()
+            _flush_table_buffer(writer, buffer)
+            writer.close()
+
+    elapsed = time.time() - t0
+    logger.info(
+        f"Manifest saved: {total_manifest_rows:,} rows from {total_source_rows:,} "
+        f"source rows -> {output_manifest} ({elapsed:.1f}s, "
+        f"{total_failed_dims:,} failed dimension extractions, "
+        f"{skipped_shards:,} skipped shards)"
+    )
+    return output_manifest

@@ -9,7 +9,6 @@ sys.path.append(base_dir)
 emu3_path = os.path.join(os.path.dirname(__file__), "submodules", "Emu3.5", "src")
 sys.path.insert(0, emu3_path)
 
-import math
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -19,6 +18,7 @@ from PIL import Image
 
 # Import from Emu3.5 submodule
 from vision_tokenizer.ibq import IBQ as Emu3IBQModel
+from vision_tokenization.utils.image_geometry import smart_resize_dims
 
 # Import base class
 from Tokenizer.base import Tokenizer
@@ -84,32 +84,21 @@ class Emu3_5_IBQ(Tokenizer):
         Returns:
             Tuple of (new_height, new_width)
         """
-        if self.min_pixels is None or self.max_pixels is None:
-            # No resizing if pixels bounds not set
-            return height, width
+        return smart_resize_dims(
+            height,
+            width,
+            min_pixels=self.min_pixels,
+            max_pixels=self.max_pixels,
+            factor=self.spatial_factor,
+        )
 
-        factor = self.spatial_factor
-
-        if height < factor or width < factor:
-            raise ValueError(f"height:{height} or width:{width} must be larger than factor:{factor}")
-
-        # First, round to nearest multiple of factor
-        h_bar = round(height / factor) * factor
-        w_bar = round(width / factor) * factor
-
-        # Check if we need to scale to fit within pixel bounds
-        if h_bar * w_bar > self.max_pixels:
-            # Scale down to fit max_pixels
-            beta = math.sqrt((height * width) / self.max_pixels)
-            h_bar = math.floor(height / beta / factor) * factor
-            w_bar = math.floor(width / beta / factor) * factor
-        elif h_bar * w_bar < self.min_pixels:
-            # Scale up to meet min_pixels
-            beta = math.sqrt(self.min_pixels / (height * width))
-            h_bar = math.ceil(height * beta / factor) * factor
-            w_bar = math.ceil(width * beta / factor) * factor
-
-        return h_bar, w_bar
+    def _pil_to_tensor(self, image: Image.Image) -> torch.Tensor:
+        """Convert an RGB PIL image to a normalized CHW tensor on the target device."""
+        array = np.array(image, dtype=np.uint8, copy=True)
+        tensor = torch.from_numpy(array)
+        tensor = tensor.permute(2, 0, 1).to(self.device, dtype=self.dtype)
+        tensor.div_(127.5).sub_(1.0)
+        return tensor
 
     def _load_model(self) -> None:
         """Load the Emu3.5 IBQ model"""
@@ -183,9 +172,8 @@ class Emu3_5_IBQ(Tokenizer):
                         f"({width*height} -> {new_width*new_height} pixels)"
                     )
 
-        # Following exact preprocessing from Emu3.5's build_image function
-        # Use cached dtype for efficiency (avoids iterating through parameters on every image)
-        image_tensor = torch.tensor((np.array(image) / 127.5 - 1.0)).to(self.device, self.dtype).permute(2, 0, 1)
+        # Following exact preprocessing from Emu3.5's build_image function.
+        image_tensor = self._pil_to_tensor(image)
 
         # Note: NOT adding batch dimension here to be consistent with other tokenizers
         # Batch dimension will be added in encode() method when needed
@@ -202,18 +190,15 @@ class Emu3_5_IBQ(Tokenizer):
         Returns:
             Batched tensor of shape [B, C, H, W]
         """
+        height, width = resize_size
         batch_tensors = []
         for image in images:
             if image.mode != "RGB":
                 image = image.convert("RGB")
 
-            # Resize to specified size (also check min or max pixels if set)
-            new_height, new_width = self.smart_resize(resize_size[1], resize_size[0])
-            image = image.resize((new_height, new_width), Image.BICUBIC)
+            image = image.resize((width, height), Image.BICUBIC)
 
-            # Convert to tensor and normalize
-            image_tensor = torch.tensor((np.array(image) / 127.5 - 1.0)).to(self.device, self.dtype).permute(2, 0, 1)
-            batch_tensors.append(image_tensor)
+            batch_tensors.append(self._pil_to_tensor(image))
 
         return torch.stack(batch_tensors, dim=0)
 

@@ -110,7 +110,7 @@ def main(cfg: DictConfig):
         "dataset_type": cfg.dataset.get("dataset_type", "hf"),
         "output_name": cfg.dataset.get("output_name"),
         "manifest_path": cfg.dataset.get("manifest_path"),
-        "arrow_dir": cfg.dataset.get("arrow_dir"),
+        "input_pattern": cfg.dataset.get("input_pattern"),
         "image_column": cfg.dataset.get("image_column", "image"),
         "text_column": cfg.dataset.get("text_column"),
         "multi_image": cfg.dataset.get("multi_image"),
@@ -135,6 +135,7 @@ def main(cfg: DictConfig):
         "seqlen_threshold": cfg.dataset.get("seqlen_threshold"),
         # WDS-specific
         "max_open_files": cfg.dataset.get("max_open_files", 64),
+        "max_cached_chunks": cfg.dataset.get("max_cached_chunks", 32),
         # Multi-image
         "image_field_pattern": cfg.dataset.get("image_field_pattern"),
         "image_list_column": cfg.dataset.get("image_list_column"),
