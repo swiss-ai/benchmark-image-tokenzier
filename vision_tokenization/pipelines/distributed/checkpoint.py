@@ -1,4 +1,4 @@
-"""Checkpointing, micro-shard I/O, stats tracking, and W&B logging.
+"""Checkpointing, micro-shard I/O, and per-rank stats tracking.
 
 Adapted from audio_tokenization/pipelines/lhotse/checkpoint.py.
 
@@ -8,7 +8,6 @@ Adapted from audio_tokenization/pipelines/lhotse/checkpoint.py.
 - **Batch-index checkpointing**: Deterministic BatchPlan iteration means
   checkpoint = (batch_index, chunk_id, stats).  No sampler state needed.
 - **WorkerStats**: Inline dataclass tracking vision-specific metrics.
-- **SimpleWandbLogger**: Rate-limited W&B logging (rank 0 only).
 """
 
 import logging
@@ -33,7 +32,6 @@ __all__ = [
     "finalize_shard_writer",
     "save_checkpoint",
     "load_checkpoint",
-    "SimpleWandbLogger",
     "is_cuda_oom",
 ]
 
@@ -72,11 +70,18 @@ class WorkerStats:
     cuda_oom_errors: int = 0
     stage2_tokens: int = 0
     lct_tokens: int = 0
+    elapsed_offset: float = 0.0
     start_time: float = field(default_factory=time.time)
     elapsed_time: float = 0.0
     throughput: float = 0.0
 
+    def current_elapsed_time(self) -> float:
+        """Return total wall time across all resume segments."""
+        return self.elapsed_offset + max(0.0, time.time() - self.start_time)
+
     def to_dict(self) -> Dict[str, Any]:
+        elapsed = self.current_elapsed_time()
+        throughput = self.tokens_generated / elapsed if elapsed > 0 else 0
         d = {
             "samples_processed": self.samples_processed,
             "tokens_generated": self.tokens_generated,
@@ -87,18 +92,32 @@ class WorkerStats:
             "cuda_oom_errors": self.cuda_oom_errors,
             "stage2_tokens": self.stage2_tokens,
             "lct_tokens": self.lct_tokens,
-            "elapsed_time": self.elapsed_time,
-            "throughput": self.throughput,
+            "elapsed_time": elapsed,
+            "throughput": throughput,
         }
         return d
 
+    def load_from_dict(self, data: Dict[str, Any]) -> None:
+        """Restore cumulative counters from a checkpoint stats payload."""
+        self.samples_processed = data.get("samples_processed", 0)
+        self.tokens_generated = data.get("tokens_generated", 0)
+        self.image_tokens = data.get("image_tokens", 0)
+        self.text_tokens = data.get("text_tokens", 0)
+        self.errors = data.get("errors", 0)
+        self.samples_skipped = data.get("samples_skipped", 0)
+        self.cuda_oom_errors = data.get("cuda_oom_errors", 0)
+        self.stage2_tokens = data.get("stage2_tokens", 0)
+        self.lct_tokens = data.get("lct_tokens", 0)
+        self.elapsed_time = float(data.get("elapsed_time", 0.0) or 0.0)
+        self.elapsed_offset = self.elapsed_time
+        self.throughput = float(data.get("throughput", 0.0) or 0.0)
+
     def finalize(self) -> Dict[str, Any]:
         """Compute elapsed time and throughput, return final stats dict."""
-        self.elapsed_time = time.time() - self.start_time
-        self.throughput = (
-            self.tokens_generated / self.elapsed_time if self.elapsed_time > 0 else 0
-        )
-        return self.to_dict()
+        final = self.to_dict()
+        self.elapsed_time = final["elapsed_time"]
+        self.throughput = final["throughput"]
+        return final
 
 
 # ---------------------------------------------------------------------------
@@ -201,91 +220,3 @@ def load_checkpoint(output_dir: str, rank: int) -> Optional[Dict[str, Any]]:
         return None
     logger.info(f"[rank {rank}] Loading checkpoint from {ckpt_path}")
     return torch.load(str(ckpt_path), map_location="cpu", weights_only=False)
-
-
-# ---------------------------------------------------------------------------
-# W&B logger (rank 0 only)
-# ---------------------------------------------------------------------------
-
-
-class SimpleWandbLogger:
-    """Lightweight W&B logger for rank 0.
-
-    Logs running totals + throughput at a configurable interval.
-    Calls are rate-limited: ``log()`` is a no-op unless ``log_interval_seconds``
-    has elapsed since the last flush (or ``force=True``).
-    """
-
-    def __init__(
-        self,
-        project: str = "vision-tokenization",
-        entity: Optional[str] = None,
-        name: Optional[str] = None,
-        tags: Optional[list] = None,
-        config: Optional[dict] = None,
-        log_interval_seconds: float = 10.0,
-        stats_sampling_interval: float = 2.0,
-    ):
-        import wandb
-
-        self._run = wandb.init(
-            project=project,
-            entity=entity,
-            name=name,
-            tags=tags or [],
-            config=config or {},
-            resume="allow",
-            settings=wandb.Settings(x_stats_sampling_interval=stats_sampling_interval),
-        )
-        self._interval = max(1.0, log_interval_seconds)
-        self._last_flush = time.time()
-        self._start_time = time.time()
-        self._step = 0
-
-    def log(
-        self,
-        samples: int,
-        tokens: int,
-        image_tokens: int = 0,
-        text_tokens: int = 0,
-        errors: int = 0,
-        skipped: int = 0,
-        timing: Optional[Dict[str, float]] = None,
-        metrics: Optional[Dict[str, Any]] = None,
-        force: bool = False,
-    ) -> None:
-        """Log absolute totals if the flush interval has elapsed."""
-        now = time.time()
-        if not force and now - self._last_flush < self._interval:
-            return
-        import wandb
-
-        elapsed = now - self._start_time
-        payload = {
-            "samples_processed": samples,
-            "tokens_generated": tokens,
-            "image_tokens": image_tokens,
-            "text_tokens": text_tokens,
-            "errors": errors,
-            "samples_skipped": skipped,
-            "samples_per_second": samples / elapsed if elapsed > 0 else 0,
-            "tokens_per_second": tokens / elapsed if elapsed > 0 else 0,
-            "elapsed_seconds": elapsed,
-        }
-        if timing:
-            payload.update({f"timing/{k}": v for k, v in timing.items()})
-        if metrics:
-            payload.update(metrics)
-        wandb.log(payload, step=self._step)
-        self._step += 1
-        self._last_flush = now
-
-    def log_final(self, metrics: Dict[str, Any]) -> None:
-        import wandb
-
-        wandb.log({f"final/{k}": v for k, v in metrics.items()})
-
-    def finish(self) -> None:
-        import wandb
-
-        wandb.finish()

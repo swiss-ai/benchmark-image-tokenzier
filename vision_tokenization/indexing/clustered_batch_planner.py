@@ -25,6 +25,7 @@ class BatchAssignment:
     sample_indices: np.ndarray  # int64 indices into manifest
     resize_height: int
     resize_width: int
+    batch_token_count: Optional[int] = None
     group_slices: Optional[np.ndarray] = None  # shape (num_groups, 2): [start, end) into sample_indices
 
 
@@ -36,21 +37,68 @@ class BatchPlan:
     total_samples: int = 0
     total_filtered: int = 0
 
-    def split_for_workers(self, num_workers: int) -> List[List[BatchAssignment]]:
-        """Split batches into contiguous chunks for *num_workers* workers.
+    @staticmethod
+    def _estimate_batch_cost(batch: BatchAssignment) -> int:
+        """Estimate batch cost for worker balancing while preserving locality."""
+        if batch.batch_token_count is not None:
+            return int(batch.batch_token_count)
+        per_image_tokens = estimate_image_tokens(
+            batch.resize_height,
+            batch.resize_width,
+        )
+        return int(per_image_tokens) * int(len(batch.sample_indices))
 
-        Contiguous assignment maximises tar file-handle cache locality.
+    def split_for_workers(self, num_workers: int) -> List[List[BatchAssignment]]:
+        """Split batches into weighted contiguous chunks for *num_workers* workers.
+
+        Contiguous assignment preserves shard/tar locality, while weighting by
+        final batch size reduces long-tail stragglers on skewed image-size mixes.
         """
         if num_workers <= 0:
             raise ValueError("num_workers must be > 0")
         n = len(self.batches)
         if n == 0:
             return [[] for _ in range(num_workers)]
-        chunk_size = max(1, (n + num_workers - 1) // num_workers)
-        return [
-            self.batches[i : i + chunk_size]
-            for i in range(0, n, chunk_size)
-        ]
+
+        costs = [self._estimate_batch_cost(batch) for batch in self.batches]
+        splits: List[List[BatchAssignment]] = []
+        start = 0
+
+        while start < n and len(splits) < num_workers - 1:
+            remaining_workers = num_workers - len(splits)
+            remaining_batches = n - start
+            if remaining_batches <= remaining_workers:
+                break
+
+            target_cost = sum(costs[start:]) / remaining_workers
+            running_cost = 0.0
+            end = start
+
+            while end < n:
+                next_cost = running_cost + costs[end]
+                can_cut_before = end > start
+                must_leave_one_per_worker = (n - (end + 1)) < (remaining_workers - 1)
+
+                if (
+                    can_cut_before
+                    and not must_leave_one_per_worker
+                    and abs(target_cost - running_cost) < abs(target_cost - next_cost)
+                ):
+                    break
+
+                running_cost = next_cost
+                end += 1
+
+                if (n - end) == (remaining_workers - 1):
+                    break
+
+            splits.append(self.batches[start:end])
+            start = end
+
+        splits.append(self.batches[start:])
+        while len(splits) < num_workers:
+            splits.append([])
+        return splits
 
 
 def _compute_resize(
@@ -142,6 +190,7 @@ def _chunk_by_token_budget(
         end = start
         final_height = 0
         final_width = 0
+        final_tokens = 0
         while end < len(members):
             if batch_size is not None and (end - start) >= batch_size:
                 break
@@ -159,6 +208,7 @@ def _chunk_by_token_budget(
                 break
             final_height = cand_height
             final_width = cand_width
+            final_tokens = cand_tokens
             end += 1
         chunk = members[start:end]
         global_idx = valid_indices[chunk]
@@ -167,6 +217,7 @@ def _chunk_by_token_budget(
                 sample_indices=global_idx,
                 resize_height=final_height,
                 resize_width=final_width,
+                batch_token_count=final_tokens,
             )
         )
         start = end
@@ -276,6 +327,8 @@ def plan_clustered_batches(
         mask &= pixels >= min_pixels
     if max_pixels is not None:
         mask &= pixels <= max_pixels
+    # Both dimensions must be >= spatial_factor for smart_resize_dims
+    mask &= (widths >= spatial_factor) & (heights >= spatial_factor)
 
     valid_indices = np.where(mask)[0]
     total_filtered = total_samples - len(valid_indices)
@@ -436,6 +489,8 @@ def _plan_grouped_batches(
             group_valid[g] = False
         if max_pixels is not None and (gp > max_pixels).any():
             group_valid[g] = False
+        if (gw < spatial_factor).any() or (gh < spatial_factor).any():
+            group_valid[g] = False
 
     valid_groups = np.where(group_valid)[0]
     total_filtered_rows = total_rows - sum(len(member_rows[g]) for g in valid_groups)
@@ -563,7 +618,7 @@ def _build_grouped_batch(
 
     sample_indices = np.array(all_rows, dtype=np.int64)
     group_slices = np.array(slices, dtype=np.int64)
-    rh, rw, _ = _compute_final_batch_geometry(
+    rh, rw, batch_tokens = _compute_final_batch_geometry(
         widths[sample_indices],
         heights[sample_indices],
         resize_mode,
@@ -575,5 +630,6 @@ def _build_grouped_batch(
         sample_indices=sample_indices,
         resize_height=rh,
         resize_width=rw,
+        batch_token_count=batch_tokens,
         group_slices=group_slices,
     )
