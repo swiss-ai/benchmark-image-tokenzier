@@ -191,12 +191,12 @@ scan_hf_dataset(
 
 ## 3. Batch Planning — How Images Are Grouped
 
-Images with similar aspect ratios and sizes are clustered together so every image in a batch resizes to the **same target dimensions**, minimizing wasted computation from padding.
+Images with similar aspect ratios and sizes are clustered together so every image in a batch resizes to the **same target dimensions**, minimizing wasted computation from padding. Per-image token estimation is accelerated with [Numba](https://numba.pydata.org/) JIT when available (falls back to pure Python).
 
 ```mermaid
 flowchart TD
     MFST[("Parquet Manifest")] --> LOAD["Load widths, heights"]
-    LOAD --> FILTER["Filter by pixel range<br/>(min_pixels, max_pixels)"]
+    LOAD --> FILTER["Filter by pixel range<br/>(min_pixels, max_pixels)<br/>+ spatial_factor dim guard"]
     FILTER --> FEAT["Compute features:<br/>aspect_ratio, log(area)"]
     FEAT --> NORM["Normalize to [0, 1]"]
     NORM --> KM["Faiss k-means<br/>(k = num_clusters, GPU or CPU)"]
@@ -218,6 +218,7 @@ Each `BatchAssignment` contains:
 | `sample_indices` | Array of manifest row indices (one per image) |
 | `resize_height` | Target resize height for all images in this batch |
 | `resize_width` | Target resize width for all images in this batch |
+| `batch_token_count` | Pre-computed token count for cost-weighted worker splitting |
 | `group_slices` | Optional `(num_groups, 2)` array for multi-image datasets |
 
 > [!TIP]
@@ -362,11 +363,12 @@ flowchart TD
         direction TB
         DISPATCH["Dispatcher thread<br/>pool.map(load_one, batches)"]
 
-        subgraph Pool["ThreadPoolExecutor (num_workers=3)"]
+        subgraph Pool["ThreadPoolExecutor (num_workers=4)"]
             direction LR
             W1["Worker 1<br/>load + augment"]
             W2["Worker 2<br/>load + augment"]
             W3["Worker 3<br/>load + augment"]
+            W4["Worker 4<br/>load + augment"]
         end
 
         DISPATCH --> Pool
@@ -549,7 +551,7 @@ flowchart LR
 
 ## 10. Checkpointing and Output
 
-Each rank writes independent micro-shards — no inter-rank coordination needed. See [`checkpoint.py`](./pipelines/distributed/checkpoint.py).
+Each rank writes independent micro-shards — no inter-rank coordination needed. See [`checkpoint.py`](./pipelines/distributed/checkpoint.py) for micro-shard I/O and stats, [`wandb_logger.py`](./pipelines/distributed/wandb_logger.py) for W&B resume, and [`stats_reducer.py`](./pipelines/distributed/stats_reducer.py) for aggregate stats.
 
 ```mermaid
 sequenceDiagram
@@ -582,11 +584,14 @@ output_dir/{mode}/{output_name}/
 +-- rank_0000_chunk_0000.idx     # Index for random access
 +-- rank_0000_chunk_0001.bin
 +-- rank_0000_chunk_0001.idx
-+-- rank_0000_checkpoint.pt      # Resume state
++-- rank_0000_checkpoint.pt      # Resume state (batch_index, chunk_id, stats, wandb)
 +-- rank_0001_chunk_0000.bin
 +-- rank_0001_chunk_0000.idx
 +-- rank_0001_checkpoint.pt
 +-- ...
++-- stats.jsonl                  # Per-rank stats (appended by each rank)
++-- stats_summary.json           # Aggregate summary (written atomically by first finishing rank)
++-- wandb_run_id.txt             # W&B run ID for resume continuity
 ```
 
 </details>
@@ -595,7 +600,8 @@ output_dir/{mode}/{output_name}/
 |----------|--------|
 | **Atomic writes** | `.tmp` suffix during write, `os.replace()` to final name |
 | **fsync** | Ensures durability on network filesystems (Lustre) |
-| **Deterministic resume** | BatchPlan is deterministic; checkpoint = `(batch_index, chunk_id)` |
+| **Deterministic resume** | BatchPlan is deterministic; checkpoint = `(batch_index, chunk_id)`. W&B state (run ID, step) is persisted in the checkpoint for seamless plot continuity across sessions |
+| **Stats aggregation** | Each rank appends to `stats.jsonl`; whichever rank finishes last and sees all entries atomically writes `stats_summary.json` — no polling loop |
 | **Document boundaries** | One document per image (single-image) or per group (multi-image) |
 
 ---
@@ -604,9 +610,11 @@ output_dir/{mode}/{output_name}/
 
 Each rank processes an independent subset of batches — **no NCCL, no inter-rank communication**. See [`__init__.py`](./pipelines/distributed/__init__.py) and [`core.py`](./pipelines/distributed/core.py).
 
+`split_for_workers()` uses **cost-weighted contiguous splitting**: batches are assigned to workers in order (preserving shard/tar locality) but split boundaries are chosen to equalize total token cost per worker, reducing long-tail stragglers on skewed image-size distributions.
+
 ```mermaid
 graph TD
-    BP[("BatchPlan<br/>N batches")] --> SPLIT["split_for_workers(world_size)<br/>contiguous chunks"]
+    BP[("BatchPlan<br/>N batches")] --> SPLIT["split_for_workers(world_size)<br/>cost-weighted contiguous chunks"]
 
     SPLIT --> R0 & R1 & RN
 
@@ -744,7 +752,9 @@ configs/
 | `tokenizer.path` | Path to omni-tokenizer (vision tokenizer auto-loaded from config) | required |
 | `tokenizer.min_pixels` | Minimum pixels for image preprocessing | `"128*128"` |
 | `tokenizer.max_pixels` | Maximum pixels for image preprocessing | `"1400*1400"` |
-| `tokenizer.max_images_per_encode` | Max images per GPU encode call; larger batches are chunked to avoid OOM | `16` |
+| `tokenizer.max_images_per_encode` | Max images per GPU encode call; larger batches are chunked to avoid OOM. Relevant for multi-image datasets and future video support — set `batch_size` larger than the max number of images per sample so the chunking can take effect. | `16` |
+| `tokenizer.torch_compile` | Compile the Emu3.5 encode path with `torch.compile`. Only beneficial for datasets with **uniform image resolutions** (fixed or few distinct sizes); variable-size datasets trigger constant recompilation which hurts performance. | `false` |
+| `tokenizer.torch_compile_mode` | `torch.compile` mode (e.g. `reduce-overhead` for CUDA graphs) | `reduce-overhead` |
 | `num_gpus` | Total GPU count (cross-checked against `SLURM_NTASKS`) | required |
 | `resume` | Resume from rank checkpoints | `false` |
 | `dry_run` | Estimate tokens without GPU | `false` |
@@ -830,7 +840,9 @@ vision_tokenization/
 |   +-- prefetch.py                      # BatchPrefetcher (threaded I/O overlap)
 |   +-- handler.py                       # TokenizationHandler (tokenizer-agnostic)
 |   +-- writer.py                        # MicroShardWriter (micro-shard lifecycle)
-|   +-- checkpoint.py                    # Micro-shard I/O, WorkerStats, W&B
+|   +-- checkpoint.py                    # Micro-shard I/O, WorkerStats
+|   +-- wandb_logger.py                  # SimpleWandbLogger, W&B resume state
+|   +-- stats_reducer.py                 # Aggregate per-rank stats into summary
 |   +-- data.py                          # WDSImageLoader, HFImageLoader, augmenter
 |   +-- dry_run.py                       # Token estimation without GPU
 |
@@ -854,7 +866,8 @@ vision_tokenization/
 | Decision | Rationale |
 |----------|-----------|
 | **No NCCL** | Each rank is independent — BatchPlan provides deterministic work assignment, no inter-GPU communication needed |
-| **Batch-index checkpointing** | BatchPlan is deterministic, so checkpoint = `(batch_index, chunk_id)` — no sampler state |
+| **Cost-weighted split** | `split_for_workers()` balances token cost across ranks while preserving contiguous batch order for shard locality |
+| **Batch-index checkpointing** | BatchPlan is deterministic, so checkpoint = `(batch_index, chunk_id)` — no sampler state. W&B run ID and step are checkpointed for seamless resume across sessions |
 | **GPU/CPU bounce** | Images tokenized in batch on GPU, transferred to CPU once, assembled with text on CPU — avoids per-sample transfers |
 | **Clustered batching** | k-means on (aspect_ratio, log_area) groups similar images -> same resize target -> no padding waste |
 | **Atomic file writes** | `.tmp` + `os.replace()` pattern for crash safety on network filesystems |
