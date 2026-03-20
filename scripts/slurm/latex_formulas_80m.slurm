@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --account=infra01
 #SBATCH --reservation=PA-2338-RL
-#SBATCH --job-name=websight-tokenize
+#SBATCH --job-name=latex80m-tokenize
 #SBATCH --environment=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/scripts/envs/nemo_25_11.toml
-#SBATCH --output=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs/websight_%j.out
-#SBATCH --error=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs/websight_%j.err
-#SBATCH --time=05:00:00
+#SBATCH --output=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs/latex_formulas_80m_%j.out
+#SBATCH --error=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs/latex_formulas_80m_%j.err
+#SBATCH --time=06:00:00
 #SBATCH --nodes=8
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-node=4
@@ -16,7 +16,7 @@
 set -e
 
 echo "=========================================="
-echo "WebSight v0.2 Image2Text Tokenization"
+echo "LaTeX Formulas 80M Image2Text Tokenization"
 echo "=========================================="
 echo "Job ID: ${SLURM_JOB_ID}"
 echo "Node: $(hostname -s)"
@@ -33,8 +33,9 @@ srun -u bash -c "
     cd /iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier
 
     python -m vision_tokenization.tokenize \
-        mode=image2text dataset=websight \
-        num_gpus=${NUM_GPUS}
+        mode=image2text dataset=latex_formulas_80m \
+        num_gpus=${NUM_GPUS} \
+        resume=true
 "
 
 echo ""

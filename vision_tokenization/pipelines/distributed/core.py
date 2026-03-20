@@ -17,10 +17,8 @@ Launch examples::
 
 import json
 import logging
-import os
-import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import torch
 
@@ -30,13 +28,14 @@ from vision_tokenization.indexing.clustered_batch_planner import (
 )
 from .checkpoint import (
     WorkerStats,
-    SimpleWandbLogger,
     is_cuda_oom,
     load_checkpoint,
     save_checkpoint,
 )
 from .data import ImageAugmenter, create_loader
 from .prefetch import BatchPrefetcher
+from .stats_reducer import maybe_write_stats_summary
+from .wandb_logger import SimpleWandbLogger, load_wandb_resume_state
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +159,7 @@ def tokenize_loop(
     start_stage2_chunk_id = 0
     start_lct_chunk_id = 0
     cumulative_stats = WorkerStats()
+    ckpt = None
 
     if resume:
         ckpt = load_checkpoint(output_dir, rank)
@@ -193,15 +193,7 @@ def tokenize_loop(
                 start_stage2_chunk_id = ckpt["stage2_chunk_id"] + 1
                 start_lct_chunk_id = ckpt["lct_chunk_id"] + 1
             prev = ckpt.get("stats", {})
-            cumulative_stats.samples_processed = prev.get("samples_processed", 0)
-            cumulative_stats.tokens_generated = prev.get("tokens_generated", 0)
-            cumulative_stats.image_tokens = prev.get("image_tokens", 0)
-            cumulative_stats.text_tokens = prev.get("text_tokens", 0)
-            cumulative_stats.errors = prev.get("errors", 0)
-            cumulative_stats.samples_skipped = prev.get("samples_skipped", 0)
-            cumulative_stats.cuda_oom_errors = prev.get("cuda_oom_errors", 0)
-            cumulative_stats.stage2_tokens = prev.get("stage2_tokens", 0)
-            cumulative_stats.lct_tokens = prev.get("lct_tokens", 0)
+            cumulative_stats.load_from_dict(prev)
             logger.info(
                 f"[rank {rank}] Resumed from batch {start_batch_index}, "
                 f"chunk {start_chunk_id}, samples={cumulative_stats.samples_processed}"
@@ -255,6 +247,7 @@ def tokenize_loop(
     wandb_logger = None
     wandb_cfg = cfg.get("wandb", {})
     if wandb_cfg.get("enabled", False) and rank == 0:
+        wandb_resume_state = load_wandb_resume_state(resume, ckpt)
         wandb_logger = SimpleWandbLogger(
             project=wandb_cfg.get("project", "vision-tokenization"),
             entity=wandb_cfg.get("entity"),
@@ -267,7 +260,15 @@ def tokenize_loop(
                 **{k: v for k, v in cfg.items() if isinstance(v, (int, float, str, bool))},
             },
             log_interval_seconds=wandb_cfg.get("log_interval_seconds", 10.0),
+            run_id=wandb_resume_state["run_id"] if wandb_resume_state is not None else None,
+            start_step=wandb_resume_state["step"] if wandb_resume_state is not None else 0,
         )
+
+    def _checkpoint_extra(extra: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+        payload = dict(extra or {})
+        if wandb_logger is not None:
+            payload["wandb"] = wandb_logger.state_dict()
+        return payload or None
 
     # ------------------------------------------------------------------
     # 6. Main loop
@@ -428,6 +429,7 @@ def tokenize_loop(
                     skipped=stats.samples_skipped,
                     timing=timing,
                     metrics=extra_metrics,
+                    elapsed_seconds=stats.current_elapsed_time(),
                 )
 
             # Periodic checkpoint
@@ -446,10 +448,10 @@ def tokenize_loop(
                         chunk_id=result.batch_index,  # not meaningful in split mode
                         stats=stats.to_dict(),
                         world_size=world_size,
-                        extra={
+                        extra=_checkpoint_extra({
                             "stage2_chunk_id": s2_done,
                             "lct_chunk_id": lct_done,
-                        },
+                        }),
                     )
                 else:
                     logger.info(
@@ -462,6 +464,7 @@ def tokenize_loop(
                         chunk_id=done_chunk,
                         stats=stats.to_dict(),
                         world_size=world_size,
+                        extra=_checkpoint_extra(),
                     )
                     chunk_id = done_chunk + 1
 
@@ -484,10 +487,10 @@ def tokenize_loop(
             chunk_id=last_batch_index,
             stats=stats.to_dict(),
             world_size=world_size,
-            extra={
+            extra=_checkpoint_extra({
                 "stage2_chunk_id": handler.writer.stage2_chunk_id,
                 "lct_chunk_id": handler.writer.lct_chunk_id,
-            },
+            }),
         )
     else:
         save_checkpoint(
@@ -496,6 +499,7 @@ def tokenize_loop(
             chunk_id=chunk_id,
             stats=stats.to_dict(),
             world_size=world_size,
+            extra=_checkpoint_extra(),
         )
 
     result = stats.finalize()
@@ -531,13 +535,23 @@ def tokenize_loop(
     result["total_batches_assigned"] = len(my_batches)
 
     # ------------------------------------------------------------------
-    # 8. Write per-rank stats to shared JSONL; rank 0 aggregates
+    # 8. Write per-rank stats; whichever rank sees a complete set first
+    # atomically refreshes the aggregate summary.
     # ------------------------------------------------------------------
     stats_path = Path(output_dir) / "stats.jsonl"
     _append_rank_stats(stats_path, result)
 
-    if rank == 0:
-        _write_aggregate_stats(stats_path, output_dir, world_size)
+    aggregate = maybe_write_stats_summary(output_dir, expected_ranks=world_size)
+    if aggregate is not None:
+        logger.info(
+            f"[rank {rank}] Aggregate stats: "
+            f"{aggregate['samples_processed']:,} samples, "
+            f"{aggregate['tokens_generated']:,} tokens "
+            f"({aggregate['image_tokens']:,} image + {aggregate['text_tokens']:,} text), "
+            f"{aggregate['errors']} errors, "
+            f"{aggregate['tokens_per_second']:,.0f} tok/s, "
+            f"{aggregate['max_elapsed_s']:.1f}s"
+        )
 
     if _loop_error is not None:
         raise RuntimeError(
@@ -553,77 +567,3 @@ def _append_rank_stats(stats_path: Path, result: Dict[str, Any]) -> None:
     line = json.dumps(result, default=str) + "\n"
     with open(stats_path, "a") as f:
         f.write(line)
-
-
-def _write_aggregate_stats(
-    stats_path: Path, output_dir: str, world_size: int,
-    timeout: float = 120.0, poll: float = 2.0,
-) -> None:
-    """Wait for all ranks to write, then append an aggregate summary line."""
-    deadline = time.time() + timeout
-    rank_stats: List[Dict[str, Any]] = []
-    seen_ranks = set()
-    last_err: Optional[Exception] = None
-    while time.time() < deadline:
-        try:
-            lines = stats_path.read_text().splitlines()
-            parsed = [json.loads(l) for l in lines if l.strip()]
-            rank_stats = [s for s in parsed if "rank" in s]
-            seen_ranks = {s["rank"] for s in rank_stats}
-            last_err = None
-            if len(seen_ranks) >= world_size:
-                break
-        except Exception as exc:
-            last_err = exc
-        time.sleep(poll)
-    else:
-        detail = f", last error: {last_err}" if last_err is not None else ""
-        logger.warning(
-            f"[rank 0] Timed out waiting for all {world_size} ranks to write stats "
-            f"(got {len(seen_ranks)}){detail}"
-        )
-
-    # Keep only the latest entry per rank (in case of resume appends)
-    by_rank = {}
-    for s in rank_stats:
-        by_rank[s["rank"]] = s
-    rank_stats = [by_rank[r] for r in sorted(by_rank)]
-
-    agg = {
-        "type": "aggregate",
-        "num_ranks": len(rank_stats),
-        "samples_processed": sum(s.get("samples_processed", 0) for s in rank_stats),
-        "tokens_generated": sum(s.get("tokens_generated", 0) for s in rank_stats),
-        "image_tokens": sum(s.get("image_tokens", 0) for s in rank_stats),
-        "text_tokens": sum(s.get("text_tokens", 0) for s in rank_stats),
-        "stage2_tokens": sum(s.get("stage2_tokens", 0) for s in rank_stats),
-        "lct_tokens": sum(s.get("lct_tokens", 0) for s in rank_stats),
-        "errors": sum(s.get("errors", 0) for s in rank_stats),
-        "samples_skipped": sum(s.get("samples_skipped", 0) for s in rank_stats),
-        "cuda_oom_errors": sum(s.get("cuda_oom_errors", 0) for s in rank_stats),
-        "max_elapsed_s": max((s.get("elapsed_time", 0) for s in rank_stats), default=0),
-        "per_rank": rank_stats,
-    }
-    # Derived
-    elapsed = agg["max_elapsed_s"]
-    if elapsed > 0:
-        agg["tokens_per_second"] = agg["tokens_generated"] / elapsed
-        agg["samples_per_second"] = agg["samples_processed"] / elapsed
-    else:
-        agg["tokens_per_second"] = 0
-        agg["samples_per_second"] = 0
-
-    # Write aggregate as final summary JSON (separate file for easy consumption)
-    summary_path = Path(output_dir) / "stats_summary.json"
-    with open(summary_path, "w") as f:
-        json.dump(agg, f, indent=2, default=str)
-
-    logger.info(
-        f"[rank 0] Aggregate stats: "
-        f"{agg['samples_processed']:,} samples, "
-        f"{agg['tokens_generated']:,} tokens "
-        f"({agg['image_tokens']:,} image + {agg['text_tokens']:,} text), "
-        f"{agg['errors']} errors, "
-        f"{agg['tokens_per_second']:,.0f} tok/s, "
-        f"{elapsed:.1f}s"
-    )

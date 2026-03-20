@@ -14,6 +14,7 @@ from PIL import Image
 
 from vision_tokenization.indexing._scan_wds_worker import scan_single_tar
 from vision_tokenization.indexing.clustered_batch_planner import (
+    BatchAssignment,
     BatchPlan,
     plan_clustered_batches,
 )
@@ -648,7 +649,7 @@ class TestClusteredBatchPlanner:
         assert all(i >= 50 for i in all_idx)
 
     def test_worker_split(self, tmp_path):
-        """split_for_workers(4) produces up to 4 chunks covering all batches."""
+        """split_for_workers(4) produces 4 worker chunks covering all batches."""
         rng = np.random.RandomState(0)
         w = rng.randint(100, 500, 200)
         h = rng.randint(100, 500, 200)
@@ -656,10 +657,39 @@ class TestClusteredBatchPlanner:
 
         plan = plan_clustered_batches(path, batch_size=10, max_batch_tokens=999999)
         chunks = plan.split_for_workers(4)
-        assert len(chunks) <= 4
+        assert len(chunks) == 4
         # Flatten and verify all batches covered
         flat = [b for chunk in chunks for b in chunk]
         assert len(flat) == len(plan.batches)
+
+    def test_worker_split_is_weighted_but_contiguous(self):
+        """Weighted splitting should improve balance without reordering batches."""
+        costs = [1, 1, 1, 1, 100, 1, 1, 100]
+        batches = [
+            BatchAssignment(
+                sample_indices=np.array([idx], dtype=np.int64),
+                resize_height=cost,
+                resize_width=1,
+                batch_token_count=cost,
+            )
+            for idx, cost in enumerate(costs)
+        ]
+        plan = BatchPlan(batches=batches)
+
+        chunks = plan.split_for_workers(2)
+
+        assert [int(batch.sample_indices[0]) for batch in chunks[0]] == [0, 1, 2, 3, 4]
+        assert [int(batch.sample_indices[0]) for batch in chunks[1]] == [5, 6, 7]
+
+        flat = [int(batch.sample_indices[0]) for chunk in chunks for batch in chunk]
+        assert flat == list(range(len(batches)))
+
+        weighted_costs = [sum(plan._estimate_batch_cost(batch) for batch in chunk) for chunk in chunks]
+        count_split_costs = [
+            sum(costs[:4]),
+            sum(costs[4:]),
+        ]
+        assert max(weighted_costs) < max(count_split_costs)
 
     def test_multi_image_requires_group_column(self, tmp_path):
         """multi_image=True on a single-image manifest should raise ValueError."""

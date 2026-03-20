@@ -27,7 +27,17 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
     Supports both Emu3 and Emu3.5 vision tokenizers.
     """
 
-    def __init__(self, text_tokenizer_path: str, min_pixels: int, max_pixels: int, device: str = "cuda", max_images_per_encode: int = 32, **kwargs):
+    def __init__(
+        self,
+        text_tokenizer_path: str,
+        min_pixels: int,
+        max_pixels: int,
+        device: str = "cuda",
+        max_images_per_encode: int = 32,
+        torch_compile: bool = False,
+        torch_compile_mode: str = "reduce-overhead",
+        **kwargs,
+    ):
         """
         Initialize with text tokenizer that has EMU vision tokens and image tokenizer.
 
@@ -40,6 +50,8 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
 
         # Store device
         self.device = device
+        self.torch_compile = torch_compile
+        self.torch_compile_mode = torch_compile_mode
 
         # Load tokenizer with trust_remote_code for custom tokenizer class
         # Use fast tokenizer for better performance
@@ -77,7 +89,12 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
             from Tokenizer.Emu3_5_IBQ import Emu3_5_IBQ
 
             self.image_tokenizer = Emu3_5_IBQ(
-                model_path=vision_tokenizer_path, device=self.device, min_pixels=min_pixels, max_pixels=max_pixels
+                model_path=vision_tokenizer_path,
+                device=self.device,
+                min_pixels=min_pixels,
+                max_pixels=max_pixels,
+                torch_compile=self.torch_compile,
+                torch_compile_mode=self.torch_compile_mode,
             )
         else:
             raise ValueError(

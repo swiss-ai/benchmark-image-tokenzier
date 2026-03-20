@@ -85,6 +85,10 @@ def main(cfg: DictConfig):
     tokenizer_path = tokenizer_cfg.path
     tokenizer_min_pixels = parse_resolution(str(tokenizer_cfg.min_pixels))["pixels"]
     tokenizer_max_pixels = parse_resolution(str(tokenizer_cfg.max_pixels))["pixels"]
+    tokenizer_kwargs = {
+        "torch_compile": tokenizer_cfg.get("torch_compile", False),
+        "torch_compile_mode": tokenizer_cfg.get("torch_compile_mode", "reduce-overhead"),
+    }
 
     # Dataset-level pixel bounds for batch-planner filtering.
     # Format: "H*W" string (e.g. "64*128") or plain integer.
@@ -142,17 +146,16 @@ def main(cfg: DictConfig):
         # W&B
         "wandb": OmegaConf.to_container(cfg.get("wandb", {}), resolve=True),
     }
+    pipeline_cfg["tokenizer_kwargs"] = tokenizer_kwargs
 
     # Conversation policy for SFT mode
     conv_policy = cfg.dataset.get("conversation_policy")
     if conv_policy is not None:
         from vision_tokenization.vokenizers.conversation_policy import ConversationPolicy
 
-        pipeline_cfg["tokenizer_kwargs"] = {
-            "conversation_policy": ConversationPolicy(
-                **OmegaConf.to_container(conv_policy, resolve=True)
-            ),
-        }
+        pipeline_cfg["tokenizer_kwargs"]["conversation_policy"] = ConversationPolicy(
+            **OmegaConf.to_container(conv_policy, resolve=True)
+        )
 
     result = run_distributed_pipeline(pipeline_cfg)
 

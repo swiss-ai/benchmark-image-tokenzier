@@ -32,6 +32,8 @@ class Emu3_5_IBQ(Tokenizer):
         model_path: str,
         min_pixels: Optional[int] = None,
         max_pixels: Optional[int] = None,
+        torch_compile: bool = False,
+        torch_compile_mode: str = "reduce-overhead",
         metadata_only: bool = False,
         verbose: bool = False,
         **kwargs,
@@ -53,7 +55,10 @@ class Emu3_5_IBQ(Tokenizer):
         self.max_pixels = max_pixels
         self.spatial_factor = 16  # Emu3.5 uses 16x downsampling
         self.verbose = verbose
+        self.torch_compile = torch_compile
+        self.torch_compile_mode = torch_compile_mode
         self.dtype = None  # Will be set during model loading
+        self._encode_impl = None
 
         # If metadata_only, just load config and return
         if metadata_only:
@@ -126,6 +131,9 @@ class Emu3_5_IBQ(Tokenizer):
             # Move to device and set to eval mode
             self.model = self.model.to(self.device)
             self.model.eval()
+            self._encode_impl = self.model.encode
+            if self.torch_compile:
+                self._encode_impl = self._maybe_compile_encode(self._encode_impl)
 
             print(f"✓ {self.name} loaded successfully")
             print(f"Model device: {self.device}")
@@ -149,6 +157,22 @@ class Emu3_5_IBQ(Tokenizer):
         except Exception as e:
             print(f"✗ Failed to load {self.name}: {e}")
             raise
+
+    def _maybe_compile_encode(self, encode_fn):
+        """Compile the encode path when supported; fall back to eager on failure."""
+        if not hasattr(torch, "compile"):
+            print("torch.compile is not available; continuing in eager mode")
+            return encode_fn
+        if self.device.type != "cuda":
+            print("torch.compile requested for Emu3.5 on non-CUDA device; continuing in eager mode")
+            return encode_fn
+        try:
+            compiled = torch.compile(encode_fn, mode=self.torch_compile_mode)
+            print(f"✓ Enabled torch.compile for {self.name}.encode (mode={self.torch_compile_mode})")
+            return compiled
+        except Exception as exc:
+            print(f"⚠ torch.compile failed for {self.name}.encode, continuing in eager mode: {exc}")
+            return encode_fn
 
     def preprocess(self, image: Image.Image) -> torch.Tensor:
         """
@@ -239,7 +263,8 @@ class Emu3_5_IBQ(Tokenizer):
                 tensor = tensor.unsqueeze(0)
 
             # Encode using Emu3.5 IBQ
-            quant, emb_loss, info = self.model.encode(tensor)
+            encode_fn = self._encode_impl or self.model.encode
+            quant, emb_loss, info = encode_fn(tensor)
 
             # Extract indices from info tuple
             # info is typically (perplexity, min_encodings, indices)

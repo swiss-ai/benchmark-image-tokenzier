@@ -38,12 +38,15 @@ def dry_run_batch_plan(
     for batch in batch_plan.batches:
         n_images = len(batch.sample_indices)
         n_docs = len(batch.group_slices) if batch.group_slices is not None else n_images
-        per_image = estimate_image_tokens(
-            batch.resize_height,
-            batch.resize_width,
-            spatial_factor=spatial_factor,
-        )
-        batch_tokens = per_image * n_images
+        if batch.batch_token_count is not None:
+            batch_tokens = int(batch.batch_token_count)
+        else:
+            per_image = estimate_image_tokens(
+                batch.resize_height,
+                batch.resize_width,
+                spatial_factor=spatial_factor,
+            )
+            batch_tokens = per_image * n_images
         total_image_tokens += batch_tokens
         total_images += n_images
         total_documents += n_docs
