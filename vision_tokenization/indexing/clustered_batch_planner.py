@@ -12,6 +12,7 @@ import pyarrow.parquet as pq
 from vision_tokenization.indexing.manifest import load_group_arrays
 from vision_tokenization.utils.image_geometry import (
     estimate_image_tokens,
+    estimate_image_tokens_batch,
     smart_resize_dims,
 )
 
@@ -125,21 +126,13 @@ def _estimate_single_image_tokens(
     resize_max_pixels: Optional[int],
 ) -> np.ndarray:
     """Estimate final per-image token counts after tokenizer smart resize."""
-    tokens = np.empty(len(heights), dtype=np.int64)
-    for idx, (height, width) in enumerate(zip(heights, widths)):
-        final_height, final_width = smart_resize_dims(
-            int(height),
-            int(width),
-            min_pixels=resize_min_pixels,
-            max_pixels=resize_max_pixels,
-            factor=spatial_factor,
-        )
-        tokens[idx] = estimate_image_tokens(
-            final_height,
-            final_width,
-            spatial_factor=spatial_factor,
-        )
-    return tokens
+    return estimate_image_tokens_batch(
+        heights,
+        widths,
+        spatial_factor=spatial_factor,
+        min_pixels=resize_min_pixels,
+        max_pixels=resize_max_pixels,
+    )
 
 
 def _compute_final_batch_geometry(
