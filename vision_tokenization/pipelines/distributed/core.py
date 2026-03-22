@@ -48,6 +48,20 @@ def _resolve_multi_image(cfg: Dict[str, Any]) -> bool:
     return cfg.get("image_list_column") is not None
 
 
+def _build_run_name(cfg: Dict[str, Any], mode: str, world_size: int) -> str:
+    """Build a descriptive W&B run name from the pipeline config."""
+    tok_min = cfg.get("tokenizer_min_pixels")
+    tok_max = cfg.get("tokenizer_max_pixels")
+    min_res = int(tok_min ** 0.5) if tok_min else "?"
+    max_res = int(tok_max ** 0.5) if tok_max else "?"
+    return (
+        f"{cfg.get('output_name', 'run')}_{mode}_g{world_size}"
+        f"_mbt{cfg.get('max_batch_tokens', '')}"
+        f"_bs{cfg.get('batch_size', '')}"
+        f"_{min_res}-{max_res}px"
+    )
+
+
 def _load_or_compute_batch_plan(cfg: Dict[str, Any], is_multi_image: bool) -> BatchPlan:
     """Load a pre-computed BatchPlan from file, or compute one from the manifest."""
     plan_path = cfg.get("batch_plan_path")
@@ -213,7 +227,8 @@ def tokenize_loop(
     if rank == 0 and not is_multi_image and configured_max_images_per_encode is not None:
         logger.warning(
             "Ignoring tokenizer.max_images_per_encode=%s for single-image dataset; "
-            "batch_size and max_batch_tokens control batch memory.",
+            "this setting only applies to multi-image groups. "
+            "batch_size and max_batch_tokens control single-image batch memory.",
             configured_max_images_per_encode,
         )
     tokenizer = create_tokenizer(
@@ -248,10 +263,11 @@ def tokenize_loop(
     wandb_cfg = cfg.get("wandb", {})
     if wandb_cfg.get("enabled", False) and rank == 0:
         wandb_resume_state = load_wandb_resume_state(resume, ckpt)
+        wandb_name = wandb_cfg.get("name") or _build_run_name(cfg, mode, world_size)
         wandb_logger = SimpleWandbLogger(
             project=wandb_cfg.get("project", "vision-tokenization"),
             entity=wandb_cfg.get("entity"),
-            name=wandb_cfg.get("name"),
+            name=wandb_name,
             tags=wandb_cfg.get("tags", []),
             config={
                 "rank": rank,

@@ -18,7 +18,7 @@ WDS_SCHEMA = pa.schema(
         pa.field("sample_key", pa.string()),
         pa.field("tar_path", pa.dictionary(pa.int32(), pa.string())),
         pa.field("offset_data", pa.int64()),
-        pa.field("file_size", pa.int32()),
+        pa.field("file_size", pa.int64()),
         pa.field("width", pa.int32()),
         pa.field("height", pa.int32()),
         pa.field("image_ext", pa.dictionary(pa.int32(), pa.string())),
@@ -30,7 +30,7 @@ WDS_SCHEMA_WITH_TEXT = pa.schema(
     list(WDS_SCHEMA)
     + [
         pa.field("offset_text", pa.int64()),
-        pa.field("text_file_size", pa.int32()),
+        pa.field("text_file_size", pa.int64()),
         pa.field("text_ext", pa.dictionary(pa.int32(), pa.string())),
     ]
 )
@@ -109,6 +109,34 @@ def _records_to_table(records: Union[List[Dict], pa.Table], schema: pa.Schema) -
     return pa.table(arrays, schema=schema)
 
 
+def records_to_table(records: Union[List[Dict], pa.Table], schema: pa.Schema) -> pa.Table:
+    """Public wrapper for converting manifest records into a typed Arrow table."""
+    return _records_to_table(records, schema)
+
+
+def _write_table_chunks(
+    writer: pq.ParquetWriter,
+    table: pa.Table,
+    chunk_size: int = _CHUNK_SIZE,
+) -> None:
+    """Write a table to Parquet in row-group sized chunks."""
+    n_rows = len(table)
+    for start in range(0, n_rows, chunk_size):
+        writer.write_table(table.slice(start, chunk_size))
+
+
+def append_parquet_records(
+    writer: pq.ParquetWriter,
+    records: Union[List[Dict], pa.Table],
+    schema: pa.Schema,
+    chunk_size: int = _CHUNK_SIZE,
+) -> int:
+    """Append records to an open Parquet writer and return written rows."""
+    table = _records_to_table(records, schema)
+    _write_table_chunks(writer, table, chunk_size=chunk_size)
+    return len(table)
+
+
 # ---------------------------------------------------------------------------
 # WDS manifest I/O
 # ---------------------------------------------------------------------------
@@ -143,8 +171,7 @@ def save_wds_manifest(
 
     writer = pq.ParquetWriter(output_path, schema, compression="zstd")
     try:
-        for start in range(0, n_rows, chunk_size):
-            writer.write_table(table.slice(start, chunk_size))
+        _write_table_chunks(writer, table, chunk_size=chunk_size)
     finally:
         writer.close()
 
@@ -180,8 +207,7 @@ def save_hf_manifest(
 
     writer = pq.ParquetWriter(output_path, schema, compression="zstd")
     try:
-        for start in range(0, n_rows, chunk_size):
-            writer.write_table(table.slice(start, chunk_size))
+        _write_table_chunks(writer, table, chunk_size=chunk_size)
     finally:
         writer.close()
 

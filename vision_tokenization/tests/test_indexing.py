@@ -265,6 +265,37 @@ class TestWDSScanner:
         assert group_ids[0] == group_ids[1]
         assert group_ids[2] != group_ids[0]
 
+    def test_multi_image_scan_preserves_tar_order_and_offsets_group_ids(self, tmp_path):
+        """Parallel grouped scans should emit rows in tar order with global group ids."""
+        samples_a = [
+            {"key": "000001.img0", "ext": "jpg", "width": 32, "height": 32, "text": "caption"},
+            {"key": "000001.img1", "ext": "jpg", "width": 48, "height": 48},
+            {"key": "000002.img0", "ext": "jpg", "width": 64, "height": 64},
+        ]
+        samples_b = [
+            {"key": "000010.img0", "ext": "jpg", "width": 80, "height": 80, "text": "other"},
+            {"key": "000010.img1", "ext": "jpg", "width": 96, "height": 96},
+        ]
+        _create_tar(str(tmp_path / "shard_000.tar"), samples_a)
+        _create_tar(str(tmp_path / "shard_001.tar"), samples_b)
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        scan_wds_dataset(
+            input_pattern=str(tmp_path / "shard_*.tar"),
+            output_manifest=manifest_path,
+            text_extensions={"txt"},
+            image_field_pattern="img",
+            multi_image=True,
+            num_workers=2,
+        )
+
+        table = load_wds_manifest(manifest_path)
+        assert table.column("sample_key").to_pylist() == [
+            "000001", "000001", "000002", "000010", "000010",
+        ]
+        assert table.column("group_id").to_pylist() == [0, 0, 1, 2, 2]
+        assert table.column("image_index").to_pylist() == [0, 1, 0, 0, 1]
+
     def test_single_image_validation_rejects_multiple_images_per_sample(self, tmp_path):
         """multi_image=False should fail if normalized sample keys have >1 image."""
         samples = [

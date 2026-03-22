@@ -1,0 +1,17 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Salesforce/blip3-grounding-50m — image2text, WDS (image + JSON caption)
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - _base_wds
+
+output_name: blip3_grounding_50m
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/blip3_grounding_50m/tokenized
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/blip3_grounding_50m/manifest.parquet
+text_column: caption
+multi_image: false
+
+# --- Overrides ----------------------------------------------------------------
+gpu_kmeans: false
+batch_plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/blip3_grounding_50m.pt
+max_batch_tokens: 32768
+checkpoint_interval_batches: 5000
