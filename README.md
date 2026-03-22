@@ -2,7 +2,7 @@
 
 Repo supports benchmarking and large-scale tokenization with discrete image tokenizers.
 
-**Authors:** Yixuan Xu, Raphael Krest, Nicola Irmiger
+**Authors:** Yixuan Xu, Raphael Kreft, Nicola Irmiger
 
 ## Repository Structure
 
