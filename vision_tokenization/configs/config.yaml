@@ -29,7 +29,7 @@ tokenizer:
   path: /capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_wavtok
   min_pixels: "128*128"
   max_pixels: "1400*1400"
-  max_images_per_encode: 16        # chunk large batches to avoid GPU OOM
+  max_images_per_encode: 16        # multi-image only: chunk large groups to avoid GPU OOM
   torch_compile: false             # compile Emu3.5 encode path when shapes are stable
   torch_compile_mode: reduce-overhead
 
