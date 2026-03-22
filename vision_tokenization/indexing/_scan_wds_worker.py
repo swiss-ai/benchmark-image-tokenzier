@@ -7,6 +7,7 @@ from io import BytesIO
 from typing import Dict, FrozenSet, List, Optional, Tuple
 
 import imagesize
+from PIL import Image
 
 # Default image extensions to look for in tar files
 DEFAULT_IMAGE_EXTENSIONS: FrozenSet[str] = frozenset(
@@ -17,6 +18,45 @@ DEFAULT_IMAGE_EXTENSIONS: FrozenSet[str] = frozenset(
 DEFAULT_TEXT_EXTENSIONS: FrozenSet[str] = frozenset({"json", "txt"})
 
 _HEADER_BYTES = 4096  # bytes to read for imagesize header detection
+_HEADER_BYTES_LARGE = 65536  # larger retry for JPEG/TIFF with long EXIF/IFD
+_LARGE_HEADER_EXTS = frozenset({"jpg", "jpeg", "tif", "tiff"})
+_MAX_DIMENSION = 500_000  # reject dims above this (corrupt header guard)
+
+
+def _get_image_dims(fobj, ext: str) -> Tuple[int, int]:
+    """Get image dimensions: imagesize(4KB) -> imagesize(64KB) -> PIL.
+
+    Returns (-1, -1) when dimensions cannot be determined or exceed
+    ``_MAX_DIMENSION`` (corrupt header guard).
+    """
+    header = fobj.read(_HEADER_BYTES)
+    try:
+        w, h = imagesize.get(BytesIO(header))
+        if 0 < w <= _MAX_DIMENSION and 0 < h <= _MAX_DIMENSION:
+            return w, h
+    except Exception:
+        pass
+    # Larger header retry for formats with long EXIF/IFD
+    if ext in _LARGE_HEADER_EXTS:
+        header = fobj.read(_HEADER_BYTES_LARGE - _HEADER_BYTES)
+        if header:
+            try:
+                fobj.seek(0)
+                w, h = imagesize.get(BytesIO(fobj.read(_HEADER_BYTES_LARGE)))
+                if 0 < w <= _MAX_DIMENSION and 0 < h <= _MAX_DIMENSION:
+                    return w, h
+            except Exception:
+                pass
+    # PIL fallback
+    fobj.seek(0)
+    try:
+        with Image.open(fobj) as img:
+            w, h = img.size
+            if 0 < w <= _MAX_DIMENSION and 0 < h <= _MAX_DIMENSION:
+                return w, h
+    except Exception:
+        pass
+    return -1, -1
 
 
 def scan_single_tar(
@@ -99,13 +139,10 @@ def scan_single_tar(
 
             if ext in image_extensions:
                 sample_key, _image_index = _parse_sample_key_and_index(stem, field_re)
-                # Read header bytes for dimension detection
                 fobj = tf.extractfile(member)
                 if fobj is None:
                     continue
-                header = fobj.read(_HEADER_BYTES)
-
-                width, height = imagesize.get(BytesIO(header))
+                width, height = _get_image_dims(fobj, ext)
                 if width < 0 or height < 0:
                     continue
 
@@ -207,8 +244,7 @@ def _scan_single_tar_multi_image(
                 fobj = tf.extractfile(member)
                 if fobj is None:
                     continue
-                header = fobj.read(_HEADER_BYTES)
-                width, height = imagesize.get(BytesIO(header))
+                width, height = _get_image_dims(fobj, ext)
                 if width < 0 or height < 0:
                     continue
 

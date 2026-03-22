@@ -4,27 +4,40 @@ import glob
 import logging
 import os
 from collections import Counter
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from pathlib import Path
 from typing import FrozenSet, Optional, Union
+
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
 
 from vision_tokenization.indexing._scan_wds_worker import (
     DEFAULT_IMAGE_EXTENSIONS,
     DEFAULT_TEXT_EXTENSIONS,
     scan_single_tar,
 )
-from vision_tokenization.indexing.manifest import save_wds_manifest
+from vision_tokenization.indexing.manifest import (
+    WDS_SCHEMA,
+    WDS_SCHEMA_MULTI_IMAGE,
+    WDS_SCHEMA_MULTI_IMAGE_WITH_TEXT,
+    WDS_SCHEMA_WITH_TEXT,
+    records_to_table,
+)
 
 logger = logging.getLogger(__name__)
 
+_WDS_WRITE_BUFFER_ROWS = 500_000
+_WDS_MAX_IN_FLIGHT_FACTOR = 2
 
-def _discover_shards(input_pattern: str) -> list:
+
+def _discover_shards(input_pattern: str) -> list[str]:
     """Discover tar shards from a braceexpand or glob pattern.
 
     Tries braceexpand first (e.g. ``data_{000..100}.tar``), then falls
     back to standard glob.
     """
-    tar_paths: list = []
+    tar_paths: list[str] = []
 
     if "{" in input_pattern and ".." in input_pattern:
         try:
@@ -38,12 +51,11 @@ def _discover_shards(input_pattern: str) -> list:
                     f"{len(tar_paths)} existing tar files found"
                 )
                 return tar_paths
-            else:
-                logger.warning("Braceexpand produced paths but none exist. Falling back to glob.")
+            logger.warning("Braceexpand produced paths but none exist. Falling back to glob.")
         except ImportError:
             logger.warning("braceexpand not installed, falling back to glob")
-        except Exception as e:
-            logger.warning(f"braceexpand failed ({e}), falling back to glob")
+        except Exception as exc:
+            logger.warning(f"braceexpand failed ({exc}), falling back to glob")
 
     tar_paths = sorted(glob.glob(input_pattern))
     if not tar_paths:
@@ -53,9 +65,75 @@ def _discover_shards(input_pattern: str) -> list:
     return tar_paths
 
 
-def _sample_group_sizes(records: list[dict]) -> Counter:
-    """Count images per logical sample across all scanned tar members."""
-    return Counter((rec["tar_path"], rec["sample_key"]) for rec in records)
+def _find_duplicate_sample(records: list[dict]) -> Optional[tuple[str, int]]:
+    """Return the first normalized sample key with multiple images, if any."""
+    sample_counts = Counter(rec["sample_key"] for rec in records)
+    for sample_key, size in sample_counts.items():
+        if size > 1:
+            return sample_key, size
+    return None
+
+
+def _validate_single_image_records(
+    records: list[dict],
+    *,
+    tar_path: str,
+    image_field_pattern: Optional[str],
+) -> None:
+    """Validate that a single-image tar does not emit duplicate normalized keys."""
+    if image_field_pattern is None:
+        return
+    duplicate = _find_duplicate_sample(records)
+    if duplicate is None:
+        return
+    sample_key, size = duplicate
+    raise ValueError(
+        "scan_wds_dataset(..., multi_image=False) found a sample with multiple images "
+        f"after normalizing {image_field_pattern!r}: sample_key={sample_key!r}, "
+        f"tar_path={tar_path!r}, images={size}. Set multi_image=true for grouped output."
+    )
+
+
+def _summarize_multi_image_records(records: list[dict]) -> tuple[int, bool]:
+    """Return (num_groups, has_non_singleton_group) for a tar result."""
+    if not records:
+        return 0, False
+    num_groups = len({rec["group_id"] for rec in records})
+    return num_groups, num_groups < len(records)
+
+
+def _finalize_record_table(
+    records: list[dict],
+    *,
+    schema: pa.Schema,
+    group_id_offset: int = 0,
+) -> pa.Table:
+    """Convert records to a typed Arrow table and offset group ids if needed."""
+    table = records_to_table(records, schema)
+    if "group_id" not in schema.names or len(table) == 0 or group_id_offset == 0:
+        return table
+
+    arrays = {name: table.column(name) for name in schema.names}
+    arrays["group_id"] = pc.add(
+        table.column("group_id"),
+        pa.scalar(group_id_offset, type=pa.int64()),
+    )
+    return pa.table(arrays, schema=schema)
+
+
+def _flush_table_buffer(writer: pq.ParquetWriter, buffer: list[pa.Table]) -> None:
+    """Flush buffered Arrow tables to Parquet."""
+    if not buffer:
+        return
+    writer.write_table(pa.concat_tables(buffer, promote_options="none"))
+    buffer.clear()
+
+
+def _select_wds_schema(*, include_text: bool, multi_image: bool) -> pa.Schema:
+    """Choose the manifest schema for the requested WDS scan mode."""
+    if multi_image:
+        return WDS_SCHEMA_MULTI_IMAGE_WITH_TEXT if include_text else WDS_SCHEMA_MULTI_IMAGE
+    return WDS_SCHEMA_WITH_TEXT if include_text else WDS_SCHEMA
 
 
 def scan_wds_dataset(
@@ -67,26 +145,7 @@ def scan_wds_dataset(
     image_field_pattern: Optional[str] = None,
     multi_image: bool = False,
 ) -> str:
-    """Scan all WDS tars in parallel and write a Parquet manifest.
-
-    Args:
-        input_pattern: Braceexpand or glob pattern for tar files.
-        output_manifest: Path where the Parquet manifest will be written.
-        num_workers: Number of parallel workers for tar scanning.
-        image_extensions: Image extensions to scan for (default: common formats).
-        text_extensions: Text sidecar extensions to index (e.g. ``{"json", "txt"}``).
-            Pass ``None`` for image-only manifests, or ``DEFAULT_TEXT_EXTENSIONS``
-            for manifests that need text loading at tokenization time.
-        image_field_pattern: Prefix for multi-image field names (e.g.
-            ``"img"``). Used to normalize image stems like
-            ``sample.img1.jpg`` to ``sample`` when matching text sidecars.
-        multi_image: When true, emit grouped rows with ``group_id`` and
-            ``image_index``. When false, write a plain single-image manifest
-            even if ``image_field_pattern`` is set.
-
-    Returns:
-        The output manifest path as a string.
-    """
+    """Scan all WDS tars in parallel and write a Parquet manifest."""
     if image_extensions is None:
         image_extensions = DEFAULT_IMAGE_EXTENSIONS
     if multi_image and image_field_pattern is None:
@@ -96,6 +155,7 @@ def scan_wds_dataset(
 
     tar_paths = _discover_shards(input_pattern)
     include_text = text_extensions is not None
+    schema = _select_wds_schema(include_text=include_text, multi_image=multi_image)
     logger.info(
         f"Scanning {len(tar_paths)} tar files with {num_workers} workers"
         f"{' (with text sidecars)' if include_text else ''}"
@@ -103,34 +163,123 @@ def scan_wds_dataset(
         f"{' (grouped multi-image)' if multi_image else ''}..."
     )
 
-    all_records: list = []
+    output_manifest = str(output_manifest)
+    output_path = Path(output_manifest)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_manifest = output_path.with_suffix(output_path.suffix + ".tmp")
+    if tmp_manifest.exists():
+        tmp_manifest.unlink()
+
     completed = 0
-    failed_tars: list = []
+    failed_tars: list[str] = []
+    total_rows = 0
+    buffered_rows = 0
+    global_group_offset = 0
+    total_groups = 0
+    saw_multi_image_group = False
+    writer = pq.ParquetWriter(str(tmp_manifest), schema, compression="zstd")
+    buffer: list[pa.Table] = []
+    success = False
 
-    with ProcessPoolExecutor(max_workers=num_workers) as pool:
-        futures = {
-            pool.submit(
-                scan_single_tar, tp, image_extensions, text_extensions,
-                image_field_pattern, multi_image,
-            ): tp
-            for tp in tar_paths
-        }
+    try:
+        with ProcessPoolExecutor(max_workers=num_workers) as pool:
+            max_in_flight = max(1, num_workers * _WDS_MAX_IN_FLIGHT_FACTOR)
+            next_submit_idx = 0
+            next_emit_idx = 0
+            future_to_idx = {}
+            completed_futures = {}
 
-        for future in as_completed(futures):
-            tar_path = futures[future]
-            try:
-                records = future.result()
-                all_records.extend(records)
-            except Exception:
-                logger.exception(f"Failed to scan {tar_path}")
-                failed_tars.append(tar_path)
-
-            completed += 1
-            if completed % 100 == 0 or completed == len(tar_paths):
-                logger.info(
-                    f"Progress: {completed}/{len(tar_paths)} tars scanned, "
-                    f"{len(all_records):,} images found so far"
+            while next_submit_idx < len(tar_paths) and len(future_to_idx) < max_in_flight:
+                future = pool.submit(
+                    scan_single_tar,
+                    tar_paths[next_submit_idx],
+                    image_extensions,
+                    text_extensions,
+                    image_field_pattern,
+                    multi_image,
                 )
+                future_to_idx[future] = next_submit_idx
+                next_submit_idx += 1
+
+            while next_emit_idx < len(tar_paths):
+                # Futures may finish out of order; emit in tar order so the manifest
+                # stays deterministic while memory remains bounded by the buffer.
+                while next_emit_idx in completed_futures:
+                    tar_path = tar_paths[next_emit_idx]
+                    future = completed_futures.pop(next_emit_idx)
+                    try:
+                        records = future.result()
+                    except Exception:
+                        logger.exception(f"Failed to scan {tar_path}")
+                        failed_tars.append(tar_path)
+                    else:
+                        if multi_image:
+                            num_groups, has_non_singleton = _summarize_multi_image_records(records)
+                            total_groups += num_groups
+                            saw_multi_image_group |= has_non_singleton
+                            # Workers assign group ids local to each tar. Offset them
+                            # during ordered emission to make group ids unique globally.
+                            table = _finalize_record_table(
+                                records,
+                                schema=schema,
+                                group_id_offset=global_group_offset,
+                            )
+                            global_group_offset += num_groups
+                        else:
+                            _validate_single_image_records(
+                                records,
+                                tar_path=tar_path,
+                                image_field_pattern=image_field_pattern,
+                            )
+                            table = _finalize_record_table(records, schema=schema)
+
+                        if len(table):
+                            buffer.append(table)
+                            buffered_rows += len(table)
+                            total_rows += len(table)
+                            if buffered_rows >= _WDS_WRITE_BUFFER_ROWS:
+                                _flush_table_buffer(writer, buffer)
+                                buffered_rows = 0
+
+                    completed += 1
+                    next_emit_idx += 1
+                    if completed % 100 == 0 or completed == len(tar_paths):
+                        logger.info(
+                            f"Progress: {completed}/{len(tar_paths)} tars scanned, "
+                            f"{total_rows:,} images found so far"
+                        )
+
+                if next_emit_idx >= len(tar_paths):
+                    break
+
+                if not future_to_idx:
+                    raise RuntimeError("WDS scanner stalled with no tar futures in flight")
+
+                done, _ = wait(tuple(future_to_idx), return_when=FIRST_COMPLETED)
+                for future in done:
+                    tar_idx = future_to_idx.pop(future)
+                    completed_futures[tar_idx] = future
+
+                while next_submit_idx < len(tar_paths) and len(future_to_idx) < max_in_flight:
+                    future = pool.submit(
+                        scan_single_tar,
+                        tar_paths[next_submit_idx],
+                        image_extensions,
+                        text_extensions,
+                        image_field_pattern,
+                        multi_image,
+                    )
+                    future_to_idx[future] = next_submit_idx
+                    next_submit_idx += 1
+
+        _flush_table_buffer(writer, buffer)
+        success = True
+    finally:
+        writer.close()
+        if not success and tmp_manifest.exists():
+            tmp_manifest.unlink()
+
+    tmp_manifest.replace(output_path)
 
     if failed_tars:
         logger.error(
@@ -138,48 +287,13 @@ def scan_wds_dataset(
             f"{failed_tars[:10]}{'...' if len(failed_tars) > 10 else ''}"
         )
 
-    group_sizes = _sample_group_sizes(all_records)
-    if not multi_image and image_field_pattern is not None:
-        oversized = [(tar_path, sample_key, size) for (tar_path, sample_key), size in group_sizes.items() if size > 1]
-        if oversized:
-            tar_path, sample_key, size = oversized[0]
-            raise ValueError(
-                "scan_wds_dataset(..., multi_image=False) found a sample with multiple images "
-                f"after normalizing {image_field_pattern!r}: sample_key={sample_key!r}, "
-                f"tar_path={tar_path!r}, images={size}. Set multi_image=true for grouped output."
-            )
-
-    # For multi-image manifests, reassign global group_ids.
-    # Workers produce local group_ids per tar; we need globally unique ones.
-    if multi_image and all_records:
-        if group_sizes and all(size == 1 for size in group_sizes.values()):
-            logger.warning(
-                "scan_wds_dataset(..., multi_image=True) found only singleton groups after "
-                "parsing with image_field_pattern=%r. Consider multi_image=false.",
-                image_field_pattern,
-            )
-        # Sort by (tar_path, sample_key, image_index) for determinism
-        all_records.sort(
-            key=lambda r: (r["tar_path"], r["sample_key"], r["image_index"])
+    if multi_image and total_groups and not saw_multi_image_group:
+        logger.warning(
+            "scan_wds_dataset(..., multi_image=True) found only singleton groups after "
+            "parsing with image_field_pattern=%r. Consider multi_image=false.",
+            image_field_pattern,
         )
-        # Assign monotonic global group_id per unique (tar_path, sample_key)
-        global_gid = 0
-        prev_key = None
-        for rec in all_records:
-            cur_key = (rec["tar_path"], rec["sample_key"])
-            if cur_key != prev_key:
-                if prev_key is not None:
-                    global_gid += 1
-                prev_key = cur_key
-            rec["group_id"] = global_gid
 
-    logger.info(f"Scan complete: {len(all_records):,} images from {len(tar_paths)} tars")
-
-    if multi_image:
-        from vision_tokenization.indexing.manifest import (
-            WDS_SCHEMA_MULTI_IMAGE,
-            WDS_SCHEMA_MULTI_IMAGE_WITH_TEXT,
-        )
-        schema = WDS_SCHEMA_MULTI_IMAGE_WITH_TEXT if include_text else WDS_SCHEMA_MULTI_IMAGE
-        return save_wds_manifest(all_records, output_manifest, include_text=include_text, schema=schema)
-    return save_wds_manifest(all_records, output_manifest, include_text=include_text)
+    logger.info(f"Scan complete: {total_rows:,} images from {len(tar_paths)} tars")
+    logger.info(f"Saved WDS manifest: {total_rows:,} rows -> {output_manifest}")
+    return output_manifest

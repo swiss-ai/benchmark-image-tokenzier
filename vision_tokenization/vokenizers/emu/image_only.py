@@ -8,7 +8,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 from transformers import AutoTokenizer
@@ -33,7 +33,7 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
         min_pixels: int,
         max_pixels: int,
         device: str = "cuda",
-        max_images_per_encode: int = 32,
+        max_images_per_encode: Optional[int] = 32,
         torch_compile: bool = False,
         torch_compile_mode: str = "reduce-overhead",
         **kwargs,
@@ -101,7 +101,7 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
                 f"Unsupported vision tokenizer type: {vision_tokenizer_type}. " f"Supported types: Emu3, Emu3.5"
             )
 
-        # Chunk large multi-image groups to avoid GPU OOM
+        # Only used when one encode call contains multiple images.
         self.max_images_per_encode = max_images_per_encode
 
         # Cache for dimension tokens to avoid repeated encoding
@@ -422,7 +422,7 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
         assert self.image_tokenizer is not None, "Image tokenizer required for processing images"
         # Step 1: Preprocess image (PIL → tensor)
         img_tensors = self.image_tokenizer.preprocess_batch(images, resize_size)
-        # Step 2: Encode to vision indices (chunked to avoid GPU OOM on large groups)
+        # Step 2: Encode to vision indices (relevant for large multi-image groups)
         chunk_size = self.max_images_per_encode
         if chunk_size is not None and len(img_tensors) > chunk_size:
             all_indices = []
