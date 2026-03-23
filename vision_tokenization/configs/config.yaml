@@ -38,8 +38,9 @@ tokenizer:
 resume: false                      # resume from per-rank checkpoints
 checkpoint_interval_batches: 1_000 # finalize chunk + save progress every N batches
 
-# --- Dry Run ------------------------------------------------------------------
+# --- Merge & Dry Run ----------------------------------------------------------
 
+merge_shards: false                # merge per-rank shards after all ranks finish
 dry_run: false                     # estimate token counts without GPU
 
 # --- Weights & Biases --------------------------------------------------------

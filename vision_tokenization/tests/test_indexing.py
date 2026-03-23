@@ -4,8 +4,10 @@ import io
 import os
 import tarfile
 import tempfile
+from pathlib import Path
 
 import numpy as np
+import torch
 import pyarrow as pa
 import pyarrow.ipc as ipc
 import pyarrow.parquet as pq
@@ -1010,3 +1012,104 @@ class TestOrderedPool:
         assert len(created_pools) == 1
         assert created_pools[0].shutdown_calls == [(False, True)]
         assert futures[1].cancelled is True
+
+
+class TestMergeShards:
+    """Tests for the post-tokenization shard merger."""
+
+    def _create_shard(self, path, sequences):
+        """Create a .bin/.idx shard with the given sequences."""
+        try:
+            from vision_tokenization.pipelines.indexed_dataset_megatron import (
+                IndexedDatasetBuilder,
+            )
+        except ImportError:
+            pytest.skip("indexed_dataset_megatron not available")
+
+        builder = IndexedDatasetBuilder(str(path) + ".bin", dtype=np.int32)
+        for seq in sequences:
+            builder.add_item(torch.tensor(seq, dtype=torch.int32))
+            builder.end_document()
+        builder.finalize(str(path) + ".idx")
+
+    def _read_shard(self, path):
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+        from megatron.core.datasets.indexed_dataset import IndexedDataset
+        ds = IndexedDataset(str(path))
+        return [ds[i].tolist() for i in range(len(ds))]
+
+    def test_merge_combines_shards(self, tmp_path):
+        """Merge multiple rank shards into a single file."""
+        try:
+            from megatron.core.datasets.indexed_dataset import IndexedDataset
+        except ImportError:
+            pytest.skip("megatron not available")
+
+        from vision_tokenization.pipelines.distributed.merge import merge_shards
+
+        # Create fake rank shards
+        self._create_shard(tmp_path / "rank_0000_chunk_0000", [[1, 2, 3], [4, 5]])
+        self._create_shard(tmp_path / "rank_0001_chunk_0000", [[6, 7], [8, 9, 10, 11]])
+
+        result = merge_shards(tmp_path, output_name="merged")
+        assert result is not None
+
+        seqs = self._read_shard(tmp_path / "merged")
+        assert len(seqs) == 4
+        assert seqs[0] == [1, 2, 3]
+        assert seqs[1] == [4, 5]
+        assert seqs[2] == [6, 7]
+        assert seqs[3] == [8, 9, 10, 11]
+
+    def test_maybe_merge_waits_for_all_ranks(self, tmp_path):
+        """maybe_merge_shards returns None until all checkpoints exist."""
+        try:
+            from megatron.core.datasets.indexed_dataset import IndexedDataset
+        except ImportError:
+            pytest.skip("megatron not available")
+
+        from vision_tokenization.pipelines.distributed.merge import maybe_merge_shards
+
+        self._create_shard(tmp_path / "rank_0000_chunk_0000", [[1, 2]])
+        self._create_shard(tmp_path / "rank_0001_chunk_0000", [[3, 4]])
+
+        # Only rank 0 checkpoint exists
+        torch.save({}, tmp_path / "rank_0000_checkpoint.pt")
+        result = maybe_merge_shards(tmp_path, expected_ranks=2)
+        assert result is None
+        assert not (tmp_path / "merged.bin").exists()
+
+        # Now rank 1 finishes
+        torch.save({}, tmp_path / "rank_0001_checkpoint.pt")
+        result = maybe_merge_shards(tmp_path, expected_ranks=2)
+        assert result is not None
+        assert (tmp_path / "merged.bin").exists()
+
+    def test_maybe_merge_is_idempotent(self, tmp_path):
+        """Calling maybe_merge_shards again skips if merged file exists."""
+        try:
+            from megatron.core.datasets.indexed_dataset import IndexedDataset
+        except ImportError:
+            pytest.skip("megatron not available")
+
+        from vision_tokenization.pipelines.distributed.merge import maybe_merge_shards
+
+        self._create_shard(tmp_path / "rank_0000_chunk_0000", [[1, 2]])
+        torch.save({}, tmp_path / "rank_0000_checkpoint.pt")
+
+        # First call merges
+        result1 = maybe_merge_shards(tmp_path, expected_ranks=1)
+        assert result1 is not None
+        mtime1 = (tmp_path / "merged.bin").stat().st_mtime
+
+        # Second call skips (file already exists)
+        result2 = maybe_merge_shards(tmp_path, expected_ranks=1)
+        assert result2 is not None
+        mtime2 = (tmp_path / "merged.bin").stat().st_mtime
+        assert mtime1 == mtime2
+
+    def test_merge_empty_dir_returns_none(self, tmp_path):
+        """No shards → returns None."""
+        from vision_tokenization.pipelines.distributed.merge import merge_shards
+        assert merge_shards(tmp_path) is None

@@ -94,6 +94,9 @@ def main(cfg: DictConfig):
         "torch_compile": tokenizer_cfg.get("torch_compile", False),
         "torch_compile_mode": tokenizer_cfg.get("torch_compile_mode", "reduce-overhead"),
     }
+    max_sequence_tokens = cfg.dataset.get("max_sequence_tokens")
+    if max_sequence_tokens is not None:
+        tokenizer_kwargs["max_sequence_tokens"] = int(max_sequence_tokens)
 
     # Dataset-level pixel bounds for batch-planner filtering.
     # Format: "H*W" string (e.g. "64*128") or plain integer.
@@ -115,6 +118,7 @@ def main(cfg: DictConfig):
         "mode": cfg.mode,
         "resume": cfg.get("resume", False),
         "dry_run": cfg.get("dry_run", False),
+        "merge_shards": cfg.get("merge_shards", False),
         # Dataset config (flattened from dataset group)
         "dataset_type": cfg.dataset.get("dataset_type", "hf"),
         "output_name": cfg.dataset.get("output_name"),

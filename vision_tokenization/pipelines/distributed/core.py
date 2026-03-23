@@ -34,6 +34,7 @@ from .checkpoint import (
 )
 from .data import ImageAugmenter, create_loader
 from .prefetch import BatchPrefetcher
+from .merge import maybe_merge_shards
 from .stats_reducer import maybe_write_stats_summary
 from .wandb_logger import SimpleWandbLogger, load_wandb_resume_state
 
@@ -559,6 +560,14 @@ def tokenize_loop(
             f"{aggregate['tokens_per_second']:,.0f} tok/s, "
             f"{aggregate['max_elapsed_s']:.1f}s"
         )
+
+    # ------------------------------------------------------------------
+    # 9. Merge shards if all ranks are done and merge is enabled.
+    # ------------------------------------------------------------------
+    if cfg.get("merge_shards", False):
+        merged = maybe_merge_shards(output_dir, expected_ranks=world_size)
+        if merged is not None:
+            logger.info(f"[rank {rank}] Merged shards -> {merged}.bin")
 
     if _loop_error is not None:
         raise RuntimeError(
