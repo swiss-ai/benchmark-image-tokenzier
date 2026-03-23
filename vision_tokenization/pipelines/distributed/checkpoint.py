@@ -82,6 +82,7 @@ class WorkerStats:
     def to_dict(self) -> Dict[str, Any]:
         elapsed = self.current_elapsed_time()
         throughput = self.tokens_generated / elapsed if elapsed > 0 else 0
+        image_tokens_per_second = self.image_tokens / elapsed if elapsed > 0 else 0
         d = {
             "samples_processed": self.samples_processed,
             "tokens_generated": self.tokens_generated,
@@ -94,6 +95,7 @@ class WorkerStats:
             "lct_tokens": self.lct_tokens,
             "elapsed_time": elapsed,
             "throughput": throughput,
+            "image_tokens_per_second": image_tokens_per_second,
         }
         return d
 

@@ -16,7 +16,7 @@ image_field_pattern: img
 # --- Overrides ----------------------------------------------------------------
 gpu_kmeans: false                  # faiss-gpu has no Python 3.12 wheels
 batch_plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/pmc_oa.pt
-checkpoint_interval_batches: 5000
+checkpoint_interval_batches: 5_000
 
 prefetch:
   queue_size: 8

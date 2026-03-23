@@ -956,3 +956,57 @@ class TestHFLoader:
 
         assert loader._uses_physical_manifest is True
         assert [img.size for img in images] == [(11, 21), (31, 41), (71, 81), (91, 101)]
+
+
+class TestOrderedPool:
+    def test_fatal_error_shuts_down_pool_without_waiting(self, monkeypatch):
+        from vision_tokenization.indexing import _parallel as parallel_mod
+
+        created_pools = []
+
+        class FakeFuture:
+            def __init__(self, *, result=None, exc=None):
+                self._result = result
+                self._exc = exc
+                self.cancelled = False
+
+            def result(self):
+                if self._exc is not None:
+                    raise self._exc
+                return self._result
+
+            def cancel(self):
+                self.cancelled = True
+                return True
+
+        class FakeExecutor:
+            def __init__(self, max_workers):
+                self.max_workers = max_workers
+                self.shutdown_calls = []
+                created_pools.append(self)
+
+            def shutdown(self, wait=True, cancel_futures=False):
+                self.shutdown_calls.append((wait, cancel_futures))
+
+        futures = [
+            FakeFuture(exc=ValueError("boom")),
+            FakeFuture(result="ok"),
+        ]
+
+        def fake_wait(fs, return_when):
+            return {fs[0]}, set(fs[1:])
+
+        monkeypatch.setattr(parallel_mod, "ProcessPoolExecutor", FakeExecutor)
+        monkeypatch.setattr(parallel_mod, "wait", fake_wait)
+
+        with pytest.raises(ValueError, match="boom"):
+            parallel_mod.run_ordered_pool(
+                n_items=2,
+                submit_fn=lambda _pool, idx: futures[idx],
+                emit_fn=lambda _idx, _result: None,
+                num_workers=2,
+            )
+
+        assert len(created_pools) == 1
+        assert created_pools[0].shutdown_calls == [(False, True)]
+        assert futures[1].cancelled is True

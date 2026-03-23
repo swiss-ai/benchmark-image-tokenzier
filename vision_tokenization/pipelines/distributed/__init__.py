@@ -27,6 +27,7 @@ def _build_output_subdir(cfg: Dict[str, Any]) -> str:
         sft:            sft/{output_name}
         image2text:     image2text/{output_name}
         text2image:     text2image/{output_name}
+        interleave:     interleave/{output_name}
     """
     output_name = cfg.get("output_name")
     if not output_name:
@@ -121,7 +122,7 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
         writer = SplitMicroShardWriter(seqlen_threshold=seqlen_threshold)
     else:
         writer = MicroShardWriter()
-    needs_text = mode in ("sft", "image2text", "text2image")
+    needs_text = mode in ("sft", "image2text", "text2image", "interleave")
     handler = TokenizationHandler(writer, needs_text)
 
     return tokenize_loop(rank, world_size, cfg, handler)

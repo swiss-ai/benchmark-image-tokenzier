@@ -4,6 +4,8 @@ Two loader classes:
 - ``WDSImageLoader``: Random-access via TarRandomAccessReader (byte offsets from manifest).
 - ``HFImageLoader``: Reads from HF Arrow/Parquet shard files, preferring
   physical manifest coordinates when available.
+- ``JSONLTarInterleaveLoader``: Reads grouped interleave samples from a
+  JSONL+tar manifest, with document text loaded by byte offsets.
 
 Both support loading associated text for SFT / image-text-pair modes.
 
@@ -12,6 +14,7 @@ Both support loading associated text for SFT / image-text-pair modes.
 
 import json
 import logging
+import os
 import threading
 from bisect import bisect_right
 from collections import OrderedDict, defaultdict
@@ -26,9 +29,22 @@ import pyarrow.ipc as ipc
 import pyarrow.parquet as pq
 from PIL import Image
 
-from vision_tokenization.indexing.manifest import load_hf_manifest, load_wds_manifest
+try:
+    import orjson
+except ImportError:  # pragma: no cover - validated by interleave loader constructor
+    orjson = None
+
+from vision_tokenization.indexing.manifest import (
+    load_hf_manifest,
+    load_interleave_manifest,
+    load_wds_manifest,
+)
 from vision_tokenization.indexing.reader import TarRandomAccessReader
 from vision_tokenization.indexing.scanner_hf import _discover_shards as _discover_hf_shards
+from vision_tokenization.utils.interleave_documents import (
+    extract_local_image_refs,
+    parse_interleave_segments,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +176,154 @@ class WDSImageLoader:
 
     def close(self):
         self._reader.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+
+class JSONLTarInterleaveLoader:
+    """Load grouped interleave samples from a JSONL+tar manifest."""
+
+    def __init__(
+        self,
+        manifest_path: Union[str, Path],
+        *,
+        document_format: str,
+        document_field: Optional[str] = None,
+        local_image_prefixes: Optional[List[str]] = None,
+        max_open_files: int = 64,
+    ):
+        if orjson is None:
+            raise ImportError(
+                "jsonl_tar_interleave loader requires orjson. Install orjson before running interleave mode."
+            )
+        self.manifest = load_interleave_manifest(manifest_path)
+        self.document_format = document_format
+        self.document_field = document_field
+        self.local_image_prefixes = local_image_prefixes
+
+        self._tar_paths = self.manifest.column("tar_path")
+        self._offsets = self.manifest.column("offset_data").to_numpy()
+        self._sizes = self.manifest.column("file_size").to_numpy()
+        self._jsonl_paths = self.manifest.column("jsonl_path")
+        self._line_starts = self.manifest.column("line_start").to_numpy()
+        self._line_lengths = self.manifest.column("line_length").to_numpy()
+        self._image_refs = self.manifest.column("image_ref")
+
+        self._reader = TarRandomAccessReader(max_open_files=max_open_files)
+        self._max_open_files = max(1, int(max_open_files))
+        self._local = threading.local()
+        self._all_fd_caches_lock = threading.Lock()
+        self._all_fd_caches: list[OrderedDict[str, int]] = []
+
+    def _get_thread_fd_cache(self) -> OrderedDict[str, int]:
+        """Return the per-thread LRU fd cache, creating it on first access."""
+        if not hasattr(self._local, "jsonl_fds"):
+            self._local.jsonl_fds = OrderedDict()
+            with self._all_fd_caches_lock:
+                self._all_fd_caches.append(self._local.jsonl_fds)
+        return self._local.jsonl_fds
+
+    def _get_jsonl_fd(self, jsonl_path: str) -> int:
+        fds = self._get_thread_fd_cache()
+        cached = fds.get(jsonl_path)
+        if cached is not None:
+            fds.move_to_end(jsonl_path)
+            return cached
+
+        while len(fds) >= self._max_open_files:
+            _old_path, old_fd = fds.popitem(last=False)
+            os.close(old_fd)
+
+        fd = os.open(jsonl_path, os.O_RDONLY)
+        fds[jsonl_path] = fd
+        return fd
+
+    def _read_jsonl_line(self, jsonl_path: str, line_start: int, line_length: int) -> bytes:
+        fd = self._get_jsonl_fd(jsonl_path)
+        raw = os.pread(fd, line_length, line_start)
+        if len(raw) != line_length:
+            raise IOError(
+                f"Short pread for {jsonl_path}: expected {line_length} bytes at offset {line_start}, "
+                f"got {len(raw)}"
+            )
+        return raw
+
+    def _load_group_text(
+        self,
+        sample_indices: np.ndarray,
+        start: int,
+        end: int,
+    ) -> Optional[List[Dict[str, Any]]]:
+        manifest_idx = int(sample_indices[start])
+        jsonl_path = self._jsonl_paths[manifest_idx].as_py()
+        line_start = int(self._line_starts[manifest_idx])
+        line_length = int(self._line_lengths[manifest_idx])
+
+        try:
+            raw = self._read_jsonl_line(jsonl_path, line_start, line_length)
+            sample = orjson.loads(raw)
+            segments = parse_interleave_segments(
+                sample,
+                document_format=self.document_format,
+                document_field=self.document_field,
+                local_prefixes=self.local_image_prefixes,
+            )
+            refs = extract_local_image_refs(segments)
+            manifest_refs = [
+                self._image_refs[int(sample_indices[row_idx])].as_py()
+                for row_idx in range(start, end)
+            ]
+            if refs != manifest_refs:
+                logger.warning(
+                    "Interleave manifest/text mismatch for %s at offset %d: parsed=%s manifest=%s",
+                    jsonl_path,
+                    line_start,
+                    refs,
+                    manifest_refs,
+                )
+                return None
+            return segments
+        except Exception:
+            logger.warning(
+                "Failed to load interleave document at offset %d in %s",
+                line_start,
+                jsonl_path,
+                exc_info=True,
+            )
+            return None
+
+    def load_batch(
+        self,
+        sample_indices: np.ndarray,
+        group_slices: Optional[np.ndarray] = None,
+    ) -> Tuple[List[Optional[Image.Image]], Optional[List[Any]]]:
+        refs = [
+            (self._tar_paths[int(i)].as_py(), int(self._offsets[i]), int(self._sizes[i]))
+            for i in sample_indices
+        ]
+        images = self._reader.read_batch(refs)
+
+        texts = None
+        if group_slices is not None:
+            texts = [
+                self._load_group_text(sample_indices, int(start), int(end))
+                for start, end in group_slices
+            ]
+
+        return images, texts
+
+    def close(self):
+        self._reader.close()
+        with self._all_fd_caches_lock:
+            for fds in self._all_fd_caches:
+                for fd in fds.values():
+                    os.close(fd)
+                fds.clear()
+            self._all_fd_caches.clear()
 
     def __enter__(self):
         return self
@@ -794,5 +958,13 @@ def create_loader(cfg: Dict[str, Any]):
             max_cached_chunks=cfg.get("max_cached_chunks", 32),
             manifest_path=cfg.get("manifest_path"),
             image_list_column=cfg.get("image_list_column"),
+        )
+    if dataset_type == "jsonl_tar_interleave":
+        return JSONLTarInterleaveLoader(
+            manifest_path=cfg["manifest_path"],
+            document_format=cfg["document_format"],
+            document_field=cfg.get("document_field"),
+            local_image_prefixes=cfg.get("local_image_prefixes"),
+            max_open_files=cfg.get("max_open_files", 64),
         )
     raise ValueError(f"Unknown dataset_type: {dataset_type!r}")

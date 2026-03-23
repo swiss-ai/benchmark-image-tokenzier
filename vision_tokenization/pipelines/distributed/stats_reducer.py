@@ -51,9 +51,11 @@ def build_aggregate(rank_stats: List[Dict[str, Any]]) -> Dict[str, Any]:
     elapsed = agg["max_elapsed_s"]
     if elapsed > 0:
         agg["tokens_per_second"] = agg["tokens_generated"] / elapsed
+        agg["image_tokens_per_second"] = agg["image_tokens"] / elapsed
         agg["samples_per_second"] = agg["samples_processed"] / elapsed
     else:
         agg["tokens_per_second"] = 0
+        agg["image_tokens_per_second"] = 0
         agg["samples_per_second"] = 0
     return agg
 

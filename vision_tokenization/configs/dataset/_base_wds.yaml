@@ -24,10 +24,10 @@ max_pixels: "2048*2048"
 
 # Batch planning
 batch_plan_path: null              # null = compute from manifest at startup
-max_batch_tokens: 25600            # token budget per batch
+max_batch_tokens: 25_600           # token budget per batch
 batch_size: 128                    # max samples per batch
 spatial_factor: 16                 # vision tokenizer spatial down-sampling
-num_clusters: 2000                 # k-means clusters for aspect-ratio grouping
+num_clusters: 2_000                # k-means clusters for aspect-ratio grouping
 niter: 10                          # k-means iterations
 gpu_kmeans: true                   # use GPU for k-means
 resize_mode: avg                   # per-batch resize target: avg | min | max
@@ -36,7 +36,7 @@ resize_mode: avg                   # per-batch resize target: avg | min | max
 augmentation: null                 # null = disabled
 
 # Checkpointing / runtime
-checkpoint_interval_batches: 1000  # finalize chunk + save progress every N batches
+checkpoint_interval_batches: 1_000 # finalize chunk + save progress every N batches
 max_consecutive_errors: 50         # abort after N consecutive batch failures
 
 prefetch:

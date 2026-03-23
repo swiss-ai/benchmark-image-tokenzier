@@ -17,4 +17,4 @@ image_field_pattern: img
 batch_size: 32
 gpu_kmeans: false
 batch_plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/medtrinity_full.pt
-checkpoint_interval_batches: 5000
+checkpoint_interval_batches: 5_000

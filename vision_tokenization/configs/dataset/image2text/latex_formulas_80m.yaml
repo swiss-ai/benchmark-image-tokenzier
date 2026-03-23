@@ -15,4 +15,4 @@ multi_image: false
 # --- Overrides ----------------------------------------------------------------
 gpu_kmeans: false
 batch_plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/latex_formulas_80m.pt
-checkpoint_interval_batches: 5000
+checkpoint_interval_batches: 5_000

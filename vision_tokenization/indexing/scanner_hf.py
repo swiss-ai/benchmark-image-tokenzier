@@ -4,7 +4,6 @@ import glob
 import logging
 import os
 import time
-from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from pathlib import Path
 from typing import Iterable, Optional, Union
 
@@ -20,11 +19,12 @@ from vision_tokenization.indexing.manifest import (
     HF_SCHEMA_PHYSICAL_MULTI_IMAGE,
 )
 
+from vision_tokenization.indexing._parallel import run_ordered_pool
+
 logger = logging.getLogger(__name__)
 
 _HF_SHARD_SUFFIXES = {".arrow", ".parquet"}
 _HF_WRITE_BUFFER_ROWS = 500_000
-_HF_MAX_IN_FLIGHT_FACTOR = 2
 
 
 def _filter_shards(paths: Iterable[Union[str, Path]]) -> list[str]:
@@ -234,85 +234,58 @@ def scan_hf_dataset(
     total_failed_dims = 0
     skipped_shards = 0
 
-    with ProcessPoolExecutor(max_workers=num_workers) as pool:
-        max_in_flight = max(1, num_workers * _HF_MAX_IN_FLIGHT_FACTOR)
-        next_submit_idx = 0
-        next_emit_idx = 0
-        future_to_idx = {}
-        completed_results = {}
+    writer = pq.ParquetWriter(output_manifest, schema, compression="zstd")
+    buffer: list[pa.Table] = []
+    buffered_rows = 0
 
-        while next_submit_idx < len(shard_paths) and len(future_to_idx) < max_in_flight:
-            future = pool.submit(
-                _scan_single_hf_shard,
-                shard_paths[next_submit_idx],
-                image_column,
-                image_list_column,
-            )
-            future_to_idx[future] = next_submit_idx
-            next_submit_idx += 1
+    def _submit(pool, idx):
+        return pool.submit(
+            _scan_single_hf_shard,
+            shard_paths[idx],
+            image_column,
+            image_list_column,
+        )
 
-        writer = pq.ParquetWriter(output_manifest, schema, compression="zstd")
-        buffer: list[pa.Table] = []
-        buffered_rows = 0
-        try:
-            while next_emit_idx < len(shard_paths):
-                while next_emit_idx in completed_results:
-                    shard_path = shard_paths[next_emit_idx]
-                    (
-                        total_source_rows,
-                        total_manifest_rows,
-                        total_failed_dims,
-                        skipped_shards,
-                        buffered_rows,
-                    ) = _process_shard_result(
-                        shard_path,
-                        completed_results.pop(next_emit_idx),
-                        total_source_rows=total_source_rows,
-                        total_manifest_rows=total_manifest_rows,
-                        total_failed_dims=total_failed_dims,
-                        skipped_shards=skipped_shards,
-                        is_multi=is_multi,
-                        buffer=buffer,
-                        buffered_rows=buffered_rows,
-                        writer=writer,
-                        schema=schema,
-                    )
+    def _emit(idx, result):
+        nonlocal total_source_rows, total_manifest_rows, total_failed_dims
+        nonlocal skipped_shards, buffered_rows
+        shard_path = shard_paths[idx]
+        (
+            total_source_rows,
+            total_manifest_rows,
+            total_failed_dims,
+            skipped_shards,
+            buffered_rows,
+        ) = _process_shard_result(
+            shard_path,
+            result,
+            total_source_rows=total_source_rows,
+            total_manifest_rows=total_manifest_rows,
+            total_failed_dims=total_failed_dims,
+            skipped_shards=skipped_shards,
+            is_multi=is_multi,
+            buffer=buffer,
+            buffered_rows=buffered_rows,
+            writer=writer,
+            schema=schema,
+        )
 
-                    shard_idx = next_emit_idx + 1
-                    next_emit_idx += 1
-                    if shard_idx % 100 == 0 or shard_idx == len(shard_paths):
-                        logger.info(
-                            f"Progress: {shard_idx}/{len(shard_paths)} shards scanned, "
-                            f"{total_source_rows:,} source rows, "
-                            f"{total_manifest_rows:,} manifest rows "
-                            f"(latest: {os.path.basename(shard_path)})"
-                        )
-
-                if next_emit_idx >= len(shard_paths):
-                    break
-
-                if not future_to_idx:
-                    raise RuntimeError("HF scanner stalled with no shard futures in flight")
-
-                done, _ = wait(tuple(future_to_idx), return_when=FIRST_COMPLETED)
-                for future in done:
-                    shard_idx = future_to_idx.pop(future)
-                    completed_results[shard_idx] = future.result()
-
-                while next_submit_idx < len(shard_paths) and len(future_to_idx) < max_in_flight:
-                    future = pool.submit(
-                        _scan_single_hf_shard,
-                        shard_paths[next_submit_idx],
-                        image_column,
-                        image_list_column,
-                    )
-                    future_to_idx[future] = next_submit_idx
-                    next_submit_idx += 1
-        finally:
-            for future in future_to_idx:
-                future.cancel()
-            _flush_table_buffer(writer, buffer)
-            writer.close()
+    try:
+        run_ordered_pool(
+            n_items=len(shard_paths),
+            submit_fn=_submit,
+            emit_fn=_emit,
+            num_workers=num_workers,
+            progress_fn=lambda done, total: logger.info(
+                f"Progress: {done}/{total} shards scanned, "
+                f"{total_source_rows:,} source rows, "
+                f"{total_manifest_rows:,} manifest rows "
+                f"(latest: {os.path.basename(shard_paths[done - 1])})"
+            ),
+        )
+    finally:
+        _flush_table_buffer(writer, buffer)
+        writer.close()
 
     elapsed = time.time() - t0
     logger.info(

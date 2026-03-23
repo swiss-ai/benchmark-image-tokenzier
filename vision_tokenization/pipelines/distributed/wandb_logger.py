@@ -112,6 +112,7 @@ class SimpleWandbLogger:
             "samples_skipped": skipped,
             "samples_per_second": samples / elapsed if elapsed > 0 else 0,
             "tokens_per_second": tokens / elapsed if elapsed > 0 else 0,
+            "image_tokens_per_second": image_tokens / elapsed if elapsed > 0 else 0,
             "elapsed_seconds": elapsed,
         }
         if timing:

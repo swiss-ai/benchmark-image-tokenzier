@@ -13,6 +13,7 @@ from typing import Union
 
 from .image_only import EMUImageOnlyTokenizer
 from .image_text_pair import EMUImageTextPairTokenizer
+from .interleave import EMUInterleaveTokenizer
 from .sft import EMUSftTokenizer
 
 
@@ -24,12 +25,12 @@ def create_tokenizer(
     min_pixels: int,
     max_pixels: int,
     **kwargs,
-) -> Union[EMUImageOnlyTokenizer, EMUImageTextPairTokenizer, EMUSftTokenizer]:
+) -> Union[EMUImageOnlyTokenizer, EMUImageTextPairTokenizer, EMUSftTokenizer, EMUInterleaveTokenizer]:
     """
     Factory function to create the appropriate EMU tokenizer based on mode.
 
     Args:
-        mode: Tokenization mode ("image_only", "image2text", "text2image", or "sft")
+        mode: Tokenization mode ("image_only", "image2text", "text2image", "sft", or "interleave")
         text_tokenizer_path: Path to the text tokenizer
         device: Device for tokenization (cuda or cpu)
         min_pixels: Minimum pixels for tokenizer resize (required, no default)
@@ -47,6 +48,7 @@ def create_tokenizer(
         "image2text": EMUImageTextPairTokenizer,  # image->text (captioning)
         "text2image": EMUImageTextPairTokenizer,  # text->image (generation)
         "sft": EMUSftTokenizer,
+        "interleave": EMUInterleaveTokenizer,
     }
 
     if mode not in tokenizers:
@@ -64,4 +66,10 @@ def create_tokenizer(
     )
 
 
-__all__ = ["EMUImageOnlyTokenizer", "EMUImageTextPairTokenizer", "EMUSftTokenizer", "create_tokenizer"]
+__all__ = [
+    "EMUImageOnlyTokenizer",
+    "EMUImageTextPairTokenizer",
+    "EMUInterleaveTokenizer",
+    "EMUSftTokenizer",
+    "create_tokenizer",
+]

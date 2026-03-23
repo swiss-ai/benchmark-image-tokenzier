@@ -220,24 +220,13 @@ def tokenize_loop(
 
     mode = cfg["mode"]
     device = f"cuda:{cfg.get('local_rank', 0)}"
-    configured_max_images_per_encode = cfg.get("max_images_per_encode")
-    effective_max_images_per_encode = (
-        configured_max_images_per_encode if is_multi_image else None
-    )
-    if rank == 0 and not is_multi_image and configured_max_images_per_encode is not None:
-        logger.warning(
-            "Ignoring tokenizer.max_images_per_encode=%s for single-image dataset; "
-            "this setting only applies to multi-image groups. "
-            "batch_size and max_batch_tokens control single-image batch memory.",
-            configured_max_images_per_encode,
-        )
     tokenizer = create_tokenizer(
         mode=mode,
         text_tokenizer_path=cfg["tokenizer_path"],
         device=device,
         min_pixels=cfg["tokenizer_min_pixels"],
         max_pixels=cfg["tokenizer_max_pixels"],
-        max_images_per_encode=effective_max_images_per_encode,
+        max_encode_pixels=cfg.get("max_encode_pixels"),
         **(cfg.get("tokenizer_kwargs", {})),
     )
 
@@ -543,6 +532,7 @@ def tokenize_loop(
     logger.info(
         f"[rank {rank}] Done: {result['samples_processed']:,} samples, "
         f"{result['image_tokens']:,} image tokens{text_tok_msg}, "
+        f"{result['image_tokens_per_second']:,.0f} image tok/s avg, "
         f"{result['errors']} errors, {result['elapsed_time']:.1f}s"
     )
     result["output_dir"] = output_dir
@@ -565,6 +555,7 @@ def tokenize_loop(
             f"{aggregate['tokens_generated']:,} tokens "
             f"({aggregate['image_tokens']:,} image + {aggregate['text_tokens']:,} text), "
             f"{aggregate['errors']} errors, "
+            f"{aggregate['image_tokens_per_second']:,.0f} image tok/s avg, "
             f"{aggregate['tokens_per_second']:,.0f} tok/s, "
             f"{aggregate['max_elapsed_s']:.1f}s"
         )

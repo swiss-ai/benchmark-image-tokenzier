@@ -1,18 +1,19 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# Quilt-1M — image2text, HF Parquet (image + text)
+# ShizhenGPT TCM web_vision — interleave, JSONL + tar
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
-  - _base_hf
+  - _base_jsonl_tar_interleave
 
-output_name: quilt_1m
-output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/Quilt_1M/tokenized
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/quilt_1m/manifest.parquet
-input_pattern: /capstor/store/cscs/swissai/infra01/vision-datasets/Quilt_1M/quilt_1m_parquet/*.parquet
-image_column: image
-text_column: text
-multi_image: false
+output_name: shizhen_web_vision
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/shizhen_web_vision/manifest.parquet
+document_format: content_array
+document_field: content
+local_image_prefixes:
+  - image/
 
 # --- Overrides ----------------------------------------------------------------
 gpu_kmeans: false
-batch_plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/quilt_1m.pt
-checkpoint_interval_batches: 1_000
+batch_plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/shizhen_web_vision.pt
+max_batch_tokens: 32_768
+checkpoint_interval_batches: 2_000

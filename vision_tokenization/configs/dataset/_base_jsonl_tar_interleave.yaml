@@ -1,0 +1,55 @@
+# Base defaults for grouped JSONL + tar interleaved datasets.
+#
+# Inherit in dataset configs:
+#   defaults:
+#     - _base_jsonl_tar_interleave
+#
+# Typical overrides:
+#   output_name: pin_200m_obelics
+#   manifest_path: /path/to/manifest.parquet
+#   document_format: pin_markdown | content_array
+#   document_field: md | content
+
+dataset_type: jsonl_tar_interleave
+
+# Required paths
+output_dir: ???
+manifest_path: ???
+multi_image: true
+
+# Document parsing
+document_format: ???
+document_field: null
+local_image_prefixes:
+  - content_image/
+  - image/
+
+# Image filtering
+min_pixels: "64*128"
+max_pixels: "2048*2048"
+
+# Batch planning
+batch_plan_path: null
+max_batch_tokens: 25_600
+batch_size: 128
+spatial_factor: 16
+num_clusters: 2_000
+niter: 10
+gpu_kmeans: true
+resize_mode: avg
+
+# Augmentation
+augmentation: null
+
+# Checkpointing / runtime
+checkpoint_interval_batches: 1_000
+max_consecutive_errors: 50
+
+prefetch:
+  queue_size: 16
+  num_workers: 16
+
+seqlen_threshold: 8192
+
+# Tar/jsonl reader cache
+max_open_files: 64

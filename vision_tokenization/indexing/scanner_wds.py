@@ -4,7 +4,6 @@ import glob
 import logging
 import os
 from collections import Counter
-from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from pathlib import Path
 from typing import FrozenSet, Optional, Union
 
@@ -25,10 +24,11 @@ from vision_tokenization.indexing.manifest import (
     records_to_table,
 )
 
+from vision_tokenization.indexing._parallel import run_ordered_pool
+
 logger = logging.getLogger(__name__)
 
 _WDS_WRITE_BUFFER_ROWS = 500_000
-_WDS_MAX_IN_FLIGHT_FACTOR = 2
 
 
 def _discover_shards(input_pattern: str) -> list[str]:
@@ -182,95 +182,61 @@ def scan_wds_dataset(
     success = False
 
     try:
-        with ProcessPoolExecutor(max_workers=num_workers) as pool:
-            max_in_flight = max(1, num_workers * _WDS_MAX_IN_FLIGHT_FACTOR)
-            next_submit_idx = 0
-            next_emit_idx = 0
-            future_to_idx = {}
-            completed_futures = {}
+        def _submit(pool, idx):
+            return pool.submit(
+                scan_single_tar,
+                tar_paths[idx],
+                image_extensions,
+                text_extensions,
+                image_field_pattern,
+                multi_image,
+            )
 
-            while next_submit_idx < len(tar_paths) and len(future_to_idx) < max_in_flight:
-                future = pool.submit(
-                    scan_single_tar,
-                    tar_paths[next_submit_idx],
-                    image_extensions,
-                    text_extensions,
-                    image_field_pattern,
-                    multi_image,
+        def _emit(idx, records):
+            nonlocal completed, total_rows, buffered_rows
+            nonlocal global_group_offset, total_groups, saw_multi_image_group
+            tar_path = tar_paths[idx]
+
+            if multi_image:
+                num_groups, has_non_singleton = _summarize_multi_image_records(records)
+                total_groups += num_groups
+                saw_multi_image_group |= has_non_singleton
+                table = _finalize_record_table(
+                    records, schema=schema, group_id_offset=global_group_offset,
                 )
-                future_to_idx[future] = next_submit_idx
-                next_submit_idx += 1
+                global_group_offset += num_groups
+            else:
+                _validate_single_image_records(
+                    records, tar_path=tar_path,
+                    image_field_pattern=image_field_pattern,
+                )
+                table = _finalize_record_table(records, schema=schema)
 
-            while next_emit_idx < len(tar_paths):
-                # Futures may finish out of order; emit in tar order so the manifest
-                # stays deterministic while memory remains bounded by the buffer.
-                while next_emit_idx in completed_futures:
-                    tar_path = tar_paths[next_emit_idx]
-                    future = completed_futures.pop(next_emit_idx)
-                    try:
-                        records = future.result()
-                    except Exception:
-                        logger.exception(f"Failed to scan {tar_path}")
-                        failed_tars.append(tar_path)
-                    else:
-                        if multi_image:
-                            num_groups, has_non_singleton = _summarize_multi_image_records(records)
-                            total_groups += num_groups
-                            saw_multi_image_group |= has_non_singleton
-                            # Workers assign group ids local to each tar. Offset them
-                            # during ordered emission to make group ids unique globally.
-                            table = _finalize_record_table(
-                                records,
-                                schema=schema,
-                                group_id_offset=global_group_offset,
-                            )
-                            global_group_offset += num_groups
-                        else:
-                            _validate_single_image_records(
-                                records,
-                                tar_path=tar_path,
-                                image_field_pattern=image_field_pattern,
-                            )
-                            table = _finalize_record_table(records, schema=schema)
+            if len(table):
+                buffer.append(table)
+                buffered_rows += len(table)
+                total_rows += len(table)
+                if buffered_rows >= _WDS_WRITE_BUFFER_ROWS:
+                    _flush_table_buffer(writer, buffer)
+                    buffered_rows = 0
 
-                        if len(table):
-                            buffer.append(table)
-                            buffered_rows += len(table)
-                            total_rows += len(table)
-                            if buffered_rows >= _WDS_WRITE_BUFFER_ROWS:
-                                _flush_table_buffer(writer, buffer)
-                                buffered_rows = 0
+            completed += 1
 
-                    completed += 1
-                    next_emit_idx += 1
-                    if completed % 100 == 0 or completed == len(tar_paths):
-                        logger.info(
-                            f"Progress: {completed}/{len(tar_paths)} tars scanned, "
-                            f"{total_rows:,} images found so far"
-                        )
+        def _error(idx, exc):
+            logger.exception(f"Failed to scan {tar_paths[idx]}", exc_info=exc)
+            failed_tars.append(tar_paths[idx])
 
-                if next_emit_idx >= len(tar_paths):
-                    break
-
-                if not future_to_idx:
-                    raise RuntimeError("WDS scanner stalled with no tar futures in flight")
-
-                done, _ = wait(tuple(future_to_idx), return_when=FIRST_COMPLETED)
-                for future in done:
-                    tar_idx = future_to_idx.pop(future)
-                    completed_futures[tar_idx] = future
-
-                while next_submit_idx < len(tar_paths) and len(future_to_idx) < max_in_flight:
-                    future = pool.submit(
-                        scan_single_tar,
-                        tar_paths[next_submit_idx],
-                        image_extensions,
-                        text_extensions,
-                        image_field_pattern,
-                        multi_image,
-                    )
-                    future_to_idx[future] = next_submit_idx
-                    next_submit_idx += 1
+        run_ordered_pool(
+            n_items=len(tar_paths),
+            submit_fn=_submit,
+            emit_fn=_emit,
+            num_workers=num_workers,
+            error_fn=_error,
+            progress_fn=lambda done, total: logger.info(
+                f"Progress: {done}/{total} tars scanned, "
+                f"{total_rows:,} images found so far"
+            ),
+        )
 
         _flush_table_buffer(writer, buffer)
         success = True

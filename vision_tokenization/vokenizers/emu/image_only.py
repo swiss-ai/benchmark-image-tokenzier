@@ -33,7 +33,7 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
         min_pixels: int,
         max_pixels: int,
         device: str = "cuda",
-        max_images_per_encode: Optional[int] = 32,
+        max_encode_pixels: Optional[int] = 8_000_000,
         torch_compile: bool = False,
         torch_compile_mode: str = "reduce-overhead",
         **kwargs,
@@ -101,8 +101,8 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
                 f"Unsupported vision tokenizer type: {vision_tokenizer_type}. " f"Supported types: Emu3, Emu3.5"
             )
 
-        # Only used when one encode call contains multiple images.
-        self.max_images_per_encode = max_images_per_encode
+        # Pixel budget per encode call — controls GPU memory chunking.
+        self.max_encode_pixels = max_encode_pixels
 
         # Cache for dimension tokens to avoid repeated encoding
         self.dim_cache = {}
@@ -420,25 +420,35 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
             Batch of encoded images: B x num_img_tokens (on CPU)
         """
         assert self.image_tokenizer is not None, "Image tokenizer required for processing images"
-        # Step 1: Preprocess image (PIL → tensor)
-        img_tensors = self.image_tokenizer.preprocess_batch(images, resize_size)
-        # Step 2: Encode to vision indices (relevant for large multi-image groups)
-        chunk_size = self.max_images_per_encode
-        if chunk_size is not None and len(img_tensors) > chunk_size:
-            all_indices = []
-            for i in range(0, len(img_tensors), chunk_size):
-                idx, _ = self.image_tokenizer.encode(img_tensors[i : i + chunk_size])
-                all_indices.append(idx)
-            indices = torch.cat(all_indices, dim=0)
-        else:
+
+        # Compute images per chunk from pixel budget and resize dimensions.
+        chunk_size = len(images)
+        if self.max_encode_pixels is not None and resize_size is not None:
+            h, w = resize_size
+            pixels_per_image = max(1, h * w)
+            chunk_size = max(1, self.max_encode_pixels // pixels_per_image)
+
+        if chunk_size >= len(images):
+            # Fast path: single chunk — preprocess + encode all at once.
+            img_tensors = self.image_tokenizer.preprocess_batch(images, resize_size)
             indices, _ = self.image_tokenizer.encode(img_tensors)
-        # Free GPU pixel tensor immediately after encode
-        del img_tensors
-        # Step 3: Move indices to CPU — encapsulate is pure int ops, no model weights
+            del img_tensors
+        else:
+            # Chunk before preprocess to bound peak GPU pixel memory.
+            all_indices = []
+            for i in range(0, len(images), chunk_size):
+                img_tensors = self.image_tokenizer.preprocess_batch(
+                    images[i : i + chunk_size], resize_size,
+                )
+                idx, _ = self.image_tokenizer.encode(img_tensors)
+                all_indices.append(idx)
+                del img_tensors
+            indices = torch.cat(all_indices, dim=0)
+
+        # Move indices to CPU — encapsulate is pure int ops, no model weights.
         batch_size, height, width = indices.shape
         image_indices = indices.flatten(start_dim=1).cpu()
         del indices
-        # Step 4: Encapsulate with EMU3 structure tokens (runs on CPU)
         return self.encapsulate_batch(image_indices, height, width)
 
     def tokenize_batch(self, images, resize_size, text=None, group_slices=None):

@@ -758,7 +758,7 @@ configs/
 | `num_gpus` | Total GPU count (cross-checked against `SLURM_NTASKS`) | required |
 | `resume` | Resume from rank checkpoints | `false` |
 | `dry_run` | Estimate tokens without GPU | `false` |
-| `checkpoint_interval_batches` | How often to write rank checkpoints | `1000` |
+| `checkpoint_interval_batches` | How often to write rank checkpoints | `1_000` |
 | `wandb.*` | Weights & Biases logging settings | enabled |
 
 ### Dataset configs
@@ -773,7 +773,7 @@ configs/
 | `max_batch_tokens` | Token budget per batch (required) |
 | `batch_size` | Max samples per batch (required, acts as sample cap) |
 | `spatial_factor` | Vision tokenizer spatial downsampling factor (default 16) |
-| `num_clusters` | k-means cluster count for batch planning (default 2000) |
+| `num_clusters` | k-means cluster count for batch planning (default 2_000) |
 | `conversation_policy.*` | SFT conversation normalization (SFT mode only) |
 
 ---
@@ -809,7 +809,7 @@ python -m vision_tokenization.tokenize \
 srun --ntasks-per-node=4 --gpus-per-node=4 \
     python -m vision_tokenization.tokenize \
     mode=sft dataset=llava_sft num_gpus=4 \
-    dataset.max_batch_tokens=25600 \
+    dataset.max_batch_tokens=25_600 \
     dataset.checkpoint_interval_batches=200
 ```
 
@@ -887,7 +887,7 @@ See [`profile/README.md`](./profile/README.md) for Emu3.5 VQ encoder profiling r
 | **OOM boundary** | batch=64 @ 512x512, batch=16 @ 768x768 |
 
 > [!TIP]
-> **Recommended settings**: `max_batch_tokens=32768`, `batch_size=32`, `max_images_per_encode=16` — 99.5% peak throughput with 30% VRAM headroom.
+> **Recommended settings**: `max_batch_tokens=32_768`, `batch_size=32`, `max_images_per_encode=16` — 99.5% peak throughput with 30% VRAM headroom.
 
 ---
 

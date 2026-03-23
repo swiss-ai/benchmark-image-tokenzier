@@ -5,11 +5,16 @@ Usage::
 
     python -m vision_tokenization.tokenize \
         mode=image2text dataset=pmc_oa num_gpus=4
+
+    python -m vision_tokenization.tokenize \
+        mode=interleave dataset=pin_subset num_gpus=4
 """
 
 # Avoid thread oversubscription with many dataloader workers
 import os
 os.environ.setdefault("OMP_NUM_THREADS", "1")
+# Reduce CUDA memory fragmentation with expandable virtual-memory segments.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
@@ -24,7 +29,7 @@ from omegaconf import DictConfig, OmegaConf
 
 logger = logging.getLogger(__name__)
 
-_VALID_MODES = {"image_only", "sft", "image2text", "text2image"}
+_VALID_MODES = {"image_only", "sft", "image2text", "text2image", "interleave"}
 
 
 def _preprocess_dataset_override():
@@ -63,7 +68,7 @@ def _resolve_mode(cfg: DictConfig) -> None:
     mode = cfg.get("mode")
     if mode is None:
         raise ValueError(
-            "mode is required. Use: mode=image_only | sft | image2text | text2image"
+            "mode is required. Use: mode=image_only | sft | image2text | text2image | interleave"
         )
     if mode not in _VALID_MODES:
         raise ValueError(
@@ -102,7 +107,7 @@ def main(cfg: DictConfig):
         "tokenizer_path": tokenizer_path,
         "tokenizer_min_pixels": tokenizer_min_pixels,
         "tokenizer_max_pixels": tokenizer_max_pixels,
-        "max_images_per_encode": tokenizer_cfg.get("max_images_per_encode"),
+        "max_encode_pixels": tokenizer_cfg.get("max_encode_pixels"),
         "filter_min_pixels": filter_min_pixels,
         "filter_max_pixels": filter_max_pixels,
         "output_dir": cfg.dataset.output_dir,
@@ -143,6 +148,13 @@ def main(cfg: DictConfig):
         # Multi-image
         "image_field_pattern": cfg.dataset.get("image_field_pattern"),
         "image_list_column": cfg.dataset.get("image_list_column"),
+        "document_format": cfg.dataset.get("document_format"),
+        "document_field": cfg.dataset.get("document_field"),
+        "local_image_prefixes": OmegaConf.to_container(
+            cfg.dataset.get("local_image_prefixes"), resolve=True
+        )
+        if cfg.dataset.get("local_image_prefixes") is not None
+        else None,
         # W&B
         "wandb": OmegaConf.to_container(cfg.get("wandb", {}), resolve=True),
     }

@@ -45,11 +45,13 @@ def test_worker_stats_resume_preserves_elapsed_time(monkeypatch):
     stats.start_time = current_time["value"]
     stats.samples_processed = 12
     stats.tokens_generated = 120
+    stats.image_tokens = 72
 
     current_time["value"] = 112.0
     snapshot = stats.to_dict()
     assert snapshot["elapsed_time"] == pytest.approx(12.0)
     assert snapshot["throughput"] == pytest.approx(10.0)
+    assert snapshot["image_tokens_per_second"] == pytest.approx(6.0)
 
     current_time["value"] = 200.0
     resumed = checkpoint_mod.WorkerStats()
@@ -61,6 +63,7 @@ def test_worker_stats_resume_preserves_elapsed_time(monkeypatch):
     assert resumed.current_elapsed_time() == pytest.approx(20.0)
     assert resumed_snapshot["elapsed_time"] == pytest.approx(20.0)
     assert resumed_snapshot["throughput"] == pytest.approx(6.0)
+    assert resumed_snapshot["image_tokens_per_second"] == pytest.approx(3.6)
 
 
 def test_simple_wandb_logger_restores_step_and_uses_elapsed_seconds(monkeypatch):
@@ -93,6 +96,7 @@ def test_simple_wandb_logger_restores_step_and_uses_elapsed_seconds(monkeypatch)
     assert payload["elapsed_seconds"] == pytest.approx(30.0)
     assert payload["samples_per_second"] == pytest.approx(4.0)
     assert payload["tokens_per_second"] == pytest.approx(8.0)
+    assert payload["image_tokens_per_second"] == pytest.approx(200 / 30.0)
     assert payload["timing/load_ms"] == pytest.approx(1.5)
     assert payload["batch/index"] == 42
     assert logger.state_dict() == {"run_id": "resume-123", "step": 8}
