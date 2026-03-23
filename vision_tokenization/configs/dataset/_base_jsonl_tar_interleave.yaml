@@ -23,6 +23,7 @@ document_field: null
 local_image_prefixes:
   - content_image/
   - image/
+max_sequence_tokens: 131_072  # runtime hard cap for emitted interleave sequences
 
 # Image filtering
 min_pixels: "64*128"

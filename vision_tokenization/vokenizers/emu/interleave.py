@@ -51,12 +51,102 @@ def assemble_interleaved_sequence(
     return torch.cat(parts)
 
 
+def split_interleaved_sequence(
+    *,
+    bos_id: int,
+    eos_id: int,
+    segments: Sequence[dict[str, Any]],
+    text_token_chunks: Sequence[torch.Tensor],
+    image_token_chunks: Sequence[torch.Tensor],
+    max_sequence_tokens: Optional[int] = None,
+) -> list[torch.Tensor]:
+    """Assemble one or more sequences, splitting only at segment boundaries.
+
+    When ``max_sequence_tokens`` is set, the split is exact with respect to the
+    already-tokenized text/image chunks. Segments are never cut in the middle.
+    A single segment that cannot fit within the limit raises ``ValueError``.
+    """
+    if max_sequence_tokens is None:
+        return [
+            assemble_interleaved_sequence(
+                bos_id=bos_id,
+                eos_id=eos_id,
+                segments=segments,
+                text_token_chunks=text_token_chunks,
+                image_token_chunks=image_token_chunks,
+            )
+        ]
+
+    max_sequence_tokens = int(max_sequence_tokens)
+    if max_sequence_tokens < 2:
+        raise ValueError("max_sequence_tokens must be >= 2")
+
+    entries: list[tuple[str, dict[str, Any], torch.Tensor]] = []
+    text_idx = 0
+    image_idx = 0
+    for seg in segments:
+        seg_type = seg.get("type")
+        if seg_type == "text":
+            text_value = seg.get("text")
+            if text_value:
+                entries.append(("text", seg, text_token_chunks[text_idx]))
+                text_idx += 1
+        elif seg_type == "image":
+            entries.append(("image", seg, image_token_chunks[image_idx]))
+            image_idx += 1
+        else:
+            raise ValueError(f"Unsupported interleave segment type: {seg_type!r}")
+
+    if not entries:
+        return [torch.tensor([bos_id, eos_id], dtype=torch.long)]
+
+    sequences: list[torch.Tensor] = []
+    current_entries: list[tuple[str, dict[str, Any], torch.Tensor]] = []
+    current_len = 2  # BOS + EOS
+
+    def _flush_current() -> None:
+        if not current_entries:
+            return
+        chunk_segments = [seg for _kind, seg, _tokens in current_entries]
+        chunk_texts = [tokens for kind, _seg, tokens in current_entries if kind == "text"]
+        chunk_images = [tokens for kind, _seg, tokens in current_entries if kind == "image"]
+        sequences.append(
+            assemble_interleaved_sequence(
+                bos_id=bos_id,
+                eos_id=eos_id,
+                segments=chunk_segments,
+                text_token_chunks=chunk_texts,
+                image_token_chunks=chunk_images,
+            )
+        )
+
+    for kind, seg, tokens in entries:
+        seg_len = int(tokens.numel())
+        if seg_len + 2 > max_sequence_tokens:
+            raise ValueError(
+                f"Single {kind} segment requires {seg_len + 2} tokens, exceeding "
+                f"max_sequence_tokens={max_sequence_tokens}"
+            )
+        if current_entries and current_len + seg_len > max_sequence_tokens:
+            _flush_current()
+            current_entries = []
+            current_len = 2
+        current_entries.append((kind, seg, tokens))
+        current_len += seg_len
+
+    _flush_current()
+    return sequences
+
+
 class EMUInterleaveTokenizer(EMUImageOnlyTokenizer):
     """Tokenizer for plain interleaved document sequences."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, max_sequence_tokens: Optional[int] = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="TokenizerPool")
+        self.max_sequence_tokens = (
+            int(max_sequence_tokens) if max_sequence_tokens is not None else None
+        )
 
     def tokenize(self, image=None, text=None) -> torch.Tensor:
         segments = text or []
@@ -160,14 +250,25 @@ class EMUInterleaveTokenizer(EMUImageOnlyTokenizer):
             else:
                 image_token_chunks = []
 
-            results.append(
-                assemble_interleaved_sequence(
+            try:
+                split_sequences = split_interleaved_sequence(
                     bos_id=self.bos_id,
                     eos_id=self.eos_id,
                     segments=segments,
                     text_token_chunks=text_token_chunks,
                     image_token_chunks=image_token_chunks,
+                    max_sequence_tokens=self.max_sequence_tokens,
                 )
-            )
+            except ValueError as exc:
+                logger.warning(
+                    "Interleave group cannot fit within max_sequence_tokens=%s without "
+                    "breaking a segment boundary — skipping: %s",
+                    self.max_sequence_tokens,
+                    exc,
+                )
+                results.append(None)
+                continue
+
+            results.extend(split_sequences)
 
         return results

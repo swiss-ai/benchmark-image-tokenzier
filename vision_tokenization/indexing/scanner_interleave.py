@@ -12,6 +12,7 @@ from typing import Dict, Optional, Sequence, Union
 import orjson
 import pyarrow.parquet as pq
 
+from vision_tokenization.indexing._parallel import run_ordered_pool
 from vision_tokenization.indexing._scan_wds_worker import (
     DEFAULT_IMAGE_EXTENSIONS,
     _get_image_dims,
@@ -24,8 +25,6 @@ from vision_tokenization.utils.interleave_documents import (
     extract_local_image_refs,
     parse_interleave_segments,
 )
-
-from vision_tokenization.indexing._parallel import run_ordered_pool
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +71,12 @@ def _build_tar_index(
     image_exts = frozenset(ext.lower().lstrip(".") for ext in image_extensions)
 
     for tar_path in tar_paths:
-        with tarfile.open(tar_path, "r") as tf:
+        try:
+            tf = tarfile.open(tar_path, "r")
+        except Exception:
+            logger.warning("Skipping unreadable tar: %s", tar_path, exc_info=True)
+            continue
+        try:
             for member in tf:
                 if not member.isfile():
                     continue
@@ -99,6 +103,10 @@ def _build_tar_index(
                     "width": int(width),
                     "height": int(height),
                 }
+        except Exception:
+            logger.warning("Error reading tar (truncated?): %s", tar_path, exc_info=True)
+        finally:
+            tf.close()
     return index
 
 
@@ -110,7 +118,7 @@ def _scan_jsonl_scope(
     document_field: Optional[str],
     local_image_prefixes: Optional[Sequence[str]],
     tar_pattern: str,
-) -> tuple[list[dict], int, int, int]:
+ ) -> tuple[list[dict], int, int, int]:
     """Scan all JSONL files within one tar-resolution scope.
 
     Returns:
@@ -171,6 +179,8 @@ def _scan_jsonl_scope(
                             "height": meta["height"],
                             "group_id": next_group_id,
                             "image_index": image_index,
+                            "segment_start_index": 0,
+                            "segment_end_index": len(segments),
                             "jsonl_path": jsonl_path,
                             "line_start": int(line_start),
                             "line_length": int(line_length),
@@ -288,6 +298,7 @@ def scan_jsonl_tar_interleave_dataset(
                         total_rows + len(buffer),
                     )
         else:
+
             def _submit(pool, idx):
                 scope_key, scope_jsonl_paths = scope_items[idx]
                 return pool.submit(
@@ -320,7 +331,10 @@ def scan_jsonl_tar_interleave_dataset(
                 num_workers=num_workers,
                 progress_fn=lambda done, total: logger.info(
                     "Interleave scan progress: %d/%d scopes, %d groups, %d rows",
-                    done, total, total_groups, total_rows + len(buffer),
+                    done,
+                    total,
+                    total_groups,
+                    total_rows + len(buffer),
                 ),
             )
 

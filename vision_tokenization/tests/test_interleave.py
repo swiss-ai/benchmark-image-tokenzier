@@ -16,7 +16,10 @@ from vision_tokenization.utils.interleave_documents import (
     parse_content_array_interleave,
     parse_markdown_interleave,
 )
-from vision_tokenization.vokenizers.emu.interleave import assemble_interleaved_sequence
+from vision_tokenization.vokenizers.emu.interleave import (
+    assemble_interleaved_sequence,
+    split_interleaved_sequence,
+)
 
 
 def _make_image(width: int, height: int, color=(255, 0, 0)) -> Image.Image:
@@ -121,6 +124,8 @@ def test_scan_jsonl_tar_interleave_dataset_drops_zero_image_and_missing_docs(tmp
         "content_image/0-0.png",
         "content_image/0-1.png",
     ]
+    assert table.column("segment_start_index").to_pylist() == [0, 0]
+    assert table.column("segment_end_index").to_pylist() == [5, 5]
 
 
 def test_jsonl_tar_interleave_loader_reconstructs_grouped_document(tmp_path):
@@ -201,6 +206,47 @@ def test_assemble_interleaved_sequence_places_tokens_in_order():
         ],
     )
     assert output.tolist() == [1, 10, 11, 20, 21, 22, 12, 2]
+
+
+def test_split_interleaved_sequence_respects_max_tokens():
+    outputs = split_interleaved_sequence(
+        bos_id=1,
+        eos_id=2,
+        segments=[
+            {"type": "text", "text": "left"},
+            {"type": "image", "ref": "content_image/0-0.png"},
+            {"type": "text", "text": "right"},
+            {"type": "image", "ref": "content_image/0-1.png"},
+        ],
+        text_token_chunks=[
+            torch.tensor([10, 11], dtype=torch.long),
+            torch.tensor([12, 13], dtype=torch.long),
+        ],
+        image_token_chunks=[
+            torch.tensor([20, 21, 22], dtype=torch.long),
+            torch.tensor([30, 31, 32], dtype=torch.long),
+        ],
+        max_sequence_tokens=7,
+    )
+    assert len(outputs) == 2
+    assert outputs[0].tolist() == [1, 10, 11, 20, 21, 22, 2]
+    assert outputs[1].tolist() == [1, 12, 13, 30, 31, 32, 2]
+
+
+def test_split_interleaved_sequence_raises_for_single_oversize_segment():
+    with pytest.raises(ValueError, match="Single image segment"):
+        split_interleaved_sequence(
+            bos_id=1,
+            eos_id=2,
+            segments=[
+                {"type": "image", "ref": "content_image/huge.png"},
+            ],
+            text_token_chunks=[],
+            image_token_chunks=[
+                torch.tensor([20, 21, 22, 23, 24, 25, 26], dtype=torch.long),
+            ],
+            max_sequence_tokens=8,
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
