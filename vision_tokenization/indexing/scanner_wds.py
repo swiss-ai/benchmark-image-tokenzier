@@ -57,7 +57,7 @@ def _discover_shards(input_pattern: str) -> list[str]:
         except Exception as exc:
             logger.warning(f"braceexpand failed ({exc}), falling back to glob")
 
-    tar_paths = sorted(glob.glob(input_pattern))
+    tar_paths = sorted(glob.glob(input_pattern, recursive=True))
     if not tar_paths:
         raise FileNotFoundError(f"No tar files found matching pattern: {input_pattern}")
 
