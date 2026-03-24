@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import tarfile
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pytest
@@ -17,6 +18,7 @@ from vision_tokenization.utils.interleave_documents import (
     parse_markdown_interleave,
 )
 from vision_tokenization.vokenizers.emu.interleave import (
+    EMUInterleaveTokenizer,
     assemble_interleaved_sequence,
     split_interleaved_sequence,
 )
@@ -124,8 +126,8 @@ def test_scan_jsonl_tar_interleave_dataset_drops_zero_image_and_missing_docs(tmp
         "content_image/0-0.png",
         "content_image/0-1.png",
     ]
-    assert table.column("segment_start_index").to_pylist() == [0, 0]
-    assert table.column("segment_end_index").to_pylist() == [5, 5]
+    assert "segment_start_index" not in table.column_names
+    assert "segment_end_index" not in table.column_names
 
 
 def test_jsonl_tar_interleave_loader_reconstructs_grouped_document(tmp_path):
@@ -247,6 +249,244 @@ def test_split_interleaved_sequence_raises_for_single_oversize_segment():
             ],
             max_sequence_tokens=8,
         )
+
+
+def test_split_interleaved_sequence_keeps_exact_boundary_sequence():
+    outputs = split_interleaved_sequence(
+        bos_id=1,
+        eos_id=2,
+        segments=[
+            {"type": "text", "text": "left"},
+            {"type": "image", "ref": "content_image/0-0.png"},
+        ],
+        text_token_chunks=[
+            torch.tensor([10, 11], dtype=torch.long),
+        ],
+        image_token_chunks=[
+            torch.tensor([20, 21, 22], dtype=torch.long),
+        ],
+        max_sequence_tokens=7,
+    )
+    assert len(outputs) == 1
+    assert outputs[0].tolist() == [1, 10, 11, 20, 21, 22, 2]
+
+
+def test_split_interleaved_sequence_splits_three_times_in_order():
+    outputs = split_interleaved_sequence(
+        bos_id=1,
+        eos_id=2,
+        segments=[
+            {"type": "text", "text": "a"},
+            {"type": "image", "ref": "content_image/0.png"},
+            {"type": "text", "text": "b"},
+            {"type": "image", "ref": "content_image/1.png"},
+            {"type": "text", "text": "c"},
+        ],
+        text_token_chunks=[
+            torch.tensor([10], dtype=torch.long),
+            torch.tensor([11], dtype=torch.long),
+            torch.tensor([12], dtype=torch.long),
+        ],
+        image_token_chunks=[
+            torch.tensor([20, 21], dtype=torch.long),
+            torch.tensor([30, 31], dtype=torch.long),
+        ],
+        max_sequence_tokens=5,
+    )
+    assert [out.tolist() for out in outputs] == [
+        [1, 10, 20, 21, 2],
+        [1, 11, 30, 31, 2],
+        [1, 12, 2],
+    ]
+
+
+class _DummyTextTokenizer:
+    def __init__(self, mapping):
+        self.mapping = mapping
+
+    def __call__(self, texts, **kwargs):
+        if isinstance(texts, str):
+            texts = [texts]
+        return {"input_ids": [self.mapping[text] for text in texts]}
+
+
+def _make_stub_interleave_tokenizer(*, max_sequence_tokens, text_mapping, image_rows):
+    tok = object.__new__(EMUInterleaveTokenizer)
+    tok.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="TestTokenizerPool")
+    tok.max_sequence_tokens = max_sequence_tokens
+    tok.bos_id = 1
+    tok.eos_id = 2
+    tok.text_tokenizer = _DummyTextTokenizer(text_mapping)
+    tok.tokenize_images = lambda images, resize_size: torch.tensor(image_rows, dtype=torch.long)
+    return tok
+
+
+def test_interleave_tokenize_batch_respects_max_sequence_tokens():
+    tokenizer = _make_stub_interleave_tokenizer(
+        max_sequence_tokens=7,
+        text_mapping={
+            "left": [10, 11],
+            "right": [12, 13],
+        },
+        image_rows=[
+            [100, 20, 21, 22, 101],
+            [100, 30, 31, 32, 101],
+        ],
+    )
+    try:
+        outputs = tokenizer.tokenize_batch(
+            images=["img0", "img1"],
+            resize_size=(16, 16),
+            text=[
+                [
+                    {"type": "text", "text": "left"},
+                    {"type": "image", "ref": "content_image/0.png"},
+                    {"type": "text", "text": "right"},
+                    {"type": "image", "ref": "content_image/1.png"},
+                ]
+            ],
+            group_slices=np.array([[0, 2]], dtype=np.int64),
+        )
+    finally:
+        tokenizer.executor.shutdown(wait=True)
+
+    assert len(outputs) == 2
+    assert [out.tolist() for out in outputs] == [
+        [1, 10, 11, 20, 21, 22, 2],
+        [1, 12, 13, 30, 31, 32, 2],
+    ]
+
+
+def test_interleave_tokenize_batch_skips_single_oversize_segment():
+    tokenizer = _make_stub_interleave_tokenizer(
+        max_sequence_tokens=8,
+        text_mapping={},
+        image_rows=[
+            [100, 20, 21, 22, 23, 24, 25, 26, 101],
+        ],
+    )
+    try:
+        outputs = tokenizer.tokenize_batch(
+            images=["img0"],
+            resize_size=(16, 16),
+            text=[
+                [
+                    {"type": "image", "ref": "content_image/huge.png"},
+                ]
+            ],
+            group_slices=np.array([[0, 1]], dtype=np.int64),
+        )
+    finally:
+        tokenizer.executor.shutdown(wait=True)
+
+    assert outputs == [None]
+
+
+def test_interleave_tokenize_batch_keeps_exact_boundary_sequence():
+    tokenizer = _make_stub_interleave_tokenizer(
+        max_sequence_tokens=7,
+        text_mapping={
+            "left": [10, 11],
+        },
+        image_rows=[
+            [100, 20, 21, 22, 101],
+        ],
+    )
+    try:
+        outputs = tokenizer.tokenize_batch(
+            images=["img0"],
+            resize_size=(16, 16),
+            text=[
+                [
+                    {"type": "text", "text": "left"},
+                    {"type": "image", "ref": "content_image/0.png"},
+                ]
+            ],
+            group_slices=np.array([[0, 1]], dtype=np.int64),
+        )
+    finally:
+        tokenizer.executor.shutdown(wait=True)
+
+    assert len(outputs) == 1
+    assert outputs[0].tolist() == [1, 10, 11, 20, 21, 22, 2]
+
+
+def test_interleave_tokenize_batch_handles_mixed_group_outcomes():
+    tokenizer = _make_stub_interleave_tokenizer(
+        max_sequence_tokens=5,
+        text_mapping={
+            "a": [10],
+            "b": [11],
+            "too-long-text": [40, 41, 42, 43],
+        },
+        image_rows=[
+            [100, 20, 21, 101],
+            [100, 30, 31, 101],
+        ],
+    )
+    try:
+        outputs = tokenizer.tokenize_batch(
+            images=["img0", "img1"],
+            resize_size=(16, 16),
+            text=[
+                [
+                    {"type": "text", "text": "a"},
+                    {"type": "image", "ref": "content_image/0.png"},
+                    {"type": "text", "text": "b"},
+                    {"type": "image", "ref": "content_image/1.png"},
+                ],
+                [
+                    {"type": "text", "text": "too-long-text"},
+                ],
+            ],
+            group_slices=np.array([[0, 2], [2, 2]], dtype=np.int64),
+        )
+    finally:
+        tokenizer.executor.shutdown(wait=True)
+
+    assert [out.tolist() if out is not None else None for out in outputs] == [
+        [1, 10, 20, 21, 2],
+        [1, 11, 30, 31, 2],
+        None,
+    ]
+
+
+def test_interleave_tokenize_batch_skips_single_oversize_text_segment():
+    tokenizer = _make_stub_interleave_tokenizer(
+        max_sequence_tokens=5,
+        text_mapping={
+            "too-long-text": [40, 41, 42, 43],
+        },
+        image_rows=[],
+    )
+    try:
+        outputs = tokenizer.tokenize_batch(
+            images=[],
+            resize_size=(16, 16),
+            text=[
+                [
+                    {"type": "text", "text": "too-long-text"},
+                ]
+            ],
+            group_slices=np.array([[0, 0]], dtype=np.int64),
+        )
+    finally:
+        tokenizer.executor.shutdown(wait=True)
+
+    assert outputs == [None]
+
+
+def test_interleave_tokenizer_close_is_idempotent():
+    tokenizer = _make_stub_interleave_tokenizer(
+        max_sequence_tokens=7,
+        text_mapping={},
+        image_rows=[],
+    )
+
+    tokenizer.close()
+    tokenizer.close()
+
+    assert tokenizer.executor is None
 
 
 # ──────────────────────────────────────────────────────────────────────────────

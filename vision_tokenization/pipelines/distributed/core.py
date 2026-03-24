@@ -526,6 +526,8 @@ def tokenize_loop(
         wandb_logger.finish()
 
     data_loader.close()
+    if hasattr(tokenizer, "close"):
+        tokenizer.close()
 
     text_tok_msg = ""
     if result.get("text_tokens", 0) > 0:

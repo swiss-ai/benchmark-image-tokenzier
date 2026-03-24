@@ -212,19 +212,16 @@ class JSONLTarInterleaveLoader:
         self._line_starts = self.manifest.column("line_start").to_numpy()
         self._line_lengths = self.manifest.column("line_length").to_numpy()
         self._image_refs = self.manifest.column("image_ref")
-        missing_segment_cols = [
-            name
+        self._has_segment_ranges = all(
+            name in self.manifest.column_names
             for name in ("segment_start_index", "segment_end_index")
-            if name not in self.manifest.column_names
-        ]
-        if missing_segment_cols:
-            raise ValueError(
-                "Interleave manifest is missing required segment-range columns "
-                f"{missing_segment_cols}. Re-create the manifest with the current "
-                "scan_jsonl_tar_interleave_dataset() implementation."
-            )
-        self._segment_starts = self.manifest.column("segment_start_index").to_numpy()
-        self._segment_ends = self.manifest.column("segment_end_index").to_numpy()
+        )
+        if self._has_segment_ranges:
+            self._segment_starts = self.manifest.column("segment_start_index").to_numpy()
+            self._segment_ends = self.manifest.column("segment_end_index").to_numpy()
+        else:
+            self._segment_starts = None
+            self._segment_ends = None
 
         self._reader = TarRandomAccessReader(max_open_files=max_open_files)
         self._max_open_files = max(1, int(max_open_files))
@@ -285,19 +282,22 @@ class JSONLTarInterleaveLoader:
                 document_field=self.document_field,
                 local_prefixes=self.local_image_prefixes,
             )
-            segment_start = int(self._segment_starts[manifest_idx])
-            segment_end = int(self._segment_ends[manifest_idx])
-            if segment_start < 0 or segment_end > len(segments) or segment_start >= segment_end:
-                logger.warning(
-                    "Invalid interleave segment range for %s at offset %d: [%d, %d) with %d segments",
-                    jsonl_path,
-                    line_start,
-                    segment_start,
-                    segment_end,
-                    len(segments),
-                )
-                return None
-            segments = list(segments[segment_start:segment_end])
+            if self._has_segment_ranges:
+                segment_start = int(self._segment_starts[manifest_idx])
+                segment_end = int(self._segment_ends[manifest_idx])
+                if segment_start < 0 or segment_end > len(segments) or segment_start >= segment_end:
+                    logger.warning(
+                        "Invalid interleave segment range for %s at offset %d: [%d, %d) with %d segments",
+                        jsonl_path,
+                        line_start,
+                        segment_start,
+                        segment_end,
+                        len(segments),
+                    )
+                    return None
+                segments = list(segments[segment_start:segment_end])
+            else:
+                segments = list(segments)
 
             refs = extract_local_image_refs(segments)
             manifest_refs = [

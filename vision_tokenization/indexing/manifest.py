@@ -97,8 +97,6 @@ INTERLEAVE_JSONL_TAR_SCHEMA = pa.schema(
         pa.field("height", pa.int32()),
         pa.field("group_id", pa.int64()),
         pa.field("image_index", pa.int16()),
-        pa.field("segment_start_index", pa.int32()),
-        pa.field("segment_end_index", pa.int32()),
         pa.field("jsonl_path", pa.dictionary(pa.int32(), pa.string())),
         pa.field("line_start", pa.int64()),
         pa.field("line_length", pa.int32()),

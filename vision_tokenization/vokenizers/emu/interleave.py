@@ -148,6 +148,25 @@ class EMUInterleaveTokenizer(EMUImageOnlyTokenizer):
             int(max_sequence_tokens) if max_sequence_tokens is not None else None
         )
 
+    def close(self) -> None:
+        executor = getattr(self, "executor", None)
+        if executor is None:
+            return
+        executor.shutdown(wait=True)
+        self.executor = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+    def __del__(self):  # pragma: no cover - best-effort cleanup only
+        try:
+            self.close()
+        except Exception:
+            pass
+
     def tokenize(self, image=None, text=None) -> torch.Tensor:
         segments = text or []
         images = list(image or [])
@@ -216,6 +235,8 @@ class EMUInterleaveTokenizer(EMUImageOnlyTokenizer):
                 return [torch.tensor(ids, dtype=torch.long) for ids in encoded["input_ids"]]
 
         image_future = None
+        if self.executor is None:
+            raise RuntimeError("Tokenizer executor has been closed")
         if images:
             image_future = self.executor.submit(self.tokenize_images, images, resize_size)
         text_future = self.executor.submit(tokenize_texts_cpu)

@@ -179,8 +179,6 @@ def _scan_jsonl_scope(
                             "height": meta["height"],
                             "group_id": next_group_id,
                             "image_index": image_index,
-                            "segment_start_index": 0,
-                            "segment_end_index": len(segments),
                             "jsonl_path": jsonl_path,
                             "line_start": int(line_start),
                             "line_length": int(line_length),
