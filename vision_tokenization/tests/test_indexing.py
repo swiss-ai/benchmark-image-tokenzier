@@ -609,7 +609,7 @@ class TestClusteredBatchPlanner:
         h = np.concatenate([rng.randint(200, 300, 334), rng.randint(200, 300, 333), rng.randint(400, 600, 333)])
         path = self._create_manifest(tmp_path, w, h)
 
-        plan = plan_clustered_batches(path, batch_size=32, max_batch_tokens=999999)
+        plan = plan_clustered_batches(path, batch_size=32, max_batch_tokens=999999, resize_min_pixels=64*64, resize_max_pixels=1024*1024)
         assert isinstance(plan, BatchPlan)
         assert len(plan.batches) > 0
         assert plan.total_samples == 1000
@@ -622,7 +622,7 @@ class TestClusteredBatchPlanner:
         path = self._create_manifest(tmp_path, w, h)
 
         bs = 16
-        plan = plan_clustered_batches(path, batch_size=bs, max_batch_tokens=999999)
+        plan = plan_clustered_batches(path, batch_size=bs, max_batch_tokens=999999, resize_min_pixels=64*64, resize_max_pixels=1024*1024)
         for batch in plan.batches:
             assert len(batch.sample_indices) <= bs
 
@@ -634,7 +634,7 @@ class TestClusteredBatchPlanner:
         h = rng.randint(100, 500, N)
         path = self._create_manifest(tmp_path, w, h)
 
-        plan = plan_clustered_batches(path, batch_size=20, max_batch_tokens=999999)
+        plan = plan_clustered_batches(path, batch_size=20, max_batch_tokens=999999, resize_min_pixels=64*64, resize_max_pixels=1024*1024)
         all_indices = np.concatenate([b.sample_indices for b in plan.batches])
         assert len(all_indices) == N
         assert len(np.unique(all_indices)) == N
@@ -647,7 +647,7 @@ class TestClusteredBatchPlanner:
         h = rng.randint(100, 1000, 600)
         path = self._create_manifest(tmp_path, w, h)
 
-        plan = plan_clustered_batches(path, batch_size=32, max_batch_tokens=999999)
+        plan = plan_clustered_batches(path, batch_size=32, max_batch_tokens=999999, resize_min_pixels=64*64, resize_max_pixels=1024*1024)
 
         global_ar = w.astype(np.float64) / h.astype(np.float64)
         global_std = np.std(global_ar)
@@ -674,7 +674,7 @@ class TestClusteredBatchPlanner:
         h = np.array([10] * 50 + [200] * 50)
         path = self._create_manifest(tmp_path, w, h)
 
-        plan = plan_clustered_batches(path, batch_size=10, max_batch_tokens=999999, min_pixels=1000)
+        plan = plan_clustered_batches(path, batch_size=10, max_batch_tokens=999999, min_pixels=1000, resize_min_pixels=64*64, resize_max_pixels=1024*1024)
         assert plan.total_filtered == 50
         all_idx = np.concatenate([b.sample_indices for b in plan.batches])
         assert len(all_idx) == 50
@@ -688,7 +688,7 @@ class TestClusteredBatchPlanner:
         h = rng.randint(100, 500, 200)
         path = self._create_manifest(tmp_path, w, h)
 
-        plan = plan_clustered_batches(path, batch_size=10, max_batch_tokens=999999)
+        plan = plan_clustered_batches(path, batch_size=10, max_batch_tokens=999999, resize_min_pixels=64*64, resize_max_pixels=1024*1024)
         chunks = plan.split_for_workers(4)
         assert len(chunks) == 4
         # Flatten and verify all batches covered
@@ -812,7 +812,7 @@ class TestEndToEnd:
         assert len(table) == 30
 
         # --- Plan batches ---
-        plan = plan_clustered_batches(manifest_path, batch_size=8, max_batch_tokens=999999)
+        plan = plan_clustered_batches(manifest_path, batch_size=8, max_batch_tokens=999999, resize_min_pixels=64*64, resize_max_pixels=1024*1024)
         assert plan.total_samples == 30
         all_idx = np.concatenate([b.sample_indices for b in plan.batches])
         assert len(np.unique(all_idx)) == 30

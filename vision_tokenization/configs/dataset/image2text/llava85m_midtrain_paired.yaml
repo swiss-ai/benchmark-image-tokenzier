@@ -12,7 +12,8 @@ text_column: caption
 multi_image: false
 
 # --- Overrides ----------------------------------------------------------------
-gpu_kmeans: false
+num_clusters: 20_000
+gpu_kmeans: true
 batch_plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/llava_onevision_mid_85m.pt
 max_batch_tokens: 32_768
 checkpoint_interval_batches: 5_000

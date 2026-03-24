@@ -220,7 +220,10 @@ class Emu3_5_IBQ(Tokenizer):
             if image.mode != "RGB":
                 image = image.convert("RGB")
 
-            image = image.resize((width, height), Image.BICUBIC)
+            # Skip resize when the image already matches the target dimensions
+            iw, ih = image.size
+            if iw != width or ih != height:
+                image = image.resize((width, height), Image.BICUBIC)
 
             batch_tensors.append(self._pil_to_tensor(image))
 

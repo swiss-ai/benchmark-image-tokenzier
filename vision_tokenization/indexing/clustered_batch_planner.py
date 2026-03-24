@@ -14,6 +14,7 @@ from vision_tokenization.utils.image_geometry import (
     estimate_image_tokens,
     estimate_image_tokens_batch,
     smart_resize_dims,
+    smart_resize_dims_batch,
 )
 
 logger = logging.getLogger(__name__)
@@ -102,22 +103,6 @@ class BatchPlan:
         return splits
 
 
-def _compute_resize(
-    widths: np.ndarray,
-    heights: np.ndarray,
-    mode: str,
-) -> tuple:
-    """Compute (resize_height, resize_width) for a batch."""
-    if mode == "avg":
-        return int(round(heights.mean())), int(round(widths.mean()))
-    elif mode == "min":
-        return int(heights.min()), int(widths.min())
-    elif mode == "max":
-        return int(heights.max()), int(widths.max())
-    else:
-        raise ValueError(f"Unknown resize_mode: {mode}")
-
-
 def _estimate_single_image_tokens(
     heights: np.ndarray,
     widths: np.ndarray,
@@ -135,86 +120,243 @@ def _estimate_single_image_tokens(
     )
 
 
-def _compute_final_batch_geometry(
-    widths: np.ndarray,
+def _plan_exact_resize_batches(
+    valid_indices: np.ndarray,
     heights: np.ndarray,
-    resize_mode: str,
+    widths: np.ndarray,
+    batch_size: int,
+    max_batch_tokens: int,
     spatial_factor: int,
-    resize_min_pixels: Optional[int],
-    resize_max_pixels: Optional[int],
-) -> tuple[int, int, int]:
-    """Return final batch encode size and total token count for the batch."""
-    resize_height, resize_width = _compute_resize(widths, heights, resize_mode)
-    final_height, final_width = smart_resize_dims(
-        resize_height,
-        resize_width,
+    resize_min_pixels: int,
+    resize_max_pixels: int,
+    total_samples: int,
+    total_filtered: int,
+    num_clusters: int = 2000,
+    gpu: bool = True,
+    niter: int = 10,
+) -> BatchPlan:
+    """Plan batches by grouping on exact post-resize dimensions.
+
+    Since ``smart_resize_dims`` snaps every image to a discrete grid
+    (multiples of *spatial_factor*, clamped to pixel limits), we can group
+    images by their exact final encode size.  Every image in a batch then
+    has identical dimensions — zero padding waste, and the resize fast-path
+    in ``preprocess_batch`` fires for images already at that size.
+
+    For large datasets the exact grouping produces well-filled batches.
+    For small datasets where the average group is too small to fill a batch,
+    falls back to k-means on the post-resize dims to merge similar-sized
+    groups together.
+    """
+    N = len(valid_indices)
+
+    # Vectorised smart_resize for all valid images
+    final_h, final_w = smart_resize_dims_batch(
+        heights[valid_indices],
+        widths[valid_indices],
         min_pixels=resize_min_pixels,
         max_pixels=resize_max_pixels,
         factor=spatial_factor,
     )
-    per_image_tokens = estimate_image_tokens(
-        final_height,
-        final_width,
-        spatial_factor=spatial_factor,
+
+    # Encode (h, w) pairs as a single int64 key for grouping
+    keys = final_h.astype(np.int64) * 100_000 + final_w.astype(np.int64)
+    unique_keys, inverse = np.unique(keys, return_inverse=True)
+
+    # Estimate ideal batch size to check if groups are large enough
+    tok_per_sample = _estimate_single_image_tokens(
+        final_h.astype(np.int32),
+        final_w.astype(np.int32),
+        spatial_factor,
+        resize_min_pixels,
+        resize_max_pixels,
     )
-    batch_tokens = per_image_tokens * len(widths)
-    return final_height, final_width, batch_tokens
+    mean_tok = max(1.0, float(tok_per_sample.mean()))
+    avg_batch = min(max(1, int(max_batch_tokens / mean_tok)), batch_size)
+    avg_group_size = N / max(1, len(unique_keys))
+
+    # If average group can fill at least one batch, use exact grouping.
+    # Otherwise fall back to k-means on post-resize dims to merge small groups.
+    if avg_group_size >= avg_batch:
+        logger.info(
+            f"Exact-resize planning: {N:,} valid samples, "
+            f"{len(unique_keys):,} distinct resize dims, "
+            f"avg group size {avg_group_size:.0f} >= batch size {avg_batch}"
+        )
+        return _pack_exact_groups(
+            valid_indices, final_h, final_w, unique_keys, inverse,
+            batch_size, max_batch_tokens, spatial_factor,
+            total_samples, total_filtered,
+        )
+
+    # --- Small-dataset fallback: k-means on post-resize dims ---------------
+    logger.info(
+        f"Exact-resize groups too small ({avg_group_size:.1f} avg < "
+        f"{avg_batch} batch size), falling back to k-means on "
+        f"post-resize dims ({N:,} samples, {len(unique_keys):,} distinct dims)"
+    )
+    return _plan_kmeans_on_resize_dims(
+        valid_indices, final_h, final_w,
+        batch_size=batch_size,
+        max_batch_tokens=max_batch_tokens,
+        spatial_factor=spatial_factor,
+        resize_min_pixels=resize_min_pixels,
+        resize_max_pixels=resize_max_pixels,
+        num_clusters=num_clusters,
+        gpu=gpu,
+        niter=niter,
+        total_samples=total_samples,
+        total_filtered=total_filtered,
+    )
 
 
-def _chunk_by_token_budget(
-    members: np.ndarray,
-    heights: np.ndarray,
-    widths: np.ndarray,
+def _pack_exact_groups(
     valid_indices: np.ndarray,
+    final_h: np.ndarray,
+    final_w: np.ndarray,
+    unique_keys: np.ndarray,
+    inverse: np.ndarray,
+    batch_size: int,
     max_batch_tokens: int,
     spatial_factor: int,
-    resize_mode: str,
-    resize_min_pixels: Optional[int],
-    resize_max_pixels: Optional[int],
-    batch_size: Optional[int] = None,
-) -> List[BatchAssignment]:
-    """Greedily pack sorted members into batches respecting a token budget.
+    total_samples: int,
+    total_filtered: int,
+) -> BatchPlan:
+    """Pack exact-resize groups into batches (all members share identical dims)."""
+    # Pre-sort by group to avoid O(N) np.where per group
+    sorted_order = np.argsort(inverse, kind="stable")
+    group_counts = np.bincount(inverse, minlength=len(unique_keys))
+    group_offsets = np.empty(len(unique_keys) + 1, dtype=np.int64)
+    group_offsets[0] = 0
+    np.cumsum(group_counts, out=group_offsets[1:])
 
-    If *batch_size* is also given it acts as a hard sample cap per batch.
-    """
     batches: List[BatchAssignment] = []
-    start = 0
-    while start < len(members):
-        end = start
-        final_height = 0
-        final_width = 0
-        final_tokens = 0
-        while end < len(members):
-            if batch_size is not None and (end - start) >= batch_size:
-                break
-            candidate = members[start : end + 1]
-            global_idx = valid_indices[candidate]
-            cand_height, cand_width, cand_tokens = _compute_final_batch_geometry(
-                widths[global_idx],
-                heights[global_idx],
-                resize_mode,
-                spatial_factor,
-                resize_min_pixels,
-                resize_max_pixels,
+    for group_idx, key in enumerate(unique_keys):
+        rh = int(key // 100_000)
+        rw = int(key % 100_000)
+        g_start = int(group_offsets[group_idx])
+        g_end = int(group_offsets[group_idx + 1])
+        members = sorted_order[g_start:g_end]
+
+        per_image_tokens = estimate_image_tokens(rh, rw, spatial_factor=spatial_factor)
+        max_by_tokens = max(1, max_batch_tokens // per_image_tokens)
+        chunk_size = min(batch_size, max_by_tokens)
+
+        for start in range(0, len(members), chunk_size):
+            chunk = members[start : start + chunk_size]
+            global_idx = valid_indices[chunk]
+            batches.append(
+                BatchAssignment(
+                    sample_indices=global_idx,
+                    resize_height=rh,
+                    resize_width=rw,
+                    batch_token_count=per_image_tokens * len(chunk),
+                )
             )
-            if cand_tokens > max_batch_tokens and end > start:
-                break
-            final_height = cand_height
-            final_width = cand_width
-            final_tokens = cand_tokens
-            end += 1
-        chunk = members[start:end]
-        global_idx = valid_indices[chunk]
-        batches.append(
-            BatchAssignment(
-                sample_indices=global_idx,
-                resize_height=final_height,
-                resize_width=final_width,
-                batch_token_count=final_tokens,
+
+    logger.info(
+        f"Exact-resize plan: {len(batches):,} batches, "
+        f"{total_samples:,} total, {total_filtered:,} filtered"
+    )
+    return BatchPlan(
+        batches=batches,
+        total_samples=total_samples,
+        total_filtered=total_filtered,
+    )
+
+
+def _plan_kmeans_on_resize_dims(
+    valid_indices: np.ndarray,
+    final_h: np.ndarray,
+    final_w: np.ndarray,
+    *,
+    batch_size: int,
+    max_batch_tokens: int,
+    spatial_factor: int,
+    resize_min_pixels: int,
+    resize_max_pixels: int,
+    num_clusters: int,
+    gpu: bool,
+    niter: int,
+    total_samples: int,
+    total_filtered: int,
+) -> BatchPlan:
+    """K-means on post-resize dims for small datasets with sparse groups.
+
+    Groups images with similar (but not identical) post-resize dims so
+    batches are well-filled.  The per-batch resize target is the average of
+    the cluster members' post-resize dims, snapped to the grid.
+    """
+    fh = final_h.astype(np.float32)
+    fw = final_w.astype(np.float32)
+    aspect = fw / fh
+    log_area = np.log(fh * fw)
+    features = np.stack([aspect, log_area], axis=1)
+
+    fmin = features.min(axis=0)
+    fmax = features.max(axis=0)
+    frange = fmax - fmin
+    frange[frange == 0] = 1.0
+    features = (features - fmin) / frange
+    features = np.ascontiguousarray(features, dtype=np.float32)
+
+    N = len(features)
+    mean_tok = max(1.0, float(np.mean(
+        (final_h // spatial_factor) * (final_w // spatial_factor)
+    )))
+    avg_batch = min(max(1, int(max_batch_tokens / mean_tok)), batch_size)
+    k = min(num_clusters, max(1, N // avg_batch))
+
+    logger.info(f"K-means on post-resize dims: {N:,} samples, k={k}")
+
+    kmeans = faiss.Kmeans(d=2, k=k, niter=niter, verbose=False, gpu=gpu)
+    kmeans.train(features)
+    _, labels = kmeans.index.search(features, 1)
+    labels = labels.ravel()
+
+    batches: List[BatchAssignment] = []
+    for cluster_id in range(k):
+        members = np.where(labels == cluster_id)[0]
+        if len(members) == 0:
+            continue
+
+        # Sort by log_area within cluster for greedy packing
+        order = np.argsort(log_area[members])
+        members = members[order]
+
+        # Compute batch resize target: avg of post-resize dims, snapped to grid
+        cluster_h = final_h[members]
+        cluster_w = final_w[members]
+        avg_h = int(round(cluster_h.mean() / spatial_factor)) * spatial_factor
+        avg_w = int(round(cluster_w.mean() / spatial_factor)) * spatial_factor
+        avg_h = max(avg_h, spatial_factor)
+        avg_w = max(avg_w, spatial_factor)
+
+        per_image_tokens = estimate_image_tokens(avg_h, avg_w, spatial_factor=spatial_factor)
+        max_by_tokens = max(1, max_batch_tokens // per_image_tokens)
+        chunk_size = min(batch_size, max_by_tokens)
+
+        for start in range(0, len(members), chunk_size):
+            chunk = members[start : start + chunk_size]
+            global_idx = valid_indices[chunk]
+            batches.append(
+                BatchAssignment(
+                    sample_indices=global_idx,
+                    resize_height=avg_h,
+                    resize_width=avg_w,
+                    batch_token_count=per_image_tokens * len(chunk),
+                )
             )
-        )
-        start = end
-    return batches
+
+    logger.info(
+        f"K-means resize plan: {len(batches):,} batches, "
+        f"{total_samples:,} total, {total_filtered:,} filtered"
+    )
+    return BatchPlan(
+        batches=batches,
+        total_samples=total_samples,
+        total_filtered=total_filtered,
+    )
 
 
 def plan_clustered_batches(
@@ -330,75 +472,28 @@ def plan_clustered_batches(
         logger.warning("All samples filtered out — returning empty plan.")
         return BatchPlan(total_samples=total_samples, total_filtered=total_filtered)
 
-    w = widths[valid_indices].astype(np.float32)
-    h = heights[valid_indices].astype(np.float32)
-
-    # --- feature matrix: [aspect_ratio, log_area] --------------------------
-    aspect = w / h
-    log_area = np.log(w * h)
-    features = np.stack([aspect, log_area], axis=1)  # (N, 2)
-
-    # Normalise to [0, 1]
-    fmin = features.min(axis=0)
-    fmax = features.max(axis=0)
-    frange = fmax - fmin
-    frange[frange == 0] = 1.0
-    features = (features - fmin) / frange
-    features = np.ascontiguousarray(features, dtype=np.float32)
-
-    N = len(features)
-
-    # Estimate average batch size for k-means cluster count
-    tok_per_sample = _estimate_single_image_tokens(
-        heights[valid_indices].astype(np.int32),
-        widths[valid_indices].astype(np.int32),
-        spatial_factor,
-        resize_min_pixels,
-        resize_max_pixels,
-    )
-    mean_tok = max(1.0, float(tok_per_sample.mean()))
-    avg_batch = min(max(1, int(max_batch_tokens / mean_tok)), batch_size)
-
-    k = min(num_clusters, max(1, N // avg_batch))
-
-    mode_desc = f"max_batch_tokens={max_batch_tokens}, batch_size={batch_size}"
-    logger.info(f"Planning batches: {N:,} valid samples, k={k}, {mode_desc}")
-
-    # --- faiss k-means -----------------------------------------------------
-    kmeans = faiss.Kmeans(d=2, k=k, niter=niter, verbose=False, gpu=gpu)
-    kmeans.train(features)
-    _, labels = kmeans.index.search(features, 1)
-    labels = labels.ravel()
-
-    # --- within-cluster sort + chunking ------------------------------------
-    batches: List[BatchAssignment] = []
-
-    for cluster_id in range(k):
-        members = np.where(labels == cluster_id)[0]
-        if len(members) == 0:
-            continue
-
-        # Sort by log_area within cluster
-        order = np.argsort(log_area[members])
-        members = members[order]
-
-        batches.extend(
-            _chunk_by_token_budget(
-                members, heights, widths, valid_indices,
-                max_batch_tokens, spatial_factor, resize_mode,
-                resize_min_pixels, resize_max_pixels,
-                batch_size=batch_size,
-            )
+    # --- Exact-resize fast path -------------------------------------------
+    # When tokenizer pixel limits are known, group by exact post-resize dims
+    # instead of approximate k-means.  Every batch member encodes at the
+    # same size → zero padding waste, O(N) planning.
+    if resize_min_pixels is None or resize_max_pixels is None:
+        raise ValueError(
+            "resize_min_pixels and resize_max_pixels are required. "
+            "Set tokenizer.min_pixels and tokenizer.max_pixels in config."
         )
 
-    logger.info(
-        f"Batch plan: {len(batches)} batches, "
-        f"{total_samples:,} total, {total_filtered:,} filtered"
-    )
-    return BatchPlan(
-        batches=batches,
+    return _plan_exact_resize_batches(
+        valid_indices, heights, widths,
+        batch_size=batch_size,
+        max_batch_tokens=max_batch_tokens,
+        spatial_factor=spatial_factor,
+        resize_min_pixels=resize_min_pixels,
+        resize_max_pixels=resize_max_pixels,
         total_samples=total_samples,
         total_filtered=total_filtered,
+        num_clusters=num_clusters,
+        gpu=gpu,
+        niter=niter,
     )
 
 
@@ -429,10 +524,23 @@ def _plan_grouped_batches(
 
     1. Build per-group metadata: member rows, representative dims, total tokens.
     2. Filter at the group level (drop if ANY member fails pixel filter).
-    3. K-means on group-level features, then greedy group-atomic packing.
+    3. K-means on group-level post-resize features, then greedy group-atomic packing.
     """
     total_rows = len(widths)
     num_groups = int(group_ids.max()) + 1
+
+    # --- Compute per-image post-resize dims upfront -----------------------
+    # For images that fail the spatial_factor check, dims stay 0.
+    valid_for_resize = (widths >= spatial_factor) & (heights >= spatial_factor)
+    all_resize_h = np.zeros(total_rows, dtype=np.int32)
+    all_resize_w = np.zeros(total_rows, dtype=np.int32)
+    if resize_min_pixels is not None and resize_max_pixels is not None and valid_for_resize.any():
+        vfr = np.where(valid_for_resize)[0]
+        all_resize_h[vfr], all_resize_w[vfr] = smart_resize_dims_batch(
+            heights[vfr], widths[vfr],
+            min_pixels=resize_min_pixels, max_pixels=resize_max_pixels,
+            factor=spatial_factor,
+        )
 
     # --- Build per-group metadata ------------------------------------------
     # member_rows[g] = list of manifest row indices for group g
@@ -445,7 +553,7 @@ def _plan_grouped_batches(
     for g in range(num_groups):
         member_rows[g].sort(key=lambda r: image_indices[r])
 
-    # Per-group: representative (max) dims, total tokens, pixel check
+    # Per-group: representative (max post-resize) dims, total tokens, pixel check
     group_rep_w = np.zeros(num_groups, dtype=np.int32)
     group_rep_h = np.zeros(num_groups, dtype=np.int32)
     group_total_tokens = np.zeros(num_groups, dtype=np.int64)
@@ -465,8 +573,9 @@ def _plan_grouped_batches(
         gh = heights[row_arr]
         gp = pixels[row_arr]
 
-        group_rep_w[g] = int(gw.max())
-        group_rep_h[g] = int(gh.max())
+        # Use post-resize dims for group representative
+        group_rep_w[g] = int(all_resize_w[row_arr].max())
+        group_rep_h[g] = int(all_resize_h[row_arr].max())
         group_total_tokens[g] = int(
             _estimate_single_image_tokens(
                 gh,
@@ -492,7 +601,7 @@ def _plan_grouped_batches(
         logger.warning("All groups filtered out — returning empty plan.")
         return BatchPlan(total_samples=total_rows, total_filtered=total_filtered_rows)
 
-    # --- Feature matrix on groups ------------------------------------------
+    # --- Feature matrix on groups (post-resize dims) ----------------------
     rw = group_rep_w[valid_groups].astype(np.float32)
     rh = group_rep_h[valid_groups].astype(np.float32)
     aspect = rw / rh
@@ -570,8 +679,8 @@ def _plan_grouped_batches(
             batches.append(
                 _build_grouped_batch(
                     chunk_groups, valid_groups, member_rows,
-                    widths, heights, resize_mode,
-                    spatial_factor, resize_min_pixels, resize_max_pixels,
+                    all_resize_h, all_resize_w,
+                    spatial_factor,
                 )
             )
             start = end
@@ -591,12 +700,9 @@ def _build_grouped_batch(
     chunk_group_indices: np.ndarray,
     valid_groups: np.ndarray,
     member_rows: List[List[int]],
-    widths: np.ndarray,
-    heights: np.ndarray,
-    resize_mode: str,
+    resize_heights: np.ndarray,
+    resize_widths: np.ndarray,
     spatial_factor: int,
-    resize_min_pixels: Optional[int],
-    resize_max_pixels: Optional[int],
 ) -> BatchAssignment:
     """Build a BatchAssignment from a set of groups, with group_slices."""
     all_rows: List[int] = []
@@ -611,14 +717,16 @@ def _build_grouped_batch(
 
     sample_indices = np.array(all_rows, dtype=np.int64)
     group_slices = np.array(slices, dtype=np.int64)
-    rh, rw, batch_tokens = _compute_final_batch_geometry(
-        widths[sample_indices],
-        heights[sample_indices],
-        resize_mode,
-        spatial_factor,
-        resize_min_pixels,
-        resize_max_pixels,
-    )
+
+    # Batch resize target: avg of post-resize dims, snapped to grid
+    batch_rh = resize_heights[sample_indices]
+    batch_rw = resize_widths[sample_indices]
+    rh = int(round(batch_rh.mean() / spatial_factor)) * spatial_factor
+    rw = int(round(batch_rw.mean() / spatial_factor)) * spatial_factor
+    rh = max(rh, spatial_factor)
+    rw = max(rw, spatial_factor)
+    per_image_tokens = estimate_image_tokens(rh, rw, spatial_factor=spatial_factor)
+    batch_tokens = per_image_tokens * len(sample_indices)
     return BatchAssignment(
         sample_indices=sample_indices,
         resize_height=rh,
