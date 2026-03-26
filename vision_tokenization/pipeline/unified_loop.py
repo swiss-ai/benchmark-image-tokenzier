@@ -27,10 +27,10 @@ from ..indexing.planning.tokenization_plan import (
     TokenizationPlan,
     build_tokenization_plan,
 )
+from .backend import select_backend
 from .checkpoint import WorkerStats, load_checkpoint, save_checkpoint
 from .data import create_loader, ImageAugmenter
 from .prefetch import BatchPrefetcher, PrefetchResult
-from .spill import ComponentSpillWriter, recover_worker_shards, write_shard_progress
 from .wandb_logger import SimpleWandbLogger
 
 logger = logging.getLogger(__name__)
@@ -182,19 +182,15 @@ def tokenize_loop_unified(
     )
 
     # ------------------------------------------------------------------
-    # 5. Setup spill writer, data loader, prefetcher, W&B
+    # 5. Setup output backend, data loader, prefetcher, W&B
     # ------------------------------------------------------------------
-    spill_writer = ComponentSpillWriter(
-        output_dir, rank,
-        token_dtype=np.int32,
+    multi_image = cfg.get("multi_image", False)
+    backend = select_backend(
+        mode=mode,
+        multi_image=bool(multi_image),
+        seqlen_threshold=cfg.get("seqlen_threshold"),
     )
-
-    # Recover spill state for resume
-    spill_start_shard = 0
-    if resume:
-        rank_dir = Path(output_dir) / f"rank_{rank:04d}"
-        spill_start_shard = recover_worker_shards(rank_dir)
-    spill_writer.open(start_shard_id=spill_start_shard)
+    backend.open(output_dir, rank, resume_state=ckpt)
 
     data_loader = create_loader(cfg)
     augmenter = None
@@ -323,10 +319,10 @@ def tokenize_loop_unified(
                 # GPU encode images
                 resize_size = (pb.resize_height, pb.resize_width)
                 valid_images = [img for img in result.images if img is not None]
-                valid_comp_indices = [
+                valid_comp_indices = np.array([
                     pb._component_indices[i]
                     for i, img in enumerate(result.images) if img is not None
-                ]
+                ], dtype=np.int64)
 
                 if not valid_images:
                     stats.samples_skipped += len(result.images)
@@ -340,54 +336,18 @@ def tokenize_loop_unified(
                 )
                 gpu_ms = (time.perf_counter() - t0) * 1000
 
-                # Spill image components
-                t1 = time.perf_counter()
-                for seq, comp_idx in zip(token_sequences, valid_comp_indices):
-                    comp_idx = int(comp_idx)
-                    doc_id = int(plan.comp_document_id[comp_idx])
-                    ci = int(plan.comp_component_index[comp_idx])
-                    tokens_cpu = seq.cpu().numpy() if seq.is_cuda else seq.numpy()
-                    spill_writer.add_component(
-                        document_id=doc_id,
-                        component_index=ci,
-                        kind=int(IMAGE),
-                        tokens=tokens_cpu,
-                        resize_height=pb.resize_height,
-                        resize_width=pb.resize_width,
-                    )
-                    stats.samples_processed += 1
-                    stats.image_tokens += len(tokens_cpu)
-                    stats.tokens_generated += len(tokens_cpu)
-
-                # Spill text components for images in this batch
-                # (deduplicate: one text per document, not per image)
-                if result.texts is not None:
-                    seen_docs = set()
-                    for i, comp_idx in enumerate(valid_comp_indices):
-                        comp_idx = int(comp_idx)
-                        doc_id = int(plan.comp_document_id[comp_idx])
-                        if doc_id in seen_docs:
-                            continue
-                        seen_docs.add(doc_id)
-
-                        text = result.texts[i] if i < len(result.texts) else None
-                        if text is not None:
-                            # CPU text tokenization
-                            text_tokens = tokenizer.tokenize_text(text)
-                            if text_tokens is not None:
-                                text_np = text_tokens.cpu().numpy() if hasattr(text_tokens, 'cpu') else np.array(text_tokens, dtype=np.int32)
-                                # Find the text component index for this document
-                                text_ci = int(plan.doc_num_components[doc_id]) - 1  # text is last component
-                                spill_writer.add_component(
-                                    document_id=doc_id,
-                                    component_index=text_ci,
-                                    kind=int(TEXT),
-                                    tokens=text_np,
-                                )
-                                stats.text_tokens += len(text_np)
-                                stats.tokens_generated += len(text_np)
-
-                write_ms = (time.perf_counter() - t1) * 1000
+                # Write via backend (direct: assemble+write, spill: keyed payloads)
+                write_timing = backend.write_batch(
+                    image_tokens=token_sequences,
+                    texts=result.texts,
+                    component_indices=valid_comp_indices,
+                    resize_height=pb.resize_height,
+                    resize_width=pb.resize_width,
+                    plan=plan,
+                    tokenizer=tokenizer,
+                    stats=stats,
+                )
+                write_ms = write_timing.get("write_ms", 0)
                 consecutive_errors = 0
 
             except Exception as batch_err:
@@ -435,24 +395,18 @@ def tokenize_loop_unified(
                 )
 
             # Periodic checkpoint
-            if batch_count % checkpoint_interval == 0 and spill_writer.has_pending:
-                done_shard = spill_writer.checkpoint()
-                write_shard_progress(
-                    spill_writer._base_dir, done_shard,
-                    next_batch_index=result.batch_index + 1,
-                    stats=stats.to_dict(),
-                )
+            if batch_count % checkpoint_interval == 0:
+                ckpt_meta = backend.checkpoint()
                 save_checkpoint(
                     output_dir, rank,
                     batch_index=result.batch_index,
-                    chunk_id=done_shard,
+                    chunk_id=ckpt_meta.get("chunk_id", ckpt_meta.get("shard_id", 0)),
                     stats=stats.to_dict(),
                     world_size=world_size,
                     extra={"wandb": wandb_logger.state_dict()} if wandb_logger else None,
                 )
                 logger.info(
-                    f"[rank {rank}] Checkpoint: shard {done_shard}, "
-                    f"batch {result.batch_index}, "
+                    f"[rank {rank}] Checkpoint at batch {result.batch_index}, "
                     f"{stats.tokens_generated:,} tokens"
                 )
 
@@ -466,12 +420,12 @@ def tokenize_loop_unified(
     # ------------------------------------------------------------------
     # 8. Finalize
     # ------------------------------------------------------------------
-    spill_writer.finalize()
+    backend.finalize()
 
     save_checkpoint(
         output_dir, rank,
         batch_index=last_batch_index,
-        chunk_id=spill_writer.shard_id,
+        chunk_id=0,
         stats=stats.to_dict(),
         world_size=world_size,
         extra={"wandb": wandb_logger.state_dict()} if wandb_logger else None,
