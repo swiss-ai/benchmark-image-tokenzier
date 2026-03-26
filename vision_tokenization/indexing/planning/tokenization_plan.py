@@ -144,42 +144,53 @@ class TokenizationPlan:
     ) -> List[List[ImageBatch]]:
         """Split image_batches into contiguous chunks balanced by token cost.
 
-        Cuts only on window boundaries so no document is split across ranks.
-        Each window's batches are assigned atomically to one rank.
+        Two policies based on the structural invariant:
+        - One image per document: split on batch boundaries — every
+          boundary is document-safe, gives optimal balance.
+        - Multiple images per document: split on window boundaries
+          only — guarantees all of a document's images land on one rank.
         """
         n = len(self.image_batches)
         if n == 0:
             return [[] for _ in range(num_workers)]
 
+        from vision_tokenization.utils.partitioning import weighted_contiguous_split
+
+        costs = [float(b.batch_token_count) for b in self.image_batches]
+        one_image_per_doc = self.total_image_components == self.total_documents
+
+        if one_image_per_doc:
+            return weighted_contiguous_split(self.image_batches, costs, num_workers)
+
+        # Multi-image: split on window boundaries
         offsets = self.window_batch_offsets
         if len(offsets) == 0:
-            # Fallback: no window info, treat each batch as its own window
-            offsets = np.arange(n, dtype=np.int64)
+            raise ValueError(
+                "Multi-image TokenizationPlan missing window_batch_offsets; "
+                "regenerate the plan."
+            )
 
-        num_windows = len(offsets)
-        # Compute per-window cost
-        window_costs = []
-        for wi in range(num_windows):
-            ws = int(offsets[wi])
-            we = int(offsets[wi + 1]) if wi + 1 < num_windows else n
-            cost = sum(float(self.image_batches[i].batch_token_count) for i in range(ws, we))
-            window_costs.append(cost)
+        num_segments = len(offsets)
+        segment_costs = []
+        for si in range(num_segments):
+            bs = int(offsets[si])
+            be = int(offsets[si + 1]) if si + 1 < num_segments else n
+            segment_costs.append(sum(costs[bs:be]))
 
-        # Split windows across workers
-        from vision_tokenization.utils.partitioning import weighted_contiguous_split
-        window_indices = list(range(num_windows))
-        window_splits = weighted_contiguous_split(window_indices, window_costs, num_workers)
+        segment_indices = list(range(num_segments))
+        segment_splits = weighted_contiguous_split(
+            segment_indices, segment_costs, num_workers,
+        )
 
-        # Map window splits back to batch splits
         result = []
-        for worker_windows in window_splits:
-            if not worker_windows:
+        for worker_segments in segment_splits:
+            if not worker_segments:
                 result.append([])
                 continue
-            first_win = worker_windows[0]
-            last_win = worker_windows[-1]
-            batch_start = int(offsets[first_win])
-            batch_end = int(offsets[last_win + 1]) if last_win + 1 < num_windows else n
+            first_seg = worker_segments[0]
+            last_seg = worker_segments[-1]
+            batch_start = int(offsets[first_seg])
+            batch_end = int(offsets[last_seg + 1]) if last_seg + 1 < num_segments else n
             result.append(self.image_batches[batch_start:batch_end])
 
         return result
@@ -252,7 +263,7 @@ def _plan_image_batches(
     """
     N = len(comp_indices)
     if N == 0:
-        return []
+        return [], np.array([], dtype=np.int64)
 
     # Post-resize dims
     final_h, final_w = smart_resize_dims_batch(
