@@ -288,9 +288,24 @@ def scan_hf_dataset(
         writer.close()
 
     elapsed = time.time() - t0
+
+    from ._metadata import write_scan_metadata
+    write_scan_metadata(
+        output_manifest,
+        num_workers=num_workers,
+        elapsed_seconds=elapsed,
+        total_rows=total_manifest_rows,
+        dataset_type="hf",
+        extra={
+            "total_source_rows": total_source_rows,
+            "failed_dims": total_failed_dims,
+            "skipped_shards": skipped_shards,
+        },
+    )
+
     logger.info(
         f"Manifest saved: {total_manifest_rows:,} rows from {total_source_rows:,} "
-        f"source rows -> {output_manifest} ({elapsed:.1f}s, "
+        f"source rows -> {output_manifest} ({elapsed:.1f}s with {num_workers} workers, "
         f"{total_failed_dims:,} failed dimension extractions, "
         f"{skipped_shards:,} skipped shards)"
     )

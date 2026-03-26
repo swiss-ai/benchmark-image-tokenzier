@@ -146,6 +146,9 @@ def scan_wds_dataset(
     multi_image: bool = False,
 ) -> str:
     """Scan all WDS tars in parallel and write a Parquet manifest."""
+    from ._metadata import ScanTimer, write_scan_metadata
+    _timer = ScanTimer()
+    _timer.__enter__()
     if image_extensions is None:
         image_extensions = DEFAULT_IMAGE_EXTENSIONS
     if multi_image and image_field_pattern is None:
@@ -260,6 +263,22 @@ def scan_wds_dataset(
             image_field_pattern,
         )
 
-    logger.info(f"Scan complete: {total_rows:,} images from {len(tar_paths)} tars")
-    logger.info(f"Saved WDS manifest: {total_rows:,} rows -> {output_manifest}")
+    _timer.__exit__(None, None, None)
+    write_scan_metadata(
+        output_path,
+        num_workers=num_workers,
+        elapsed_seconds=_timer.elapsed,
+        total_rows=total_rows,
+        dataset_type="wds",
+        extra={
+            "num_tars": len(tar_paths),
+            "failed_tars": len(failed_tars),
+            "multi_image": multi_image,
+        },
+    )
+
+    logger.info(
+        f"Scan complete: {total_rows:,} images from {len(tar_paths)} tars "
+        f"in {_timer.elapsed:.1f}s with {num_workers} workers"
+    )
     return output_manifest

@@ -215,6 +215,9 @@ def scan_jsonl_tar_interleave_dataset(
     zero local images are dropped. Documents with any unresolved local image
     ref are skipped entirely.
     """
+    from ._metadata import ScanTimer, write_scan_metadata
+    _timer = ScanTimer()
+    _timer.__enter__()
     if tar_scope not in {"parent_dir", "global"}:
         raise ValueError(f"Unsupported tar_scope: {tar_scope!r}")
     if tar_root is not None and tar_scope != "global":
@@ -341,11 +344,26 @@ def scan_jsonl_tar_interleave_dataset(
         writer.close()
 
     os.replace(tmp_manifest, output_path)
+    _timer.__exit__(None, None, None)
+    write_scan_metadata(
+        output_path,
+        num_workers=num_workers,
+        elapsed_seconds=_timer.elapsed,
+        total_rows=total_rows,
+        dataset_type="jsonl_tar_interleave",
+        extra={
+            "total_groups": total_groups,
+            "skipped_no_images": skipped_no_images,
+            "skipped_missing": skipped_missing,
+            "document_format": document_format,
+        },
+    )
+
     logger.info(
-        "Interleave scan complete: %d groups, %d rows, skipped_no_images=%d, skipped_missing=%d",
+        "Interleave scan complete: %d groups, %d rows in %.1fs with %d workers",
         total_groups,
         total_rows,
-        skipped_no_images,
-        skipped_missing,
+        _timer.elapsed,
+        num_workers,
     )
     return str(output_path)
