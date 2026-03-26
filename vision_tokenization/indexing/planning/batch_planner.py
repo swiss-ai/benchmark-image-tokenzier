@@ -929,17 +929,23 @@ def _pack_spillover_local(
     k = max(1, min(N // max(1, avg_batch), N // 39))
 
     if k <= 1:
-        # Too few images for clustering — just pack as one batch
+        # Too few images for clustering — still respect the token budget.
         avg_h = int(round(float(sh.mean()) / spatial_factor)) * spatial_factor
         avg_w = int(round(float(sw.mean()) / spatial_factor)) * spatial_factor
         avg_h = max(avg_h, spatial_factor)
         avg_w = max(avg_w, spatial_factor)
         per_tok = estimate_image_tokens(avg_h, avg_w, spatial_factor=spatial_factor)
-        return [BatchAssignment(
-            sample_indices=valid_indices[arr],
-            resize_height=avg_h, resize_width=avg_w,
-            batch_token_count=per_tok * len(arr),
-        )]
+        chunk_size = min(batch_size, max(1, max_batch_tokens // per_tok))
+        batches: List[BatchAssignment] = []
+        for start in range(0, len(arr), chunk_size):
+            chunk = arr[start : start + chunk_size]
+            batches.append(BatchAssignment(
+                sample_indices=valid_indices[chunk],
+                resize_height=avg_h,
+                resize_width=avg_w,
+                batch_token_count=per_tok * len(chunk),
+            ))
+        return batches
 
     # Force single-thread for tiny per-window spillover — spawning 288
     # threads for ~4K points in 2D is dominated by thread management overhead.

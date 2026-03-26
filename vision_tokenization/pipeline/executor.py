@@ -1,7 +1,6 @@
-"""Unified per-rank tokenization loop.
+"""Per-rank tokenization executor.
 
-Replaces both ``direct/loop.py`` and ``pooled/loop.py`` with a single
-loop driven by ``TokenizationPlan``.
+Main runtime loop driven by ``TokenizationPlan``.
 
 Flow:
     1. Load/build TokenizationPlan (from file or manifest).
@@ -100,12 +99,90 @@ def load_wandb_resume_state(resume: bool, ckpt: Optional[dict]) -> Optional[dict
     return None
 
 
+def _build_group_slices(doc_ids: np.ndarray) -> Optional[np.ndarray]:
+    """Return contiguous group_slices for document-grouped rows."""
+    if len(doc_ids) == 0:
+        return None
+    changes = np.where(np.diff(doc_ids) != 0)[0] + 1
+    starts = np.concatenate(([0], changes))
+    ends = np.concatenate((changes, [len(doc_ids)]))
+    slices = np.stack((starts, ends), axis=1).astype(np.int64)
+    return slices if len(slices) > 0 else None
+
+
+def _filter_prefetched_batch(
+    images: List[Any],
+    texts: Optional[List[Any]],
+    component_indices: np.ndarray,
+    group_slices: Optional[np.ndarray],
+    stats: WorkerStats,
+) -> tuple[List[Any], Optional[List[Any]], np.ndarray, Optional[np.ndarray]]:
+    """Filter out invalid images, preserving grouped document structure."""
+    if group_slices is not None:
+        valid_images: List[Any] = []
+        valid_texts: List[Any] = []
+        valid_comp_indices: List[int] = []
+        valid_slices: List[tuple[int, int]] = []
+
+        for g_idx, (start, end) in enumerate(group_slices):
+            start, end = int(start), int(end)
+            group_images = images[start:end]
+            group_text = texts[g_idx] if texts is not None else None
+
+            if (texts is not None and group_text is None) or any(img is None for img in group_images):
+                stats.samples_skipped += 1
+                continue
+
+            new_start = len(valid_images)
+            valid_images.extend(group_images)
+            valid_comp_indices.extend(int(ci) for ci in component_indices[start:end])
+            valid_slices.append((new_start, len(valid_images)))
+            if texts is not None:
+                valid_texts.append(group_text)
+
+        valid_slice_arr = np.array(valid_slices, dtype=np.int64) if valid_slices else None
+        return (
+            valid_images,
+            valid_texts if texts is not None else None,
+            np.asarray(valid_comp_indices, dtype=np.int64),
+            valid_slice_arr,
+        )
+
+    if texts is not None:
+        valid_images = []
+        valid_texts = []
+        valid_comp_indices = []
+        for i, img in enumerate(images):
+            txt = texts[i] if i < len(texts) else None
+            if img is not None and txt is not None:
+                valid_images.append(img)
+                valid_texts.append(txt)
+                valid_comp_indices.append(int(component_indices[i]))
+            else:
+                stats.samples_skipped += 1
+        return (
+            valid_images,
+            valid_texts,
+            np.asarray(valid_comp_indices, dtype=np.int64),
+            None,
+        )
+
+    valid_positions = [i for i, img in enumerate(images) if img is not None]
+    stats.samples_skipped += len(images) - len(valid_positions)
+    return (
+        [images[i] for i in valid_positions],
+        None,
+        np.asarray([int(component_indices[i]) for i in valid_positions], dtype=np.int64),
+        None,
+    )
+
+
 # ---------------------------------------------------------------------------
-# Unified tokenization loop
+# Executor loop
 # ---------------------------------------------------------------------------
 
 
-def tokenize_loop_unified(
+def run_executor(
     rank: int,
     world_size: int,
     cfg: Dict[str, Any],
@@ -235,13 +312,28 @@ def tokenize_loop_unified(
 
     prefetch_batches = []
     for ib in my_batches:
-        # Map component indices to manifest rows
-        manifest_rows = plan.comp_manifest_row[ib.component_indices]
+        comp_indices = np.asarray(ib.component_indices, dtype=np.int64)
+        manifest_rows = plan.components.source_ref[comp_indices]
+        doc_ids = plan.components.document_id[comp_indices]
+        comp_order = plan.components.component_index[comp_indices]
+
+        # Keep each document contiguous within a batch so loaders can fetch one
+        # text payload / structured document per group.
+        order = np.lexsort((manifest_rows, comp_order, doc_ids))
+        comp_indices = comp_indices[order]
+        manifest_rows = manifest_rows[order]
+        doc_ids = doc_ids[order]
+
+        group_slices = None
+        if cfg.get("multi_image", False) or mode in ("sft", "interleave"):
+            group_slices = _build_group_slices(doc_ids)
+
         prefetch_batches.append(_PrefetchBatch(
             sample_indices=manifest_rows,
             resize_height=ib.resize_height,
             resize_width=ib.resize_width,
-            _component_indices=ib.component_indices,
+            group_slices=group_slices,
+            _component_indices=comp_indices,
             batch_token_count=ib.batch_token_count,
         ))
 
@@ -315,14 +407,17 @@ def tokenize_loop_unified(
             try:
                 # GPU encode images
                 resize_size = (pb.resize_height, pb.resize_width)
-                valid_images = [img for img in result.images if img is not None]
-                valid_comp_indices = np.array([
-                    pb._component_indices[i]
-                    for i, img in enumerate(result.images) if img is not None
-                ], dtype=np.int64)
+                valid_images, valid_texts, valid_comp_indices, valid_group_slices = (
+                    _filter_prefetched_batch(
+                        result.images,
+                        result.texts,
+                        pb._component_indices,
+                        pb.group_slices,
+                        stats,
+                    )
+                )
 
                 if not valid_images:
-                    stats.samples_skipped += len(result.images)
                     consecutive_errors = 0
                     batch_count += 1
                     continue
@@ -336,8 +431,9 @@ def tokenize_loop_unified(
                 # Write via backend (direct: assemble+write, spill: keyed payloads)
                 write_timing = backend.write_batch(
                     image_tokens=token_sequences,
-                    texts=result.texts,
+                    texts=valid_texts,
                     component_indices=valid_comp_indices,
+                    group_slices=valid_group_slices,
                     resize_height=pb.resize_height,
                     resize_width=pb.resize_width,
                     plan=plan,

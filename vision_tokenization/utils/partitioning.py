@@ -33,7 +33,7 @@ def weighted_contiguous_split(
 
     while start < n and len(splits) < num_workers - 1:
         remaining_workers = num_workers - len(splits)
-        if (n - start) <= remaining_workers:
+        if (n - start) < remaining_workers:
             break
 
         target_cost = suffix[start] / remaining_workers

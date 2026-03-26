@@ -1,10 +1,11 @@
-"""TokenizationPlan: single source of truth for what to tokenize and how.
+"""Tokenization planning: logical dataset index plus execution layout.
 
-Contains both logical truth (documents, components, source refs) and execution
-layout (image batches with resize targets).  The plan is built deterministically
-from a manifest + mode, serialized once, and consumed by the executor and rebuild.
+The persisted plan artifact intentionally separates:
 
-``(document_id, component_index)`` is the only logical identity.  Execution
+- logical dataset state: documents and components
+- execution state: image batches and safe split boundaries
+
+``(document_id, component_index)`` is the only logical identity. Execution
 fields (batch assignment, rank assignment) never define identity.
 """
 
@@ -14,7 +15,7 @@ import hashlib
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Iterator, List, Optional, Union
 
 import numpy as np
 import pyarrow.parquet as pq
@@ -44,6 +45,96 @@ class ImageBatch:
     resize_height: int
     resize_width: int
     batch_token_count: int
+
+
+@dataclass
+class ImageBatchTable:
+    """Compact columnar storage for image batches."""
+
+    flat_component_indices: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))
+    batch_offsets: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))
+    resize_heights: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int32))
+    resize_widths: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int32))
+    batch_token_counts: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))
+
+    @classmethod
+    def from_batches(cls, batches: List[ImageBatch]) -> "ImageBatchTable":
+        if not batches:
+            return cls()
+        offsets = np.empty(len(batches), dtype=np.int64)
+        total = sum(len(b.component_indices) for b in batches)
+        flat = np.empty(total, dtype=np.int64)
+        heights = np.empty(len(batches), dtype=np.int32)
+        widths = np.empty(len(batches), dtype=np.int32)
+        counts = np.empty(len(batches), dtype=np.int64)
+
+        cursor = 0
+        for i, batch in enumerate(batches):
+            indices = np.asarray(batch.component_indices, dtype=np.int64)
+            offsets[i] = cursor
+            flat[cursor:cursor + len(indices)] = indices
+            heights[i] = int(batch.resize_height)
+            widths[i] = int(batch.resize_width)
+            counts[i] = int(batch.batch_token_count)
+            cursor += len(indices)
+
+        return cls(
+            flat_component_indices=flat,
+            batch_offsets=offsets,
+            resize_heights=heights,
+            resize_widths=widths,
+            batch_token_counts=counts,
+        )
+
+    def __len__(self) -> int:
+        return len(self.batch_offsets)
+
+    def __iter__(self) -> Iterator[ImageBatch]:
+        for i in range(len(self)):
+            yield self[i]
+
+    def __getitem__(self, idx):
+        if isinstance(idx, slice):
+            return [self[i] for i in range(*idx.indices(len(self)))]
+        i = int(idx)
+        start = int(self.batch_offsets[i])
+        end = int(self.batch_offsets[i + 1]) if i + 1 < len(self.batch_offsets) else len(self.flat_component_indices)
+        return ImageBatch(
+            component_indices=self.flat_component_indices[start:end].copy(),
+            resize_height=int(self.resize_heights[i]),
+            resize_width=int(self.resize_widths[i]),
+            batch_token_count=int(self.batch_token_counts[i]),
+        )
+
+
+@dataclass
+class DocumentIndex:
+    """Logical document inventory."""
+
+    document_id: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))
+    output_order: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))
+    num_images: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int16))
+
+
+@dataclass
+class ComponentIndex:
+    """Logical component inventory."""
+
+    document_id: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))
+    component_index: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int16))
+    kind: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int8))
+    source_kind: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int8))
+    source_ref: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))
+    image_index: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int16))
+
+
+@dataclass
+class ExecutionPlan:
+    """Execution-only layout for image encoding."""
+
+    image_batches: ImageBatchTable = field(default_factory=ImageBatchTable)
+    # First batch index of each safe split segment.
+    split_batch_offsets: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))
 
 
 @dataclass
@@ -84,56 +175,36 @@ class PlanMetadata:
 
 @dataclass
 class TokenizationPlan:
-    """Single source of truth: documents + components + image batches.
+    """Single persisted plan artifact: logical index + execution layout.
 
     ``(document_id, component_index)`` is the stable logical identity.
-    ``image_batches`` is the execution layout for GPU encoding.
+    ``execution.image_batches`` is the execution layout for GPU encoding.
     """
 
-    # --- Documents (one row per logical document/sample) ---
-    doc_document_id: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))
-    doc_output_order: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))
-    doc_num_components: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int16))
-
-    # --- Components (one row per component across all documents) ---
-    comp_document_id: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))
-    comp_component_index: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int16))
-    comp_kind: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int8))
-    comp_source_kind: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int8))
-    comp_source_ref: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))
-    comp_manifest_row: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))
-    comp_image_index: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int16))
-    comp_width: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int32))
-    comp_height: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int32))
-
-    # --- Image batches (execution layout) ---
-    image_batches: List[ImageBatch] = field(default_factory=list)
-    # window_batch_offsets[i] = first batch index of window i.
-    # split_image_batches_for_workers cuts on window boundaries only.
-    window_batch_offsets: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))
-
-    # --- Metadata ---
+    documents: DocumentIndex = field(default_factory=DocumentIndex)
+    components: ComponentIndex = field(default_factory=ComponentIndex)
+    execution: ExecutionPlan = field(default_factory=ExecutionPlan)
     metadata: PlanMetadata = field(default_factory=lambda: PlanMetadata("", "", ""))
 
     @property
     def total_documents(self) -> int:
-        return len(self.doc_document_id)
+        return len(self.documents.document_id)
 
     @property
     def total_components(self) -> int:
-        return len(self.comp_document_id)
+        return len(self.components.document_id)
 
     @property
     def total_image_components(self) -> int:
-        return int((self.comp_kind == IMAGE).sum())
+        return int((self.components.kind == IMAGE).sum())
 
     @property
     def total_text_components(self) -> int:
-        return int((self.comp_kind == TEXT).sum())
+        return int((self.components.kind == TEXT).sum())
 
     @property
     def total_batches(self) -> int:
-        return len(self.image_batches)
+        return len(self.execution.image_batches)
 
     @property
     def mode(self) -> str:
@@ -150,23 +221,26 @@ class TokenizationPlan:
         - Multiple images per document: split on window boundaries
           only — guarantees all of a document's images land on one rank.
         """
-        n = len(self.image_batches)
+        image_batches = self.execution.image_batches
+        n = len(image_batches)
         if n == 0:
             return [[] for _ in range(num_workers)]
 
         from vision_tokenization.utils.partitioning import weighted_contiguous_split
 
-        costs = [float(b.batch_token_count) for b in self.image_batches]
-        one_image_per_doc = self.total_image_components == self.total_documents
+        costs = [float(b.batch_token_count) for b in image_batches]
+        one_image_per_doc = bool(
+            self.total_documents > 0 and np.all(self.documents.num_images == 1)
+        )
 
         if one_image_per_doc:
-            return weighted_contiguous_split(self.image_batches, costs, num_workers)
+            return weighted_contiguous_split(image_batches, costs, num_workers)
 
         # Multi-image: split on window boundaries
-        offsets = self.window_batch_offsets
+        offsets = self.execution.split_batch_offsets
         if len(offsets) == 0:
             raise ValueError(
-                "Multi-image TokenizationPlan missing window_batch_offsets; "
+                "Multi-image TokenizationPlan missing split_batch_offsets; "
                 "regenerate the plan."
             )
 
@@ -191,7 +265,7 @@ class TokenizationPlan:
             last_seg = worker_segments[-1]
             batch_start = int(offsets[first_seg])
             batch_end = int(offsets[last_seg + 1]) if last_seg + 1 < num_segments else n
-            result.append(self.image_batches[batch_start:batch_end])
+            result.append(image_batches[batch_start:batch_end])
 
         return result
 
@@ -254,8 +328,9 @@ def _plan_image_batches(
 ) -> tuple:
     """Build locality-aware image batches from image components.
 
-    Returns ``(batches, window_batch_offsets)`` where
-    ``window_batch_offsets[i]`` is the index of the first batch in window *i*.
+    Returns ``(batches, split_batch_offsets)`` where
+    ``split_batch_offsets[i]`` is the index of the first batch in safe split
+    segment *i*.
 
     Window boundaries are snapped to document boundaries so no document
     is split across windows.  This ensures ``split_image_batches_for_workers``
@@ -306,10 +381,10 @@ def _plan_image_batches(
 
     # Process each window, tracking where each window's batches start
     all_batches: List[ImageBatch] = []
-    window_batch_offsets: List[int] = []
+    split_batch_offsets: List[int] = []
 
     for wi in range(num_windows):
-        window_batch_offsets.append(len(all_batches))
+        split_batch_offsets.append(len(all_batches))
         ws = int(win_starts[wi])
         we = int(win_ends[wi])
         win_keys = keys[ws:we]
@@ -368,7 +443,7 @@ def _plan_image_batches(
                     batch_token_count=sb.batch_token_count,
                 ))
 
-    return all_batches, np.array(window_batch_offsets, dtype=np.int64)
+    return all_batches, np.array(split_batch_offsets, dtype=np.int64)
 
 
 # ---------------------------------------------------------------------------
@@ -406,29 +481,31 @@ def build_plan_image_only(
     comp_indices = np.arange(N, dtype=np.int64)
 
     plan = TokenizationPlan(
-        doc_document_id=doc_ids,
-        doc_output_order=doc_ids.copy(),
-        doc_num_components=np.ones(N, dtype=np.int16),
-
-        comp_document_id=doc_ids.copy(),
-        comp_component_index=np.zeros(N, dtype=np.int16),
-        comp_kind=np.full(N, IMAGE, dtype=np.int8),
-        comp_source_kind=np.full(N, SOURCE_MANIFEST_ROW, dtype=np.int8),
-        comp_source_ref=valid_idx,
-        comp_manifest_row=valid_idx,
-        comp_image_index=np.zeros(N, dtype=np.int16),
-        comp_width=widths[valid_idx],
-        comp_height=heights[valid_idx],
+        documents=DocumentIndex(
+            document_id=doc_ids,
+            output_order=doc_ids.copy(),
+            num_images=np.ones(N, dtype=np.int16),
+        ),
+        components=ComponentIndex(
+            document_id=doc_ids.copy(),
+            component_index=np.zeros(N, dtype=np.int16),
+            kind=np.full(N, IMAGE, dtype=np.int8),
+            source_kind=np.full(N, SOURCE_MANIFEST_ROW, dtype=np.int8),
+            source_ref=valid_idx,
+            image_index=np.zeros(N, dtype=np.int16),
+        ),
     )
 
     # Build image batches
-    plan.image_batches, plan.window_batch_offsets = _plan_image_batches(
+    image_batches, split_batch_offsets = _plan_image_batches(
         comp_indices, valid_idx, widths[valid_idx], heights[valid_idx],
         doc_ids,  # each image is its own document
         batch_size=batch_size, max_batch_tokens=max_batch_tokens,
         spatial_factor=spatial_factor, resize_min_pixels=resize_min_pixels,
         resize_max_pixels=resize_max_pixels, window_size=window_size,
     )
+    plan.execution.image_batches = ImageBatchTable.from_batches(image_batches)
+    plan.execution.split_batch_offsets = split_batch_offsets
 
     plan.metadata = PlanMetadata(
         manifest_path=manifest_path,
@@ -519,20 +596,14 @@ def build_plan_image2text(
     comp_kind = np.empty(n_total_comps, dtype=np.int8)
     comp_source_kind = np.full(n_total_comps, SOURCE_MANIFEST_ROW, dtype=np.int8)
     comp_source_ref = np.empty(n_total_comps, dtype=np.int64)
-    comp_manifest_row = np.full(n_total_comps, -1, dtype=np.int64)
     comp_image_index = np.full(n_total_comps, -1, dtype=np.int16)
-    comp_width = np.zeros(n_total_comps, dtype=np.int32)
-    comp_height = np.zeros(n_total_comps, dtype=np.int32)
 
     # Image components
     comp_document_id[:n_image_comps] = doc_inverse
     comp_component_index[:n_image_comps] = valid_img_idx
     comp_kind[:n_image_comps] = IMAGE
     comp_source_ref[:n_image_comps] = valid_idx
-    comp_manifest_row[:n_image_comps] = valid_idx
     comp_image_index[:n_image_comps] = valid_img_idx
-    comp_width[:n_image_comps] = widths[valid_idx]
-    comp_height[:n_image_comps] = heights[valid_idx]
 
     # Text components: one per document, component_index after all images
     # First manifest row per doc (vectorized via argsort)
@@ -545,7 +616,6 @@ def build_plan_image2text(
     comp_component_index[text_start:] = images_per_doc
     comp_kind[text_start:] = TEXT
     comp_source_ref[text_start:] = doc_first_row
-    comp_manifest_row[text_start:] = doc_first_row
 
     logger.info(
         f"{mode} plan: {N_docs:,} documents, {n_image_comps:,} image + "
@@ -556,31 +626,33 @@ def build_plan_image2text(
     image_comp_indices = np.arange(n_image_comps, dtype=np.int64)
 
     plan = TokenizationPlan(
-        doc_document_id=np.arange(N_docs, dtype=np.int64),
-        doc_output_order=np.arange(N_docs, dtype=np.int64),
-        doc_num_components=components_per_doc,
-
-        comp_document_id=comp_document_id,
-        comp_component_index=comp_component_index,
-        comp_kind=comp_kind,
-        comp_source_kind=comp_source_kind,
-        comp_source_ref=comp_source_ref,
-        comp_manifest_row=comp_manifest_row,
-        comp_image_index=comp_image_index,
-        comp_width=comp_width,
-        comp_height=comp_height,
+        documents=DocumentIndex(
+            document_id=np.arange(N_docs, dtype=np.int64),
+            output_order=np.arange(N_docs, dtype=np.int64),
+            num_images=images_per_doc,
+        ),
+        components=ComponentIndex(
+            document_id=comp_document_id,
+            component_index=comp_component_index,
+            kind=comp_kind,
+            source_kind=comp_source_kind,
+            source_ref=comp_source_ref,
+            image_index=comp_image_index,
+        ),
     )
 
-    plan.image_batches, plan.window_batch_offsets = _plan_image_batches(
+    image_batches, split_batch_offsets = _plan_image_batches(
         image_comp_indices,
-        comp_manifest_row[:n_image_comps],
-        comp_width[:n_image_comps],
-        comp_height[:n_image_comps],
+        comp_source_ref[:n_image_comps],
+        widths[valid_idx],
+        heights[valid_idx],
         comp_document_id[:n_image_comps],
         batch_size=batch_size, max_batch_tokens=max_batch_tokens,
         spatial_factor=spatial_factor, resize_min_pixels=resize_min_pixels,
         resize_max_pixels=resize_max_pixels, window_size=window_size,
     )
+    plan.execution.image_batches = ImageBatchTable.from_batches(image_batches)
+    plan.execution.split_batch_offsets = split_batch_offsets
 
     plan.metadata = PlanMetadata(
         manifest_path=manifest_path,
@@ -652,29 +724,27 @@ def build_plan_interleave(
 
     comp_indices = np.arange(n_rows, dtype=np.int64)
     plan = TokenizationPlan(
-        doc_document_id=np.arange(n_docs, dtype=np.int64),
-        doc_output_order=np.arange(n_docs, dtype=np.int64),
-        # For interleave, this field tracks the number of image occurrences in
-        # the document; total segment/component count is runtime-discovered.
-        doc_num_components=images_per_doc,
-
-        comp_document_id=doc_inverse.astype(np.int64, copy=False),
-        comp_component_index=valid_img_idx,
-        comp_kind=np.full(n_rows, IMAGE, dtype=np.int8),
-        comp_source_kind=np.full(n_rows, SOURCE_MANIFEST_ROW, dtype=np.int8),
-        comp_source_ref=valid_idx,
-        comp_manifest_row=valid_idx,
-        comp_image_index=valid_img_idx,
-        comp_width=widths[valid_idx],
-        comp_height=heights[valid_idx],
+        documents=DocumentIndex(
+            document_id=np.arange(n_docs, dtype=np.int64),
+            output_order=np.arange(n_docs, dtype=np.int64),
+            num_images=images_per_doc,
+        ),
+        components=ComponentIndex(
+            document_id=doc_inverse.astype(np.int64, copy=False),
+            component_index=valid_img_idx,
+            kind=np.full(n_rows, IMAGE, dtype=np.int8),
+            source_kind=np.full(n_rows, SOURCE_MANIFEST_ROW, dtype=np.int8),
+            source_ref=valid_idx,
+            image_index=valid_img_idx,
+        ),
     )
 
-    plan.image_batches, plan.window_batch_offsets = _plan_image_batches(
+    image_batches, split_batch_offsets = _plan_image_batches(
         comp_indices,
         valid_idx,
         widths[valid_idx],
         heights[valid_idx],
-        plan.comp_document_id,
+        plan.components.document_id,
         batch_size=batch_size,
         max_batch_tokens=max_batch_tokens,
         spatial_factor=spatial_factor,
@@ -682,6 +752,8 @@ def build_plan_interleave(
         resize_max_pixels=resize_max_pixels,
         window_size=window_size,
     )
+    plan.execution.image_batches = ImageBatchTable.from_batches(image_batches)
+    plan.execution.split_batch_offsets = split_batch_offsets
 
     plan.metadata = PlanMetadata(
         manifest_path=manifest_path,

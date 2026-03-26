@@ -38,6 +38,7 @@ class OutputBackend(ABC):
         image_tokens: List[torch.Tensor],
         texts: Optional[List[Any]],
         component_indices: np.ndarray,
+        group_slices: Optional[np.ndarray],
         resize_height: int,
         resize_width: int,
         plan: Any,
@@ -102,6 +103,7 @@ class DirectBackend(OutputBackend):
         image_tokens: List[torch.Tensor],
         texts: Optional[List[Any]],
         component_indices: np.ndarray,
+        group_slices: Optional[np.ndarray],
         resize_height: int,
         resize_width: int,
         plan: Any,
@@ -154,6 +156,7 @@ class SpillBackend(OutputBackend):
         image_tokens: List[torch.Tensor],
         texts: Optional[List[Any]],
         component_indices: np.ndarray,
+        group_slices: Optional[np.ndarray],
         resize_height: int,
         resize_width: int,
         plan: Any,
@@ -161,19 +164,33 @@ class SpillBackend(OutputBackend):
         stats: WorkerStats,
     ) -> dict:
         import time
-        from .spill import ComponentSpillWriter
 
         IMAGE_KIND = 0
         TEXT_KIND = 1
 
         t0 = time.perf_counter()
 
-        # Spill image components
+        if plan.mode == "interleave":
+            self._write_interleave_batch(
+                image_tokens=image_tokens,
+                texts=texts,
+                component_indices=component_indices,
+                group_slices=group_slices,
+                resize_height=resize_height,
+                resize_width=resize_width,
+                plan=plan,
+                tokenizer=tokenizer,
+                stats=stats,
+            )
+            write_ms = (time.perf_counter() - t0) * 1000
+            return {"write_ms": write_ms}
+
+        # Spill image components without per-image BOS/EOS wrappers.
         for seq, comp_idx in zip(image_tokens, component_indices):
             comp_idx = int(comp_idx)
-            doc_id = int(plan.comp_document_id[comp_idx])
-            ci = int(plan.comp_component_index[comp_idx])
-            tokens_cpu = seq.cpu().numpy() if seq.is_cuda else seq.numpy()
+            doc_id = int(plan.components.document_id[comp_idx])
+            ci = int(plan.components.component_index[comp_idx])
+            tokens_cpu = self._strip_component_wrapper(seq, tokenizer)
             self._writer.add_component(
                 document_id=doc_id,
                 component_index=ci,
@@ -186,29 +203,48 @@ class SpillBackend(OutputBackend):
             stats.image_tokens += len(tokens_cpu)
             stats.tokens_generated += len(tokens_cpu)
 
-        # Spill text components (deduplicate per document)
+        # Spill one text component per document for non-interleave modes.
         if texts is not None:
-            seen_docs = set()
-            for i, comp_idx in enumerate(component_indices):
-                comp_idx = int(comp_idx)
-                doc_id = int(plan.comp_document_id[comp_idx])
-                if doc_id in seen_docs:
-                    continue
-                seen_docs.add(doc_id)
-                text = texts[i] if i < len(texts) else None
-                if text is not None and hasattr(tokenizer, 'tokenize_text'):
-                    text_tokens = tokenizer.tokenize_text(text)
-                    if text_tokens is not None:
-                        text_np = text_tokens.cpu().numpy() if hasattr(text_tokens, 'cpu') else np.array(text_tokens, dtype=np.int32)
-                        text_ci = int(plan.doc_num_components[doc_id]) - 1
-                        self._writer.add_component(
-                            document_id=doc_id,
-                            component_index=text_ci,
-                            kind=TEXT_KIND,
-                            tokens=text_np,
-                        )
-                        stats.text_tokens += len(text_np)
-                        stats.tokens_generated += len(text_np)
+            if group_slices is not None:
+                for g_idx, (start, end) in enumerate(group_slices):
+                    start, end = int(start), int(end)
+                    if start >= end:
+                        continue
+                    text = texts[g_idx] if g_idx < len(texts) else None
+                    if text is None:
+                        continue
+                    doc_comp_indices = component_indices[start:end]
+                    # Spill doc-level text only once, from the batch containing image_index=0.
+                    if not np.any(plan.components.image_index[doc_comp_indices] == 0):
+                        continue
+                    doc_id = int(plan.components.document_id[int(doc_comp_indices[0])])
+                    text_np = self._tokenize_doc_text(text, plan.mode, tokenizer)
+                    text_ci = int(plan.documents.num_images[doc_id])
+                    self._writer.add_component(
+                        document_id=doc_id,
+                        component_index=text_ci,
+                        kind=TEXT_KIND,
+                        tokens=text_np,
+                    )
+                    stats.text_tokens += len(text_np)
+                    stats.tokens_generated += len(text_np)
+            else:
+                for i, comp_idx in enumerate(component_indices):
+                    text = texts[i] if i < len(texts) else None
+                    if text is None:
+                        continue
+                    comp_idx = int(comp_idx)
+                    doc_id = int(plan.components.document_id[comp_idx])
+                    text_np = self._tokenize_doc_text(text, plan.mode, tokenizer)
+                    text_ci = int(plan.documents.num_images[doc_id])
+                    self._writer.add_component(
+                        document_id=doc_id,
+                        component_index=text_ci,
+                        kind=TEXT_KIND,
+                        tokens=text_np,
+                    )
+                    stats.text_tokens += len(text_np)
+                    stats.tokens_generated += len(text_np)
 
         write_ms = (time.perf_counter() - t0) * 1000
         return {"write_ms": write_ms}
@@ -220,6 +256,161 @@ class SpillBackend(OutputBackend):
     def finalize(self) -> None:
         if self._writer:
             self._writer.finalize()
+
+    @staticmethod
+    def _strip_component_wrapper(tokens: torch.Tensor, tokenizer: Any) -> np.ndarray:
+        """Drop outer BOS/EOS from image components before spilling."""
+        seq = tokens.cpu() if tokens.is_cuda else tokens
+        if seq.ndim != 1:
+            seq = seq.reshape(-1)
+        if (
+            seq.numel() >= 2
+            and hasattr(tokenizer, "bos_id")
+            and hasattr(tokenizer, "eos_id")
+            and int(seq[0]) == int(tokenizer.bos_id)
+            and int(seq[-1]) == int(tokenizer.eos_id)
+        ):
+            seq = seq[1:-1]
+        return seq.numpy().astype(np.int32, copy=False)
+
+    @staticmethod
+    def _tokenize_doc_text(text: Any, mode: str, tokenizer: Any) -> np.ndarray:
+        """Tokenize one document-level text payload for non-interleave modes."""
+        if mode == "sft":
+            from vision_tokenization.discrete.conversation import apply_conversation_policy
+
+            messages = apply_conversation_policy(text, tokenizer.conversation_policy)
+            text_tokens, _num_images, _image_positions = tokenizer._tokenize_conversation_text_cpu(messages)
+            seq = text_tokens.cpu() if text_tokens.is_cuda else text_tokens
+            return seq.numpy().astype(np.int32, copy=False)
+
+        encoded = tokenizer.text_tokenizer(
+            text,
+            truncation=False,
+            add_special_tokens=False,
+            return_tensors="pt",
+        )["input_ids"].squeeze(0)
+        seq = encoded.cpu() if encoded.is_cuda else encoded
+        return seq.numpy().astype(np.int32, copy=False)
+
+    def _write_interleave_batch(
+        self,
+        *,
+        image_tokens: List[torch.Tensor],
+        texts: Optional[List[Any]],
+        component_indices: np.ndarray,
+        group_slices: Optional[np.ndarray],
+        resize_height: int,
+        resize_width: int,
+        plan: Any,
+        tokenizer: Any,
+        stats: WorkerStats,
+    ) -> None:
+        IMAGE_KIND = 0
+        TEXT_KIND = 1
+
+        if texts is None or group_slices is None:
+            raise ValueError("Interleave spill requires grouped parsed documents")
+
+        from vision_tokenization.utils.interleave_documents import parse_interleave_segments
+
+        normalized_texts: List[List[Dict[str, Any]]] = []
+        for g_idx, text_payload in enumerate(texts):
+            if isinstance(text_payload, list) and all(isinstance(seg, dict) for seg in text_payload):
+                normalized_texts.append(text_payload)
+                continue
+
+            start, end = group_slices[g_idx]
+            normalized_texts.append(
+                parse_interleave_segments(
+                    text_payload,
+                    document_format=plan.metadata.parser or plan.mode,
+                    num_images=int(end) - int(start),
+                )
+            )
+
+        # Batch-tokenize all non-empty text segments across the grouped docs.
+        flat_texts: List[str] = []
+        doc_text_map: List[List[tuple[int, int]]] = []
+        doc_image_comp_indices: List[List[int]] = []
+        for segments in normalized_texts:
+            text_entries: List[tuple[int, int]] = []
+            image_component_positions: List[int] = []
+            runtime_ci = 0
+            for seg in segments or []:
+                seg_type = seg.get("type")
+                if seg_type == "text":
+                    seg_text = seg.get("text")
+                    if seg_text:
+                        text_entries.append((runtime_ci, len(flat_texts)))
+                        flat_texts.append(seg_text)
+                        runtime_ci += 1
+                elif seg_type == "image":
+                    image_component_positions.append(runtime_ci)
+                    runtime_ci += 1
+            doc_text_map.append(text_entries)
+            doc_image_comp_indices.append(image_component_positions)
+
+        text_tokens_by_flat_idx: List[np.ndarray] = []
+        if flat_texts:
+            encoded = tokenizer.text_tokenizer(
+                flat_texts,
+                truncation=False,
+                add_special_tokens=False,
+                return_tensors=None,
+                padding=False,
+            )
+            text_tokens_by_flat_idx = [
+                np.asarray(ids, dtype=np.int32) for ids in encoded["input_ids"]
+            ]
+
+        for g_idx, (start, end) in enumerate(group_slices):
+            start, end = int(start), int(end)
+            if start >= end:
+                continue
+
+            doc_comp_indices = component_indices[start:end]
+            doc_id = int(plan.components.document_id[int(doc_comp_indices[0])])
+            image_indices = plan.components.image_index[doc_comp_indices]
+            image_component_positions = doc_image_comp_indices[g_idx]
+
+            max_image_index = int(image_indices.max()) if len(image_indices) > 0 else -1
+            if image_component_positions and max_image_index >= len(image_component_positions):
+                logger.warning(
+                    "Interleave doc %s has image_index outside parsed segment range — skipping batch fragment",
+                    doc_id,
+                )
+                stats.samples_skipped += 1
+                continue
+
+            # Spill text segments once per document, from the batch containing image_index=0.
+            if np.any(image_indices == 0):
+                for runtime_ci, text_flat_idx in doc_text_map[g_idx]:
+                    text_np = text_tokens_by_flat_idx[text_flat_idx]
+                    self._writer.add_component(
+                        document_id=doc_id,
+                        component_index=runtime_ci,
+                        kind=TEXT_KIND,
+                        tokens=text_np,
+                    )
+                    stats.text_tokens += len(text_np)
+                    stats.tokens_generated += len(text_np)
+
+            for local_pos, comp_idx in enumerate(doc_comp_indices):
+                image_index = int(plan.components.image_index[int(comp_idx)])
+                runtime_ci = int(image_component_positions[image_index])
+                tokens_np = self._strip_component_wrapper(image_tokens[start + local_pos], tokenizer)
+                self._writer.add_component(
+                    document_id=doc_id,
+                    component_index=runtime_ci,
+                    kind=IMAGE_KIND,
+                    tokens=tokens_np,
+                    resize_height=resize_height,
+                    resize_width=resize_width,
+                )
+                stats.samples_processed += 1
+                stats.image_tokens += len(tokens_np)
+                stats.tokens_generated += len(tokens_np)
 
 
 def select_backend(mode: str, multi_image: bool, seqlen_threshold: Optional[int] = None) -> OutputBackend:

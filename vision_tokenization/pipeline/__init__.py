@@ -10,7 +10,7 @@ from typing import Any, Dict
 
 import torch
 
-from .unified_loop import tokenize_loop_unified
+from .executor import run_executor
 from .dry_run import dry_run_batch_plan
 
 logger = logging.getLogger(__name__)
@@ -58,7 +58,7 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
 
         from .dry_run import export_dry_run
 
-        from .unified_loop import _load_or_build_plan
+        from .executor import _load_or_build_plan
         plan = _load_or_build_plan(cfg)
         result = {
             "total_documents": plan.total_documents,
@@ -66,7 +66,9 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
             "total_image_components": plan.total_image_components,
             "total_text_components": plan.total_text_components,
             "total_batches": plan.total_batches,
-            "total_image_tokens": sum(b.batch_token_count for b in plan.image_batches),
+            "total_image_tokens": sum(
+                b.batch_token_count for b in plan.execution.image_batches
+            ),
         }
         result["output_dir"] = cfg["output_dir"]
         export_dry_run(result, cfg["output_dir"])
@@ -116,4 +118,61 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
         f"no NCCL — each rank is independent)"
     )
 
-    return tokenize_loop_unified(rank, world_size, cfg)
+    result = run_executor(rank, world_size, cfg)
+
+    # Auto-rebuild for spill backend (multi-image / interleave)
+    multi_image = bool(cfg.get("multi_image", False))
+    mode = cfg["mode"]
+    if (multi_image or mode == "interleave") and rank == 0:
+        _maybe_rebuild(cfg, result)
+
+    return result
+
+
+def _maybe_rebuild(cfg: Dict[str, Any], tokenize_result: Dict[str, Any]) -> None:
+    """Run offline rebuild after spill-based tokenization completes."""
+    from .rebuild import rebuild_from_plan
+    from .assembly import StructureTokenIds
+
+    output_dir = cfg["output_dir"]
+    plan_path = cfg.get("plan_path")
+    if not plan_path or not Path(plan_path).exists():
+        logger.warning("Skipping rebuild: no plan_path configured")
+        return
+
+    plan = torch.load(plan_path, map_location="cpu", weights_only=False)
+
+    # Build StructureTokenIds from the tokenizer that was already loaded
+    from vision_tokenization.discrete.emu import create_tokenizer
+    tokenizer = create_tokenizer(
+        mode=cfg["mode"],
+        text_tokenizer_path=cfg["tokenizer_path"],
+        device="cpu",
+        min_pixels=cfg["tokenizer_min_pixels"],
+        max_pixels=cfg["tokenizer_max_pixels"],
+    )
+
+    token_ids = StructureTokenIds(
+        bos_id=tokenizer.bos_id,
+        eos_id=tokenizer.eos_id,
+        img_start_id=tokenizer.img_start_id,
+        img_end_id=tokenizer.img_end_id,
+        img_token_start_id=tokenizer.img_token_start_id,
+        eol_id=tokenizer.eol_id,
+        eof_id=tokenizer.eof_id,
+        vision_token_offset=tokenizer.vision_token_offset,
+        image_token_id=getattr(tokenizer, "image_token_id", -1),
+        dim_tokens_fn=getattr(tokenizer, "dim_tokens_fn", None),
+    )
+
+    logger.info(f"[rank 0] Starting rebuild from spill in {output_dir}")
+    rebuild_from_plan(
+        plan=plan,
+        spill_dir=output_dir,
+        token_ids=token_ids,
+        vocab_size=200000,
+        max_sequence_tokens=cfg.get("max_sequence_tokens"),
+        seqlen_threshold=cfg.get("seqlen_threshold"),
+        output_name="rebuilt",
+    )
+    logger.info(f"[rank 0] Rebuild complete")

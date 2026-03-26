@@ -50,9 +50,13 @@ class Emu3VisionTokenizer(Tokenizer):
             # Uses local cache if available, downloads only if needed
             self.model = AutoModel.from_pretrained(self.model_path, trust_remote_code=True).eval().to(self.device)
 
-            self.processor = Emu3VisionVQImageProcessor.from_pretrained(
-                self.model_path, local_files_only=False, min_pixels=self.min_pixels, max_pixels=self.max_pixels
-            )
+            processor_kwargs = {"local_files_only": False}
+            if self.min_pixels is not None:
+                processor_kwargs["min_pixels"] = self.min_pixels
+            if self.max_pixels is not None:
+                processor_kwargs["max_pixels"] = self.max_pixels
+
+            self.processor = Emu3VisionVQImageProcessor.from_pretrained(self.model_path, **processor_kwargs)
 
             # Get codebook size and dimension from model config
             if hasattr(self.model, "config") and hasattr(self.model.config, "codebook_size"):
