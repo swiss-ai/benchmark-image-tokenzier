@@ -117,65 +117,16 @@ def tokenize_loop_unified(
     """
     output_dir = cfg["output_dir"]
     mode = cfg["mode"]
-    multi_image = bool(cfg.get("multi_image", False))
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
-    # 1. Load / build plan and split work for this rank
+    # 1. Load / build TokenizationPlan and split for this rank
     # ------------------------------------------------------------------
-    # Two paths:
-    # A) Simple modes (single-image): TokenizationPlan with global image batches,
-    #    split across ranks. DirectBackend writes bin/idx immediately.
-    # B) Multi-image/interleave: DocumentOwnerPlan assigns documents to ranks,
-    #    then per-rank local image batching. SpillBackend + offline rebuild.
-
-    if multi_image or mode == "interleave":
-        # Path B: document ownership first, then local batching
-        from ..indexing.planning.document_planner import plan_document_ownership
-        from ..indexing.planning.tokenization_plan import _plan_image_batches
-
-        doc_plan_path = cfg.get("plan_path")
-        if doc_plan_path and Path(doc_plan_path).exists():
-            import torch as _torch
-            doc_plan = _torch.load(doc_plan_path, map_location="cpu", weights_only=False)
-            logger.info(f"Loaded document plan from {doc_plan_path}")
-        else:
-            doc_plan = plan_document_ownership(
-                manifest_path=cfg["manifest_path"],
-                spatial_factor=cfg.get("spatial_factor", 16),
-                min_pixels=cfg.get("filter_min_pixels"),
-                max_pixels=cfg.get("filter_max_pixels"),
-                resize_min_pixels=cfg.get("tokenizer_min_pixels"),
-                resize_max_pixels=cfg.get("tokenizer_max_pixels"),
-            )
-            if doc_plan_path:
-                Path(doc_plan_path).parent.mkdir(parents=True, exist_ok=True)
-                import torch as _torch
-                _torch.save(doc_plan, doc_plan_path)
-
-        doc_splits = doc_plan.split_for_workers(world_size)
-        my_docs = doc_splits[rank] if rank < len(doc_splits) else []
-        logger.info(
-            f"[rank {rank}/{world_size}] Assigned {len(my_docs)} documents "
-            f"(total {doc_plan.total_documents} documents)"
-        )
-
-        if not my_docs:
-            logger.warning(f"[rank {rank}] No documents assigned — exiting early")
-            return {"rank": rank, "samples_processed": 0, "tokens_generated": 0}
-
-        # Build local image batches from this rank's documents
-        # TODO: implement per-rank local batching from document manifest rows
-        # For now, use the global plan path as fallback
-        plan = _load_or_build_plan(cfg)
-        my_batches = plan.split_image_batches_for_workers(world_size)
-        my_batches = my_batches[rank] if rank < len(my_batches) else []
-
-    else:
-        # Path A: global plan, split image batches across ranks
-        plan = _load_or_build_plan(cfg)
-        worker_splits = plan.split_image_batches_for_workers(world_size)
-        my_batches = worker_splits[rank] if rank < len(worker_splits) else []
+    # One plan for all modes. Document-boundary-aware windowing ensures
+    # no document is split across ranks after contiguous splitting.
+    plan = _load_or_build_plan(cfg)
+    worker_splits = plan.split_image_batches_for_workers(world_size)
+    my_batches = worker_splits[rank] if rank < len(worker_splits) else []
 
     logger.info(
         f"[rank {rank}/{world_size}] Assigned {len(my_batches)} image batches"
