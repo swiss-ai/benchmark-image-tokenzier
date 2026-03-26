@@ -11,13 +11,9 @@ manifest_path: /capstor/scratch/cscs/xyixuan/manifests/llava_onevision_mid_85m/m
 text_column: caption
 multi_image: false
 
-# --- Overrides ----------------------------------------------------------------
-num_clusters: 20_000
-gpu_kmeans: true
-batch_plan: /capstor/scratch/cscs/xyixuan/batch_plans/llava_onevision_mid_85m_locality_w2k_v2.pt
+plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/llava_onevision_mid_85m_locality_w2k_v2.pt
 max_batch_tokens: 32_768
 max_cached_chunks: 128
-direct:
-  prefetch:
-    num_workers: 8
-    queue_size: 32
+prefetch:
+  num_workers: 8
+  queue_size: 32

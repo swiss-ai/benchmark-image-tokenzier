@@ -12,13 +12,8 @@ text_column: txt
 multi_image: true
 image_field_pattern: img
 
-output_format: pooled
 parser: medpix
 
-pooled:
-  document_plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/medpix_documents.pt
-  document_window_docs: 100
-  checkpoint_every_windows: 1
 
 gpu_kmeans: false
 seqlen_threshold: 8_192

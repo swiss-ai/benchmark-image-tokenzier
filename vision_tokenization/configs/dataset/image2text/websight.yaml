@@ -14,5 +14,5 @@ multi_image: false
 
 # --- Overrides ----------------------------------------------------------------
 gpu_kmeans: false
-batch_plan: /capstor/scratch/cscs/xyixuan/batch_plans/websight.pt
+plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/websight.pt
 checkpoint_interval_batches: 5_000

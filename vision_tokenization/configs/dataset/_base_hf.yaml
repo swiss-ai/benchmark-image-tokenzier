@@ -9,46 +9,29 @@ manifest_path: ???
 input_pattern: ???
 image_column: image
 multi_image: null
+parser: null
 
 min_pixels: "64*128"
 max_pixels: "2048*2048"
 
-# Pipeline mode
-output_format: direct
-parser: null
-
-direct:
-  batch_plan: null
-  checkpoint_interval_batches: 2_500
-  prefetch:
-    queue_size: 32
-    num_workers: 8
-
-pooled:
-  document_plan_path: null
-  document_window_docs: 2_000
-  checkpoint_every_windows: 1
-  spill_shard_rollover_windows: 8
-  prefetch_queue_size: 2
-  prefetch_num_workers: 2
-  text_doc_batch_size: 128
+# Plan
+plan_path: null
+window_size: 2000
 
 # Batch planning
 max_batch_tokens: 32_768
 batch_size: 128
 spatial_factor: 16
-num_clusters: 2_000
-niter: 10
-gpu_kmeans: true
-resize_mode: avg
 
-# Locality-aware batch planning (reduces I/O for HF parquet datasets)
-locality:
-  enabled: false
-  window_size: 5000           # manifest rows per locality window
+# Prefetch
+prefetch:
+  queue_size: 32
+  num_workers: 8
+
+# Checkpoint
+checkpoint_interval_batches: 2_500
 
 augmentation: null
-
 max_consecutive_errors: 50
 max_cached_chunks: 128
 seqlen_threshold: null

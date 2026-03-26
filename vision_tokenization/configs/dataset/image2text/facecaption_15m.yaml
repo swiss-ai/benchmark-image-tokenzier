@@ -9,8 +9,7 @@ output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 manifest_path: /capstor/scratch/cscs/xyixuan/manifests/facecaption_15m_cropped/manifest.parquet
 text_column: caption
 
-direct:
-  batch_plan: /capstor/scratch/cscs/xyixuan/batch_plans/facecaption_15m_cropped.pt
-  checkpoint_interval_batches: 5_000
+plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/facecaption_15m_cropped.pt
+checkpoint_interval_batches: 5_000
 
 max_batch_tokens: 32_768

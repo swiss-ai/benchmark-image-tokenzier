@@ -10,8 +10,7 @@ from typing import Any, Dict
 
 import torch
 
-from .direct.loop import tokenize_loop
-from .pooled.loop import tokenize_loop_pooled
+from .unified_loop import tokenize_loop_unified
 from .dry_run import dry_run_batch_plan
 
 logger = logging.getLogger(__name__)
@@ -59,26 +58,16 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
 
         from .dry_run import export_dry_run
 
-        output_format = cfg.get("output_format", "direct")
-        if output_format == "unified":
-            from .unified_loop import _load_or_build_plan
-            plan = _load_or_build_plan(cfg)
-            result = {
-                "total_documents": plan.total_documents,
-                "total_components": plan.total_components,
-                "total_image_components": plan.total_image_components,
-                "total_text_components": plan.total_text_components,
-                "total_batches": plan.total_batches,
-                "total_image_tokens": sum(b.batch_token_count for b in plan.image_batches),
-            }
-        else:
-            from .direct.loop import _load_or_compute_batch_plan, _resolve_multi_image
-            batch_plan = _load_or_compute_batch_plan(cfg, _resolve_multi_image(cfg))
-            result = dry_run_batch_plan(
-                batch_plan,
-                spatial_factor=cfg.get("spatial_factor", 16),
-            )
-
+        from .unified_loop import _load_or_build_plan
+        plan = _load_or_build_plan(cfg)
+        result = {
+            "total_documents": plan.total_documents,
+            "total_components": plan.total_components,
+            "total_image_components": plan.total_image_components,
+            "total_text_components": plan.total_text_components,
+            "total_batches": plan.total_batches,
+            "total_image_tokens": sum(b.batch_token_count for b in plan.image_batches),
+        }
         result["output_dir"] = cfg["output_dir"]
         export_dry_run(result, cfg["output_dir"])
         return result
@@ -127,30 +116,4 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
         f"no NCCL — each rank is independent)"
     )
 
-    mode = cfg["mode"]
-    output_format = cfg.get("output_format", "direct")
-
-    # Unified pipeline: TokenizationPlan → spill → rebuild
-    if output_format == "unified":
-        from .unified_loop import tokenize_loop_unified
-        logger.info(f"[rank {rank}] Using unified pipeline (output_format=unified)")
-        return tokenize_loop_unified(rank, world_size, cfg)
-
-    # Pooled pipeline for multi-image/interleave (spill + offline rebuild)
-    if output_format == "pooled":
-        logger.info(f"[rank {rank}] Using pooled pipeline (output_format=pooled)")
-        return tokenize_loop_pooled(rank, world_size, cfg)
-
-    # Direct pipeline (current default): batch → tokenize → bin/idx
-    from .direct.handler import TokenizationHandler
-    from .direct.writer import MicroShardWriter, SplitMicroShardWriter
-
-    seqlen_threshold = cfg.get("seqlen_threshold")
-    if seqlen_threshold is not None:
-        writer = SplitMicroShardWriter(seqlen_threshold=seqlen_threshold)
-    else:
-        writer = MicroShardWriter()
-    needs_text = mode in ("sft", "image2text", "text2image", "interleave")
-    handler = TokenizationHandler(writer, needs_text)
-
-    return tokenize_loop(rank, world_size, cfg, handler)
+    return tokenize_loop_unified(rank, world_size, cfg)

@@ -12,8 +12,6 @@ document_field: md
 local_image_prefixes:
   - content_image/
 
-pooled:
-  document_plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/pin_200m_documents.pt
 
 gpu_kmeans: false
 max_batch_tokens: 32_768

@@ -12,10 +12,6 @@ document_field: content
 local_image_prefixes:
   - image/
 
-pooled:
-  document_plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/shizhen_book_vision.pt
-  document_window_docs: 1_000
-  checkpoint_every_windows: 1
 
 gpu_kmeans: false
 max_batch_tokens: 32_768

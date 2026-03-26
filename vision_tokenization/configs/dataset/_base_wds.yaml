@@ -1,63 +1,37 @@
-# Base defaults for WebDataset (.tar) datasets.
-#
-# Inherit in dataset configs:
-#   defaults:
-#     - _base_wds
-#
-# Typical overrides:
-#   output_name: my_dataset
-#   manifest_path: /path/to/manifest.parquet
-#   image_column: image
-#   text_column: txt  # for image2text / sft
+# ──────────────────────────────────────────────────────────────────────────────
+# Base defaults for WebDataset (.tar) datasets
+# ──────────────────────────────────────────────────────────────────────────────
 
 dataset_type: wds
 
-# Required paths
 output_dir: ???
 manifest_path: ???
 image_column: image
 multi_image: null
+parser: null
 
-# Image filtering
 min_pixels: "64*128"
 max_pixels: "2048*2048"
 
-# Pipeline mode
-output_format: direct              # direct | pooled
-parser: null                       # interleave segment parser: medpix | pin200m | shizhen
-
-direct:
-  batch_plan: null
-  checkpoint_interval_batches: 2_500
-  prefetch:
-    queue_size: 64
-    num_workers: 32
-
-# Pooled pipeline knobs (output_format=pooled)
-pooled:
-  document_plan_path: null
-  document_window_docs: 2_000          # memory/planning window
-  checkpoint_every_windows: 1          # progress checkpoint cadence
-  spill_shard_rollover_windows: 8      # file count control
-  prefetch_queue_size: 2             # bounded image prefetch window
-  prefetch_num_workers: 2
-  text_doc_batch_size: 128           # docs per text worker batch
+# Plan
+plan_path: null
+window_size: 5000
 
 # Batch planning
 max_batch_tokens: 32_768
 batch_size: 128
 spatial_factor: 16
-num_clusters: 2_000
-niter: 10
-gpu_kmeans: true
-resize_mode: avg
 
-# Augmentation
+# Prefetch
+prefetch:
+  queue_size: 64
+  num_workers: 32
+
+# Checkpoint
+checkpoint_interval_batches: 2_500
+
 augmentation: null
-
-# Checkpointing / runtime
 max_consecutive_errors: 50
-
 seqlen_threshold: null
 
 # WDS-specific
