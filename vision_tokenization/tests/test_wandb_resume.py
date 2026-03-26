@@ -4,8 +4,8 @@ import types
 
 import pytest
 
-from vision_tokenization.pipelines.distributed import checkpoint as checkpoint_mod
-from vision_tokenization.pipelines.distributed import wandb_logger as wandb_mod
+from vision_tokenization.pipeline import checkpoint as checkpoint_mod
+from vision_tokenization.pipeline import wandb_logger as wandb_mod
 
 
 def _install_fake_wandb(monkeypatch):

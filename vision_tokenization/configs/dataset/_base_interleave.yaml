@@ -1,0 +1,48 @@
+# Base defaults for interleaved datasets (JSONL+tar or WDS with segment parsing).
+
+dataset_type: jsonl_tar_interleave
+
+output_dir: ???
+manifest_path: ???
+multi_image: true
+
+min_pixels: "64*128"
+max_pixels: "2048*2048"
+
+# Document parsing
+parser: ???                        # interleave segment parser: pin200m | shizhen | medpix
+document_format: null              # backward compat alias for parser
+document_field: null
+local_image_prefixes:
+  - content_image/
+  - image/
+max_sequence_tokens: 131_072
+
+# Pipeline mode
+output_format: pooled
+
+pooled:
+  document_plan_path: null
+  document_window_docs: 2_000
+  checkpoint_every_windows: 1
+  spill_shard_rollover_windows: 8
+  prefetch_queue_size: 2
+  prefetch_num_workers: 2
+  text_doc_batch_size: 128
+
+# Batch planning
+max_batch_tokens: 32_768
+batch_size: 128
+spatial_factor: 16
+num_clusters: 2_000
+niter: 10
+gpu_kmeans: true
+resize_mode: avg
+
+augmentation: null
+
+max_consecutive_errors: 50
+
+seqlen_threshold: 8192
+
+max_open_files: 64

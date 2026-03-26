@@ -4,6 +4,7 @@ import io
 import os
 import tarfile
 import tempfile
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -14,8 +15,8 @@ import pyarrow.parquet as pq
 import pytest
 from PIL import Image
 
-from vision_tokenization.indexing._scan_wds_worker import scan_single_tar
-from vision_tokenization.indexing.clustered_batch_planner import (
+from vision_tokenization.indexing.scanners._workers.wds import scan_single_tar
+from vision_tokenization.indexing.planning.batch_planner import (
     BatchAssignment,
     BatchPlan,
     plan_clustered_batches,
@@ -26,11 +27,12 @@ from vision_tokenization.indexing.manifest import (
     load_wds_manifest,
     save_wds_manifest,
 )
-from vision_tokenization.indexing.scanner_hf import scan_hf_dataset
+from vision_tokenization.indexing.scanners.hf import scan_hf_dataset
 from vision_tokenization.indexing.reader import TarRandomAccessReader
-from vision_tokenization.indexing.scanner_wds import scan_wds_dataset
-from vision_tokenization.pipelines.distributed.data import HFImageLoader
-from vision_tokenization.pipelines.distributed.dry_run import dry_run_batch_plan
+from vision_tokenization.indexing.scanners.wds import scan_wds_dataset
+from vision_tokenization.pipeline.data import HFImageLoader, WDSImageLoader
+from vision_tokenization.pipeline.pooled.loop import _tokenize_document_window_texts
+from vision_tokenization.pipeline.dry_run import dry_run_batch_plan
 from vision_tokenization.utils.image_geometry import estimate_image_tokens, smart_resize_dims
 
 
@@ -91,6 +93,8 @@ def _write_hf_arrow_shard(
     column_name: str = "image",
     multi_image: bool = False,
     batch_size: int | None = None,
+    text_rows: list | None = None,
+    text_column: str = "text",
 ):
     if multi_image:
         array = pa.array(
@@ -106,7 +110,10 @@ def _write_hf_arrow_shard(
             type=_HF_IMAGE_TYPE,
         )
 
-    table = pa.table({column_name: array})
+    columns = {column_name: array}
+    if text_rows is not None:
+        columns[text_column] = pa.array(text_rows)
+    table = pa.table(columns)
     with pa.OSFile(shard_path, "wb") as sink:
         with ipc.new_stream(sink, table.schema) as writer:
             for batch in table.to_batches(max_chunksize=batch_size):
@@ -119,6 +126,8 @@ def _write_hf_parquet_shard(
     column_name: str = "image",
     multi_image: bool = False,
     row_group_size: int | None = None,
+    text_rows: list | None = None,
+    text_column: str = "text",
 ):
     if multi_image:
         array = pa.array(
@@ -134,7 +143,10 @@ def _write_hf_parquet_shard(
             type=_HF_IMAGE_TYPE,
         )
 
-    pq.write_table(pa.table({column_name: array}), shard_path, row_group_size=row_group_size)
+    columns = {column_name: array}
+    if text_rows is not None:
+        columns[text_column] = pa.array(text_rows)
+    pq.write_table(pa.table(columns), shard_path, row_group_size=row_group_size)
 
 
 # ======================================================================
@@ -837,6 +849,40 @@ class TestEndToEnd:
 
 
 # ======================================================================
+# TestWDSLoader
+# ======================================================================
+class TestWDSLoader:
+
+    def test_load_text_batch_reads_text_without_loading_images(self, tmp_path, monkeypatch):
+        samples = [
+            {"key": "000001", "ext": "jpg", "width": 64, "height": 64, "text": "alpha"},
+            {"key": "000002", "ext": "jpg", "width": 32, "height": 48, "text": "beta"},
+        ]
+        tar_path = str(tmp_path / "shard.tar")
+        _create_tar(tar_path, samples)
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        scan_wds_dataset(
+            input_pattern=tar_path,
+            output_manifest=manifest_path,
+            num_workers=1,
+            text_extensions=frozenset({"txt"}),
+        )
+
+        loader = WDSImageLoader(manifest_path=manifest_path, text_field="text")
+        monkeypatch.setattr(
+            loader._reader,
+            "read_batch",
+            lambda refs: pytest.fail("load_text_batch should not load images"),
+        )
+
+        texts = loader.load_text_batch(np.array([0, 1], dtype=np.int64))
+        loader.close()
+
+        assert texts == ["alpha", "beta"]
+
+
+# ======================================================================
 # TestHFLoader
 # ======================================================================
 class TestHFLoader:
@@ -917,6 +963,72 @@ class TestHFLoader:
         assert loader._uses_physical_manifest is True
         assert [img.size for img in images] == [(32, 48), (80, 120), (20, 30)]
 
+    def test_parquet_loader_load_text_batch_avoids_image_decode(self, tmp_path, monkeypatch):
+        rows = [(32, 48), (64, 96), (80, 120)]
+        texts = ["alpha", "beta", "gamma"]
+        _write_hf_parquet_shard(
+            str(tmp_path / "part_000.parquet"),
+            rows,
+            row_group_size=1,
+            text_rows=texts,
+        )
+
+        loader = HFImageLoader(input_pattern=tmp_path, text_column="text")
+        monkeypatch.setattr(
+            loader,
+            "_decode_image",
+            lambda img_data: pytest.fail("load_text_batch should not decode images"),
+        )
+
+        loaded = loader.load_text_batch(np.array([0, 2], dtype=np.int64))
+        loader.close()
+
+        assert loaded == ["alpha", "gamma"]
+
+    def test_parquet_multi_image_loader_load_text_batch_groups_docs(self, tmp_path, monkeypatch):
+        rows = [
+            [(11, 21), (31, 41)],
+            [(51, 61)],
+        ]
+        texts = ["doc0", "doc1"]
+        shard_path = str(tmp_path / "part_000.parquet")
+        _write_hf_parquet_shard(
+            shard_path,
+            rows,
+            column_name="images",
+            multi_image=True,
+            row_group_size=1,
+            text_rows=texts,
+        )
+
+        manifest_path = str(tmp_path / "physical_multi_manifest.parquet")
+        scan_hf_dataset(
+            input_pattern=str(tmp_path / "*.parquet"),
+            output_manifest=manifest_path,
+            image_list_column="images",
+            num_workers=1,
+        )
+
+        loader = HFImageLoader(
+            input_pattern=str(tmp_path / "*.does_not_matter"),
+            manifest_path=manifest_path,
+            image_list_column="images",
+            text_column="text",
+        )
+        monkeypatch.setattr(
+            loader,
+            "_decode_image",
+            lambda img_data: pytest.fail("load_text_batch should not decode images"),
+        )
+
+        loaded = loader.load_text_batch(
+            np.array([0, 1, 2], dtype=np.int64),
+            group_slices=np.array([[0, 2], [2, 3]], dtype=np.int64),
+        )
+        loader.close()
+
+        assert loaded == ["doc0", "doc1"]
+
     def test_parquet_multi_image_loader_uses_physical_manifest_coordinates(self, tmp_path):
         rows_a = [
             [(11, 21), (31, 41)],
@@ -962,7 +1074,7 @@ class TestHFLoader:
 
 class TestOrderedPool:
     def test_fatal_error_shuts_down_pool_without_waiting(self, monkeypatch):
-        from vision_tokenization.indexing import _parallel as parallel_mod
+        from vision_tokenization.indexing.scanners import _parallel as parallel_mod
 
         created_pools = []
 
@@ -979,7 +1091,6 @@ class TestOrderedPool:
 
             def cancel(self):
                 self.cancelled = True
-                return True
 
         class FakeExecutor:
             def __init__(self, max_workers):
@@ -1014,13 +1125,54 @@ class TestOrderedPool:
         assert futures[1].cancelled is True
 
 
+class TestPooledTextWorker:
+    def test_tokenize_document_window_texts_uses_text_only_loader(self):
+        class FakeLoader:
+            def load_text_batch(self, sample_indices, group_slices=None):
+                assert sample_indices.tolist() == [0, 1]
+                assert group_slices.tolist() == [[0, 2]]
+                return ["hello world"]
+
+            def load_batch(self, *args, **kwargs):
+                raise AssertionError("pooled text worker should not call load_batch")
+
+        class FakeTokenizer:
+            def __call__(self, text, truncation=False, add_special_tokens=False, return_tensors=None):
+                assert text == "hello world"
+                return {"input_ids": [11, 12, 13]}
+
+        doc = type("Doc", (), {"document_id": 7, "manifest_rows": np.array([0, 1], dtype=np.int64)})()
+        text_ready = {}
+        text_failed = set()
+        lock = threading.Lock()
+
+        _tokenize_document_window_texts(
+            document_window_assignments=[doc],
+            text_loader=FakeLoader(),
+            text_only_tokenizer=FakeTokenizer(),
+            mode="image2text",
+            token_dtype=np.int32,
+            cfg={},
+            text_ready=text_ready,
+            text_failed=text_failed,
+            text_lock=lock,
+        )
+
+        assert text_failed == set()
+        assert list(text_ready) == [7]
+        tokens, segments = text_ready[7]
+        assert segments is None
+        assert len(tokens) == 1
+        assert tokens[0].tolist() == [11, 12, 13]
+
+
 class TestMergeShards:
     """Tests for the post-tokenization shard merger."""
 
     def _create_shard(self, path, sequences):
         """Create a .bin/.idx shard with the given sequences."""
         try:
-            from vision_tokenization.pipelines.indexed_dataset_megatron import (
+            from vision_tokenization.formats.megatron import (
                 IndexedDatasetBuilder,
             )
         except ImportError:
@@ -1046,7 +1198,7 @@ class TestMergeShards:
         except ImportError:
             pytest.skip("megatron not available")
 
-        from vision_tokenization.pipelines.distributed.merge import merge_shards
+        from vision_tokenization.pipeline.merge import merge_shards
 
         # Create fake rank shards
         self._create_shard(tmp_path / "rank_0000_chunk_0000", [[1, 2, 3], [4, 5]])
@@ -1069,7 +1221,7 @@ class TestMergeShards:
         except ImportError:
             pytest.skip("megatron not available")
 
-        from vision_tokenization.pipelines.distributed.merge import maybe_merge_shards
+        from vision_tokenization.pipeline.merge import maybe_merge_shards
 
         self._create_shard(tmp_path / "rank_0000_chunk_0000", [[1, 2]])
         self._create_shard(tmp_path / "rank_0001_chunk_0000", [[3, 4]])
@@ -1093,7 +1245,7 @@ class TestMergeShards:
         except ImportError:
             pytest.skip("megatron not available")
 
-        from vision_tokenization.pipelines.distributed.merge import maybe_merge_shards
+        from vision_tokenization.pipeline.merge import maybe_merge_shards
 
         self._create_shard(tmp_path / "rank_0000_chunk_0000", [[1, 2]])
         torch.save({}, tmp_path / "rank_0000_checkpoint.pt")
@@ -1111,5 +1263,5 @@ class TestMergeShards:
 
     def test_merge_empty_dir_returns_none(self, tmp_path):
         """No shards → returns None."""
-        from vision_tokenization.pipelines.distributed.merge import merge_shards
+        from vision_tokenization.pipeline.merge import merge_shards
         assert merge_shards(tmp_path) is None

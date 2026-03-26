@@ -21,27 +21,21 @@ num_gpus: ???                      # total GPU count (verified against SLURM_NTA
 mode: ???                          # required: image_only | sft | image2text | text2image | interleave
 
 # --- Tokenizer ----------------------------------------------------------------
-# Path to omni-tokenizer (vision tokenizer auto-loaded from its config).
-# min/max_pixels control the tokenizer's aspect-ratio-aware resize grid.
-# Format: "H*W" string (e.g. "128*128") or plain integer.
 
 tokenizer:
   path: /capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_wavtok
   min_pixels: "128*128"
   max_pixels: "1400*1400"
-  max_encode_pixels: 8_000_000     # pixel budget per encode call — chunks preprocess+encode to avoid GPU OOM
-  torch_compile: false             # compile Emu3.5 encode path when shapes are stable
+  max_encode_pixels: 8_000_000
+  torch_compile: false
   torch_compile_mode: reduce-overhead
 
 # --- Checkpointing & Resume --------------------------------------------------
 
-resume: false                      # resume from per-rank checkpoints
-checkpoint_interval_batches: 1_000 # finalize chunk + save progress every N batches
-
-# --- Merge & Dry Run ----------------------------------------------------------
-
-merge_shards: false                # merge per-rank shards after all ranks finish
-dry_run: false                     # estimate token counts without GPU
+resume: false
+merge_shards: false
+rebuild: true
+dry_run: false
 
 # --- Weights & Biases --------------------------------------------------------
 

@@ -758,7 +758,12 @@ configs/
 | `num_gpus` | Total GPU count (cross-checked against `SLURM_NTASKS`) | required |
 | `resume` | Resume from rank checkpoints | `false` |
 | `dry_run` | Estimate tokens without GPU | `false` |
-| `checkpoint_interval_batches` | How often to write rank checkpoints | `1_000` |
+| `direct.checkpoint_interval_batches` | Direct mode: how often to write rank checkpoints | `5_000` |
+| `pooled.document_window_docs` | Pooled mode: how many logical documents are processed in one bounded document window | `2_000` |
+| `pooled.checkpoint_every_windows` | Pooled mode: save durable progress metadata every N document windows | `1` |
+| `pooled.spill_shard_rollover_windows` | Pooled mode: rotate spill shard files every N document windows | `8` |
+| `direct.merge_shards` | Merge direct-mode per-rank shards after completion | `true` |
+| `pooled.rebuild` | Rebuild pooled spill output into final `bin/idx` | `true` |
 | `wandb.*` | Weights & Biases logging settings | enabled |
 
 ### Dataset configs
@@ -810,7 +815,14 @@ srun --ntasks-per-node=4 --gpus-per-node=4 \
     python -m vision_tokenization.tokenize \
     mode=sft dataset=llava_sft num_gpus=4 \
     dataset.max_batch_tokens=25_600 \
-    dataset.checkpoint_interval_batches=200
+    dataset.direct.checkpoint_interval_batches=200
+
+# Pooled interleave or multi-image jobs are document-window based
+srun --ntasks-per-node=4 --gpus-per-node=4 \
+    python -m vision_tokenization.tokenize \
+    mode=interleave dataset=pin_200m num_gpus=4 \
+    dataset.pooled.document_window_docs=10_000 \
+    dataset.pooled.checkpoint_every_windows=1
 ```
 
 </details>

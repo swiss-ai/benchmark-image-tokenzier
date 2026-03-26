@@ -76,6 +76,113 @@ def _resolve_mode(cfg: DictConfig) -> None:
         )
 
 
+def _resolve_output_format(mode: str, dataset_cfg) -> str:
+    """Resolve output format, forcing pooled for interleave and multi-image jobs."""
+    requested = dataset_cfg.get("output_format")
+    multi_image = dataset_cfg.get("multi_image")
+    inferred_multi_image = (
+        bool(multi_image)
+        if multi_image is not None
+        else (
+            dataset_cfg.get("image_list_column") is not None
+            or dataset_cfg.get("dataset_type") == "jsonl_tar_interleave"
+        )
+    )
+
+    if mode == "interleave" or inferred_multi_image:
+        if requested not in (None, "pooled"):
+            logger.warning(
+                "Forcing output_format=pooled for mode=%s multi_image=%s "
+                "(requested %r)",
+                mode,
+                inferred_multi_image,
+                requested,
+            )
+        return "pooled"
+
+    return requested or "direct"
+
+
+def _as_dict(section) -> dict:
+    """Normalize a possibly-missing OmegaConf/container section to a plain dict."""
+    return dict(section or {})
+
+
+def _merge_pipeline_sections(
+    root_cfg: dict,
+    dataset_cfg: dict,
+    *,
+    output_format: str,
+) -> dict:
+    """Flatten active direct/pooled subsections into one pipeline config.
+    """
+    pipeline_cfg = dict(root_cfg)
+
+    root_direct = _as_dict(pipeline_cfg.pop("direct", None))
+    root_pooled = _as_dict(pipeline_cfg.pop("pooled", None))
+
+    dataset_cfg = dict(dataset_cfg)
+    dataset_direct = _as_dict(dataset_cfg.pop("direct", None))
+    dataset_pooled = _as_dict(dataset_cfg.pop("pooled", None))
+
+    if output_format == "pooled":
+        pipeline_cfg.update(root_pooled)
+    else:
+        pipeline_cfg.update(root_direct)
+
+    pipeline_cfg.update(dataset_cfg)
+
+    if output_format == "pooled":
+        pipeline_cfg.update(dataset_pooled)
+    else:
+        pipeline_cfg.update(dataset_direct)
+
+    return pipeline_cfg
+
+
+def _validate_pipeline_cfg(pipeline_cfg: dict, *, output_format: str) -> None:
+    """Reject incompatible config surfaces for the active pipeline."""
+    if output_format != "pooled":
+        return
+
+    legacy_pooled_keys = [
+        key
+        for key in (
+            "chunk_docs",
+            "checkpoint_every_chunks",
+            "shard_rollover_chunks",
+            "checkpoint_interval_docs",
+            "checkpoint_interval_batches",
+        )
+        if pipeline_cfg.get(key) is not None
+    ]
+    if legacy_pooled_keys:
+        raise ValueError(
+            "Pooled mode no longer accepts legacy chunk-based keys: "
+            + ", ".join(sorted(legacy_pooled_keys))
+        )
+
+    if pipeline_cfg.get("batch_plan") is not None:
+        raise ValueError(
+            "Pooled mode uses pooled.document_plan_path, not batch_plan."
+        )
+
+    missing_keys = [
+        key
+        for key in (
+            "document_window_docs",
+            "checkpoint_every_windows",
+            "spill_shard_rollover_windows",
+        )
+        if pipeline_cfg.get(key) is None
+    ]
+    if missing_keys:
+        raise ValueError(
+            "Pooled mode is missing required config keys: "
+            + ", ".join(sorted(missing_keys))
+        )
+
+
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg: DictConfig):
     # Print config only on rank 0
@@ -83,6 +190,7 @@ def main(cfg: DictConfig):
         logger.info(f"Config:\n{OmegaConf.to_yaml(cfg)}")
 
     _resolve_mode(cfg)
+    output_format = _resolve_output_format(cfg.mode, cfg.dataset)
 
     from vision_tokenization.utils.parse_utils import parse_resolution
 
@@ -103,74 +211,47 @@ def main(cfg: DictConfig):
     filter_min_pixels = parse_resolution(str(cfg.dataset.min_pixels))["pixels"]
     filter_max_pixels = parse_resolution(str(cfg.dataset.max_pixels))["pixels"]
 
-    from vision_tokenization.pipelines.distributed import run_distributed_pipeline
+    from vision_tokenization.pipeline import run_distributed_pipeline
 
-    # Build flat config dict for the pipeline
-    pipeline_cfg = {
-        "tokenizer_path": tokenizer_path,
-        "tokenizer_min_pixels": tokenizer_min_pixels,
-        "tokenizer_max_pixels": tokenizer_max_pixels,
-        "max_encode_pixels": tokenizer_cfg.get("max_encode_pixels"),
-        "filter_min_pixels": filter_min_pixels,
-        "filter_max_pixels": filter_max_pixels,
-        "output_dir": cfg.dataset.output_dir,
-        "num_gpus": cfg.get("num_gpus"),
-        "mode": cfg.mode,
-        "resume": cfg.get("resume", False),
-        "dry_run": cfg.get("dry_run", False),
-        "merge_shards": cfg.get("merge_shards", False),
-        # Dataset config (flattened from dataset group)
-        "dataset_type": cfg.dataset.get("dataset_type", "hf"),
-        "output_name": cfg.dataset.get("output_name"),
-        "manifest_path": cfg.dataset.get("manifest_path"),
-        "input_pattern": cfg.dataset.get("input_pattern"),
-        "image_column": cfg.dataset.get("image_column", "image"),
-        "text_column": cfg.dataset.get("text_column"),
-        "multi_image": cfg.dataset.get("multi_image"),
-        # Batch planning
-        "batch_plan_path": cfg.dataset.get("batch_plan_path"),
-        "batch_size": cfg.dataset.get("batch_size"),
-        "max_batch_tokens": cfg.dataset.get("max_batch_tokens"),
-        "spatial_factor": cfg.dataset.get("spatial_factor", 16),
-        "num_clusters": cfg.dataset.get("num_clusters", 2000),
-        "niter": cfg.dataset.get("niter", 10),
-        "gpu_kmeans": cfg.dataset.get("gpu_kmeans", True),
-        "resize_mode": cfg.dataset.get("resize_mode", "avg"),
-        # Augmentation
-        "augmentation": OmegaConf.to_container(cfg.dataset.augmentation, resolve=True)
-        if cfg.dataset.get("augmentation") is not None
-        else None,
-        # Checkpointing
-        "checkpoint_interval_batches": cfg.dataset.get("checkpoint_interval_batches", 500),
-        "max_consecutive_errors": cfg.dataset.get("max_consecutive_errors", 50),
-        "prefetch": OmegaConf.to_container(cfg.dataset.get("prefetch", {}), resolve=True),
-        # Sequence-length split
-        "seqlen_threshold": cfg.dataset.get("seqlen_threshold"),
-        # WDS-specific
-        "max_open_files": cfg.dataset.get("max_open_files", 64),
-        "max_cached_chunks": cfg.dataset.get("max_cached_chunks", 32),
-        # Multi-image
-        "image_field_pattern": cfg.dataset.get("image_field_pattern"),
-        "image_list_column": cfg.dataset.get("image_list_column"),
-        "document_format": cfg.dataset.get("document_format"),
-        "document_field": cfg.dataset.get("document_field"),
-        "local_image_prefixes": OmegaConf.to_container(
-            cfg.dataset.get("local_image_prefixes"), resolve=True
+    # Flatten Hydra config into a plain dict. Pipeline-specific sections are
+    # resolved after output_format is known so that only the active one applies.
+    resolved_cfg = OmegaConf.to_container(cfg, resolve=True)
+    dataset_cfg = resolved_cfg.pop("dataset", {})
+    pipeline_cfg = _merge_pipeline_sections(
+        resolved_cfg,
+        dataset_cfg,
+        output_format=output_format,
+    )
+    _validate_pipeline_cfg(pipeline_cfg, output_format=output_format)
+
+    # Resolve tokenizer fields
+    tokenizer_cfg_resolved = pipeline_cfg.pop("tokenizer", {})
+    pipeline_cfg["tokenizer_path"] = tokenizer_path
+    pipeline_cfg["tokenizer_min_pixels"] = tokenizer_min_pixels
+    pipeline_cfg["tokenizer_max_pixels"] = tokenizer_max_pixels
+    pipeline_cfg["max_encode_pixels"] = tokenizer_cfg_resolved.get("max_encode_pixels")
+    pipeline_cfg["filter_min_pixels"] = filter_min_pixels
+    pipeline_cfg["filter_max_pixels"] = filter_max_pixels
+    pipeline_cfg["output_format"] = output_format
+
+    # Bridge parser -> document_format for direct pipeline backward compat
+    if not pipeline_cfg.get("document_format"):
+        _parser_to_format = {
+            "pin200m": "pin_markdown", "shizhen": "content_array",
+            "medpix": "medpix",
+        }
+        pipeline_cfg["document_format"] = _parser_to_format.get(
+            pipeline_cfg.get("parser", "auto")
         )
-        if cfg.dataset.get("local_image_prefixes") is not None
-        else None,
-        # W&B
-        "wandb": OmegaConf.to_container(cfg.get("wandb", {}), resolve=True),
-    }
     pipeline_cfg["tokenizer_kwargs"] = tokenizer_kwargs
 
     # Conversation policy for SFT mode
-    conv_policy = cfg.dataset.get("conversation_policy")
+    conv_policy = pipeline_cfg.get("conversation_policy")
     if conv_policy is not None:
-        from vision_tokenization.vokenizers.conversation_policy import ConversationPolicy
+        from vision_tokenization.discrete.conversation import ConversationPolicy
 
         pipeline_cfg["tokenizer_kwargs"]["conversation_policy"] = ConversationPolicy(
-            **OmegaConf.to_container(conv_policy, resolve=True)
+            **(conv_policy if isinstance(conv_policy, dict) else {})
         )
 
     result = run_distributed_pipeline(pipeline_cfg)

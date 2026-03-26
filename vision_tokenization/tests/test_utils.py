@@ -224,7 +224,7 @@ def create_test_indexed_dataset(
     sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
     if multimodal:
-        from vision_tokenization.pipelines.indexed_dataset_megatron import VisionTokenIndexedDatasetBuilder
+        from vision_tokenization.formats.megatron import VisionTokenIndexedDatasetBuilder
 
         builder = VisionTokenIndexedDatasetBuilder(
             output_prefix=prefix, image_vocab_size=32768, text_vocab_size=text_vocab_size
@@ -232,7 +232,7 @@ def create_test_indexed_dataset(
         for seq in sequences:
             builder.add_image_tokens(np.array(seq, dtype=np.int32))
     else:
-        from vision_tokenization.pipelines.indexed_dataset_megatron import IndexedDatasetBuilder
+        from vision_tokenization.formats.megatron import IndexedDatasetBuilder
 
         builder = IndexedDatasetBuilder(f"{prefix}.bin", dtype=np.int32)
         for seq in sequences:

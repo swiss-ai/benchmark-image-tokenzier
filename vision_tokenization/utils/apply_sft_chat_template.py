@@ -108,7 +108,7 @@ from datasets import DatasetDict, load_dataset, load_dataset_builder, load_from_
 
 from transformers import AutoTokenizer
 
-from vision_tokenization.vokenizers.conversation_policy import (
+from vision_tokenization.discrete.conversation import (
     ConversationPolicy,
     apply_conversation_policy,
 )

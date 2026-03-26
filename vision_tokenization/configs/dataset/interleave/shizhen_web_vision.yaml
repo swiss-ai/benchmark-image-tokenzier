@@ -2,18 +2,20 @@
 # ShizhenGPT TCM web_vision — interleave, JSONL + tar
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
-  - _base_jsonl_tar_interleave
+  - _base_interleave
 
 output_name: shizhen_web_vision
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 manifest_path: /capstor/scratch/cscs/xyixuan/manifests/shizhen_web_vision/manifest.parquet
-document_format: content_array
+parser: shizhen
 document_field: content
 local_image_prefixes:
   - image/
 
-# --- Overrides ----------------------------------------------------------------
+pooled:
+  document_plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/shizhen_web_vision.pt
+  document_window_docs: 2_000
+  checkpoint_every_windows: 1
+
 gpu_kmeans: false
-batch_plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/shizhen_web_vision.pt
 max_batch_tokens: 32_768
-checkpoint_interval_batches: 2_000

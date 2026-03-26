@@ -29,7 +29,7 @@ from PIL import Image
 sys.path.insert(0, ".")
 sys.path.insert(0, "Tokenizer")
 
-from vision_tokenization.vokenizers.emu import create_tokenizer
+from vision_tokenization.discrete.emu import create_tokenizer
 
 TOKENIZER_PATH = "/capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5"
 MIN_PIXELS = 128 * 128

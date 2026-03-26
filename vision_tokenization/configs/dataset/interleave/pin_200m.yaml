@@ -2,18 +2,18 @@
 # PIN-200M — interleave, JSONL + tar (OBELICS, DocLayNet, PIN-Arxiv, etc.)
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
-  - _base_jsonl_tar_interleave
+  - _base_interleave
 
 output_name: pin_200m
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 manifest_path: /capstor/scratch/cscs/xyixuan/manifests/pin_200m/manifest.parquet
-document_format: pin_markdown
+parser: pin200m
 document_field: md
 local_image_prefixes:
   - content_image/
 
-# --- Overrides ----------------------------------------------------------------
+pooled:
+  document_plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/pin_200m_documents.pt
+
 gpu_kmeans: false
-batch_plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/pin_200m.pt
 max_batch_tokens: 32_768
-checkpoint_interval_batches: 5_000

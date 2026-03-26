@@ -19,7 +19,7 @@ parser: null
 
 direct:
   batch_plan: null
-  checkpoint_interval_batches: 5_000
+  checkpoint_interval_batches: 2_500
   prefetch:
     queue_size: 32
     num_workers: 8
