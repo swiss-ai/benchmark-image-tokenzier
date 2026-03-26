@@ -152,7 +152,12 @@ class TokenizationPlan:
     def split_image_batches_for_workers(
         self, num_workers: int,
     ) -> List[List[ImageBatch]]:
-        """Split image_batches into contiguous chunks balanced by token cost."""
+        """Split image_batches into contiguous chunks balanced by token cost.
+
+        Since window boundaries are snapped to document boundaries and batches
+        are produced per-window, the contiguous split preserves the invariant
+        that all of a document's images land on the same rank.
+        """
         n = len(self.image_batches)
         if n == 0:
             return [[] for _ in range(num_workers)]
@@ -209,6 +214,7 @@ def _plan_image_batches(
     comp_manifest_row: np.ndarray,
     comp_width: np.ndarray,
     comp_height: np.ndarray,
+    comp_document_id: np.ndarray,
     *,
     batch_size: int,
     max_batch_tokens: int,
@@ -219,9 +225,9 @@ def _plan_image_batches(
 ) -> List[ImageBatch]:
     """Build locality-aware image batches from image components.
 
-    Uses the same windowing + resolution grouping + k-means spillover as
-    ``plan_locality_batches``, but operates on component arrays instead of
-    raw manifest arrays.
+    Window boundaries are snapped to document boundaries so no document
+    is split across windows.  This ensures ``split_image_batches_for_workers``
+    (which cuts on window boundaries) never splits a document across ranks.
     """
     N = len(comp_indices)
     if N == 0:
@@ -244,13 +250,22 @@ def _plan_image_batches(
         per_tok = estimate_image_tokens(rh, rw, spatial_factor=spatial_factor)
         key_info[k] = (rh, rw, per_tok, min(batch_size, max(1, max_batch_tokens // per_tok)))
 
-    # Window by manifest_row position (already in physical order)
-    window_ids = comp_manifest_row // window_size
+    # Window by manifest_row position, snapped to document boundaries.
+    # Raw windows from manifest position:
+    raw_window_ids = comp_manifest_row // window_size
 
     if N > 1:
-        changes = np.where(np.diff(window_ids) > 0)[0] + 1
-        win_starts = np.concatenate([[0], changes])
-        win_ends = np.concatenate([changes, [N]])
+        raw_changes = np.where(np.diff(raw_window_ids) > 0)[0] + 1
+        # Snap each boundary forward to the next document boundary:
+        # if doc_id at boundary == doc_id before it, shift forward.
+        snapped = []
+        for pos in raw_changes:
+            while pos < N and comp_document_id[pos] == comp_document_id[pos - 1]:
+                pos += 1
+            if pos < N:
+                snapped.append(pos)
+        win_starts = np.array([0] + snapped, dtype=np.int64)
+        win_ends = np.array(snapped + [N], dtype=np.int64)
     else:
         win_starts = np.array([0], dtype=np.int64)
         win_ends = np.array([N], dtype=np.int64)
@@ -376,6 +391,7 @@ def build_plan_image_only(
     # Build image batches
     plan.image_batches = _plan_image_batches(
         comp_indices, valid_idx, widths[valid_idx], heights[valid_idx],
+        doc_ids,  # each image is its own document
         batch_size=batch_size, max_batch_tokens=max_batch_tokens,
         spatial_factor=spatial_factor, resize_min_pixels=resize_min_pixels,
         resize_max_pixels=resize_max_pixels, window_size=window_size,
@@ -530,6 +546,7 @@ def build_plan_image2text(
         comp_manifest_row[:n_image_comps],
         comp_width[:n_image_comps],
         comp_height[:n_image_comps],
+        comp_document_id[:n_image_comps],
         batch_size=batch_size, max_batch_tokens=max_batch_tokens,
         spatial_factor=spatial_factor, resize_min_pixels=resize_min_pixels,
         resize_max_pixels=resize_max_pixels, window_size=window_size,
