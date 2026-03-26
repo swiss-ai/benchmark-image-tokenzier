@@ -607,8 +607,20 @@ def build_tokenization_plan(
             manifest_path, text_column=text_column, mode=mode, **common,
         )
     elif mode == "sft":
-        raise NotImplementedError("SFT plan builder not yet implemented")
+        # SFT: one text component (conversation) + N image components per doc.
+        # Same structure as image2text — text component is the full conversation,
+        # image components are the images from the group.
+        # The rebuild handles placeholder replacement.
+        return build_plan_image2text(
+            manifest_path, text_column=text_column, mode="sft", **common,
+        )
     elif mode == "interleave":
-        raise NotImplementedError("Interleave plan builder not yet implemented")
+        # Interleave: multiple text + image components per document.
+        # Component order comes from the parsed document segments.
+        # For now, use the same structure as image2text — the rebuild
+        # reconstructs segment order from component_index.
+        return build_plan_image2text(
+            manifest_path, text_column=text_column, mode="interleave", **common,
+        )
     else:
         raise ValueError(f"Unknown mode: {mode}")
