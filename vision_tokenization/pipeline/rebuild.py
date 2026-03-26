@@ -34,19 +34,10 @@ from .assembly import (
 )
 from ..indexing.planning.tokenization_plan import (
     IMAGE, TEXT,
-    MODE_IMAGE_ONLY, MODE_IMAGE2TEXT, MODE_TEXT2IMAGE, MODE_SFT, MODE_INTERLEAVE,
     TokenizationPlan,
 )
 
 logger = logging.getLogger(__name__)
-
-_MODE_INT_TO_NAME = {
-    MODE_IMAGE_ONLY: "image_only",
-    MODE_IMAGE2TEXT: "image2text",
-    MODE_TEXT2IMAGE: "text2image",
-    MODE_SFT: "sft",
-    MODE_INTERLEAVE: "interleave",
-}
 
 
 def _validate_spill(
@@ -72,34 +63,90 @@ def _validate_spill(
         key = (int(spill_doc_ids[i]), int(spill_comp_idx[i]))
         spill_lookup.setdefault(key, []).append((i, spill_hashes[i]))
 
-    # Validate: every planned component must exist
     keep_indices = []
-    missing = []
     conflicts = []
-
-    for ci in range(n_plan):
-        key = (int(plan.comp_document_id[ci]), int(plan.comp_component_index[ci]))
-        entries = spill_lookup.get(key)
-
-        if entries is None:
-            missing.append(key)
-            continue
-
-        if len(entries) == 1:
+    for key, entries in spill_lookup.items():
+        hashes = set(h for _, h in entries)
+        if len(hashes) == 1:
             keep_indices.append(entries[0][0])
         else:
-            # Dedup: all hashes must match
-            hashes = set(h for _, h in entries)
-            if len(hashes) == 1:
-                keep_indices.append(entries[0][0])
-            else:
-                conflicts.append((key, [h for _, h in entries]))
+            conflicts.append((key, [h for _, h in entries]))
 
     if conflicts:
         sample = conflicts[:5]
         raise ValueError(
             f"Rebuild: {len(conflicts)} components have conflicting token hashes "
             f"(non-deterministic tokenization?). First 5: {sample}"
+        )
+
+    deduped = spill_table.take(sorted(keep_indices))
+
+    if plan.mode == "interleave":
+        spill_doc_ids = deduped.column("document_id").to_numpy()
+        spill_kinds = deduped.column("kind").to_numpy()
+        known_docs = {int(doc_id) for doc_id in plan.documents.document_id}
+        spilled_docs = {int(doc_id) for doc_id in spill_doc_ids}
+        orphan_docs = sorted(spilled_docs - known_docs)
+        if orphan_docs:
+            raise ValueError(
+                f"Rebuild: spill contains {len(orphan_docs)} interleave documents not in plan. "
+                f"First 10: {orphan_docs[:10]}"
+            )
+
+        image_counts: Dict[int, int] = {}
+        for i in range(len(deduped)):
+            if int(spill_kinds[i]) == int(IMAGE):
+                doc_id = int(spill_doc_ids[i])
+                image_counts[doc_id] = image_counts.get(doc_id, 0) + 1
+
+        wrong_counts = []
+        for doc_idx in range(plan.total_documents):
+            doc_id = int(plan.documents.document_id[doc_idx])
+            expected = int(plan.documents.num_images[doc_idx])
+            actual = image_counts.get(doc_id, 0)
+            if actual != expected:
+                wrong_counts.append((doc_id, actual, expected))
+        if wrong_counts:
+            raise ValueError(
+                f"Rebuild: {len(wrong_counts)} interleave documents have wrong image "
+                f"counts. First 10: {wrong_counts[:10]}"
+            )
+
+        logger.info(
+            f"Rebuild validation (interleave): {plan.total_documents:,} planned docs, "
+            f"{n_spill:,} spilled, {len(deduped):,} kept, {n_spill - len(deduped):,} deduped"
+        )
+        return deduped
+
+    missing = []
+    dedup_lookup = {
+        (
+            int(deduped.column("document_id")[i].as_py()),
+            int(deduped.column("component_index")[i].as_py()),
+        ): i
+        for i in range(len(deduped))
+    }
+    keep_plan_indices = []
+    for ci in range(n_plan):
+        key = (
+            int(plan.components.document_id[ci]),
+            int(plan.components.component_index[ci]),
+        )
+        row_idx = dedup_lookup.get(key)
+        if row_idx is None:
+            missing.append(key)
+            continue
+        keep_plan_indices.append(row_idx)
+
+    # Check for orphan spill rows (not in plan)
+    plan_keys = set(
+        (int(plan.components.document_id[i]), int(plan.components.component_index[i]))
+        for i in range(n_plan)
+    )
+    orphan_count = sum(1 for k in spill_lookup if k not in plan_keys)
+    if orphan_count > 0:
+        logger.warning(
+            f"Rebuild: {orphan_count} spill components not in plan (orphans, ignored)"
         )
 
     if missing:
@@ -110,34 +157,21 @@ def _validate_spill(
             f"First 10: {sample}"
         )
 
-    # Check for orphan spill rows (not in plan)
-    plan_keys = set(
-        (int(plan.comp_document_id[i]), int(plan.comp_component_index[i]))
-        for i in range(n_plan)
-    )
-    orphan_count = sum(1 for k in spill_lookup if k not in plan_keys)
-    if orphan_count > 0:
-        logger.warning(
-            f"Rebuild: {orphan_count} spill components not in plan (orphans, ignored)"
-        )
-
     logger.info(
         f"Rebuild validation: {n_plan:,} planned, {n_spill:,} spilled, "
-        f"{len(keep_indices):,} kept, {n_spill - len(keep_indices):,} deduped"
+        f"{len(keep_plan_indices):,} kept, {n_spill - len(deduped):,} deduped"
     )
 
-    return spill_table.take(keep_indices)
+    return deduped.take(keep_plan_indices)
 
 
 def _assemble_document(
-    mode_int: int,
+    mode: str,
     components: List[Tuple[dict, torch.Tensor]],
     token_ids: StructureTokenIds,
     max_sequence_tokens: Optional[int] = None,
 ) -> List[torch.Tensor]:
     """Assemble final sequence(s) for one document."""
-    mode = _MODE_INT_TO_NAME[mode_int]
-
     if mode == "image_only":
         image_structs = [t for row, t in components if row["kind"] == int(IMAGE)]
         return [assemble_sequence(
@@ -198,7 +232,7 @@ def _assemble_document(
             max_sequence_tokens=max_sequence_tokens,
         )
 
-    raise ValueError(f"Unknown mode: {mode} (int={mode_int})")
+    raise ValueError(f"Unknown mode: {mode}")
 
 
 def rebuild_from_plan(
@@ -228,6 +262,7 @@ def rebuild_from_plan(
 
     spill_dir = Path(spill_dir)
     token_dtype = np.int32
+    mode = plan.mode
 
     # Read all spill shards
     logger.info(f"Reading spill shards from {spill_dir}")
@@ -250,27 +285,37 @@ def rebuild_from_plan(
     for i in range(len(spill_table)):
         comp_lookup[(int(spill_doc_ids[i]), int(spill_comp_idx[i]))] = i
 
+    spill_comp_by_doc: Dict[int, List[Tuple[int, int]]] = {}
+    if mode == "interleave":
+        for i in range(len(spill_table)):
+            doc_id = int(spill_doc_ids[i])
+            spill_comp_by_doc.setdefault(doc_id, []).append(
+                (int(spill_comp_idx[i]), i)
+            )
+
     # TODO: mmap token files for zero-copy reads
     # For now, load per-component from file (functional but not optimal at 90M scale)
 
     # Determine output dtype
     megatron_dtype = DType.optimal_dtype(vocab_size)
 
-    # Output paths
-    output_path = spill_dir / output_name
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    # Output paths — megatron expects {prefix}.bin and {prefix}.idx
+    output_prefix = spill_dir / output_name
+    output_prefix.parent.mkdir(parents=True, exist_ok=True)
+    bin_path = str(output_prefix) + ".bin"
 
-    builder = IndexedDatasetBuilder(str(output_path), dtype=megatron_dtype)
+    builder = IndexedDatasetBuilder(bin_path, dtype=megatron_dtype)
 
-    # Pre-build plan component index: doc_id → list of (comp_idx, plan_row)
+    # Pre-build plan component index for modes with fully known components.
     plan_comp_by_doc: Dict[int, List[Tuple[int, int]]] = {}
-    plan_doc_ids = plan.comp_document_id
-    plan_comp_idxs = plan.comp_component_index
-    for i in range(plan.total_components):
-        doc_id = int(plan_doc_ids[i])
-        plan_comp_by_doc.setdefault(doc_id, []).append(
-            (int(plan_comp_idxs[i]), i)
-        )
+    if plan.mode != "interleave":
+        plan_doc_ids = plan.components.document_id
+        plan_comp_idxs = plan.components.component_index
+        for i in range(plan.total_components):
+            doc_id = int(plan_doc_ids[i])
+            plan_comp_by_doc.setdefault(doc_id, []).append(
+                (int(plan_comp_idxs[i]), i)
+            )
 
     # Memory-map all token files for zero-copy reads
     rank_dirs = sorted(spill_dir.glob("rank_*"))
@@ -310,23 +355,29 @@ def rebuild_from_plan(
 
     # Assemble documents in output order
     n_docs = plan.total_documents
-    doc_order = np.argsort(plan.doc_output_order)
+    doc_order = np.argsort(plan.documents.output_order)
 
     total_sequences = 0
     total_tokens_out = 0
 
     for di in range(n_docs):
         doc_idx = int(doc_order[di])
-        doc_id = int(plan.doc_document_id[doc_idx])
-        mode_int = int(plan.doc_mode[doc_idx])
-
-        plan_comps = plan_comp_by_doc.get(doc_id, [])
-        plan_comps.sort(key=lambda x: x[0])  # sort by component_index
+        doc_id = int(plan.documents.document_id[doc_idx])
 
         components = []
-        for comp_idx, plan_row in plan_comps:
+        if mode == "interleave":
+            iter_rows = spill_comp_by_doc.get(doc_id, [])
+            iter_rows.sort(key=lambda x: x[0])
+        else:
+            plan_comps = plan_comp_by_doc.get(doc_id, [])
+            plan_comps.sort(key=lambda x: x[0])  # sort by component_index
+            iter_rows = [
+                (comp_idx, comp_lookup.get((doc_id, comp_idx)))
+                for comp_idx, _plan_row in plan_comps
+            ]
+
+        for comp_idx, spill_row in iter_rows:
             spill_key = (doc_id, comp_idx)
-            spill_row = comp_lookup.get(spill_key)
             if spill_row is None:
                 continue
 
@@ -349,10 +400,10 @@ def rebuild_from_plan(
         if not components:
             continue
 
-        sequences = _assemble_document(mode_int, components, token_ids, max_sequence_tokens)
+        sequences = _assemble_document(mode, components, token_ids, max_sequence_tokens)
 
         for seq in sequences:
-            builder.add_item(seq.numpy().astype(megatron_dtype.numpy_dtype))
+            builder.add_item(seq.numpy().astype(megatron_dtype))
             builder.end_document()
             total_sequences += 1
             total_tokens_out += len(seq)
@@ -360,10 +411,11 @@ def rebuild_from_plan(
         if (di + 1) % 100_000 == 0:
             logger.info(f"Rebuild progress: {di + 1:,}/{n_docs:,} documents")
 
-    builder.finalize()
+    idx_path = str(output_prefix) + ".idx"
+    builder.finalize(idx_path)
 
     logger.info(
         f"Rebuild complete: {total_sequences:,} sequences, "
-        f"{total_tokens_out:,} tokens -> {output_path}"
+        f"{total_tokens_out:,} tokens -> {output_prefix}"
     )
-    return output_path
+    return output_prefix
