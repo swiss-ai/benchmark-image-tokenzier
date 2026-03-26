@@ -21,8 +21,8 @@ direct:
   batch_plan: null
   checkpoint_interval_batches: 5_000
   prefetch:
-    queue_size: 64
-    num_workers: 32
+    queue_size: 32
+    num_workers: 8
 
 pooled:
   document_plan_path: null
@@ -50,5 +50,5 @@ locality:
 augmentation: null
 
 max_consecutive_errors: 50
-max_cached_chunks: 32
+max_cached_chunks: 128
 seqlen_threshold: null

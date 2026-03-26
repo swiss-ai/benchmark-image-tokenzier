@@ -14,7 +14,11 @@ multi_image: false
 # --- Overrides ----------------------------------------------------------------
 num_clusters: 20_000
 gpu_kmeans: true
-batch_plan: /capstor/scratch/cscs/xyixuan/batch_plans/llava_onevision_mid_85m_locality_w5k_v3.pt
+batch_plan: /capstor/scratch/cscs/xyixuan/batch_plans/llava_onevision_mid_85m_locality_w2k_v2.pt
 max_batch_tokens: 32_768
-checkpoint_interval_batches: 5_000
-max_cached_chunks: 256
+max_cached_chunks: 128
+direct:
+  checkpoint_interval_batches: 2_500
+  prefetch:
+    num_workers: 8
+    queue_size: 32
