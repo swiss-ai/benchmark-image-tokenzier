@@ -36,22 +36,6 @@ SOURCE_MANIFEST_ROW = np.int8(0)
 SOURCE_JSONL_SEGMENT = np.int8(1)
 SOURCE_SFT_TURN = np.int8(2)
 
-# Document modes
-MODE_IMAGE_ONLY = np.int8(0)
-MODE_IMAGE2TEXT = np.int8(1)
-MODE_TEXT2IMAGE = np.int8(2)
-MODE_SFT = np.int8(3)
-MODE_INTERLEAVE = np.int8(4)
-
-_MODE_NAME_TO_INT = {
-    "image_only": MODE_IMAGE_ONLY,
-    "image2text": MODE_IMAGE2TEXT,
-    "text2image": MODE_TEXT2IMAGE,
-    "sft": MODE_SFT,
-    "interleave": MODE_INTERLEAVE,
-}
-
-
 @dataclass
 class ImageBatch:
     """One GPU encoding batch over image components."""
@@ -109,7 +93,6 @@ class TokenizationPlan:
     # --- Documents (one row per logical document/sample) ---
     doc_document_id: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))
     doc_output_order: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))
-    doc_mode: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int8))
     doc_num_components: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int16))
 
     # --- Components (one row per component across all documents) ---
@@ -125,6 +108,9 @@ class TokenizationPlan:
 
     # --- Image batches (execution layout) ---
     image_batches: List[ImageBatch] = field(default_factory=list)
+    # window_batch_offsets[i] = first batch index of window i.
+    # split_image_batches_for_workers cuts on window boundaries only.
+    window_batch_offsets: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))
 
     # --- Metadata ---
     metadata: PlanMetadata = field(default_factory=lambda: PlanMetadata("", "", ""))
@@ -149,22 +135,54 @@ class TokenizationPlan:
     def total_batches(self) -> int:
         return len(self.image_batches)
 
+    @property
+    def mode(self) -> str:
+        return self.metadata.mode
+
     def split_image_batches_for_workers(
         self, num_workers: int,
     ) -> List[List[ImageBatch]]:
         """Split image_batches into contiguous chunks balanced by token cost.
 
-        Since window boundaries are snapped to document boundaries and batches
-        are produced per-window, the contiguous split preserves the invariant
-        that all of a document's images land on the same rank.
+        Cuts only on window boundaries so no document is split across ranks.
+        Each window's batches are assigned atomically to one rank.
         """
         n = len(self.image_batches)
         if n == 0:
             return [[] for _ in range(num_workers)]
 
-        costs = [float(b.batch_token_count) for b in self.image_batches]
+        offsets = self.window_batch_offsets
+        if len(offsets) == 0:
+            # Fallback: no window info, treat each batch as its own window
+            offsets = np.arange(n, dtype=np.int64)
+
+        num_windows = len(offsets)
+        # Compute per-window cost
+        window_costs = []
+        for wi in range(num_windows):
+            ws = int(offsets[wi])
+            we = int(offsets[wi + 1]) if wi + 1 < num_windows else n
+            cost = sum(float(self.image_batches[i].batch_token_count) for i in range(ws, we))
+            window_costs.append(cost)
+
+        # Split windows across workers
         from vision_tokenization.utils.partitioning import weighted_contiguous_split
-        return weighted_contiguous_split(self.image_batches, costs, num_workers)
+        window_indices = list(range(num_windows))
+        window_splits = weighted_contiguous_split(window_indices, window_costs, num_workers)
+
+        # Map window splits back to batch splits
+        result = []
+        for worker_windows in window_splits:
+            if not worker_windows:
+                result.append([])
+                continue
+            first_win = worker_windows[0]
+            last_win = worker_windows[-1]
+            batch_start = int(offsets[first_win])
+            batch_end = int(offsets[last_win + 1]) if last_win + 1 < num_windows else n
+            result.append(self.image_batches[batch_start:batch_end])
+
+        return result
 
 
 # ---------------------------------------------------------------------------
@@ -222,8 +240,11 @@ def _plan_image_batches(
     resize_min_pixels: int,
     resize_max_pixels: int,
     window_size: int,
-) -> List[ImageBatch]:
+) -> tuple:
     """Build locality-aware image batches from image components.
+
+    Returns ``(batches, window_batch_offsets)`` where
+    ``window_batch_offsets[i]`` is the index of the first batch in window *i*.
 
     Window boundaries are snapped to document boundaries so no document
     is split across windows.  This ensures ``split_image_batches_for_workers``
@@ -272,10 +293,12 @@ def _plan_image_batches(
 
     num_windows = len(win_starts)
 
-    # Process each window
+    # Process each window, tracking where each window's batches start
     all_batches: List[ImageBatch] = []
+    window_batch_offsets: List[int] = []
 
     for wi in range(num_windows):
+        window_batch_offsets.append(len(all_batches))
         ws = int(win_starts[wi])
         we = int(win_ends[wi])
         win_keys = keys[ws:we]
@@ -334,7 +357,7 @@ def _plan_image_batches(
                     batch_token_count=sb.batch_token_count,
                 ))
 
-    return all_batches
+    return all_batches, np.array(window_batch_offsets, dtype=np.int64)
 
 
 # ---------------------------------------------------------------------------
@@ -374,7 +397,6 @@ def build_plan_image_only(
     plan = TokenizationPlan(
         doc_document_id=doc_ids,
         doc_output_order=doc_ids.copy(),
-        doc_mode=np.full(N, MODE_IMAGE_ONLY, dtype=np.int8),
         doc_num_components=np.ones(N, dtype=np.int16),
 
         comp_document_id=doc_ids.copy(),
@@ -389,7 +411,7 @@ def build_plan_image_only(
     )
 
     # Build image batches
-    plan.image_batches = _plan_image_batches(
+    plan.image_batches, plan.window_batch_offsets = _plan_image_batches(
         comp_indices, valid_idx, widths[valid_idx], heights[valid_idx],
         doc_ids,  # each image is its own document
         batch_size=batch_size, max_batch_tokens=max_batch_tokens,
@@ -472,8 +494,6 @@ def build_plan_image2text(
     unique_docs, doc_inverse = np.unique(valid_gids, return_inverse=True)
     N_docs = len(unique_docs)
 
-    mode_int = _MODE_NAME_TO_INT[mode]
-
     # Count images per document (vectorized)
     images_per_doc = np.bincount(doc_inverse, minlength=N_docs).astype(np.int16)
     components_per_doc = images_per_doc + 1  # images + 1 text
@@ -527,7 +547,6 @@ def build_plan_image2text(
     plan = TokenizationPlan(
         doc_document_id=np.arange(N_docs, dtype=np.int64),
         doc_output_order=np.arange(N_docs, dtype=np.int64),
-        doc_mode=np.full(N_docs, mode_int, dtype=np.int8),
         doc_num_components=components_per_doc,
 
         comp_document_id=comp_document_id,
@@ -541,7 +560,7 @@ def build_plan_image2text(
         comp_height=comp_height,
     )
 
-    plan.image_batches = _plan_image_batches(
+    plan.image_batches, plan.window_batch_offsets = _plan_image_batches(
         image_comp_indices,
         comp_manifest_row[:n_image_comps],
         comp_width[:n_image_comps],
@@ -567,6 +586,111 @@ def build_plan_image2text(
     logger.info(
         f"{mode} plan: {plan.total_documents:,} documents, "
         f"{plan.total_components:,} components, "
+        f"{plan.total_batches:,} image batches"
+    )
+    return plan
+
+
+def build_plan_interleave(
+    manifest_path: Union[str, Path],
+    *,
+    text_column: Optional[str] = None,
+    parser: Optional[str] = None,
+    min_pixels: Optional[int] = None,
+    max_pixels: Optional[int] = None,
+    batch_size: int = 128,
+    max_batch_tokens: int = 32768,
+    spatial_factor: int = 16,
+    resize_min_pixels: int = 16384,
+    resize_max_pixels: int = 1960000,
+    window_size: int = 2000,
+) -> TokenizationPlan:
+    """Build plan for interleave mode.
+
+    Interleave text/image segment order is discovered at runtime by parsing the
+    source JSONL document.  The plan therefore stores only image components and
+    per-document image counts; runtime spill assigns the final component_index
+    values from parsed segment order.
+    """
+    manifest_path = str(manifest_path)
+
+    widths, heights, group_ids, image_indices = load_group_arrays(manifest_path)
+    total = len(widths)
+    valid_mask = _pixel_filter(widths, heights, spatial_factor, min_pixels, max_pixels)
+
+    # Interleave documents are grouped by group_id; drop the whole document if
+    # any member image fails the pixel filter.
+    unique_gids, inverse = np.unique(group_ids, return_inverse=True)
+    invalid_groups = np.zeros(len(unique_gids), dtype=bool)
+    np.logical_or.at(invalid_groups, inverse, ~valid_mask)
+    valid_mask = ~invalid_groups[inverse]
+
+    valid_idx = np.where(valid_mask)[0]
+    n_rows = len(valid_idx)
+    valid_gids = group_ids[valid_idx]
+    valid_img_idx = image_indices[valid_idx]
+
+    _unique_docs, doc_inverse = np.unique(valid_gids, return_inverse=True)
+    n_docs = int(doc_inverse.max()) + 1 if n_rows > 0 else 0
+    images_per_doc = np.bincount(doc_inverse, minlength=n_docs).astype(np.int16)
+
+    logger.info(
+        f"interleave plan: {n_docs:,} documents, {n_rows:,} image components "
+        f"({total - n_rows:,} rows filtered)"
+    )
+
+    comp_indices = np.arange(n_rows, dtype=np.int64)
+    plan = TokenizationPlan(
+        doc_document_id=np.arange(n_docs, dtype=np.int64),
+        doc_output_order=np.arange(n_docs, dtype=np.int64),
+        # For interleave, this field tracks the number of image occurrences in
+        # the document; total segment/component count is runtime-discovered.
+        doc_num_components=images_per_doc,
+
+        comp_document_id=doc_inverse.astype(np.int64, copy=False),
+        comp_component_index=valid_img_idx,
+        comp_kind=np.full(n_rows, IMAGE, dtype=np.int8),
+        comp_source_kind=np.full(n_rows, SOURCE_MANIFEST_ROW, dtype=np.int8),
+        comp_source_ref=valid_idx,
+        comp_manifest_row=valid_idx,
+        comp_image_index=valid_img_idx,
+        comp_width=widths[valid_idx],
+        comp_height=heights[valid_idx],
+    )
+
+    plan.image_batches, plan.window_batch_offsets = _plan_image_batches(
+        comp_indices,
+        valid_idx,
+        widths[valid_idx],
+        heights[valid_idx],
+        plan.comp_document_id,
+        batch_size=batch_size,
+        max_batch_tokens=max_batch_tokens,
+        spatial_factor=spatial_factor,
+        resize_min_pixels=resize_min_pixels,
+        resize_max_pixels=resize_max_pixels,
+        window_size=window_size,
+    )
+
+    plan.metadata = PlanMetadata(
+        manifest_path=manifest_path,
+        manifest_fingerprint=_manifest_fingerprint(manifest_path),
+        mode="interleave",
+        parser=parser,
+        text_column=text_column,
+        min_pixels=min_pixels,
+        max_pixels=max_pixels,
+        window_size=window_size,
+        batch_size=batch_size,
+        max_batch_tokens=max_batch_tokens,
+        resize_min_pixels=resize_min_pixels,
+        resize_max_pixels=resize_max_pixels,
+        spatial_factor=spatial_factor,
+    )
+
+    logger.info(
+        f"interleave plan: {plan.total_documents:,} documents, "
+        f"{plan.total_components:,} image components, "
         f"{plan.total_batches:,} image batches"
     )
     return plan
@@ -632,12 +756,11 @@ def build_tokenization_plan(
             manifest_path, text_column=text_column, mode="sft", **common,
         )
     elif mode == "interleave":
-        # Interleave: multiple text + image components per document.
-        # Component order comes from the parsed document segments.
-        # For now, use the same structure as image2text — the rebuild
-        # reconstructs segment order from component_index.
-        return build_plan_image2text(
-            manifest_path, text_column=text_column, mode="interleave", **common,
+        return build_plan_interleave(
+            manifest_path,
+            text_column=text_column,
+            parser=parser,
+            **common,
         )
     else:
         raise ValueError(f"Unknown mode: {mode}")
