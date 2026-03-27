@@ -102,18 +102,36 @@ def recompute_stats_summary(
     return aggregate
 
 
+def load_rank_stats_files(output_dir: Path) -> List[Dict[str, Any]]:
+    """Load per-rank stats from ``rank_XXXX_stats.json`` files."""
+    stats = []
+    for f in sorted(output_dir.glob("rank_*_stats.json")):
+        try:
+            record = json_loads(f.read_text())
+            if "rank" in record:
+                stats.append(record)
+        except Exception:
+            continue
+    return stats
+
+
 def maybe_write_stats_summary(
     output_dir: Path | str,
     *,
     expected_ranks: int,
 ) -> Optional[Dict[str, Any]]:
     """Try to write a complete summary, returning ``None`` if not ready."""
+    output_dir = Path(output_dir)
     try:
-        return recompute_stats_summary(
-            output_dir,
-            expected_ranks=expected_ranks,
-            require_complete=True,
-        )
+        # Try per-rank files first, fall back to stats.jsonl
+        rank_stats = load_rank_stats_files(output_dir)
+        if not rank_stats:
+            rank_stats = load_latest_rank_stats(output_dir / "stats.jsonl")
+        if len(rank_stats) < expected_ranks:
+            return None
+        aggregate = build_aggregate(rank_stats)
+        write_stats_summary(output_dir, aggregate)
+        return aggregate
     except Exception:
         logger.debug("Failed to reduce stats in %s", output_dir, exc_info=True)
         return None

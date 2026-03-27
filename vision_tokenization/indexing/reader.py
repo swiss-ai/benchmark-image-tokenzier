@@ -11,9 +11,55 @@ from collections import OrderedDict
 from io import BytesIO
 from typing import List, Optional, Tuple
 
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 logger = logging.getLogger(__name__)
+
+
+def _is_common_decode_error(err: BaseException) -> bool:
+    """Return True for expected image-corruption failures.
+
+    These errors are common in large web-scale datasets and are not actionable
+    enough to warrant a full traceback on every occurrence.  We still keep the
+    one-line warning so operators can see which raw file/offset is bad.
+    """
+    if isinstance(err, UnidentifiedImageError):
+        return True
+
+    msg = str(err).lower()
+    return any(
+        marker in msg
+        for marker in (
+            "image file is truncated",
+            "cannot identify image file",
+            "broken data stream",
+            "truncated file read",
+        )
+    )
+
+
+def _log_read_failure(tar_path: str, offset: int, err: BaseException) -> None:
+    """Log image-read failures with concise output for expected corruption.
+
+    Corrupted or truncated images are expected occasionally in web-scale
+    datasets, so keep those warnings to one line. Unexpected exceptions still
+    include the traceback to aid debugging.
+    """
+    if _is_common_decode_error(err):
+        logger.warning(
+            "Failed to read image at offset %d in %s: %s",
+            offset,
+            tar_path,
+            err,
+        )
+        return
+
+    logger.warning(
+        "Failed to read image at offset %d in %s",
+        offset,
+        tar_path,
+        exc_info=True,
+    )
 
 
 class TarRandomAccessReader:
@@ -128,8 +174,8 @@ class TarRandomAccessReader:
         for tar_path, offset, size in refs:
             try:
                 results.append(self.read_image(tar_path, offset, size))
-            except Exception:
-                logger.warning(f"Failed to read image at offset {offset} in {tar_path}", exc_info=True)
+            except Exception as err:
+                _log_read_failure(tar_path, offset, err)
                 results.append(None)
         return results
 

@@ -83,6 +83,15 @@ class SimpleWandbLogger:
             "step": self._step,
         }
 
+    def should_log_now(self) -> bool:
+        """Return True when the next ``log()`` call would flush to W&B.
+
+        The executor uses this to avoid paying detailed timing/synchronization
+        overhead on batches whose metrics would be dropped by the logger's
+        interval gate anyway.
+        """
+        return (time.time() - self._last_flush) >= self._interval
+
     def log(
         self,
         samples: int,

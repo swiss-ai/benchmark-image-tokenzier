@@ -14,8 +14,8 @@ import numpy as np
 from PIL import Image
 import torch
 
-from vision_tokenization.pipeline.checkpoint import WorkerStats
-from vision_tokenization.pipeline.direct.writer import MicroShardWriter
+from ...runtime.checkpoint import WorkerStats
+from .writer import MicroShardWriter
 
 logger = logging.getLogger(__name__)
 
@@ -75,13 +75,13 @@ class TokenizationHandler:
                 measured with CUDA events.
 
         Returns:
-            Timing dict with keys ``tokenize_wall_s``, ``tokenize_gpu_s``,
-            ``write_s`` (zeros when *timing_enabled* is false).
+            Timing dict with keys ``tokenize_wall_ms``, ``tokenize_gpu_ms``,
+            ``write_ms`` (zeros when *timing_enabled* is false).
         """
         timings = {
-            "tokenize_wall_s": 0.0,
-            "tokenize_gpu_s": 0.0,
-            "write_s": 0.0,
+            "tokenize_wall_ms": 0.0,
+            "tokenize_gpu_ms": 0.0,
+            "write_ms": 0.0,
         }
 
         valid_images, valid_texts, valid_slices = self._filter_none(
@@ -93,11 +93,17 @@ class TokenizationHandler:
 
         if timing_enabled:
             tokenize_start = time.perf_counter()
-            cuda_device = None
+            # CUDA events conflict with torch.compile reduce-overhead
+            # (CUDA graph capture). Use sync + wall-clock instead.
+            use_cuda_events = (
+                torch.cuda.is_available()
+                and str(device).startswith("cuda")
+                and not getattr(tokenizer, "torch_compile", False)
+            )
+            cuda_device = torch.device(device) if use_cuda_events else None
             start_event = None
             end_event = None
-            if torch.cuda.is_available() and str(device).startswith("cuda"):
-                cuda_device = torch.device(device)
+            if use_cuda_events:
                 torch.cuda.synchronize(cuda_device)
                 start_event = torch.cuda.Event(enable_timing=True)
                 end_event = torch.cuda.Event(enable_timing=True)
@@ -118,8 +124,13 @@ class TokenizationHandler:
                     with torch.cuda.device(cuda_device):
                         end_event.record()
                     torch.cuda.synchronize(cuda_device)
-                    timings["tokenize_gpu_s"] = start_event.elapsed_time(end_event) / 1000.0
-                timings["tokenize_wall_s"] = time.perf_counter() - tokenize_start
+                    timings["tokenize_gpu_ms"] = start_event.elapsed_time(end_event)
+                else:
+                    # Sync + wall-clock as GPU time proxy when CUDA events disabled
+                    if torch.cuda.is_available():
+                        torch.cuda.synchronize()
+                    timings["tokenize_gpu_ms"] = (time.perf_counter() - tokenize_start) * 1000
+                timings["tokenize_wall_ms"] = (time.perf_counter() - tokenize_start) * 1000
 
         # Write results (skip None entries from multi-image skips)
         if timing_enabled:
@@ -130,7 +141,7 @@ class TokenizationHandler:
                 continue
             self.writer.write_sequence(seq.cpu() if seq.is_cuda else seq, stats)
         if timing_enabled:
-            timings["write_s"] = time.perf_counter() - write_start
+            timings["write_ms"] = (time.perf_counter() - write_start) * 1000
         return timings
 
     @staticmethod

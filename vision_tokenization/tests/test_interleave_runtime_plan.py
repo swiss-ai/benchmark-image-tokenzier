@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 import torch
@@ -16,11 +18,14 @@ from vision_tokenization.indexing.planning.tokenization_plan import (
     _plan_image_batches,
     build_tokenization_plan,
 )
-from vision_tokenization.pipeline.backend import SpillBackend
-from vision_tokenization.pipeline.checkpoint import WorkerStats
-from vision_tokenization.pipeline.assembly import StructureTokenIds
-from vision_tokenization.pipeline.rebuild import _validate_spill, rebuild_from_plan
-from vision_tokenization.pipeline.spill import ComponentSpillReader, ComponentSpillWriter
+from vision_tokenization.pipeline.output.backend import SpillBackend
+from vision_tokenization.pipeline.runtime.checkpoint import WorkerStats
+from vision_tokenization.common.assembly import StructureTokenIds
+from vision_tokenization.pipeline.output.rebuild import rebuild_from_plan
+from vision_tokenization.pipeline.output.spill import (
+    ComponentSpillReader,
+    ComponentSpillWriter,
+)
 
 
 def _write_interleave_manifest(tmp_path):
@@ -107,59 +112,6 @@ def test_interleave_plan_contains_only_image_components(tmp_path):
     assert plan.components.component_index.tolist() == [0, 1, 0]
 
 
-def test_interleave_validate_spill_accepts_runtime_components(tmp_path):
-    manifest_path = _write_interleave_manifest(tmp_path)
-    plan = build_tokenization_plan(
-        manifest_path,
-        mode="interleave",
-        batch_size=8,
-        max_batch_tokens=8192,
-        spatial_factor=16,
-        resize_min_pixels=256,
-        resize_max_pixels=4096,
-        window_size=100,
-    )
-
-    output_dir = tmp_path / "spill"
-    writer = ComponentSpillWriter(str(output_dir), rank=0, token_dtype=np.int32)
-    writer.open()
-    writer.add_component(document_id=0, component_index=0, kind=1, tokens=np.array([10], dtype=np.int32))
-    writer.add_component(document_id=0, component_index=1, kind=0, tokens=np.array([20, 21], dtype=np.int32))
-    writer.add_component(document_id=0, component_index=2, kind=1, tokens=np.array([30], dtype=np.int32))
-    writer.add_component(document_id=0, component_index=3, kind=0, tokens=np.array([40, 41], dtype=np.int32))
-    writer.add_component(document_id=1, component_index=0, kind=0, tokens=np.array([50, 51], dtype=np.int32))
-    writer.finalize()
-
-    spill_table = ComponentSpillReader.read_all_ranks(output_dir)
-    validated = _validate_spill(plan, spill_table)
-    assert len(validated) == 5
-
-
-def test_interleave_validate_spill_rejects_missing_image_component(tmp_path):
-    manifest_path = _write_interleave_manifest(tmp_path)
-    plan = build_tokenization_plan(
-        manifest_path,
-        mode="interleave",
-        batch_size=8,
-        max_batch_tokens=8192,
-        spatial_factor=16,
-        resize_min_pixels=256,
-        resize_max_pixels=4096,
-        window_size=100,
-    )
-
-    output_dir = tmp_path / "spill_missing"
-    writer = ComponentSpillWriter(str(output_dir), rank=0, token_dtype=np.int32)
-    writer.open()
-    writer.add_component(document_id=0, component_index=0, kind=1, tokens=np.array([10], dtype=np.int32))
-    writer.add_component(document_id=0, component_index=1, kind=0, tokens=np.array([20, 21], dtype=np.int32))
-    writer.add_component(document_id=1, component_index=0, kind=0, tokens=np.array([50, 51], dtype=np.int32))
-    writer.finalize()
-
-    spill_table = ComponentSpillReader.read_all_ranks(output_dir)
-    with pytest.raises(ValueError, match="wrong image counts"):
-        _validate_spill(plan, spill_table)
-
 
 def test_rebuild_from_plan_interleave_uses_runtime_component_order(tmp_path, token_ids):
     manifest_path = _write_interleave_manifest(tmp_path)
@@ -184,7 +136,7 @@ def test_rebuild_from_plan_interleave_uses_runtime_component_order(tmp_path, tok
     writer.add_component(document_id=1, component_index=0, kind=0, tokens=np.array([50, 51], dtype=np.int32))
     writer.finalize()
 
-    prefix = rebuild_from_plan(
+    result = rebuild_from_plan(
         plan,
         output_dir,
         token_ids=token_ids,
@@ -192,6 +144,7 @@ def test_rebuild_from_plan_interleave_uses_runtime_component_order(tmp_path, tok
         output_name="rebuilt_interleave",
     )
 
+    prefix = Path(result["output_prefix"])
     assert prefix.with_suffix(".bin").exists()
     assert prefix.with_suffix(".idx").exists()
 

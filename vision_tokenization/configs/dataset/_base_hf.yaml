@@ -34,3 +34,6 @@ checkpoint_interval_batches: 2_500
 max_consecutive_errors: 50
 max_cached_chunks: 128
 seqlen_threshold: null
+
+# torch.compile for VQ encoder — benefits fixed-resolution datasets
+torch_compile: false

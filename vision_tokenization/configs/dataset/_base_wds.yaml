@@ -25,13 +25,16 @@ spatial_factor: 16
 # Prefetch
 prefetch:
   queue_size: 64
-  num_workers: 32
+  num_workers: 8
 
 # Checkpoint
 checkpoint_interval_batches: 2_500
 
 max_consecutive_errors: 50
 seqlen_threshold: null
+
+# torch.compile for VQ encoder — benefits fixed-resolution datasets
+torch_compile: false
 
 # WDS-specific
 max_open_files: 64

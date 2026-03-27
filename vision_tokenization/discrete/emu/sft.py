@@ -21,7 +21,7 @@ from .image_only import EMUImageOnlyTokenizer
 logger = logging.getLogger(__name__)
 
 
-from vision_tokenization.pipeline.assembly import (
+from vision_tokenization.common.assembly import (
     replace_image_placeholders as _replace_images,
 )
 

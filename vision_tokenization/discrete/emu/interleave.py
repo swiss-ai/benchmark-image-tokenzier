@@ -12,9 +12,9 @@ import torch
 
 from .image_only import EMUImageOnlyTokenizer
 
-# Canonical assembly/splitting logic lives in sequence_assembly.
+# Canonical assembly/splitting logic lives in common.assembly.
 # Re-export for backward compatibility (existing tests import from here).
-from vision_tokenization.pipeline.assembly import (  # noqa: F401
+from vision_tokenization.common.assembly import (  # noqa: F401
     assemble_interleaved_sequence,
     split_interleaved_sequence,
 )

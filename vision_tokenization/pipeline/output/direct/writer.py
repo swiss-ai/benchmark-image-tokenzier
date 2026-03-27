@@ -11,7 +11,7 @@ import logging
 import os
 from typing import Any, Dict, Tuple
 
-from vision_tokenization.pipeline.checkpoint import (
+from ...runtime.checkpoint import (
     WorkerStats,
     finalize_shard_writer,
     open_chunk_writer,

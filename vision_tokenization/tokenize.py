@@ -83,6 +83,32 @@ def _merge_config(root_cfg: dict, dataset_cfg: dict) -> dict:
     return pipeline_cfg
 
 
+def _build_tokenizer_kwargs(cfg: DictConfig) -> dict:
+    """Resolve tokenizer runtime kwargs with tokenizer-scoped precedence.
+
+    ``tokenizer.*`` overrides should win over dataset defaults, because they
+    control tokenizer implementation details rather than dataset semantics.
+    Dataset-scoped values remain as a fallback for existing dataset configs.
+    """
+    tokenizer_cfg = cfg.tokenizer
+    dataset_cfg = cfg.dataset
+
+    tokenizer_kwargs = {
+        "torch_compile": tokenizer_cfg.get(
+            "torch_compile",
+            dataset_cfg.get("torch_compile", False),
+        ),
+        "torch_compile_mode": tokenizer_cfg.get(
+            "torch_compile_mode",
+            dataset_cfg.get("torch_compile_mode", "max-autotune"),
+        ),
+    }
+    max_sequence_tokens = dataset_cfg.get("max_sequence_tokens")
+    if max_sequence_tokens is not None:
+        tokenizer_kwargs["max_sequence_tokens"] = int(max_sequence_tokens)
+    return tokenizer_kwargs
+
+
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg: DictConfig):
     # Print config only on rank 0
@@ -97,13 +123,7 @@ def main(cfg: DictConfig):
     tokenizer_path = tokenizer_cfg.path
     tokenizer_min_pixels = parse_resolution(str(tokenizer_cfg.min_pixels))["pixels"]
     tokenizer_max_pixels = parse_resolution(str(tokenizer_cfg.max_pixels))["pixels"]
-    tokenizer_kwargs = {
-        "torch_compile": tokenizer_cfg.get("torch_compile", False),
-        "torch_compile_mode": tokenizer_cfg.get("torch_compile_mode", "reduce-overhead"),
-    }
-    max_sequence_tokens = cfg.dataset.get("max_sequence_tokens")
-    if max_sequence_tokens is not None:
-        tokenizer_kwargs["max_sequence_tokens"] = int(max_sequence_tokens)
+    tokenizer_kwargs = _build_tokenizer_kwargs(cfg)
 
     filter_min_pixels = parse_resolution(str(cfg.dataset.min_pixels))["pixels"]
     filter_max_pixels = parse_resolution(str(cfg.dataset.max_pixels))["pixels"]

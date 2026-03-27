@@ -304,14 +304,14 @@ class ComponentSpillReader:
     def read_all_ranks(output_dir: Path) -> pa.Table:
         """Read components from all rank directories."""
         output_dir = Path(output_dir)
-        rank_dirs = sorted(output_dir.glob("rank_*"))
+        rank_dirs = sorted(p for p in output_dir.glob("rank_*") if p.is_dir())
         if not rank_dirs:
             raise FileNotFoundError(f"No rank directories found in {output_dir}")
 
         tables = []
         for rd in rank_dirs:
             if not (rd / "_SUCCESS").exists():
-                logger.warning(f"Skipping incomplete rank: {rd}")
+                logger.warning(f"Skipping rank {rd.name}: no _SUCCESS marker")
                 continue
             tables.append(ComponentSpillReader.read_rank(rd))
 

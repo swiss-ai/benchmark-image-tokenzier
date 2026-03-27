@@ -1,20 +1,11 @@
-"""
-EMU Tokenizers for vision-language models.
+"""EMU tokenizer factory.
 
-This module provides tokenizers for different data types:
-- EMUImageOnlyTokenizer: For pure image tokenization
-- EMUImageTextPairTokenizer: For image-text pair tokenization
-- EMUSftTokenizer: For SFT/instruction-tuning data
-
-Supports both Emu3 and Emu3.5 vision tokenizers.
+The package init stays lazy on purpose: importing this module should not load
+all tokenizer implementations or their optional dependencies. Call
+``create_tokenizer()`` to instantiate the concrete tokenizer for a mode.
 """
 
-from typing import Union
-
-from .image_only import EMUImageOnlyTokenizer
-from .image_text_pair import EMUImageTextPairTokenizer
-from .interleave import EMUInterleaveTokenizer
-from .sft import EMUSftTokenizer
+from typing import Any
 
 
 def create_tokenizer(
@@ -24,37 +15,30 @@ def create_tokenizer(
     *,
     min_pixels: int,
     max_pixels: int,
-    **kwargs,
-) -> Union[EMUImageOnlyTokenizer, EMUImageTextPairTokenizer, EMUSftTokenizer, EMUInterleaveTokenizer]:
-    """
-    Factory function to create the appropriate EMU tokenizer based on mode.
+    **kwargs: Any,
+):
+    """Create the concrete EMU tokenizer for the requested tokenization mode."""
+    if mode == "image_only":
+        from .image_only import EMUImageOnlyTokenizer
 
-    Args:
-        mode: Tokenization mode ("image_only", "image2text", "text2image", "sft", or "interleave")
-        text_tokenizer_path: Path to the text tokenizer
-        device: Device for tokenization (cuda or cpu)
-        min_pixels: Minimum pixels for tokenizer resize (required, no default)
-        max_pixels: Maximum pixels for tokenizer resize (required, no default)
-        **kwargs: Additional tokenizer-specific arguments
+        tokenizer_class = EMUImageOnlyTokenizer
+    elif mode in ("image2text", "text2image"):
+        from .image_text_pair import EMUImageTextPairTokenizer
 
-    Returns:
-        The appropriate tokenizer instance based on mode
+        tokenizer_class = EMUImageTextPairTokenizer
+    elif mode == "sft":
+        from .sft import EMUSftTokenizer
 
-    Raises:
-        ValueError: If mode is not recognized
-    """
-    tokenizers = {
-        "image_only": EMUImageOnlyTokenizer,
-        "image2text": EMUImageTextPairTokenizer,  # image->text (captioning)
-        "text2image": EMUImageTextPairTokenizer,  # text->image (generation)
-        "sft": EMUSftTokenizer,
-        "interleave": EMUInterleaveTokenizer,
-    }
+        tokenizer_class = EMUSftTokenizer
+    elif mode == "interleave":
+        from .interleave import EMUInterleaveTokenizer
 
-    if mode not in tokenizers:
-        raise ValueError(f"Unknown tokenizer mode: {mode}. " f"Must be one of: {', '.join(tokenizers.keys())}")
-
-    tokenizer_class = tokenizers[mode]
+        tokenizer_class = EMUInterleaveTokenizer
+    else:
+        raise ValueError(
+            f"Unknown tokenizer mode: {mode}. "
+            "Must be one of: image_only, image2text, text2image, sft, interleave"
+        )
 
     return tokenizer_class(
         text_tokenizer_path=text_tokenizer_path,
@@ -66,10 +50,4 @@ def create_tokenizer(
     )
 
 
-__all__ = [
-    "EMUImageOnlyTokenizer",
-    "EMUImageTextPairTokenizer",
-    "EMUInterleaveTokenizer",
-    "EMUSftTokenizer",
-    "create_tokenizer",
-]
+__all__ = ["create_tokenizer"]

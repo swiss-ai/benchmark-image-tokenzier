@@ -15,9 +15,7 @@ max_pixels: "2048*2048"
 parser: ???
 document_format: null
 document_field: null
-local_image_prefixes:
-  - content_image/
-  - image/
+text_column: null
 max_sequence_tokens: 262_144
 
 # Plan
@@ -31,7 +29,7 @@ spatial_factor: 16
 
 # Prefetch
 prefetch:
-  queue_size: 16
+  queue_size: 64
   num_workers: 8
 
 # Checkpoint
@@ -40,3 +38,6 @@ checkpoint_interval_batches: 2_500
 max_consecutive_errors: 50
 seqlen_threshold: 8192
 max_open_files: 64
+
+# torch.compile for VQ encoder — benefits fixed-resolution datasets
+torch_compile: false

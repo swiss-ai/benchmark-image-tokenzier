@@ -108,7 +108,7 @@ def render_markdown(
             dims = seg["dims"]
             n = seg["n_vision_tokens"]
             if image_dir and (image_dir / f"image_{img_counter}.png").exists():
-                rel_path = f"image_{img_counter}.png"
+                rel_path = f"{image_dir.name}/image_{img_counter}.png"
                 lines.append(f"![image_{img_counter}]({rel_path})\n")
                 lines.append(f"*{n:,} vision tokens, grid={dims}*\n")
             else:
@@ -162,7 +162,8 @@ def main():
     parser = argparse.ArgumentParser(description="Reconstruct a tokenized sequence as markdown")
     parser.add_argument("prefix", help="MMIDIDX file prefix (without .bin/.idx)")
     parser.add_argument("index", type=int, help="Sequence index within the file")
-    parser.add_argument("-o", "--output", default=None, help="Output markdown path (default: stdout)")
+    parser.add_argument("-o", "--output", default=None, help="Output markdown path (default: recon_examples dir)")
+    parser.add_argument("--output-dir", default="/capstor/store/cscs/swissai/infra01/vision-datasets/recon_examples", help="Default output directory")
     parser.add_argument("--decode-images", action="store_true", help="Decode vision tokens to images (requires GPU)")
     parser.add_argument("--tokenizer", default="/capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_wavtok")
     parser.add_argument("--device", default="cuda:0")
@@ -187,19 +188,25 @@ def main():
 
     segments = _parse_sequence(seq, tok, vision_token_offset)
 
+    # Resolve output path
+    if args.output:
+        out_path = Path(args.output)
+    else:
+        prefix_name = Path(args.prefix).parent.parent.name  # e.g. "pin_200m"
+        bucket = Path(args.prefix).parent.name  # e.g. "stage2" or "lct"
+        out_dir = Path(args.output_dir) / f"{prefix_name}_{bucket}"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"seq_{args.index}.md"
+
     image_dir = None
     if args.decode_images:
-        out_path = Path(args.output) if args.output else Path(f"seq_{args.index}.md")
-        image_dir = out_path.parent
+        image_dir = out_path.parent / f"seq_{args.index}_images"
         decode_images(segments, image_dir, device=args.device)
 
     md = render_markdown(segments, len(seq), args.prefix, args.index, image_dir=image_dir)
 
-    if args.output:
-        Path(args.output).write_text(md)
-        print(f"Written to {args.output}")
-    else:
-        print(md)
+    out_path.write_text(md)
+    print(f"Written to {out_path}")
 
 
 if __name__ == "__main__":

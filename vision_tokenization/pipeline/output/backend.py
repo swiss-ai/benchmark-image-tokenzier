@@ -15,8 +15,8 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import torch
 
-from .checkpoint import WorkerStats
-from ..indexing.planning.tokenization_plan import IMAGE, TEXT
+from ..runtime.checkpoint import WorkerStats
+from ...indexing.planning.tokenization_plan import IMAGE, TEXT
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class DirectBackend:
         self._handler = None
         self._chunk_id = 0
 
-    def open(self, output_dir: str, rank: int, resume_state: Optional[dict] = None) -> None:
+    def open(self, output_dir: str, rank: int, resume_state: Optional[dict] = None, tokenizer=None) -> None:
         from .direct.handler import TokenizationHandler
         from .direct.writer import MicroShardWriter, SplitMicroShardWriter
 
@@ -56,37 +56,27 @@ class DirectBackend:
                 output_dir, rank,
                 resume_state.get("stage2_chunk_id", 0) + 1 if resume_state else 0,
                 resume_state.get("lct_chunk_id", 0) + 1 if resume_state else 0,
-                None,  # tokenizer set later
+                tokenizer,
             )
         else:
-            self._handler.setup_writer(output_dir, rank, start_chunk, None)
+            self._handler.setup_writer(output_dir, rank, start_chunk, tokenizer)
 
     def write_batch(
         self,
-        image_tokens: List[torch.Tensor],
+        images: List,
+        resize_size: Tuple[int, int],
         texts: Optional[List[Any]],
-        component_indices: np.ndarray,
         group_slices: Optional[np.ndarray],
-        resize_height: int,
-        resize_width: int,
-        plan: Any,
         tokenizer: Any,
         stats: WorkerStats,
+        device: str,
+        timing_enabled: bool = False,
     ) -> dict:
-        import time
-
-        resize_size = (resize_height, resize_width)
-        # Reconstruct the images list as PIL images are already consumed by tokenizer.
-        # The handler.process_batch expects images, but we already have tokens.
-        # For direct backend, we call the handler directly.
-        t0 = time.perf_counter()
-        process_timing = self._handler.process_batch_from_tokens(
-            image_tokens, resize_size, tokenizer, stats,
-            texts=texts,
-            timing_enabled=True,
+        """Tokenize + write in one step. The handler owns the full pipeline."""
+        return self._handler.process_batch(
+            images, resize_size, tokenizer, stats, device,
+            texts=texts, group_slices=group_slices, timing_enabled=timing_enabled,
         )
-        write_ms = (time.perf_counter() - t0) * 1000
-        return {"write_ms": write_ms, **(process_timing or {})}
 
     def checkpoint(self) -> Any:
         done = self._handler.checkpoint_writer()
@@ -360,6 +350,15 @@ class SpillBackend:
                 stats.samples_skipped += 1
                 continue
 
+            # Skip documents with no text content
+            if not doc_text_map[g_idx]:
+                logger.warning(
+                    "Interleave doc %s has no text segments — skipping",
+                    doc_id,
+                )
+                stats.samples_skipped += 1
+                continue
+
             # Spill text segments once per document, from the batch containing image_index=0.
             if np.any(image_indices == 0):
                 for runtime_ci, text_flat_idx in doc_text_map[g_idx]:
@@ -388,5 +387,3 @@ class SpillBackend:
                 stats.samples_processed += 1
                 stats.image_tokens += len(tokens_np)
                 stats.tokens_generated += len(tokens_np)
-
-

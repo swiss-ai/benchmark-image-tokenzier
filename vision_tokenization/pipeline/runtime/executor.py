@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import torch
 
-from ..indexing.planning.tokenization_plan import (
+from ...indexing.planning.tokenization_plan import (
     TokenizationPlan,
     build_tokenization_plan,
 )
@@ -260,13 +260,13 @@ def run_executor(
     use_spill = multi_image or mode == "interleave"
 
     if use_spill:
-        from .backend import SpillBackend
+        from ..output.backend import SpillBackend
         backend = SpillBackend()
         backend.open(output_dir, rank, resume_state=ckpt)
     else:
-        from .backend import DirectBackend
+        from ..output.backend import DirectBackend
         backend = DirectBackend(mode=mode, seqlen_threshold=cfg.get("seqlen_threshold"))
-        backend.open(output_dir, rank, resume_state=ckpt)
+        backend.open(output_dir, rank, resume_state=ckpt, tokenizer=tokenizer)
 
     data_loader = create_loader(cfg)
 
@@ -339,7 +339,6 @@ def run_executor(
     # 7. Main loop
     # ------------------------------------------------------------------
     checkpoint_interval = cfg.get("checkpoint_interval_batches", 2500)
-    timing_enabled = wandb_logger is not None
     stats = cumulative_stats
     batch_count = 0
     last_batch_index = start_batch_index - 1
@@ -373,9 +372,10 @@ def run_executor(
         for result in batch_iter:
             last_batch_index = result.batch_index
             pb = prefetch_batches[result.batch_index]
+            log_now = wandb_logger.should_log_now() if wandb_logger is not None else False
 
             # Memory monitoring
-            if batch_count % 50 == 0 or wandb_logger is not None:
+            if log_now or (batch_count % 50 == 0 and wandb_logger is None):
                 rss_gb = _get_rss_gb()
                 cuda_alloc = torch.cuda.memory_allocated() / 1024**3
                 cuda_reserved = torch.cuda.memory_reserved() / 1024**3
@@ -403,7 +403,6 @@ def run_executor(
                 continue
 
             try:
-                # GPU encode images
                 resize_size = (pb.resize_height, pb.resize_width)
                 valid_images, valid_texts, valid_comp_indices, valid_group_slices = (
                     _filter_prefetched_batch(
@@ -420,24 +419,48 @@ def run_executor(
                     batch_count += 1
                     continue
 
-                t0 = time.perf_counter()
-                token_sequences = tokenizer.tokenize_images(
-                    valid_images, resize_size,
-                )
-                gpu_ms = (time.perf_counter() - t0) * 1000
+                if use_spill:
+                    # Spill path: GPU encode images, then spill components
+                    # Spill mode tokenizes images eagerly in the executor, so
+                    # tokenize wall time is exactly this encode section.
+                    t0 = time.perf_counter() if log_now else None
+                    token_sequences = tokenizer.tokenize_images(
+                        valid_images, resize_size,
+                    )
+                    if log_now:
+                        tokenize_wall_ms = (time.perf_counter() - t0) * 1000
+                        gpu_ms = tokenize_wall_ms
+                    else:
+                        tokenize_wall_ms = 0.0
+                        gpu_ms = 0.0
 
-                # Write output
-                write_timing = backend.write_batch(
-                    image_tokens=token_sequences,
-                    texts=valid_texts,
-                    component_indices=valid_comp_indices,
-                    group_slices=valid_group_slices,
-                    resize_height=pb.resize_height,
-                    resize_width=pb.resize_width,
-                    plan=plan,
-                    tokenizer=tokenizer,
-                    stats=stats,
-                )
+                    write_timing = backend.write_batch(
+                        image_tokens=token_sequences,
+                        texts=valid_texts,
+                        component_indices=valid_comp_indices,
+                        group_slices=valid_group_slices,
+                        resize_height=pb.resize_height,
+                        resize_width=pb.resize_width,
+                        plan=plan,
+                        tokenizer=tokenizer,
+                        stats=stats,
+                    )
+                else:
+                    # Direct path: handler tokenizes + writes in one step
+                    device = f"cuda:{cfg.get('local_rank', 0)}"
+                    write_timing = backend.write_batch(
+                        images=valid_images,
+                        resize_size=resize_size,
+                        texts=valid_texts,
+                        group_slices=valid_group_slices,
+                        tokenizer=tokenizer,
+                        stats=stats,
+                        device=device,
+                        timing_enabled=log_now,
+                    )
+                    gpu_ms = write_timing.get("tokenize_gpu_ms", 0)
+                    tokenize_wall_ms = write_timing.get("tokenize_wall_ms", 0)
+
                 write_ms = write_timing.get("write_ms", 0)
                 consecutive_errors = 0
 
@@ -459,7 +482,7 @@ def run_executor(
             batch_count += 1
 
             # W&B logging
-            if wandb_logger is not None:
+            if wandb_logger is not None and log_now:
                 wandb_logger.log(
                     samples=stats.samples_processed,
                     tokens=stats.tokens_generated,
@@ -470,6 +493,7 @@ def run_executor(
                     timing={
                         "load_ms": result.timing["load_s"] * 1000,
                         "tokenize_gpu_ms": gpu_ms,
+                        "tokenize_wall_ms": tokenize_wall_ms,
                         "write_ms": write_ms,
                     },
                     metrics={
@@ -512,6 +536,39 @@ def run_executor(
     # ------------------------------------------------------------------
     backend.finalize()
 
+    # Per-rank rebuild: assemble documents from this rank's spill into
+    # rank_XXXX_chunk_0000.bin/.idx so merge_shards works identically
+    # for both spill and direct backend paths.
+    if use_spill and _loop_error is None and cfg.get("rebuild", True):
+        from ..output.rebuild import rebuild_rank
+        from ...common.assembly import StructureTokenIds
+
+        rebuild_token_ids = StructureTokenIds(
+            bos_id=tokenizer.bos_id,
+            eos_id=tokenizer.eos_id,
+            img_start_id=tokenizer.img_start_id,
+            img_end_id=tokenizer.img_end_id,
+            img_token_start_id=tokenizer.img_token_start_id,
+            eol_id=tokenizer.eol_id,
+            eof_id=tokenizer.eof_id,
+            vision_token_offset=tokenizer.vision_token_offset,
+            image_token_id=getattr(tokenizer, "image_token_id", -1),
+            dim_tokens_fn=tokenizer._get_dim_tokens,
+        )
+        rebuild_stats = rebuild_rank(
+            plan=plan,
+            output_dir=output_dir,
+            rank=rank,
+            token_ids=rebuild_token_ids,
+            vocab_size=len(tokenizer.text_tokenizer),
+            max_sequence_tokens=cfg.get("max_sequence_tokens"),
+            seqlen_threshold=cfg.get("seqlen_threshold"),
+        )
+        stats.stage2_tokens = rebuild_stats.get("stage2_tokens", 0)
+        stats.stage2_samples = rebuild_stats.get("stage2_sequences", 0)
+        stats.lct_tokens = rebuild_stats.get("lct_tokens", 0)
+        stats.lct_samples = rebuild_stats.get("lct_sequences", 0)
+
     save_checkpoint(
         output_dir, rank,
         batch_index=last_batch_index,
@@ -542,5 +599,14 @@ def run_executor(
         f"{result['tokens_generated']:,} tokens, "
         f"{result['image_tokens_per_second']:,.0f} img tok/s avg"
     )
+
+    # Try to write aggregate stats summary (succeeds when all ranks are done)
+    from ..output.stats_reducer import maybe_write_stats_summary
+    summary = maybe_write_stats_summary(output_dir, expected_ranks=world_size)
+    if summary is not None:
+        logger.info(
+            f"[rank {rank}] Stats summary: {summary['samples_processed']:,} samples, "
+            f"{summary['tokens_generated']:,} tokens across {summary['num_ranks']} ranks"
+        )
 
     return result

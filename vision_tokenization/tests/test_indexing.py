@@ -1,9 +1,11 @@
 """Tests for vision_tokenization.indexing — CPU-only, no tokenizer needed."""
 
 import io
+import logging
 import os
 import tarfile
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -28,14 +30,108 @@ from vision_tokenization.indexing.manifest import (
 from vision_tokenization.indexing.scanners.hf import scan_hf_dataset
 from vision_tokenization.indexing.reader import TarRandomAccessReader
 from vision_tokenization.indexing.scanners.wds import scan_wds_dataset
-from vision_tokenization.pipeline.data import HFImageLoader, WDSImageLoader
-from vision_tokenization.pipeline.dry_run import dry_run_batch_plan
+from vision_tokenization.pipeline.runtime.data import HFImageLoader, WDSImageLoader
+from vision_tokenization.pipeline.runtime.dry_run import dry_run_batch_plan
+from vision_tokenization.utils.partitioning import weighted_contiguous_split
 from vision_tokenization.utils.image_geometry import estimate_image_tokens, smart_resize_dims
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+@dataclass
+class BatchAssignment:
+    """Test-side view of one planned batch in manifest-row coordinates."""
+
+    sample_indices: np.ndarray
+    resize_height: int
+    resize_width: int
+    batch_token_count: int
+
+
+@dataclass
+class BatchPlan:
+    """Small test adapter over the current ``TokenizationPlan`` shape.
+
+    The production planner no longer exposes the old ``BatchPlan`` API, but the
+    behavioral assertions in this test file are still useful. This adapter lets
+    the tests reason in terms of manifest rows and per-batch token cost without
+    reintroducing the old product abstraction.
+    """
+
+    batches: list[BatchAssignment]
+    total_samples: int = 0
+    total_filtered: int = 0
+
+    @staticmethod
+    def _estimate_batch_cost(batch: BatchAssignment) -> float:
+        return float(batch.batch_token_count)
+
+    def split_for_workers(self, num_workers: int) -> list[list[BatchAssignment]]:
+        costs = [self._estimate_batch_cost(batch) for batch in self.batches]
+        return weighted_contiguous_split(self.batches, costs, num_workers)
+
+
+def plan_clustered_batches(
+    manifest_path: str,
+    *,
+    batch_size: int,
+    max_batch_tokens: int,
+    min_pixels: int | None = None,
+    max_pixels: int | None = None,
+    resize_min_pixels: int = 16384,
+    resize_max_pixels: int = 1960000,
+    spatial_factor: int = 16,
+    multi_image: bool = False,
+) -> BatchPlan:
+    """Build a test-friendly batch plan from the current execution plan.
+
+    The real planner persists component identities and execution batches. These
+    tests mostly want the older manifest-row view, so we project each image
+    batch back to its manifest rows via ``components.source_ref``.
+    """
+    metadata = pq.read_metadata(manifest_path)
+    column_names = list(metadata.schema.names)
+    total_rows = int(metadata.num_rows)
+
+    if multi_image and "group_id" not in column_names:
+        raise ValueError("multi_image=True but manifest has no group_id")
+
+    plan = build_tokenization_plan(
+        manifest_path=manifest_path,
+        mode="image_only",
+        min_pixels=min_pixels,
+        max_pixels=max_pixels,
+        batch_size=batch_size,
+        max_batch_tokens=max_batch_tokens,
+        resize_min_pixels=resize_min_pixels,
+        resize_max_pixels=resize_max_pixels,
+        spatial_factor=spatial_factor,
+    )
+
+    batches: list[BatchAssignment] = []
+    for batch in plan.execution.image_batches:
+        component_indices = np.asarray(batch.component_indices, dtype=np.int64)
+        sample_indices = np.asarray(
+            plan.components.source_ref[component_indices],
+            dtype=np.int64,
+        )
+        batches.append(
+            BatchAssignment(
+                sample_indices=sample_indices,
+                resize_height=int(batch.resize_height),
+                resize_width=int(batch.resize_width),
+                batch_token_count=int(batch.batch_token_count),
+            )
+        )
+
+    return BatchPlan(
+        batches=batches,
+        total_samples=int(plan.total_image_components),
+        total_filtered=max(0, total_rows - int(plan.total_image_components)),
+    )
 
 def _make_image(width: int, height: int, color: tuple = (255, 0, 0)) -> Image.Image:
     """Create a solid-colour RGB image."""
@@ -553,6 +649,23 @@ class TestWDSRandomAccess:
         assert all(img is not None for img in images)
         for img, (_, _, _, orig) in zip(images, refs):
             assert img.size == orig.size
+
+    def test_read_batch_logs_truncated_image_cleanly(self, caplog, monkeypatch):
+        """Common PIL corruption errors should log one-line warnings only."""
+        reader = TarRandomAccessReader()
+
+        def _broken_read_image(_tar_path, _offset, _size):
+            raise OSError("image file is truncated")
+
+        monkeypatch.setattr(reader, "read_image", _broken_read_image)
+
+        with caplog.at_level(logging.WARNING):
+            images = reader.read_batch([("broken.tar", 123, 456)])
+
+        assert images == [None]
+        assert len(caplog.records) == 1
+        assert caplog.records[0].exc_info is None
+        assert "image file is truncated" in caplog.text
 
     def test_file_handle_caching(self, tmp_path):
         """LRU cache: 1 handle for same tar, eviction when max reached."""
@@ -1154,7 +1267,7 @@ class TestMergeShards:
         except ImportError:
             pytest.skip("megatron not available")
 
-        from vision_tokenization.pipeline.merge import merge_shards
+        from vision_tokenization.pipeline.output.merge import merge_shards
 
         # Create fake rank shards
         self._create_shard(tmp_path / "rank_0000_chunk_0000", [[1, 2, 3], [4, 5]])
@@ -1177,7 +1290,7 @@ class TestMergeShards:
         except ImportError:
             pytest.skip("megatron not available")
 
-        from vision_tokenization.pipeline.merge import maybe_merge_shards
+        from vision_tokenization.pipeline.output.merge import maybe_merge_shards
 
         self._create_shard(tmp_path / "rank_0000_chunk_0000", [[1, 2]])
         self._create_shard(tmp_path / "rank_0001_chunk_0000", [[3, 4]])
@@ -1201,7 +1314,7 @@ class TestMergeShards:
         except ImportError:
             pytest.skip("megatron not available")
 
-        from vision_tokenization.pipeline.merge import maybe_merge_shards
+        from vision_tokenization.pipeline.output.merge import maybe_merge_shards
 
         self._create_shard(tmp_path / "rank_0000_chunk_0000", [[1, 2]])
         torch.save({}, tmp_path / "rank_0000_checkpoint.pt")
@@ -1219,5 +1332,5 @@ class TestMergeShards:
 
     def test_merge_empty_dir_returns_none(self, tmp_path):
         """No shards → returns None."""
-        from vision_tokenization.pipeline.merge import merge_shards
+        from vision_tokenization.pipeline.output.merge import merge_shards
         assert merge_shards(tmp_path) is None

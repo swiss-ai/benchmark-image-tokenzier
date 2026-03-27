@@ -4,8 +4,8 @@ import types
 
 import pytest
 
-from vision_tokenization.pipeline import checkpoint as checkpoint_mod
-from vision_tokenization.pipeline import wandb_logger as wandb_mod
+from vision_tokenization.pipeline.runtime import checkpoint as checkpoint_mod
+from vision_tokenization.pipeline.runtime import wandb_logger as wandb_mod
 
 
 def _install_fake_wandb(monkeypatch):
@@ -101,6 +101,28 @@ def test_simple_wandb_logger_restores_step_and_uses_elapsed_seconds(monkeypatch)
     assert payload["batch/index"] == 42
     assert logger.state_dict() == {"run_id": "resume-123", "step": 8}
     assert fake_wandb.finish_calls == 1
+
+
+def test_simple_wandb_logger_should_log_now_respects_interval(monkeypatch):
+    fake_wandb = _install_fake_wandb(monkeypatch)
+    current_time = {"value": 10.0}
+    monkeypatch.setattr(wandb_mod.time, "time", lambda: current_time["value"])
+
+    logger = wandb_mod.SimpleWandbLogger(
+        project="resume-test",
+        log_interval_seconds=5.0,
+    )
+
+    assert logger.should_log_now() is False
+
+    current_time["value"] = 15.1
+    assert logger.should_log_now() is True
+
+    logger.log(samples=1, tokens=2, elapsed_seconds=1.0)
+    assert fake_wandb.log_calls
+
+    current_time["value"] = 16.0
+    assert logger.should_log_now() is False
 
 
 def test_load_wandb_resume_state_requires_checkpoint_metadata(caplog):

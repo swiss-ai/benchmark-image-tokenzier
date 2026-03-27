@@ -8,7 +8,7 @@ immediately.
 
 Can also be run standalone::
 
-    python -m vision_tokenization.pipeline.merge \
+    python -m vision_tokenization.pipeline.output.merge \
         /path/to/output_dir --expected-ranks 80
 """
 

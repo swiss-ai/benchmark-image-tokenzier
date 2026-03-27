@@ -10,8 +10,6 @@ from typing import Any, Dict
 
 import torch
 
-from .executor import run_executor
-
 logger = logging.getLogger(__name__)
 
 __all__ = ["run_distributed_pipeline"]
@@ -55,9 +53,9 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
         cfg["local_rank"] = 0
         cfg["output_dir"] = str(Path(cfg["output_dir"]) / _build_output_subdir(cfg))
 
-        from .dry_run import export_dry_run
+        from .runtime.dry_run import export_dry_run
 
-        from .executor import _load_or_build_plan
+        from .runtime.executor import _load_or_build_plan
         plan = _load_or_build_plan(cfg)
         result = {
             "total_documents": plan.total_documents,
@@ -116,5 +114,7 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
         f"[rank {rank}/{world_size}] starting (local_rank={local_rank}, "
         f"no NCCL — each rank is independent)"
     )
+
+    from .runtime.executor import run_executor
 
     return run_executor(rank, world_size, cfg)

@@ -47,5 +47,4 @@ __all__ = [
     "DEFAULT_IMAGE_EXTENSIONS", "DEFAULT_TEXT_EXTENSIONS",
     "scan_wds_dataset", "scan_hf_dataset", "scan_jsonl_tar_interleave_dataset",
     "TarRandomAccessReader",
-    "BatchAssignment", "BatchPlan", "plan_clustered_batches",
 ]

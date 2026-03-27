@@ -20,6 +20,7 @@ _REGISTRY = {
     "shizhen": "shizhen",
     "content_array": "shizhen",    # alias for backward compat
     "medpix": "medpix",
+    "molmo_syn": "molmo_syn",
 }
 
 

@@ -1,6 +1,6 @@
 import json
 
-from vision_tokenization.pipeline import stats_reducer
+from vision_tokenization.pipeline.output import stats_reducer
 
 
 def _append_stats(stats_path, payload):

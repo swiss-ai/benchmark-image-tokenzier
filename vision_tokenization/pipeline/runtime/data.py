@@ -514,11 +514,15 @@ class HFImageLoader:
         max_cached_chunks: int = 32,
         manifest_path: Optional[Union[str, Path]] = None,
         image_list_column: Optional[str] = None,
+        parser: Optional[str] = None,
+        parser_columns: Optional[List[str]] = None,
     ):
         self.input_pattern = str(input_pattern)
         self.image_column = image_column
         self.text_column = text_column
         self._image_list_column = image_list_column
+        self._parser = parser
+        self._parser_columns = parser_columns or []
 
         self._shards: List[_HFShardInfo] = []
         self._shard_starts: List[int] = []
@@ -1093,6 +1097,15 @@ class HFImageLoader:
         columns = [self._image_list_column]
         if self.text_column:
             columns.append(self.text_column)
+        for col in self._parser_columns:
+            if col not in columns:
+                columns.append(col)
+
+        # batch_pos → row_dict, populated during image loading for parser use.
+        # Multiple batch positions share the same parquet row, so row dicts
+        # are read once and reused via a per-chunk cache.
+        parser_row_by_batch_pos: Dict[int, dict] = {}
+        _row_dict_cache: Dict[int, dict] = {}  # row_in_chunk -> row_dict, cleared per chunk
 
         grouped_rows = self._iter_multi_grouped_rows(sample_indices)
 
@@ -1104,15 +1117,32 @@ class HFImageLoader:
                     table = self._chunk_table(shard, chunk_idx, columns)
                     image_column = table.column(self._image_list_column)
                     text_column = table.column(self.text_column) if self.text_column else None
+
+                    # Read parser columns once per parquet row in this chunk
+                    if self._parser:
+                        _row_dict_cache.clear()
+                        for row_in_chunk in row_map:
+                            if row_in_chunk not in _row_dict_cache:
+                                rd = {}
+                                for col in self._parser_columns:
+                                    try:
+                                        rd[col] = table.column(col)[row_in_chunk].as_py()
+                                    except Exception:
+                                        rd[col] = None
+                                _row_dict_cache[row_in_chunk] = rd
+
                     for row_in_chunk, positions in row_map.items():
                         try:
                             img_list = image_column[row_in_chunk].as_py()
                             text_val = text_column[row_in_chunk].as_py() if text_column is not None else None
+
                             for batch_pos, img_pos in positions:
                                 try:
                                     img_results[batch_pos] = self._decode_image(img_list[img_pos])
                                     if text_column is not None:
                                         txt_results[batch_pos] = text_val
+                                    if self._parser:
+                                        parser_row_by_batch_pos[batch_pos] = _row_dict_cache[row_in_chunk]
                                 except Exception:
                                     logger.warning(
                                         f"Failed to decode img_pos {img_pos} in row {row_in_chunk} "
@@ -1128,10 +1158,27 @@ class HFImageLoader:
             except Exception:
                 logger.warning(f"Failed to read shard {shard.path}", exc_info=True)
 
-        if self.text_column and group_slices is not None:
+        if self._parser and group_slices is not None:
+            from vision_tokenization.parsers import parse_segments
+
+            txt_results = []
+            for start, end in group_slices:
+                start, end = int(start), int(end)
+                row_dict = parser_row_by_batch_pos.get(start)
+                if row_dict is not None:
+                    try:
+                        txt_results.append(parse_segments(
+                            row_dict, parser=self._parser,
+                        ))
+                    except Exception:
+                        logger.warning("Parser failed for group", exc_info=True)
+                        txt_results.append(None)
+                else:
+                    txt_results.append(None)
+        elif self.text_column and group_slices is not None:
             txt_results = [txt_results[int(start)] for start, _end in group_slices]
 
-        return img_results, txt_results if self.text_column else None
+        return img_results, txt_results if (self.text_column or self._parser) else None
 
     def _load_text_batch_multi(
         self,
@@ -1196,7 +1243,7 @@ def create_loader(cfg: Dict[str, Any]):
             local_image_prefixes=cfg.get("local_image_prefixes"),
             max_open_files=cfg.get("max_open_files", 64),
         )
-    if dataset_type == "hf":
+    if dataset_type in ("hf", "hf_interleave"):
         return HFImageLoader(
             input_pattern=cfg["input_pattern"],
             image_column=cfg.get("image_column", "image"),
@@ -1204,6 +1251,8 @@ def create_loader(cfg: Dict[str, Any]):
             max_cached_chunks=cfg.get("max_cached_chunks", 32),
             manifest_path=cfg.get("manifest_path"),
             image_list_column=cfg.get("image_list_column"),
+            parser=cfg.get("parser") if dataset_type == "hf_interleave" else None,
+            parser_columns=cfg.get("parser_columns") if dataset_type == "hf_interleave" else None,
         )
     if dataset_type == "jsonl_tar_interleave":
         return JSONLTarInterleaveLoader(

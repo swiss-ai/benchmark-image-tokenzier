@@ -1,20 +1,13 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# MedPix medical cases — interleave, WebDataset, multi-image
+# NIH Chest X-ray — image2text, WDS tar (test dataset)
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
-  - _base_interleave
+  - _base_wds
 
-dataset_type: wds
-output_name: medpix
+output_name: nih_chest_xray
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/medpix/manifest.parquet
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/nih_chest_xray/manifest.parquet
 text_column: txt
 
-multi_image: true
-image_field_pattern: img
-
-parser: medpix
-document_field: txt
-plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/medpix.pt
-max_sequence_tokens: 262_144
-seqlen_threshold: 8_192
+max_batch_tokens: 32_768
+torch_compile: true

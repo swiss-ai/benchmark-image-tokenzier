@@ -27,8 +27,6 @@ tokenizer:
   min_pixels: "128*128"
   max_pixels: "1400*1400"
   max_encode_pixels: 8_000_000
-  torch_compile: false
-  torch_compile_mode: reduce-overhead
 
 # --- Checkpointing & Resume --------------------------------------------------
 

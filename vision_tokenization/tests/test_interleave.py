@@ -152,7 +152,7 @@ def test_jsonl_tar_interleave_loader_reconstructs_grouped_document(tmp_path):
     pytest.importorskip("orjson")
 
     from vision_tokenization.indexing.scanners.interleave import scan_jsonl_tar_interleave_dataset
-    from vision_tokenization.pipeline.data import JSONLTarInterleaveLoader
+    from vision_tokenization.pipeline.runtime.data import JSONLTarInterleaveLoader
 
     part_dir = tmp_path / "part00000"
     part_dir.mkdir()
@@ -212,7 +212,7 @@ def test_jsonl_tar_interleave_loader_load_text_batch_avoids_image_reads(tmp_path
     pytest.importorskip("orjson")
 
     from vision_tokenization.indexing.scanners.interleave import scan_jsonl_tar_interleave_dataset
-    from vision_tokenization.pipeline.data import JSONLTarInterleaveLoader
+    from vision_tokenization.pipeline.runtime.data import JSONLTarInterleaveLoader
 
     part_dir = tmp_path / "part00000"
     part_dir.mkdir()
@@ -272,7 +272,7 @@ def test_jsonl_tar_interleave_loader_accepts_partial_batch_fragment(tmp_path):
     pytest.importorskip("orjson")
 
     from vision_tokenization.indexing.scanners.interleave import scan_jsonl_tar_interleave_dataset
-    from vision_tokenization.pipeline.data import JSONLTarInterleaveLoader
+    from vision_tokenization.pipeline.runtime.data import JSONLTarInterleaveLoader
 
     part_dir = tmp_path / "part00000"
     part_dir.mkdir()
@@ -333,7 +333,7 @@ def test_jsonl_tar_interleave_loader_accepts_partial_batch_fragment(tmp_path):
 
 def test_wds_interleave_loader_accepts_partial_batch_fragment(tmp_path):
     from vision_tokenization.indexing.scanners.wds import scan_wds_dataset
-    from vision_tokenization.pipeline.data import create_loader
+    from vision_tokenization.pipeline.runtime.data import create_loader
 
     tar_path = tmp_path / "shard.tar"
     manifest_path = tmp_path / "manifest.parquet"
@@ -381,7 +381,7 @@ def test_wds_interleave_loader_accepts_partial_batch_fragment(tmp_path):
 
 def test_wds_interleave_loader_returns_none_on_image_count_mismatch(tmp_path):
     from vision_tokenization.indexing.scanners.wds import scan_wds_dataset
-    from vision_tokenization.pipeline.data import create_loader
+    from vision_tokenization.pipeline.runtime.data import create_loader
 
     tar_path = tmp_path / "shard_bad.tar"
     manifest_path = tmp_path / "manifest_bad.parquet"
@@ -1113,7 +1113,7 @@ class TestLoaderMultiGroup:
         from vision_tokenization.indexing.scanners.interleave import (
             scan_jsonl_tar_interleave_dataset,
         )
-        from vision_tokenization.pipeline.data import JSONLTarInterleaveLoader
+        from vision_tokenization.pipeline.runtime.data import JSONLTarInterleaveLoader
 
         part_dir = tmp_path / "part00000"
         part_dir.mkdir()
@@ -1178,7 +1178,7 @@ class TestLoaderMultiGroup:
         from vision_tokenization.indexing.scanners.interleave import (
             scan_jsonl_tar_interleave_dataset,
         )
-        from vision_tokenization.pipeline.data import JSONLTarInterleaveLoader
+        from vision_tokenization.pipeline.runtime.data import JSONLTarInterleaveLoader
 
         part_dir = tmp_path / "part00000"
         part_dir.mkdir()
@@ -1228,7 +1228,7 @@ class TestCreateLoaderFactory:
         from vision_tokenization.indexing.scanners.interleave import (
             scan_jsonl_tar_interleave_dataset,
         )
-        from vision_tokenization.pipeline.data import (
+        from vision_tokenization.pipeline.runtime.data import (
             JSONLTarInterleaveLoader,
             create_loader,
         )

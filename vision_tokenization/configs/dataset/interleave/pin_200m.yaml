@@ -6,12 +6,10 @@ defaults:
 
 output_name: pin_200m
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/pin_200m/manifest.parquet
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/pin_200m_licensed/manifest.parquet
 parser: pin200m
 document_field: md
-local_image_prefixes:
-  - content_image/
+min_pixels: "192*192"
 
-
-gpu_kmeans: false
-max_batch_tokens: 32_768
+prefetch:
+  num_workers: 16

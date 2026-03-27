@@ -1,20 +1,12 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# MedPix medical cases — interleave, WebDataset, multi-image
+# Megalith-10M-Florence2 — image2text, WDS tar
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
-  - _base_interleave
+  - _base_wds
 
-dataset_type: wds
-output_name: medpix
+output_name: megalith_10m_florence2_v2
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/medpix/manifest.parquet
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/megalith_10m_florence2/manifest.parquet
 text_column: txt
 
-multi_image: true
-image_field_pattern: img
-
-parser: medpix
-document_field: txt
-plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/medpix.pt
-max_sequence_tokens: 262_144
-seqlen_threshold: 8_192
+max_batch_tokens: 32_768

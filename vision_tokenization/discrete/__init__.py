@@ -1,9 +1,7 @@
+"""Tokenizer package boundary.
+
+Keep this package init intentionally light. Import concrete tokenizer modules
+directly so optional model dependencies are loaded only when needed.
 """
-Vision Tokenization tokenizers module.
 
-This module contains all tokenizer implementations.
-"""
-
-from .emu import EMUImageOnlyTokenizer, EMUImageTextPairTokenizer, EMUSftTokenizer
-
-__all__ = ["EMUImageOnlyTokenizer", "EMUImageTextPairTokenizer", "EMUSftTokenizer"]
+__all__: list[str] = []

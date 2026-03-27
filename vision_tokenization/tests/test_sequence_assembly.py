@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from vision_tokenization.pipeline.assembly import (
+from vision_tokenization.common.assembly import (
     StructureTokenIds,
     assemble_image2text,
     assemble_interleaved_sequence,
