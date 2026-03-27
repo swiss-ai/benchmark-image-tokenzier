@@ -27,7 +27,7 @@ from ..indexing.planning.tokenization_plan import (
 )
 from .backend import select_backend
 from .checkpoint import WorkerStats, load_checkpoint, save_checkpoint
-from .data import create_loader, ImageAugmenter
+from .data import create_loader
 from .prefetch import BatchPrefetcher, PrefetchResult
 from .wandb_logger import SimpleWandbLogger
 
@@ -266,10 +266,6 @@ def run_executor(
     backend.open(output_dir, rank, resume_state=ckpt)
 
     data_loader = create_loader(cfg)
-    augmenter = None
-    aug_cfg = cfg.get("augmentation")
-    if aug_cfg:
-        augmenter = ImageAugmenter(**aug_cfg)
 
     # W&B logger (rank 0 only)
     wandb_logger = None
@@ -350,7 +346,7 @@ def run_executor(
 
     prefetch_cfg = cfg.get("prefetch", {})
     prefetcher = BatchPrefetcher(
-        data_loader, augmenter,
+        data_loader,
         queue_size=prefetch_cfg.get("queue_size", 32),
         num_workers=prefetch_cfg.get("num_workers", 8),
     )
@@ -470,7 +466,6 @@ def run_executor(
                     skipped=stats.samples_skipped,
                     timing={
                         "load_ms": result.timing["load_s"] * 1000,
-                        "augment_ms": result.timing["augment_s"] * 1000,
                         "tokenize_gpu_ms": gpu_ms,
                         "write_ms": write_ms,
                     },

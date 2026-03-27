@@ -1181,38 +1181,6 @@ class HFImageLoader:
 
 
 # ---------------------------------------------------------------------------
-# Image augmenter
-# ---------------------------------------------------------------------------
-
-
-class ImageAugmenter:
-    """Optional CPU-only PIL transforms applied after load, before tokenization."""
-
-    def __init__(
-        self,
-        horizontal_flip: float = 0.0,
-        color_jitter: Optional[Dict[str, float]] = None,
-    ):
-        import torchvision.transforms as T
-
-        transforms = []
-        if horizontal_flip > 0:
-            transforms.append(T.RandomHorizontalFlip(p=horizontal_flip))
-        if color_jitter:
-            transforms.append(T.ColorJitter(**color_jitter))
-
-        self._transform = T.Compose(transforms) if transforms else None
-
-    def __call__(self, image: Image.Image) -> Image.Image:
-        if self._transform is None:
-            return image
-        return self._transform(image)
-
-    def augment_batch(self, images: List[Optional[Image.Image]]) -> List[Optional[Image.Image]]:
-        if self._transform is None:
-            return images
-        return [self(img) if img is not None else None for img in images]
-
 
 def create_loader(cfg: Dict[str, Any]):
     """Factory to create the appropriate loader based on dataset_type."""

@@ -31,7 +31,6 @@ prefetch:
 # Checkpoint
 checkpoint_interval_batches: 2_500
 
-augmentation: null
 max_consecutive_errors: 50
 max_cached_chunks: 128
 seqlen_threshold: null

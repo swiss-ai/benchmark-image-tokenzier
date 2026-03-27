@@ -37,7 +37,6 @@ prefetch:
 # Checkpoint
 checkpoint_interval_batches: 2_500
 
-augmentation: null
 max_consecutive_errors: 50
 seqlen_threshold: 8192
 max_open_files: 64

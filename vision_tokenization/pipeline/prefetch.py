@@ -21,12 +21,12 @@ class PrefetchResult:
     assignment: object
     images: object  # List[Optional[PIL.Image]]
     texts: object  # Optional[List]
-    timing: dict  # {"load_s": float, "augment_s": float}
+    timing: dict  # {"load_s": float}
     error: Optional[Exception] = None
 
 
 class BatchPrefetcher:
-    """Prefetches load_batch + augment in background thread(s).
+    """Prefetches load_batch in background thread(s).
 
     Yields ``PrefetchResult`` for each batch.  When a per-batch load or
     augment call fails, the result carries ``error`` instead of data so
@@ -38,13 +38,12 @@ class BatchPrefetcher:
 
     def __init__(self, data_loader, augmenter=None, queue_size=2, num_workers=1):
         self._loader = data_loader
-        self._augmenter = augmenter
         self._queue: Queue = Queue(maxsize=queue_size)
         self._thread: Optional[threading.Thread] = None
         self._num_workers = max(1, num_workers)
 
     def _load_one(self, batch_index, ba):
-        """Load + augment one batch.  Called from thread pool workers."""
+        """Load one batch. Called from thread pool workers."""
         try:
             t0 = time.perf_counter()
             images, texts = self._loader.load_batch(
@@ -52,17 +51,12 @@ class BatchPrefetcher:
             )
             load_s = time.perf_counter() - t0
 
-            t1 = time.perf_counter()
-            if self._augmenter is not None:
-                images = self._augmenter.augment_batch(images)
-            augment_s = time.perf_counter() - t1
-
             return PrefetchResult(
                 batch_index=batch_index,
                 assignment=ba,
                 images=images,
                 texts=texts,
-                timing={"load_s": load_s, "augment_s": augment_s},
+                timing={"load_s": load_s},
             )
         except Exception as exc:
             return PrefetchResult(
