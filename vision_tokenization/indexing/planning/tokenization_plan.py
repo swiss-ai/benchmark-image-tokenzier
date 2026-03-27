@@ -426,24 +426,87 @@ def _plan_image_batches(
                 spillover_parts.append(run[n_full:])
 
         if spillover_parts:
-            from vision_tokenization.indexing.planning.batch_planner import (
-                _pack_spillover_local,
-            )
             spillover = np.concatenate(spillover_parts)
-            spill_batches = _pack_spillover_local(
+            all_batches.extend(_pack_spillover(
                 spillover, comp_indices, final_h, final_w,
                 batch_size=batch_size, max_batch_tokens=max_batch_tokens,
                 spatial_factor=spatial_factor,
-            )
-            for sb in spill_batches:
-                all_batches.append(ImageBatch(
-                    component_indices=sb.sample_indices,
-                    resize_height=sb.resize_height,
-                    resize_width=sb.resize_width,
-                    batch_token_count=sb.batch_token_count,
-                ))
+            ))
 
     return all_batches, np.array(split_batch_offsets, dtype=np.int64)
+
+
+def _pack_spillover(
+    arr: np.ndarray,
+    comp_indices: np.ndarray,
+    final_h: np.ndarray,
+    final_w: np.ndarray,
+    *,
+    batch_size: int,
+    max_batch_tokens: int,
+    spatial_factor: int,
+) -> List[ImageBatch]:
+    """K-means on aspect ratio + log area, then greedy-pack within clusters."""
+    import faiss
+
+    if len(arr) == 0:
+        return []
+
+    sh = final_h[arr]
+    sw = final_w[arr]
+
+    aspect = sw.astype(np.float32) / sh.astype(np.float32)
+    log_area = np.log(sh.astype(np.float32) * sw.astype(np.float32))
+    features = np.stack([aspect, log_area], axis=1)
+    fmin = features.min(axis=0)
+    frange = features.max(axis=0) - fmin
+    frange[frange == 0] = 1.0
+    features = np.ascontiguousarray((features - fmin) / frange, dtype=np.float32)
+
+    N = len(arr)
+    mean_tok = max(1.0, float(np.mean((sh // spatial_factor) * (sw // spatial_factor))))
+    avg_batch = min(max(1, int(max_batch_tokens / mean_tok)), batch_size)
+    k = max(1, min(N // max(1, avg_batch), N // 39))
+
+    def _make_batches(members_arr, rh, rw):
+        per_tok = estimate_image_tokens(rh, rw, spatial_factor=spatial_factor)
+        chunk_size = min(batch_size, max(1, max_batch_tokens // per_tok))
+        return [
+            ImageBatch(
+                component_indices=comp_indices[arr[members_arr[s : s + chunk_size]]],
+                resize_height=rh, resize_width=rw,
+                batch_token_count=per_tok * min(chunk_size, len(members_arr) - s),
+            )
+            for s in range(0, len(members_arr), chunk_size)
+        ]
+
+    if k <= 1:
+        avg_h = max(spatial_factor, int(round(float(sh.mean()) / spatial_factor)) * spatial_factor)
+        avg_w = max(spatial_factor, int(round(float(sw.mean()) / spatial_factor)) * spatial_factor)
+        return _make_batches(np.arange(N), avg_h, avg_w)
+
+    prev_threads = faiss.omp_get_max_threads()
+    faiss.omp_set_num_threads(1)
+    try:
+        kmeans = faiss.Kmeans(d=2, k=k, niter=5, verbose=False, gpu=False)
+        kmeans.train(features)
+    finally:
+        faiss.omp_set_num_threads(prev_threads)
+    _, labels = kmeans.index.search(features, 1)
+    labels = labels.ravel()
+
+    batches: List[ImageBatch] = []
+    for cid in range(k):
+        members = np.where(labels == cid)[0]
+        if len(members) == 0:
+            continue
+        c_h, c_w = sh[members], sw[members]
+        avg_h = max(spatial_factor, int(round(float(c_h.mean()) / spatial_factor)) * spatial_factor)
+        avg_w = max(spatial_factor, int(round(float(c_w.mean()) / spatial_factor)) * spatial_factor)
+        members = members[np.argsort(c_h * c_w)]
+        batches.extend(_make_batches(members, avg_h, avg_w))
+
+    return batches
 
 
 # ---------------------------------------------------------------------------

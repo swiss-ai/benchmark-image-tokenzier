@@ -10,6 +10,7 @@ from vision_tokenization.indexing.planning.tokenization_plan import (
     DocumentIndex,
     ExecutionPlan,
     ImageBatch,
+    ImageBatchTable,
     PlanMetadata,
     TokenizationPlan,
     _plan_image_batches,
@@ -231,12 +232,12 @@ def test_split_image_batches_uses_batch_level_when_every_doc_has_one_image():
             image_index=np.zeros(4, dtype=np.int16),
         ),
         execution=ExecutionPlan(
-            image_batches=[
+            image_batches=ImageBatchTable.from_batches([
                 ImageBatch(np.array([0]), 32, 32, 1),
                 ImageBatch(np.array([1]), 32, 32, 1),
                 ImageBatch(np.array([2]), 32, 32, 1),
                 ImageBatch(np.array([3]), 32, 32, 1),
-            ],
+            ]),
             split_batch_offsets=np.array([0], dtype=np.int64),
         ),
     )
@@ -261,12 +262,12 @@ def test_split_image_batches_uses_segment_level_when_docs_have_multiple_images()
             image_index=np.array([0, 1, 0], dtype=np.int16),
         ),
         execution=ExecutionPlan(
-            image_batches=[
+            image_batches=ImageBatchTable.from_batches([
                 ImageBatch(np.array([0]), 32, 32, 1),
                 ImageBatch(np.array([1]), 32, 32, 1),
                 ImageBatch(np.array([2]), 32, 32, 1),
                 ImageBatch(np.array([2]), 32, 32, 1),
-            ],
+            ]),
             split_batch_offsets=np.array([0, 3], dtype=np.int64),
         ),
     )

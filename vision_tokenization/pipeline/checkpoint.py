@@ -7,8 +7,6 @@ Adapted from audio_tokenization/pipelines/lhotse/checkpoint.py.
   atomically renamed on finalize.
 - **Direct checkpointing**: Deterministic BatchPlan iteration means
   checkpoint = (batch_index, chunk_id, stats).  No sampler state needed.
-- **Pooled checkpointing**: Progress is recorded as
-  ``(document_window_index, spill_shard_id, stats)``.
 - **WorkerStats**: Inline dataclass tracking vision-specific metrics.
 """
 
@@ -34,8 +32,6 @@ __all__ = [
     "finalize_shard_writer",
     "save_checkpoint",
     "load_checkpoint",
-    "save_pooled_checkpoint",
-    "load_pooled_checkpoint",
     "is_cuda_oom",
 ]
 
@@ -232,49 +228,3 @@ def load_checkpoint(output_dir: str, rank: int) -> Optional[Dict[str, Any]]:
         return None
     logger.info(f"[rank {rank}] Loading checkpoint from {ckpt_path}")
     return torch.load(str(ckpt_path), map_location="cpu", weights_only=False)
-
-
-def save_pooled_checkpoint(
-    output_dir: str,
-    rank: int,
-    *,
-    next_document_window_index: int,
-    next_spill_shard_id: int,
-    stats: Dict[str, Any],
-    world_size: int = 1,
-    extra: Optional[Dict[str, Any]] = None,
-) -> None:
-    """Atomically save pooled progress via ``.tmp`` + ``os.replace()``."""
-    ckpt_path = _checkpoint_path(output_dir, rank)
-    tmp_path = str(ckpt_path) + ".tmp"
-    payload = {
-        "document_window_index": next_document_window_index,
-        "spill_shard_id": next_spill_shard_id,
-        "stats": stats,
-        "world_size": world_size,
-    }
-    if extra:
-        payload.update(extra)
-    torch.save(payload, tmp_path)
-    os.replace(tmp_path, str(ckpt_path))
-    logger.debug(
-        "[rank %d] Saved pooled checkpoint document_window_index=%d, spill_shard_id=%d",
-        rank,
-        next_document_window_index,
-        next_spill_shard_id,
-    )
-
-
-def load_pooled_checkpoint(output_dir: str, rank: int) -> Optional[Dict[str, Any]]:
-    """Load pooled checkpoint if it exists, else return None."""
-    ckpt = load_checkpoint(output_dir, rank)
-    if ckpt is None:
-        return None
-    if "document_window_index" not in ckpt or "spill_shard_id" not in ckpt:
-        logger.warning(
-            "[rank %d] Ignoring incompatible pooled checkpoint at %s",
-            rank,
-            _checkpoint_path(output_dir, rank),
-        )
-        return None
-    return ckpt

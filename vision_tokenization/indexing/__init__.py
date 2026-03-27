@@ -1,7 +1,7 @@
 """Pre-scan + random-access indexing for vision tokenization datasets."""
 
 from .scanners._workers.wds import DEFAULT_IMAGE_EXTENSIONS, DEFAULT_TEXT_EXTENSIONS
-from .planning.batch_planner import BatchAssignment, BatchPlan, plan_clustered_batches
+from .planning.tokenization_plan import TokenizationPlan, build_tokenization_plan
 from .manifest import (
     HF_SCHEMA_MULTI_IMAGE,
     HF_SCHEMA_PHYSICAL,

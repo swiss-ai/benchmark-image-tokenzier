@@ -4,7 +4,6 @@ import io
 import os
 import tarfile
 import tempfile
-import threading
 from pathlib import Path
 
 import numpy as np
@@ -16,10 +15,9 @@ import pytest
 from PIL import Image
 
 from vision_tokenization.indexing.scanners._workers.wds import scan_single_tar
-from vision_tokenization.indexing.planning.batch_planner import (
-    BatchAssignment,
-    BatchPlan,
-    plan_clustered_batches,
+from vision_tokenization.indexing.planning.tokenization_plan import (
+    TokenizationPlan,
+    build_tokenization_plan,
 )
 from vision_tokenization.indexing.manifest import (
     load_hf_manifest,
@@ -31,7 +29,6 @@ from vision_tokenization.indexing.scanners.hf import scan_hf_dataset
 from vision_tokenization.indexing.reader import TarRandomAccessReader
 from vision_tokenization.indexing.scanners.wds import scan_wds_dataset
 from vision_tokenization.pipeline.data import HFImageLoader, WDSImageLoader
-from vision_tokenization.pipeline.pooled.loop import _tokenize_document_window_texts
 from vision_tokenization.pipeline.dry_run import dry_run_batch_plan
 from vision_tokenization.utils.image_geometry import estimate_image_tokens, smart_resize_dims
 
@@ -1123,47 +1120,6 @@ class TestOrderedPool:
         assert len(created_pools) == 1
         assert created_pools[0].shutdown_calls == [(False, True)]
         assert futures[1].cancelled is True
-
-
-class TestPooledTextWorker:
-    def test_tokenize_document_window_texts_uses_text_only_loader(self):
-        class FakeLoader:
-            def load_text_batch(self, sample_indices, group_slices=None):
-                assert sample_indices.tolist() == [0, 1]
-                assert group_slices.tolist() == [[0, 2]]
-                return ["hello world"]
-
-            def load_batch(self, *args, **kwargs):
-                raise AssertionError("pooled text worker should not call load_batch")
-
-        class FakeTokenizer:
-            def __call__(self, text, truncation=False, add_special_tokens=False, return_tensors=None):
-                assert text == "hello world"
-                return {"input_ids": [11, 12, 13]}
-
-        doc = type("Doc", (), {"document_id": 7, "manifest_rows": np.array([0, 1], dtype=np.int64)})()
-        text_ready = {}
-        text_failed = set()
-        lock = threading.Lock()
-
-        _tokenize_document_window_texts(
-            document_window_assignments=[doc],
-            text_loader=FakeLoader(),
-            text_only_tokenizer=FakeTokenizer(),
-            mode="image2text",
-            token_dtype=np.int32,
-            cfg={},
-            text_ready=text_ready,
-            text_failed=text_failed,
-            text_lock=lock,
-        )
-
-        assert text_failed == set()
-        assert list(text_ready) == [7]
-        tokens, segments = text_ready[7]
-        assert segments is None
-        assert len(tokens) == 1
-        assert tokens[0].tolist() == [11, 12, 13]
 
 
 class TestMergeShards:
