@@ -228,7 +228,7 @@ class TokenizationPlan:
 
         from vision_tokenization.utils.partitioning import weighted_contiguous_split
 
-        costs = [float(b.batch_token_count) for b in image_batches]
+        costs = image_batches.batch_token_counts.astype(float).tolist()
         one_image_per_doc = bool(
             self.total_documents > 0 and np.all(self.documents.num_images == 1)
         )

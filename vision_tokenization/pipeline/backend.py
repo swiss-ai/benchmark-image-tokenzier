@@ -21,6 +21,7 @@ import numpy as np
 import torch
 
 from .checkpoint import WorkerStats
+from ..indexing.planning.tokenization_plan import IMAGE, TEXT
 
 logger = logging.getLogger(__name__)
 
@@ -165,8 +166,8 @@ class SpillBackend(OutputBackend):
     ) -> dict:
         import time
 
-        IMAGE_KIND = 0
-        TEXT_KIND = 1
+        IMAGE_KIND = int(IMAGE)
+        TEXT_KIND = int(TEXT)
 
         t0 = time.perf_counter()
 
@@ -306,8 +307,8 @@ class SpillBackend(OutputBackend):
         tokenizer: Any,
         stats: WorkerStats,
     ) -> None:
-        IMAGE_KIND = 0
-        TEXT_KIND = 1
+        IMAGE_KIND = int(IMAGE)
+        TEXT_KIND = int(TEXT)
 
         if texts is None or group_slices is None:
             raise ValueError("Interleave spill requires grouped parsed documents")

@@ -11,7 +11,6 @@ from typing import Any, Dict
 import torch
 
 from .executor import run_executor
-from .dry_run import dry_run_batch_plan
 
 logger = logging.getLogger(__name__)
 
@@ -119,52 +118,3 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     return run_executor(rank, world_size, cfg)
-
-
-def _maybe_rebuild(cfg: Dict[str, Any], tokenize_result: Dict[str, Any]) -> None:
-    """Run offline rebuild after spill-based tokenization completes."""
-    from .rebuild import rebuild_from_plan
-    from .assembly import StructureTokenIds
-
-    output_dir = cfg["output_dir"]
-    plan_path = cfg.get("plan_path")
-    if not plan_path or not Path(plan_path).exists():
-        logger.warning("Skipping rebuild: no plan_path configured")
-        return
-
-    plan = torch.load(plan_path, map_location="cpu", weights_only=False)
-
-    # Build StructureTokenIds from the tokenizer that was already loaded
-    from vision_tokenization.discrete.emu import create_tokenizer
-    tokenizer = create_tokenizer(
-        mode=cfg["mode"],
-        text_tokenizer_path=cfg["tokenizer_path"],
-        device="cpu",
-        min_pixels=cfg["tokenizer_min_pixels"],
-        max_pixels=cfg["tokenizer_max_pixels"],
-    )
-
-    token_ids = StructureTokenIds(
-        bos_id=tokenizer.bos_id,
-        eos_id=tokenizer.eos_id,
-        img_start_id=tokenizer.img_start_id,
-        img_end_id=tokenizer.img_end_id,
-        img_token_start_id=tokenizer.img_token_start_id,
-        eol_id=tokenizer.eol_id,
-        eof_id=tokenizer.eof_id,
-        vision_token_offset=tokenizer.vision_token_offset,
-        image_token_id=getattr(tokenizer, "image_token_id", -1),
-        dim_tokens_fn=getattr(tokenizer, "dim_tokens_fn", None),
-    )
-
-    logger.info(f"[rank 0] Starting rebuild from spill in {output_dir}")
-    rebuild_from_plan(
-        plan=plan,
-        spill_dir=output_dir,
-        token_ids=token_ids,
-        vocab_size=200000,
-        max_sequence_tokens=cfg.get("max_sequence_tokens"),
-        seqlen_threshold=cfg.get("seqlen_threshold"),
-        output_name="rebuilt",
-    )
-    logger.info(f"[rank 0] Rebuild complete")

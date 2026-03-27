@@ -22,7 +22,6 @@ import numpy as np
 import torch
 
 from ..indexing.planning.tokenization_plan import (
-    IMAGE, TEXT,
     TokenizationPlan,
     build_tokenization_plan,
 )
