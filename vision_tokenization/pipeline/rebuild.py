@@ -317,16 +317,18 @@ def rebuild_from_plan(
     prov_offset = np.zeros(n_spill, dtype=np.int64)
     prov_length = np.zeros(n_spill, dtype=np.int64)
     rank_dir_list: List[Path] = []
+    # Pre-compute sorted compound key once for provenance matching
+    spill_key = spill_doc_ids.astype(np.int64) * 1_000_000 + spill_comp_idx.astype(np.int64)
 
     for rd_idx, rd in enumerate(rank_dirs):
         if not (rd / "_SUCCESS").exists():
             continue
         rank_dir_list.append(rd)
-        # Mmap token files
+        actual_rd_idx = len(rank_dir_list) - 1
         for tf in rd.glob("tokens.*.bin"):
             sid = int(tf.stem.split(".")[-1])
             if tf.stat().st_size > 0:
-                token_mmaps[(rd_idx, sid)] = np.memmap(str(tf), dtype=np.uint8, mode="r")
+                token_mmaps[(actual_rd_idx, sid)] = np.memmap(str(tf), dtype=np.uint8, mode="r")
 
         for sf in sorted(rd.glob("components.*.parquet")):
             sid = int(sf.stem.split(".")[-1])
@@ -335,18 +337,19 @@ def rebuild_from_plan(
             ct_comp = ct.column("component_index").to_numpy()
             ct_off = ct.column("token_offset").to_numpy()
             ct_len = ct.column("token_length").to_numpy()
-            # Match to sorted spill rows via searchsorted on compound key
             ct_key = ct_doc.astype(np.int64) * 1_000_000 + ct_comp.astype(np.int64)
-            spill_key = spill_doc_ids.astype(np.int64) * 1_000_000 + spill_comp_idx.astype(np.int64)
             positions = np.searchsorted(spill_key, ct_key)
             valid = (positions < n_spill) & (spill_key[np.minimum(positions, n_spill - 1)] == ct_key)
-            for j in np.where(valid)[0]:
-                pos = int(positions[j])
-                if prov_rank_idx[pos] < 0:  # first occurrence wins
-                    prov_rank_idx[pos] = rd_idx
-                    prov_shard_id[pos] = sid
-                    prov_offset[pos] = ct_off[j]
-                    prov_length[pos] = ct_len[j]
+            # Vectorized provenance assignment (first occurrence wins)
+            valid_idx = np.where(valid)[0]
+            valid_pos = positions[valid_idx]
+            unset = prov_rank_idx[valid_pos] < 0
+            assign = valid_idx[unset]
+            assign_pos = valid_pos[unset]
+            prov_rank_idx[assign_pos] = actual_rd_idx
+            prov_shard_id[assign_pos] = sid
+            prov_offset[assign_pos] = ct_off[assign]
+            prov_length[assign_pos] = ct_len[assign]
 
     _dtype = np.dtype(token_dtype)
     _itemsize = _dtype.itemsize
