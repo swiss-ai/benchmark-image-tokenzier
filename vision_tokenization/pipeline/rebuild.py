@@ -272,7 +272,7 @@ def rebuild_from_plan(
     # Validate + dedup
     spill_table = _validate_spill(plan, spill_table)
 
-    # Build component lookup: (doc_id, comp_idx) → spill row
+    # Extract columns as numpy arrays (vectorized, no Python loops)
     spill_doc_ids = spill_table.column("document_id").to_numpy()
     spill_comp_idx = spill_table.column("component_index").to_numpy()
     spill_kinds = spill_table.column("kind").to_numpy()
@@ -281,79 +281,93 @@ def rebuild_from_plan(
     spill_rh = spill_table.column("resize_height").to_numpy()
     spill_rw = spill_table.column("resize_width").to_numpy()
 
-    comp_lookup: Dict[Tuple[int, int], int] = {}
-    for i in range(len(spill_table)):
-        comp_lookup[(int(spill_doc_ids[i]), int(spill_comp_idx[i]))] = i
+    # Sort spill by (doc_id, comp_idx) — vectorized O(N log N)
+    sort_order = np.lexsort((spill_comp_idx, spill_doc_ids))
+    spill_doc_ids = spill_doc_ids[sort_order]
+    spill_comp_idx = spill_comp_idx[sort_order]
+    spill_kinds = spill_kinds[sort_order]
+    spill_offsets = spill_offsets[sort_order]
+    spill_lengths = spill_lengths[sort_order]
+    spill_rh = spill_rh[sort_order]
+    spill_rw = spill_rw[sort_order]
 
-    spill_comp_by_doc: Dict[int, List[Tuple[int, int]]] = {}
-    if mode == "interleave":
-        for i in range(len(spill_table)):
-            doc_id = int(spill_doc_ids[i])
-            spill_comp_by_doc.setdefault(doc_id, []).append(
-                (int(spill_comp_idx[i]), i)
-            )
+    # Find document boundaries in sorted spill — vectorized
+    n_spill = len(spill_doc_ids)
+    if n_spill > 1:
+        doc_breaks = np.where(np.diff(spill_doc_ids) != 0)[0] + 1
+        doc_starts = np.concatenate([[0], doc_breaks])
+        doc_ends = np.concatenate([doc_breaks, [n_spill]])
+    elif n_spill == 1:
+        doc_starts = np.array([0])
+        doc_ends = np.array([1])
+    else:
+        doc_starts = np.array([], dtype=np.int64)
+        doc_ends = np.array([], dtype=np.int64)
 
-    # TODO: mmap token files for zero-copy reads
-    # For now, load per-component from file (functional but not optimal at 90M scale)
+    # Build doc_id → (start, end) index into sorted spill — vectorized
+    spill_unique_docs = spill_doc_ids[doc_starts] if len(doc_starts) > 0 else np.array([], dtype=np.int64)
 
-    # Determine output dtype
-    megatron_dtype = DType.optimal_dtype(vocab_size)
-
-    # Output paths — megatron expects {prefix}.bin and {prefix}.idx
-    output_prefix = spill_dir / output_name
-    output_prefix.parent.mkdir(parents=True, exist_ok=True)
-    bin_path = str(output_prefix) + ".bin"
-
-    builder = IndexedDatasetBuilder(bin_path, dtype=megatron_dtype)
-
-    # Pre-build plan component index for modes with fully known components.
-    plan_comp_by_doc: Dict[int, List[Tuple[int, int]]] = {}
-    if plan.mode != "interleave":
-        plan_doc_ids = plan.components.document_id
-        plan_comp_idxs = plan.components.component_index
-        for i in range(plan.total_components):
-            doc_id = int(plan_doc_ids[i])
-            plan_comp_by_doc.setdefault(doc_id, []).append(
-                (int(plan_comp_idxs[i]), i)
-            )
-
-    # Memory-map all token files for zero-copy reads
+    # Read provenance (rank_dir, shard_id) per spill row in one pass.
+    # Build arrays instead of a dict — one entry per sorted spill row.
     rank_dirs = sorted(spill_dir.glob("rank_*"))
     token_mmaps: Dict[Tuple[str, int], np.ndarray] = {}
-    for rd in rank_dirs:
-        for tf in rd.glob("tokens.*.bin"):
-            shard_id = int(tf.stem.split(".")[-1])
-            if tf.stat().st_size > 0:
-                token_mmaps[(str(rd), shard_id)] = np.memmap(str(tf), dtype=np.uint8, mode="r")
+    # Provenance arrays: rank_dir_idx and shard_id per spill row
+    prov_rank_idx = np.full(n_spill, -1, dtype=np.int32)
+    prov_shard_id = np.full(n_spill, -1, dtype=np.int32)
+    prov_offset = np.zeros(n_spill, dtype=np.int64)
+    prov_length = np.zeros(n_spill, dtype=np.int64)
+    rank_dir_list: List[Path] = []
 
-    # We need to know which rank/shard each spill row came from.
-    # Re-read spill per rank to track provenance.
-    spill_provenance: Dict[Tuple[int, int], Tuple[Path, int, int, int]] = {}
-    for rd in rank_dirs:
+    for rd_idx, rd in enumerate(rank_dirs):
         if not (rd / "_SUCCESS").exists():
             continue
+        rank_dir_list.append(rd)
+        # Mmap token files
+        for tf in rd.glob("tokens.*.bin"):
+            sid = int(tf.stem.split(".")[-1])
+            if tf.stat().st_size > 0:
+                token_mmaps[(rd_idx, sid)] = np.memmap(str(tf), dtype=np.uint8, mode="r")
+
         for sf in sorted(rd.glob("components.*.parquet")):
-            shard_id = int(sf.stem.split(".")[-1])
+            sid = int(sf.stem.split(".")[-1])
             ct = pq.read_table(sf)
-            doc_ids_arr = ct.column("document_id").to_numpy()
-            comp_idx_arr = ct.column("component_index").to_numpy()
-            offsets_arr = ct.column("token_offset").to_numpy()
-            lengths_arr = ct.column("token_length").to_numpy()
-            for i in range(len(ct)):
-                key = (int(doc_ids_arr[i]), int(comp_idx_arr[i]))
-                if key not in spill_provenance:
-                    spill_provenance[key] = (rd, shard_id, int(offsets_arr[i]), int(lengths_arr[i]))
+            ct_doc = ct.column("document_id").to_numpy()
+            ct_comp = ct.column("component_index").to_numpy()
+            ct_off = ct.column("token_offset").to_numpy()
+            ct_len = ct.column("token_length").to_numpy()
+            # Match to sorted spill rows via searchsorted on compound key
+            ct_key = ct_doc.astype(np.int64) * 1_000_000 + ct_comp.astype(np.int64)
+            spill_key = spill_doc_ids.astype(np.int64) * 1_000_000 + spill_comp_idx.astype(np.int64)
+            positions = np.searchsorted(spill_key, ct_key)
+            valid = (positions < n_spill) & (spill_key[np.minimum(positions, n_spill - 1)] == ct_key)
+            for j in np.where(valid)[0]:
+                pos = int(positions[j])
+                if prov_rank_idx[pos] < 0:  # first occurrence wins
+                    prov_rank_idx[pos] = rd_idx
+                    prov_shard_id[pos] = sid
+                    prov_offset[pos] = ct_off[j]
+                    prov_length[pos] = ct_len[j]
 
     _dtype = np.dtype(token_dtype)
     _itemsize = _dtype.itemsize
 
-    def _load_tokens_mmap(rd: Path, shard_id: int, offset: int, length: int) -> np.ndarray:
-        buf = token_mmaps.get((str(rd), shard_id))
+    def _load_tokens(row_idx: int) -> np.ndarray:
+        ri = int(prov_rank_idx[row_idx])
+        si = int(prov_shard_id[row_idx])
+        off = int(prov_offset[row_idx])
+        length = int(prov_length[row_idx])
+        buf = token_mmaps.get((ri, si))
         if buf is not None:
-            return np.frombuffer(buf[offset:offset + length * _itemsize], dtype=_dtype).copy()
-        return ComponentSpillReader.load_tokens(rd, shard_id, offset, length, token_dtype=_dtype)
+            return np.frombuffer(buf[off:off + length * _itemsize], dtype=_dtype).copy()
+        return ComponentSpillReader.load_tokens(rank_dir_list[ri], si, off, length, token_dtype=_dtype)
 
-    # Assemble documents in output order
+    # Output
+    megatron_dtype = DType.optimal_dtype(vocab_size)
+    output_prefix = spill_dir / output_name
+    output_prefix.parent.mkdir(parents=True, exist_ok=True)
+    builder = IndexedDatasetBuilder(str(output_prefix) + ".bin", dtype=megatron_dtype)
+
+    # Assemble documents in plan output order
     n_docs = plan.total_documents
     doc_order = np.argsort(plan.documents.output_order)
 
@@ -364,36 +378,25 @@ def rebuild_from_plan(
         doc_idx = int(doc_order[di])
         doc_id = int(plan.documents.document_id[doc_idx])
 
+        # Find this doc's components in sorted spill via searchsorted
+        pos = np.searchsorted(spill_unique_docs, doc_id)
+        if pos >= len(spill_unique_docs) or int(spill_unique_docs[pos]) != doc_id:
+            continue
+        cs = int(doc_starts[pos])
+        ce = int(doc_ends[pos])
+
+        # Components are already sorted by (doc_id, comp_idx)
         components = []
-        if mode == "interleave":
-            iter_rows = spill_comp_by_doc.get(doc_id, [])
-            iter_rows.sort(key=lambda x: x[0])
-        else:
-            plan_comps = plan_comp_by_doc.get(doc_id, [])
-            plan_comps.sort(key=lambda x: x[0])  # sort by component_index
-            iter_rows = [
-                (comp_idx, comp_lookup.get((doc_id, comp_idx)))
-                for comp_idx, _plan_row in plan_comps
-            ]
-
-        for comp_idx, spill_row in iter_rows:
-            spill_key = (doc_id, comp_idx)
-            if spill_row is None:
+        for ri in range(cs, ce):
+            if prov_rank_idx[ri] < 0:
                 continue
-
-            prov = spill_provenance.get(spill_key)
-            if prov is None:
-                continue
-
-            rd, shard_id, byte_offset, tok_length = prov
-            tokens_np = _load_tokens_mmap(rd, shard_id, byte_offset, tok_length)
+            tokens_np = _load_tokens(ri)
             tokens = torch.from_numpy(tokens_np).long()
-
             row = {
-                "kind": int(spill_kinds[spill_row]),
-                "component_index": comp_idx,
-                "resize_height": int(spill_rh[spill_row]),
-                "resize_width": int(spill_rw[spill_row]),
+                "kind": int(spill_kinds[ri]),
+                "component_index": int(spill_comp_idx[ri]),
+                "resize_height": int(spill_rh[ri]),
+                "resize_width": int(spill_rw[ri]),
             }
             components.append((row, tokens))
 
