@@ -312,22 +312,25 @@ class SpillBackend(OutputBackend):
         if texts is None or group_slices is None:
             raise ValueError("Interleave spill requires grouped parsed documents")
 
-        from vision_tokenization.utils.interleave_documents import parse_interleave_segments
+        # Loader-owned contract for interleave:
+        # - valid docs arrive as structured segment dicts
+        # - invalid / manifest-mismatched docs arrive as None
+        normalized_texts: List[Optional[List[Dict[str, Any]]]] = []
+        for text_payload in texts:
+            if text_payload is None:
+                normalized_texts.append(None)
+                continue
 
-        normalized_texts: List[List[Dict[str, Any]]] = []
-        for g_idx, text_payload in enumerate(texts):
             if isinstance(text_payload, list) and all(isinstance(seg, dict) for seg in text_payload):
                 normalized_texts.append(text_payload)
                 continue
 
-            start, end = group_slices[g_idx]
-            normalized_texts.append(
-                parse_interleave_segments(
-                    text_payload,
-                    document_format=plan.metadata.parser or plan.mode,
-                    num_images=int(end) - int(start),
-                )
+            logger.warning(
+                "Interleave backend received non-structured text payload "
+                "(type=%s); expected List[dict] from loader. Skipping document.",
+                type(text_payload).__name__,
             )
+            normalized_texts.append(None)
 
         # Batch-tokenize all non-empty text segments across the grouped docs.
         flat_texts: List[str] = []
@@ -337,6 +340,10 @@ class SpillBackend(OutputBackend):
             text_entries: List[tuple[int, int]] = []
             image_component_positions: List[int] = []
             runtime_ci = 0
+            if segments is None:
+                doc_text_map.append(text_entries)
+                doc_image_comp_indices.append(image_component_positions)
+                continue
             for seg in segments or []:
                 seg_type = seg.get("type")
                 if seg_type == "text":
@@ -372,10 +379,17 @@ class SpillBackend(OutputBackend):
             doc_comp_indices = component_indices[start:end]
             doc_id = int(plan.components.document_id[int(doc_comp_indices[0])])
             image_indices = plan.components.image_index[doc_comp_indices]
+            if normalized_texts[g_idx] is None:
+                logger.warning(
+                    "Skipping interleave doc %s: loader returned no validated segments",
+                    doc_id,
+                )
+                stats.samples_skipped += 1
+                continue
             image_component_positions = doc_image_comp_indices[g_idx]
 
             max_image_index = int(image_indices.max()) if len(image_indices) > 0 else -1
-            if image_component_positions and max_image_index >= len(image_component_positions):
+            if max_image_index >= len(image_component_positions):
                 logger.warning(
                     "Interleave doc %s has image_index outside parsed segment range — skipping batch fragment",
                     doc_id,

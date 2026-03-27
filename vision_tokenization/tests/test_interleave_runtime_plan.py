@@ -191,7 +191,7 @@ def test_rebuild_from_plan_interleave_uses_runtime_component_order(tmp_path, tok
         output_name="rebuilt_interleave",
     )
 
-    assert prefix.exists()
+    assert prefix.with_suffix(".bin").exists()
     assert prefix.with_suffix(".idx").exists()
 
 
@@ -275,7 +275,7 @@ def test_split_image_batches_uses_segment_level_when_docs_have_multiple_images()
     assert [len(s) for s in splits] == [3, 1]
 
 
-def test_spill_backend_parses_raw_medpix_text_for_interleave():
+def test_spill_backend_skips_nonstructured_interleave_payload():
     class _FakeWriter:
         def __init__(self):
             self.components = []
@@ -325,8 +325,68 @@ def test_spill_backend_parses_raw_medpix_text_for_interleave():
         stats=stats,
     )
 
-    assert [(c["component_index"], c["kind"]) for c in backend._writer.components] == [
-        (0, 1),
-        (2, 1),
-        (1, 0),
-    ]
+    assert backend._writer.components == []
+    assert stats.samples_skipped == 1
+    assert stats.samples_processed == 0
+
+
+def test_spill_backend_skips_interleave_doc_when_loader_returns_none():
+    class _FakeWriter:
+        def __init__(self):
+            self.components = []
+
+        def add_component(self, **kwargs):
+            self.components.append(kwargs)
+
+    class _FakeTokenizer:
+        bos_id = 1
+        eos_id = 2
+
+        @staticmethod
+        def text_tokenizer(texts, **kwargs):
+            return {"input_ids": []}
+
+    plan = TokenizationPlan(
+        documents=DocumentIndex(
+            document_id=np.array([0], dtype=np.int64),
+            output_order=np.array([0], dtype=np.int64),
+            num_images=np.array([1], dtype=np.int16),
+        ),
+        components=ComponentIndex(
+            document_id=np.array([0], dtype=np.int64),
+            component_index=np.array([0], dtype=np.int16),
+            kind=np.array([0], dtype=np.int8),
+            source_kind=np.array([0], dtype=np.int8),
+            source_ref=np.array([0], dtype=np.int64),
+            image_index=np.array([0], dtype=np.int16),
+        ),
+        execution=ExecutionPlan(),
+        metadata=PlanMetadata(
+            manifest_path="x",
+            manifest_fingerprint="y",
+            mode="interleave",
+            parser="shizhen",
+        ),
+    )
+
+    backend = SpillBackend()
+    backend._writer = _FakeWriter()
+    stats = WorkerStats()
+
+    backend._write_interleave_batch(
+        image_tokens=[torch.tensor([1, 42, 2], dtype=torch.long)],
+        texts=[None],
+        component_indices=np.array([0], dtype=np.int64),
+        group_slices=np.array([[0, 1]], dtype=np.int64),
+        resize_height=32,
+        resize_width=32,
+        plan=plan,
+        tokenizer=_FakeTokenizer(),
+        stats=stats,
+    )
+
+    assert backend._writer.components == []
+    assert stats.samples_skipped == 1
+    assert stats.samples_processed == 0
+    assert stats.text_tokens == 0
+    assert stats.image_tokens == 0

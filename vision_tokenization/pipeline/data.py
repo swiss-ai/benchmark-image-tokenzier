@@ -62,10 +62,16 @@ class WDSImageLoader:
         self,
         manifest_path: Union[str, Path],
         text_field: Optional[str] = None,
+        document_format: Optional[str] = None,
+        document_field: Optional[str] = None,
+        local_image_prefixes: Optional[List[str]] = None,
         max_open_files: int = 64,
     ):
         self.manifest = load_wds_manifest(manifest_path)
         self.text_field = text_field
+        self.document_format = document_format
+        self.document_field = document_field
+        self.local_image_prefixes = local_image_prefixes
 
         self._tar_paths = self.manifest.column("tar_path")
         self._offsets = self.manifest.column("offset_data").to_numpy()
@@ -82,6 +88,24 @@ class WDSImageLoader:
             self._text_offsets = self.manifest.column("offset_text").to_numpy()
             self._text_sizes = self.manifest.column("text_file_size").to_numpy()
             self._text_exts = self.manifest.column("text_ext")
+        self._has_group_columns = all(
+            name in self.manifest.column_names for name in ("group_id", "image_index")
+        )
+        if self._has_group_columns:
+            self._group_ids = self.manifest.column("group_id").to_numpy()
+            self._image_indices = self.manifest.column("image_index").to_numpy()
+            unique_group_ids, group_counts = np.unique(
+                self._group_ids.astype(np.int64, copy=False),
+                return_counts=True,
+            )
+            self._group_sizes = {
+                int(group_id): int(count)
+                for group_id, count in zip(unique_group_ids.tolist(), group_counts.tolist())
+            }
+        else:
+            self._group_ids = None
+            self._image_indices = None
+            self._group_sizes = None
 
         self._reader = TarRandomAccessReader(max_open_files=max_open_files)
 
@@ -118,50 +142,25 @@ class WDSImageLoader:
             return self._load_texts_grouped(sample_indices, group_slices)
         return self._load_texts(sample_indices)
 
-    def _load_texts(self, sample_indices: np.ndarray) -> List[Optional[Any]]:
-        texts: List[Optional[Any]] = []
-        for i in sample_indices:
-            i = int(i)
-            offset = int(self._text_offsets[i])
-            if offset < 0:
-                texts.append(None)
-                continue
-
-            tar_path = self._tar_paths[i].as_py()
-            size = int(self._text_sizes[i])
-            ext = self._text_exts[i].as_py()
-
-            try:
-                raw = self._reader.read_bytes(tar_path, offset, size)
-                if ext == "json":
-                    parsed = orjson.loads(raw)
-                    if self.text_field and isinstance(parsed, dict):
-                        texts.append(parsed.get(self.text_field))
-                    else:
-                        texts.append(parsed)
-                else:
-                    texts.append(raw.decode("utf-8"))
-            except Exception:
-                logger.warning(
-                    f"Failed to read text sidecar at offset {offset} in {tar_path}",
-                    exc_info=True,
-                )
-                texts.append(None)
-
-        return texts
-
-    def _load_single_text(self, manifest_idx: int) -> Optional[Any]:
+    def _read_single_text_payload(
+        self,
+        manifest_idx: int,
+        *,
+        extract_text_field: bool = True,
+    ) -> Optional[Any]:
         offset = int(self._text_offsets[manifest_idx])
         if offset < 0:
             return None
+
         tar_path = self._tar_paths[manifest_idx].as_py()
         size = int(self._text_sizes[manifest_idx])
         ext = self._text_exts[manifest_idx].as_py()
+
         try:
             raw = self._reader.read_bytes(tar_path, offset, size)
             if ext == "json":
                 parsed = orjson.loads(raw)
-                if self.text_field and isinstance(parsed, dict):
+                if extract_text_field and self.text_field and isinstance(parsed, dict):
                     return parsed.get(self.text_field)
                 return parsed
             return raw.decode("utf-8")
@@ -172,14 +171,106 @@ class WDSImageLoader:
             )
             return None
 
+    def _load_texts(self, sample_indices: np.ndarray) -> List[Optional[Any]]:
+        texts: List[Optional[Any]] = []
+        for i in sample_indices:
+            i = int(i)
+            texts.append(self._read_single_text_payload(i, extract_text_field=True))
+        return texts
+
+    def _load_single_text(self, manifest_idx: int) -> Optional[Any]:
+        return self._read_single_text_payload(manifest_idx, extract_text_field=True)
+
+    def _load_group_text(
+        self,
+        sample_indices: np.ndarray,
+        start: int,
+        end: int,
+    ) -> Optional[Any]:
+        manifest_idx = int(sample_indices[start])
+        if self.document_format is None:
+            return self._load_single_text(manifest_idx)
+
+        raw_payload = self._read_single_text_payload(
+            manifest_idx, extract_text_field=False
+        )
+        if raw_payload is None:
+            return None
+
+        if (
+            isinstance(raw_payload, dict)
+            and self.document_field is None
+            and self.text_field
+        ):
+            raw_payload = raw_payload.get(self.text_field)
+
+        try:
+            segments = list(
+                parse_interleave_segments(
+                    raw_payload,
+                    document_format=self.document_format,
+                    document_field=self.document_field,
+                    local_prefixes=self.local_image_prefixes,
+                    num_images=max(0, int(end) - int(start)),
+                )
+            )
+        except Exception:
+            logger.warning(
+                "Failed to parse grouped WDS interleave document at manifest row %d",
+                manifest_idx,
+                exc_info=True,
+            )
+            return None
+
+        if self._has_group_columns:
+            fragment_rows = [int(sample_indices[row_idx]) for row_idx in range(start, end)]
+            fragment_group_ids = {int(self._group_ids[row_idx]) for row_idx in fragment_rows}
+            if len(fragment_group_ids) != 1:
+                logger.warning(
+                    "Grouped WDS text load saw mixed group_ids at manifest rows %s",
+                    fragment_rows,
+                )
+                return None
+            group_id = next(iter(fragment_group_ids))
+            expected_images = int(self._group_sizes[group_id])
+            parsed_images = sum(1 for seg in segments if seg.get("type") == "image")
+            if parsed_images != expected_images:
+                logger.warning(
+                    "WDS interleave document/image count mismatch for group %d at manifest row %d: "
+                    "parsed_images=%d expected_images=%d",
+                    group_id,
+                    manifest_idx,
+                    parsed_images,
+                    expected_images,
+                )
+                return None
+            fragment_image_indices = sorted(
+                int(self._image_indices[row_idx]) for row_idx in fragment_rows
+            )
+            if (
+                len(fragment_image_indices) != len(set(fragment_image_indices))
+                or fragment_image_indices[0] < 0
+                or fragment_image_indices[-1] >= expected_images
+            ):
+                logger.warning(
+                    "Grouped WDS image_index mismatch at manifest rows %s: "
+                    "manifest=%s expected_range=[0,%d)",
+                    fragment_rows,
+                    fragment_image_indices,
+                    expected_images,
+                )
+                return None
+
+        return segments
+
     def _load_texts_grouped(
         self,
         sample_indices: np.ndarray,
         group_slices: np.ndarray,
     ) -> List[Optional[Any]]:
         return [
-            self._load_single_text(int(sample_indices[int(start)]))
-            for start, _end in group_slices
+            self._load_group_text(sample_indices, int(start), int(end))
+            for start, end in group_slices
         ]
 
     def close(self):
@@ -216,6 +307,7 @@ class JSONLTarInterleaveLoader:
         self._line_starts = self.manifest.column("line_start").to_numpy()
         self._line_lengths = self.manifest.column("line_length").to_numpy()
         self._image_refs = self.manifest.column("image_ref")
+        self._image_indices = self.manifest.column("image_index").to_numpy()
         self._has_segment_ranges = all(
             name in self.manifest.column_names
             for name in ("segment_start_index", "segment_end_index")
@@ -304,17 +396,31 @@ class JSONLTarInterleaveLoader:
                 segments = list(segments)
 
             refs = extract_local_image_refs(segments)
-            manifest_refs = [
-                self._image_refs[int(sample_indices[row_idx])].as_py()
-                for row_idx in range(start, end)
+            fragment_rows = [int(sample_indices[row_idx]) for row_idx in range(start, end)]
+            manifest_pairs = [
+                (
+                    int(self._image_indices[manifest_idx]),
+                    self._image_refs[manifest_idx].as_py(),
+                )
+                for manifest_idx in fragment_rows
             ]
-            if refs != manifest_refs:
+            mismatched = [
+                (image_index, image_ref)
+                for image_index, image_ref in manifest_pairs
+                if image_index < 0
+                or image_index >= len(refs)
+                or refs[image_index] != image_ref
+            ]
+            if mismatched:
+                fragment_refs = [image_ref for _image_index, image_ref in manifest_pairs]
                 logger.warning(
-                    "Interleave manifest/text mismatch for %s at offset %d: parsed=%s manifest=%s",
+                    "Interleave manifest/text mismatch for %s at offset %d: "
+                    "parsed=%s fragment_manifest=%s mismatched=%s",
                     jsonl_path,
                     line_start,
                     refs,
-                    manifest_refs,
+                    fragment_refs,
+                    mismatched,
                 )
                 return None
             return segments
@@ -1117,6 +1223,9 @@ def create_loader(cfg: Dict[str, Any]):
         return WDSImageLoader(
             manifest_path=cfg["manifest_path"],
             text_field=text_column,
+            document_format=cfg.get("parser"),
+            document_field=cfg.get("document_field"),
+            local_image_prefixes=cfg.get("local_image_prefixes"),
             max_open_files=cfg.get("max_open_files", 64),
         )
     if dataset_type == "hf":

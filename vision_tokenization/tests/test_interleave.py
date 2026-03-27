@@ -43,6 +43,24 @@ def _create_content_tar(tar_path: str, members: dict[str, tuple[int, int]]):
             tf.addfile(info, io.BytesIO(data))
 
 
+def _create_wds_tar(
+    tar_path: str,
+    images: dict[str, tuple[int, int]],
+    text_members: dict[str, str] | None = None,
+):
+    with tarfile.open(tar_path, "w") as tf:
+        for name, (width, height) in images.items():
+            data = _image_bytes(_make_image(width, height), "JPEG")
+            info = tarfile.TarInfo(name=name)
+            info.size = len(data)
+            tf.addfile(info, io.BytesIO(data))
+        for name, text in (text_members or {}).items():
+            raw = text.encode("utf-8")
+            info = tarfile.TarInfo(name=name)
+            info.size = len(raw)
+            tf.addfile(info, io.BytesIO(raw))
+
+
 def test_parse_markdown_interleave_filters_remote_and_preserves_order():
     segments = parse_markdown_interleave(
         "alpha <img src='content_image/0-0.png'> beta ![x](https://remote/x.png) "
@@ -248,10 +266,162 @@ def test_jsonl_tar_interleave_loader_load_text_batch_avoids_image_reads(tmp_path
 
     assert len(texts) == 1
     assert [seg["type"] for seg in texts[0]] == ["text", "image", "text", "image", "text"]
+
+
+def test_jsonl_tar_interleave_loader_accepts_partial_batch_fragment(tmp_path):
+    pytest.importorskip("orjson")
+
+    from vision_tokenization.indexing.scanners.interleave import scan_jsonl_tar_interleave_dataset
+    from vision_tokenization.pipeline.data import JSONLTarInterleaveLoader
+
+    part_dir = tmp_path / "part00000"
+    part_dir.mkdir()
+
+    jsonl_path = part_dir / "part00000.jsonl"
+    tar_path = part_dir / "content_image.tar"
+    manifest_path = tmp_path / "manifest.parquet"
+
+    _create_content_tar(
+        str(tar_path),
+        {
+            "content_image/0-0.png": (40, 30),
+            "content_image/0-1.png": (64, 48),
+        },
+    )
+
+    row = {
+        "md": "head <img src='content_image/0-0.png'> tail "
+        "![chart](content_image/0-1.png) done",
+    }
+    with open(jsonl_path, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(row))
+        fh.write("\n")
+
+    scan_jsonl_tar_interleave_dataset(
+        input_pattern=str(jsonl_path),
+        output_manifest=str(manifest_path),
+        document_format="pin_markdown",
+        document_field="md",
+        tar_pattern="content_image.tar*",
+        tar_scope="parent_dir",
+        num_workers=1,
+    )
+
+    loader = JSONLTarInterleaveLoader(
+        manifest_path=str(manifest_path),
+        document_format="pin_markdown",
+        document_field="md",
+    )
+    texts = loader.load_text_batch(
+        np.array([1], dtype=np.int64),
+        group_slices=np.array([[0, 1]], dtype=np.int64),
+    )
+    loader.close()
+
+    assert len(texts) == 1
+    assert texts[0] is not None
+    assert [seg["type"] for seg in texts[0]] == ["text", "image", "text", "image", "text"]
     assert extract_local_image_refs(texts[0]) == [
         "content_image/0-0.png",
         "content_image/0-1.png",
     ]
+    assert extract_local_image_refs(texts[0]) == [
+        "content_image/0-0.png",
+        "content_image/0-1.png",
+    ]
+
+
+def test_wds_interleave_loader_accepts_partial_batch_fragment(tmp_path):
+    from vision_tokenization.indexing.scanners.wds import scan_wds_dataset
+    from vision_tokenization.pipeline.data import create_loader
+
+    tar_path = tmp_path / "shard.tar"
+    manifest_path = tmp_path / "manifest.parquet"
+
+    _create_wds_tar(
+        str(tar_path),
+        {
+            "case0.img0.jpg": (32, 24),
+            "case0.img1.jpg": (48, 36),
+        },
+        {
+            "case0.txt": "before <|img0|> middle <|img1|> after",
+        },
+    )
+
+    scan_wds_dataset(
+        input_pattern=str(tar_path),
+        output_manifest=str(manifest_path),
+        num_workers=1,
+        text_extensions=frozenset({"txt"}),
+        image_field_pattern="img",
+        multi_image=True,
+    )
+
+    loader = create_loader(
+        {
+            "dataset_type": "wds",
+            "manifest_path": str(manifest_path),
+            "text_column": "txt",
+            "parser": "medpix",
+            "multi_image": True,
+            "max_open_files": 8,
+        }
+    )
+    texts = loader.load_text_batch(
+        np.array([1], dtype=np.int64),
+        group_slices=np.array([[0, 1]], dtype=np.int64),
+    )
+    loader.close()
+
+    assert len(texts) == 1
+    assert texts[0] is not None
+    assert [seg["type"] for seg in texts[0]] == ["text", "image", "text", "image", "text"]
+
+
+def test_wds_interleave_loader_returns_none_on_image_count_mismatch(tmp_path):
+    from vision_tokenization.indexing.scanners.wds import scan_wds_dataset
+    from vision_tokenization.pipeline.data import create_loader
+
+    tar_path = tmp_path / "shard_bad.tar"
+    manifest_path = tmp_path / "manifest_bad.parquet"
+
+    _create_wds_tar(
+        str(tar_path),
+        {
+            "case0.img0.jpg": (32, 24),
+        },
+        {
+            "case0.txt": "before <|img0|> middle <|img1|> after",
+        },
+    )
+
+    scan_wds_dataset(
+        input_pattern=str(tar_path),
+        output_manifest=str(manifest_path),
+        num_workers=1,
+        text_extensions=frozenset({"txt"}),
+        image_field_pattern="img",
+        multi_image=True,
+    )
+
+    loader = create_loader(
+        {
+            "dataset_type": "wds",
+            "manifest_path": str(manifest_path),
+            "text_column": "txt",
+            "parser": "medpix",
+            "multi_image": True,
+            "max_open_files": 8,
+        }
+    )
+    texts = loader.load_text_batch(
+        np.array([0], dtype=np.int64),
+        group_slices=np.array([[0, 1]], dtype=np.int64),
+    )
+    loader.close()
+
+    assert texts == [None]
 
 
 def test_assemble_interleaved_sequence_places_tokens_in_order():

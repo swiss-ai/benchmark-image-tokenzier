@@ -118,15 +118,7 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
         f"no NCCL — each rank is independent)"
     )
 
-    result = run_executor(rank, world_size, cfg)
-
-    # Auto-rebuild for spill backend (multi-image / interleave)
-    multi_image = bool(cfg.get("multi_image", False))
-    mode = cfg["mode"]
-    if (multi_image or mode == "interleave") and rank == 0:
-        _maybe_rebuild(cfg, result)
-
-    return result
+    return run_executor(rank, world_size, cfg)
 
 
 def _maybe_rebuild(cfg: Dict[str, Any], tokenize_result: Dict[str, Any]) -> None:

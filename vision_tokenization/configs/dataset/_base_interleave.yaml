@@ -18,7 +18,7 @@ document_field: null
 local_image_prefixes:
   - content_image/
   - image/
-max_sequence_tokens: 131_072
+max_sequence_tokens: 262_144
 
 # Plan
 plan_path: null
