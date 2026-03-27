@@ -25,7 +25,6 @@ from ..indexing.planning.tokenization_plan import (
     TokenizationPlan,
     build_tokenization_plan,
 )
-from .backend import select_backend
 from .checkpoint import WorkerStats, load_checkpoint, save_checkpoint
 from .data import create_loader
 from .prefetch import BatchPrefetcher, PrefetchResult
@@ -257,13 +256,17 @@ def run_executor(
     # ------------------------------------------------------------------
     # 5. Setup output backend, data loader, prefetcher, W&B
     # ------------------------------------------------------------------
-    multi_image = cfg.get("multi_image", False)
-    backend = select_backend(
-        mode=mode,
-        multi_image=bool(multi_image),
-        seqlen_threshold=cfg.get("seqlen_threshold"),
-    )
-    backend.open(output_dir, rank, resume_state=ckpt)
+    multi_image = bool(cfg.get("multi_image", False))
+    use_spill = multi_image or mode == "interleave"
+
+    if use_spill:
+        from .backend import SpillBackend
+        backend = SpillBackend()
+        backend.open(output_dir, rank, resume_state=ckpt)
+    else:
+        from .backend import DirectBackend
+        backend = DirectBackend(mode=mode, seqlen_threshold=cfg.get("seqlen_threshold"))
+        backend.open(output_dir, rank, resume_state=ckpt)
 
     data_loader = create_loader(cfg)
 
@@ -423,7 +426,7 @@ def run_executor(
                 )
                 gpu_ms = (time.perf_counter() - t0) * 1000
 
-                # Write via backend (direct: assemble+write, spill: keyed payloads)
+                # Write output
                 write_timing = backend.write_batch(
                     image_tokens=token_sequences,
                     texts=valid_texts,

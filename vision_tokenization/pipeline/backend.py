@@ -1,19 +1,14 @@
 """Output backends for the unified tokenization loop.
 
-Two backends:
 - ``DirectBackend``: assembles and writes final bin/idx immediately.
-  Used for single-image image_only, image2text, text2image, single-image sft.
 - ``SpillBackend``: writes keyed component payloads for offline rebuild.
-  Used for multi-image and interleave.
 
-The unified loop calls ``backend.write_batch(...)`` after GPU encode.
-The backend handles assembly/writing differences.
+The executor instantiates one based on ``use_spill = multi_image or mode == "interleave"``.
 """
 
 from __future__ import annotations
 
 import logging
-from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -26,40 +21,7 @@ from ..indexing.planning.tokenization_plan import IMAGE, TEXT
 logger = logging.getLogger(__name__)
 
 
-class OutputBackend(ABC):
-    """Abstract output backend for the tokenization loop."""
-
-    @abstractmethod
-    def open(self, output_dir: str, rank: int, resume_state: Optional[dict] = None) -> None:
-        ...
-
-    @abstractmethod
-    def write_batch(
-        self,
-        image_tokens: List[torch.Tensor],
-        texts: Optional[List[Any]],
-        component_indices: np.ndarray,
-        group_slices: Optional[np.ndarray],
-        resize_height: int,
-        resize_width: int,
-        plan: Any,
-        tokenizer: Any,
-        stats: WorkerStats,
-    ) -> dict:
-        """Write one batch's results. Returns timing dict."""
-        ...
-
-    @abstractmethod
-    def checkpoint(self) -> Any:
-        """Flush and checkpoint. Returns checkpoint metadata."""
-        ...
-
-    @abstractmethod
-    def finalize(self) -> None:
-        ...
-
-
-class DirectBackend(OutputBackend):
+class DirectBackend:
     """Assemble and write final bin/idx sequences immediately.
 
     Each batch produces complete sequences: BOS + image_struct + text + EOS.
@@ -136,7 +98,7 @@ class DirectBackend(OutputBackend):
             self._handler.finalize_writer()
 
 
-class SpillBackend(OutputBackend):
+class SpillBackend:
     """Write keyed component payloads for offline rebuild."""
 
     def __init__(self):
@@ -428,8 +390,3 @@ class SpillBackend(OutputBackend):
                 stats.tokens_generated += len(tokens_np)
 
 
-def select_backend(mode: str, multi_image: bool, seqlen_threshold: Optional[int] = None) -> OutputBackend:
-    """Select the appropriate backend based on mode and multi_image flag."""
-    if multi_image or mode == "interleave":
-        return SpillBackend()
-    return DirectBackend(mode=mode, seqlen_threshold=seqlen_threshold)
