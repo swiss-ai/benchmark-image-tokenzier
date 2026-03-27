@@ -526,6 +526,12 @@ def run_executor(
 
     result = stats.finalize()
     result["rank"] = rank
+    result["output_dir"] = output_dir
+
+    # Write per-rank stats for post-run aggregation
+    from vision_tokenization.utils.json import json_dump
+    stats_path = Path(output_dir) / f"rank_{rank:04d}_stats.json"
+    json_dump(result, stats_path)
 
     if wandb_logger is not None:
         wandb_logger.finish()
