@@ -1,6 +1,7 @@
 {
   "experiments": [
     {"file": "qa_emu3_baseline.json", "name": "QA - Emu3 Baseline"},
-    {"file": "qa_apertus8b_emu3_5_s2_onlytxt_sft.json", "name": "QA - Apertus 8B Emu3.5 S2 OnlyTxt SFT"}
+    {"file": "qa_apertus8b_emu3_5_s2_onlytxt_sft.json", "name": "QA - Apertus 8B Emu3.5 S2 OnlyTxt SFT"},
+    {"file": "captioning_ap1p5_s2_it180000.json", "name": "Captioning - Apertus 1.5 S2 it180000"}
   ]
 }

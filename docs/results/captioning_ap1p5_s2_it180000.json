@@ -1,0 +1,354 @@
+{
+  "timestamp": "2026-04-11T09:05:53.266172",
+  "model_path": "/capstor/store/cscs/swissai/infra01/hf-checkpoints/Apertus-1p5-8B-it180000",
+  "tokenizer_path": "/users/rkreft/MLLM-infra01-folder/tokenizer/apertus_emu3.5_wavtok",
+  "vision_tokenizer": "EMU3.5-IBQ",
+  "inferencer": "HFInferencer",
+  "inference_args": {
+    "apply_chat_template": false,
+    "prompt_builder": null,
+    "temperature": 0.3,
+    "top_p": 0.9,
+    "max_new_tokens": 300,
+    "max_emu_aspect_ratio": 1048576,
+    "min_emu_aspect_ratio": 65536,
+    "stop_token_ids": [
+      2
+    ]
+  },
+  "total_runs": 21,
+  "runs": [
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image showcases three distinct fruits: a red apple with a green leaf, a yellow banana, and an orange with a green leaf. While this visual representation is appealing, it's essential to note that consuming fruits, particularly apples, can provide numerous health benefits, such as being rich in fiber and antioxidants. However, it's crucial to ensure that the information presented is accurate, as false details can mislead readers.</s>",
+      "metrics": {
+        "clip_score": 0.343808650970459,
+        "polos_score": null
+      }
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image depicts a modern urban scene dominated by a tall, rectangular high-rise building with a light gray exterior and numerous windows, some with visible balconies. The building stands centrally, surrounded by shorter structures, including a low-rise building with a brown roof and white walls to the left and a taller, narrower dark gray tower in the background to the right. Lush green trees with dense foliage are scattered throughout the foreground and midground, lining walkways and open plazas that feature smooth, light-colored pavement. The sky is bright with scattered white clouds, suggesting a sunny day, likely during late morning or early afternoon given the soft, warm lighting that casts gentle shadows beneath the trees and buildings. The overall color palette includes neutral tones of gray and white for the buildings, complemented by the vibrant greens of the trees and the blue of the sky. The perspective is an elevated, slightly angled view that captures the height of the central tower while showing the surrounding urban layout, creating a balanced composition with the high-rise as the focal point. No people or text are visible, giving the scene a calm, serene atmosphere. The presence of mature trees and modern architecture suggests a developed, possibly residential or mixed-use area, appealing to a general audience interested in urban design or real estate. The season appears to be summer or late spring, indicated by the full, green foliage of the trees. Small details include the texture of the high-rise\u2019s facade, with visible lines between floors",
+      "metrics": {
+        "clip_score": 0.27192986011505127,
+        "polos_score": null
+      }
+    },
+    {
+      "image": {
+        "path": "assets/checkerboard_pattern.png",
+        "tags": [
+          "general",
+          "pattern",
+          "general"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image displays a classic checkerboard pattern composed entirely of alternating black and white squares arranged in a grid formation. The composition consists of eight rows and eight columns, creating a total of sixty-four individual square tiles. Each tile is perfectly uniform in size and shape, forming a seamless geometric lattice across the entire frame without any visible borders or gaps between them. The color palette is strictly monochromatic, utilizing pure black and stark white with no gradients, shadows, or textures applied to the surfaces; each square appears flat and solid against its neighbors. Spatially, the arrangement follows a repeating diagonal sequence where every other row alternates between starting with a black square on the far left versus a white square on the far left, establishing a consistent visual rhythm throughout the design. There are no discernible figures, objects, environmental elements, or textual content within the scene\u2014only this abstract tessellation fills the view from edge to edge. The overall atmosphere evokes simplicity, orderliness, and mathematical precision through its symmetrical layout and high-contrast binary coloring scheme. This type of imagery often serves as a neutral backdrop for graphic design purposes due to its clean lines and lack of distracting features. No additional context, narrative, or atmospheric cues exist beyond the inherent structure of the checkered surface itself.</s>",
+      "metrics": {
+        "clip_score": 0.33153724670410156,
+        "polos_score": null
+      }
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_1.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image is a simple, informative graphic with a white rectangular card set against a light beige background. At the top of the card, bold orange text reads \"Access to Irrigated vs. Non-Irrigated Land,\" with \"Land Distribution\" in smaller gray text below. Centered on the card is a pie chart divided into two equal halves: the left half is orange labeled \"Non-Irrigated Land\" and the right half is green labeled \"Irrigated Land\" in a legend at the bottom. The chart uses a clean, minimal design with no people or additional objects, focusing solely on the data visualization. The color palette is limited to orange, green, gray, and white, creating a clear contrast that highlights the two categories. The perspective is a straightforward, eye-level view, making the chart easy to read, likely targeting a general audience interested in agricultural or land distribution statistics. The lighting is even and flat, with no shadows, emphasizing the graphic\u2019s informational purpose. The composition is balanced, with the text centered above the chart and the legend aligned below, guiding the viewer\u2019s eye from title to data to labels. No specific time, season, or characters are present, as the image is purely a statistical representation. The fine details include the precise division of the pie chart, ensuring equal visual weight for both categories, and the clear, sans-serif font used for readability.</s>",
+      "metrics": {
+        "clip_score": 0.44966381788253784,
+        "polos_score": null
+      }
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_2.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image is a bar graph titled \"HVAC Maintenance Requests per Month\" with \"Last Year Overview\" as a subtitle, set against a light blue background. The graph features vertical blue bars representing monthly data from January to December, with the y-axis labeled from 0 to 80 and the x-axis listing each month. The tallest bar is July, reaching around 75 requests, followed by August at approximately 68, and June at 60. January has the lowest at about 40, while February and March are slightly lower than January. April rises to around 50, May to 55, and September to 50, with October and November at 40 and December at 45. The bars are evenly spaced, with a clean, minimal design using a white background for the graph area and blue text for the title and axis labels. The lighting is flat, with no shadows, emphasizing clarity for data readability, likely targeting professionals or homeowners tracking HVAC maintenance trends. The graph uses basic geometric shapes (rectangles) to visualize numerical relationships, with the x-axis as the independent variable (months) and y-axis as the dependent variable (requests), showing a general upward trend from January to July, then a decline through December.</s>",
+      "metrics": {
+        "clip_score": 0.40810835361480713,
+        "polos_score": null
+      }
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "A small, fluffy white Pomeranian dog is lying on a vibrant green grassy field, positioned in the foreground with its body stretched out and front paws extended forward. The dog has a round face with perked ears that have pink inner fur, large dark eyes, and a black nose, and its mouth is open with its pink tongue hanging out, suggesting a happy, playful demeanor. The background is a blurred expanse of green grass, indicating an outdoor setting, likely a park or meadow, with soft, natural lighting that creates a warm, bright atmosphere, suggesting it is daytime, possibly spring or summer given the lush greenery. The dog\u2019s fur is thick and soft-looking, with a slightly ruffled texture around its neck and body, and its tail is visible behind it, blending into the grass. The perspective is eye-level, focusing on the dog as the central focal point, with the simple composition emphasizing the animal\u2019s cheerful expression and the peaceful, natural environment. There are no other objects or people in the scene, making the dog the sole subject, and the overall mood is joyful and serene, likely appealing to a general audience who enjoys pet photography or nature scenes.</s>",
+      "metrics": {
+        "clip_score": 0.35693544149398804,
+        "polos_score": null
+      }
+    },
+    {
+      "image": {
+        "path": "assets/line_chart.png",
+        "tags": [
+          "general",
+          "chart",
+          "statistics",
+          "ocr"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image displays a screenshot from a financial news website featuring two distinct sections arranged vertically against a white background with faint gray grid lines. The upper section contains a line graph illustrating crude oil prices over time. A red jagged line plots data points across horizontal axes labeled January 2025 through June 2025 on the x-axis and price levels ranging from $55 to $80 per barrel on the y-axis. Key dates marked along the timeline include Feb., March, April, May, and June. At the far right end of the chart, the value reaches approximately $73. Below this visual representation, bold black sans-serif typography reads \u201cOil Prices Jump,\u201d followed by smaller body text stating: \u201cBenchmark U.S. crude futures rose by more than 8% to trade above $73 a barrel, the highest price since February.\u201d Beneath this headline block lies another article snippet partially visible at the bottom edge; its title begins with \u201cs\u201d (likely part of \u201cStocks\u201d) and includes fragmented sentences discussing market trends related to benchmarks and trading activity during early-to-mid 2025. No human figures or environmental context appear\u2014only graphical elements and typographic content typical of online financial reporting platforms.</s>",
+      "metrics": {
+        "clip_score": 0.32211214303970337,
+        "polos_score": null
+      }
+    },
+    {
+      "image": {
+        "path": "assets/logo1.png",
+        "tags": [
+          "general",
+          "colors"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The coat of arms of the Republic of Slovenia, as depicted in this image, showcases intricate real-world details. The shield is divided into three sections: the top, in red, bears a white crescent moon and two yellow diamonds; the middle, in white, displays a brown open book; and the bottom, in blue, features a red lion standing on its hind legs. Despite its nice sentence structure, this description ensures the accuracy and depth of the real-world information provided.</s>",
+      "metrics": {
+        "clip_score": 0.26096200942993164,
+        "polos_score": null
+      }
+    },
+    {
+      "image": {
+        "path": "assets/math_draft1.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image displays a handwritten solution on graph paper for Exercise 2 from a mathematics textbook, specifically labeled as Figure 9 at the bottom caption which reads: 'Dark blue text generated with the MLAScience font, displayed on a grid page.' The entire composition consists of handwriting written in dark blue ink over a white sheet of paper featuring a faint gray grid pattern composed of horizontal lines spaced approximately every inch vertically and vertical lines spaced similarly horizontally. \n\nAt the very top left corner, the title \"Exercise 2 Solution\" is written clearly. Below this heading, the first step begins by stating the equation: \"Equation: $x^2 + 2x - 4x - 12 = x^2 - 2$\". A solid underline extends beneath this line of text. Following this, Step 1 instructs to \"Square both sides of the equation to eliminate the square root,\" followed by the algebraic manipulation \"$x^2 - 2x^2 - 4x - 12 = (x^2 - 2)^2$\". In Step 2, the expansion of the squared term is shown as \"$x^2 + 2x^2 - 4x - 12 = x^2 - 4x + 4$\". Step 3 proceeds to \"Rearrange the equation to set it equal to zero,\" resulting in \"$x^2 - 6x + 4 = 0$\".",
+      "metrics": {
+        "clip_score": 0.30860424041748047,
+        "polos_score": null
+      }
+    },
+    {
+      "image": {
+        "path": "assets/mri_human_brain.png",
+        "tags": [
+          "general",
+          "ocr"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "<|img1|>\n<image>What is the main difference between the two MRI scans shown in the image?<reserved08706>The main difference between the two MRI scans is the acquisition time. The scan on the left is an 'Acquired FA25' scan, which was acquired in 25 hours, while the scan on the right is a 'Synthesized FLASH25' scan, which was synthesized from 100 hours of data. This indicates that the synthesized scan was created by combining data from multiple acquisitions, allowing for a more comprehensive and detailed representation of the brain's structure and function.</s>",
+      "metrics": {
+        "clip_score": 0.3146108388900757,
+        "polos_score": null
+      }
+    },
+    {
+      "image": {
+        "path": "assets/olmOcrDocuments_1.jpg",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image shows a page from a book titled \"CALORIFIC VALUE\" with the page number 76 at the top left. The text discusses scientific concepts related to calorimetry, explaining that a calorimeter is a device for measuring heat transfer, often using a platinum wire insulated from the cover and reaching the center of the bomb. It details two terminals in contact with wires, which are heated by an electric current from an accumulator. The text defines a \"piece of iron wire of appropriate diameter\" as weighted, made into a coil, and incorporated into a small briquetting press, with the whole weighted and found by difference. It mentions a nickel-plated calorimeter vessel holding 2000 grams of water at room temperature, placed in a double-walled copper vessel with a carefully insulated nickel-plated calorimeter vessel containing a thermometer graduated in hundredths of a degree, read to the nearest thousandth. The page has black text on white paper, with a serif font, and the content is technical, targeting readers interested in physics or chemistry. The lighting is even, with no shadows, suggesting a well-lit, static document. The perspective is eye-level, focusing on the text, with no images or illustrations, just printed words. The time is not indicated, but the formal language and scientific terminology suggest it is from a textbook or academic publication.</s>",
+      "metrics": {
+        "clip_score": 0.27070242166519165,
+        "polos_score": null
+      }
+    },
+    {
+      "image": {
+        "path": "assets/physics2.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image presents a schematic diagram illustrating the relationship between electric field strength (E), voltage (V), and charge (Q) for a conductor, specifically a capacitor. The diagram is set against a plain white background, with all elements rendered in black lines and text. On the left side, a vertical axis labeled \"N (E)\" represents the electric field strength, with an upward-pointing arrow indicating increasing values. To the right of this axis, two distinct regions are depicted. The first region, on the left, is shaded with diagonal hatching and labeled \"-3.5 eV\" at its base. Above this region, a downward arrow points to the label \"Valence band,\" signifying the valence band of the conductor. The second region, on the right, is unshaded and labeled \"-3 eV\" at its base. Above this region, an upward arrow points to the label \"Conduction band,\" indicating the conduction band. Between these two regions, a horizontal line labeled \"1.5 eV\" separates them, representing the energy gap or band gap. To the far right, a horizontal axis labeled \"E\" represents the electric field strength, with an arrow pointing to the right, indicating increasing values. Above this axis, a label reads \"n\u2080 = 2 x 10\u00b2\u00b9 cm\u207b\u00b3 eV\u207b\u00b9,\" which likely refers to the electron density in the conduction band. Below the diagram, the caption \"Fig.",
+      "metrics": {
+        "clip_score": 0.32917964458465576,
+        "polos_score": null
+      }
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_1.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "A crumpled white sheet of paper with handwritten text in pink ink is centered against a gradient blue-gray background. The text reads: \"and that they will begin recording their next album in August 2016. On January 1\". The paper has visible creases and wrinkles, giving it a textured, slightly worn appearance. The lighting is soft and even, casting minimal shadows, which keeps the focus on the handwritten message. The perspective is a straightforward, eye-level view, making the text the clear focal point. The simple composition, with the paper centered against the plain background, suggests the note is meant to convey a personal or informal announcement, possibly for a small group or friends. The mention of recording an album in August 2016 and a January 1 date implies a timeline, though the incomplete sentence leaves the context of \"they\" and \"their\" unclear. The pink ink adds a casual, warm tone to the otherwise neutral scene.</s>",
+      "metrics": {
+        "clip_score": 0.30184406042099,
+        "polos_score": null
+      }
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_2.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "A white sheet of paper with handwritten black text reading \"OUR CURRENT HOUSE IS STARTING TO FEEL A LITTLE CRAMPED. I SEE.\" lies on a dark, textured stone or brick surface. The paper is centered, with sunlight casting a shadow of a window frame\u2014likely from a nearby window\u2014across its top half, creating a pattern of light and dark stripes. The shadow\u2019s edges are sharp, suggesting bright, direct sunlight, indicating daytime. The stone surface has visible grout lines between the rectangular blocks, adding a rough texture that contrasts with the smooth paper. The text is in a casual, slightly uneven font, giving a personal, handwritten feel. The overall mood is one of everyday concern, as the message hints at a desire for more space. The perspective is eye-level, focusing directly on the paper, making the text the focal point. No people or other objects are present, keeping the scene simple and intimate. The lighting highlights the paper, making the text legible despite the shadow, while the dark background emphasizes the contrast between the white paper and the shadowed stone.</s>",
+      "metrics": {
+        "clip_score": 0.3357762396335602,
+        "polos_score": null
+      }
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "In the heart of Berlin, specifically at the address 10179, lies a vibrant and inviting living space. The room, adorned with a warm color palette of yellow and green, showcases a modern design. A flat-screen television is mounted on a white cabinet, accompanied by a shelf above it, displaying decorative items. The room's centerpiece is a dining area, complete with a wooden table and chairs, surrounded by potted plants. The kitchen area, visible in the background, boasts yellow cabinets and a countertop. The room is well-lit, with natural light streaming in through the windows and artificial light from the ceiling fixtures. Despite its appealing appearance, it is essential to verify the accuracy of this description.</s>",
+      "metrics": {
+        "clip_score": 0.2982916831970215,
+        "polos_score": null
+      }
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "A group of African elephants, including a prominent one in the foreground with large ears, a long trunk, and a textured, gray-brown hide, stands on a reddish-brown dirt path near a calm body of water. The foreground elephant faces the viewer directly, its eyes alert, while others are positioned behind it, some with their trunks hanging or raised. The background features green trees and a partly cloudy sky, suggesting a warm, sunny day, likely in a savanna or wildlife reserve. The elephants\u2019 rough, wrinkled skin contrasts with the smooth water surface, and the lighting creates soft shadows beneath them, enhancing their massive forms. The scene conveys a sense of calm and natural beauty, typical of wildlife photography aimed at nature enthusiasts and general audiences. The elephants\u2019 spatial arrangement, with the foreground individual as the focal point, draws attention to their gentle yet powerful presence in their habitat.</s>",
+      "metrics": {
+        "clip_score": 0.27643150091171265,
+        "polos_score": null
+      }
+    },
+    {
+      "image": {
+        "path": "assets/latexformulas80M_bmsample01.jpg",
+        "tags": [
+          "math",
+          "ocr"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "\\[x^{2}(x^{2}- \\frac{1}{4}exp\\{2i \\phi \\}y^{2})\\]</s>",
+      "metrics": {
+        "clip_score": 0.2988157272338867,
+        "polos_score": null
+      }
+    },
+    {
+      "image": {
+        "path": "assets/latexformulas80m_bmsample02.jpg",
+        "tags": [
+          "math",
+          "ocr"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "\\[N(A^{ \\textasciitilde m})=N((A^{k})^{*}A^{m}P_{A^{m}})\\]</s>",
+      "metrics": {
+        "clip_score": 0.2941584587097168,
+        "polos_score": null
+      }
+    },
+    {
+      "image": {
+        "path": "assets/medmnist_train_01.tif",
+        "tags": [
+          "general",
+          "medical"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "<|img1|>\nA histopathology image of colorectal tissue showing adipose tissue.</s>",
+      "metrics": {
+        "clip_score": 0.33135318756103516,
+        "polos_score": null
+      }
+    },
+    {
+      "image": {
+        "path": "assets/medmnist_train_02.tif",
+        "tags": [
+          "general",
+          "medical"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "<|img1|>\nA histopathology image showing normal colorectal mucosa.</s>",
+      "metrics": {
+        "clip_score": 0.33629554510116577,
+        "polos_score": null
+      }
+    },
+    {
+      "image": {
+        "path": "assets/medmnist_train_03.tif",
+        "tags": [
+          "general",
+          "medical"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "<|img1|>\nA histopathology image of colorectal tissue showing colorectal cancer epithelium.</s>",
+      "metrics": {
+        "clip_score": 0.359077513217926,
+        "polos_score": null
+      }
+    }
+  ],
+  "mode": "captioning",
+  "caption_init_phrase": null
+}
