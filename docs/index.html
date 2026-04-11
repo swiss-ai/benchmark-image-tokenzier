@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Apertus 8B Vision Ablations</title>
+    <title>Apertus Vision Ablations</title>
     <style>
         :root {
             --bg: #f8f9fa;
@@ -287,8 +287,8 @@
 <body>
 
 <header>
-    <h1>Apertus 8B Vision Ablations</h1>
-    <p class="subtitle">Qualitative QA benchmark comparing Apertus 8B vision model ablations, tested on diverse images covering charts, diagrams, OCR, photos, and illustrations.</p>
+    <h1>Apertus Vision Ablations</h1>
+    <p class="subtitle">Qualitative QA and captioning benchmarks comparing Apertus vision model ablations, tested on diverse images covering charts, diagrams, OCR, photos, and illustrations.</p>
 </header>
 
 <div class="controls-bar">
@@ -456,23 +456,42 @@
 
         runs.forEach(run => {
             const imagePath = run.image?.path || '';
+            const isCaptioning = 'caption' in run;
             const tags = [...new Set([...(run.image?.tags || []), ...(run.prompt?.tags || [])])];
-            const query = run.prompt?.text || '';
-            const output = cleanOutput(run.output || '');
+            const query = isCaptioning
+                ? (run.init_phrase ? 'Init: ' + run.init_phrase : 'Caption this image')
+                : (run.prompt?.text || '');
+            const output = cleanOutput((isCaptioning ? run.caption : run.output) || '');
+            const outputLabel = isCaptioning ? 'Caption' : 'Model Output';
+
+            let metricsHtml = '';
+            if (isCaptioning && run.metrics) {
+                const parts = [];
+                if (run.metrics.clip_score != null) {
+                    parts.push(`CLIP: ${run.metrics.clip_score.toFixed(3)}`);
+                }
+                if (run.metrics.polos_score != null) {
+                    parts.push(`POLOS: ${run.metrics.polos_score.toFixed(3)}`);
+                }
+                if (parts.length) {
+                    metricsHtml = `<div class="card-tags">${parts.map(p => `<span class="tag">${escapeHtml(p)}</span>`).join('')}</div>`;
+                }
+            }
 
             html += `
             <div class="result-card">
                 <div class="card-left">
-                    <div class="card-label">Image &amp; Query</div>
+                    <div class="card-label">${isCaptioning ? 'Image' : 'Image &amp; Query'}</div>
                     <div class="card-image-wrapper">
                         <img src="${imagePath}" alt="Benchmark image" loading="lazy">
                     </div>
-                    <div class="card-query">${escapeHtml(query)}</div>
+                    ${isCaptioning && !run.init_phrase ? '' : `<div class="card-query">${escapeHtml(query)}</div>`}
                     ${tags.length ? `<div class="card-tags">${tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
                 </div>
                 <div class="card-right">
-                    <div class="card-label">Model Output</div>
+                    <div class="card-label">${outputLabel}</div>
                     <div class="card-output">${escapeHtml(output)}</div>
+                    ${metricsHtml}
                 </div>
             </div>`;
         });
