@@ -10,6 +10,8 @@ input_pattern: ???
 image_column: image
 multi_image: null
 parser: null
+parser_columns: null
+parser_args: {}
 
 min_pixels: "64*128"
 max_pixels: "2048*2048"

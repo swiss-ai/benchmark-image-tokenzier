@@ -1,17 +1,19 @@
-"""Interleave segment parsers.
+"""Dataset parser entrypoints.
 
-Each parser module exposes a ``parse(payload, **kwargs)`` function that
-returns the canonical segment IR::
+Two parser families live under ``vision_tokenization.parsers``:
 
-    [{"type": "text", "text": "..."}, {"type": "image"}, ...]
-
-Config: ``parser: medpix`` dispatches to ``parsers/medpix.py``.
+- ``parse_segments(...)`` for interleave-style parsers that return
+  ``text/image`` segment IR.
+- ``parse_sft_messages(...)`` for SFT parsers that return canonical message
+  lists ready for conversation normalization.
 """
 
 from __future__ import annotations
 
 import importlib
 from typing import Any
+
+from .sft import parse_messages as parse_sft_messages
 
 # Registry: parser name -> module name under vision_tokenization.parsers
 _REGISTRY = {
@@ -21,7 +23,20 @@ _REGISTRY = {
     "content_array": "shizhen",    # alias for backward compat
     "medpix": "medpix",
     "molmo_syn": "molmo_syn",
+    "multilingual_recap": "multilingual_recap",
+    "recap_multilingual": "multilingual_recap",  # alias
 }
+
+# Interleave parsers that take a full row dict (with multiple named fields)
+# instead of a single-column document payload as their positional argument.
+# Any parser NOT listed here is assumed to take the value of a single
+# ``parser_columns`` entry as its positional payload.
+_ROW_SHAPED_INTERLEAVE_PARSERS: frozenset[str] = frozenset({"molmo_syn"})
+
+
+def is_row_shaped_interleave_parser(parser: str) -> bool:
+    """Return True if the named interleave parser expects a full row dict."""
+    return parser in _ROW_SHAPED_INTERLEAVE_PARSERS
 
 
 def parse_segments(
@@ -33,10 +48,11 @@ def parse_segments(
     """Parse raw text/payload into ordered interleave segments.
 
     Args:
-        payload: Raw text (str), structured content (list/dict), etc.
-        parser: Parser name — ``medpix``, ``pin200m``, or ``shizhen``.
-        **kwargs: Passed to the parser (e.g., ``num_images``,
-            ``local_prefixes``).
+        payload: For document-shaped parsers (pin200m, shizhen, medpix,
+            multilingual_recap) — the raw column value (string or list).
+            For row-shaped parsers (molmo_syn) — the full row dict.
+        parser: Parser name.
+        **kwargs: Passed to the parser (e.g., ``num_images``, ``local_prefixes``).
     """
     module_name = _REGISTRY.get(parser)
     if module_name is None:

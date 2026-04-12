@@ -594,6 +594,7 @@ def build_plan_image2text(
     manifest_path: Union[str, Path],
     *,
     text_column: Optional[str] = None,
+    parser: Optional[str] = None,
     min_pixels: Optional[int] = None,
     max_pixels: Optional[int] = None,
     batch_size: int = 128,
@@ -720,7 +721,7 @@ def build_plan_image2text(
     plan.metadata = PlanMetadata(
         manifest_path=manifest_path,
         manifest_fingerprint=_manifest_fingerprint(manifest_path),
-        mode=mode, text_column=text_column,
+        mode=mode, parser=parser, text_column=text_column,
         min_pixels=min_pixels, max_pixels=max_pixels,
         window_size=window_size, batch_size=batch_size,
         max_batch_tokens=max_batch_tokens,
@@ -868,7 +869,7 @@ def build_tokenization_plan(
         manifest_path: Path to manifest parquet.
         mode: One of image_only, image2text, text2image, sft, interleave.
         text_column: Text column/field name for text loading.
-        parser: Interleave parser name (pin200m, shizhen, medpix).
+        parser: Optional dataset parser name used at text load time.
         min_pixels, max_pixels: Pixel count filter bounds.
         batch_size, max_batch_tokens: Batch constraints.
         spatial_factor: Vision tokenizer spatial downsampling factor.
@@ -891,7 +892,7 @@ def build_tokenization_plan(
         return build_plan_image_only(manifest_path, **common)
     elif mode in ("image2text", "text2image"):
         return build_plan_image2text(
-            manifest_path, text_column=text_column, mode=mode, **common,
+            manifest_path, text_column=text_column, parser=parser, mode=mode, **common,
         )
     elif mode == "sft":
         # SFT: one text component (conversation) + N image components per doc.
@@ -899,7 +900,7 @@ def build_tokenization_plan(
         # image components are the images from the group.
         # The rebuild handles placeholder replacement.
         return build_plan_image2text(
-            manifest_path, text_column=text_column, mode="sft", **common,
+            manifest_path, text_column=text_column, parser=parser, mode="sft", **common,
         )
     elif mode == "interleave":
         return build_plan_interleave(

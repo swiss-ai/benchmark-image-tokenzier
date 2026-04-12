@@ -388,21 +388,6 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
 
         return text
 
-    def tokenize(self, image, text=None) -> torch.Tensor:
-        """
-        Unified tokenization interface for image-only mode.
-
-        Args:
-            image: PIL Image to tokenize (required)
-            text: Ignored for image-only tokenization
-
-        Returns:
-            Tokenized image as tensor
-        """
-        # Image is required for image-only tokenizer
-        # Ignore text parameter, only process image
-        return self.tokenize_image(image)
-
     @torch.inference_mode()
     def tokenize_images(self, images: List, resize_size: Tuple[int, int]) -> torch.Tensor:
         """

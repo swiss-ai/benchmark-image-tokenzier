@@ -1,1 +1,1 @@
-"""Dataset-specific post-processing and filtering scripts."""
+"""Dataset-specific preprocessing: manifest filtering, format conversion."""

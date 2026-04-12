@@ -26,9 +26,9 @@ echo "=========================================="
 
 mkdir -p /iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs
 
-srun -u bash -c "
+srun -u --kill-on-bad-exit=0 bash -c "
     set -e
-    uv pip install --python /opt/venv/bin/python orjson
+    uv pip install --python /opt/venv/bin/python3 orjson
     export PYTHONPATH=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier:\$PYTHONPATH
 
     cd /iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier

@@ -1,261 +1,258 @@
 #!/usr/bin/env python3
-"""
-EMU tokenizer for SFT (Supervised Fine-Tuning) data.
-Handles conversations with single images and text.
+"""EMU tokenizer for SFT (Supervised Fine-Tuning) data.
+
+Renders chat templates to text, splits into ordered ``text`` / ``image``
+segments, and assembles the final sequence structurally.
 """
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
 
-from vision_tokenization.discrete.conversation import (
-    ConversationPolicy,
-    apply_conversation_policy,
+from vision_tokenization.common.assembly import assemble_sft_sequence
+from vision_tokenization.discrete.conversation import ConversationPolicy
+from vision_tokenization.discrete.sft_segments import (
+    ChatTemplateSFTDocumentRenderer,
+    RenderedSFTDocument,
+    build_segment_component_maps,
 )
 
+from ._mixins import ThreadPoolExecutorOwner
 from .image_only import EMUImageOnlyTokenizer
 
 logger = logging.getLogger(__name__)
 
 
-from vision_tokenization.common.assembly import (
-    replace_image_placeholders as _replace_images,
-)
+class EMUSftTokenizer(ThreadPoolExecutorOwner, EMUImageOnlyTokenizer):
+    """Tokenizer for SFT (Supervised Fine-Tuning) data.
 
-
-class EMUSftTokenizer(EMUImageOnlyTokenizer):
-    """
-    Tokenizer for SFT (Supervised Fine-Tuning) data.
-    Supports non batched tokenization: supports >=1 images per conversation
-    Supports batched tokenization: only supports 1 image per conversation
+    Supports one or more images per conversation in batched execution.
     """
 
     def __init__(self, *args, conversation_policy: Optional[ConversationPolicy] = None, **kwargs):
-        """
-        Initialize SFT tokenizer with optional conversation policy.
-
-        Args:
-            *args: Positional arguments for parent class
-            conversation_policy: ConversationPolicy controlling message normalization.
-            **kwargs: Keyword arguments for parent class
-        """
         super().__init__(*args, **kwargs)
-
-        # Initialize ThreadPoolExecutor for parallel processing
-        self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="TokenizerPool")
-
-        # Cache the image token ID for faster lookup
-        self.image_token_id = self.text_tokenizer.convert_tokens_to_ids("<|image|>")
-
-        # Configure conversation normalization policy
         self.conversation_policy = conversation_policy or ConversationPolicy()
+        # image_token_id is consumed by StructureTokenIds in the rebuild path.
+        self.image_token_id = self.text_tokenizer.convert_tokens_to_ids("<|image|>")
+        self._sft_renderer = ChatTemplateSFTDocumentRenderer(
+            text_tokenizer=self.text_tokenizer,
+            conversation_policy=self.conversation_policy,
+        )
 
-    def _add_special_tokens(self, tokens: torch.Tensor) -> torch.Tensor:
-        """
-        Add BOS and EOS tokens if missing.
+    def render_sft_document(
+        self,
+        raw_text: List[Dict[str, Any]],
+        *,
+        expected_num_images: Optional[int] = None,
+    ) -> RenderedSFTDocument:
+        return self._sft_renderer.render_document(
+            raw_text, expected_num_images=expected_num_images,
+        )
 
-        This is necessary because:
-        - Some chat templates hardcode BOS/EOS in the template (e.g., {{- bos_token }})
-        - The add_special_tokens parameter in apply_chat_template is often ignored
-        - Different templates have different behavior (some add BOS, some don't)
-        - We need to verify and add only if missing to avoid double BOS/EOS tokens
+    def render_sft_messages(
+        self,
+        messages: List[Dict[str, Any]],
+        *,
+        expected_num_images: Optional[int] = None,
+    ) -> RenderedSFTDocument:
+        return self._sft_renderer.render_messages(
+            messages, expected_num_images=expected_num_images,
+        )
 
-        Uses efficient torch.cat approach (17% faster than F.pad).
-
-        Args:
-            tokens: 1D tensor of token IDs (non-empty from apply_chat_template)
-
-        Returns:
-            Token tensor with BOS at start and EOS at end
-        """
-        # Check what's missing (bos_id and eos_id guaranteed non-None by assertions)
-        needs_bos = tokens[0] != self.bos_id
-        needs_eos = tokens[-1] != self.eos_id
-
-        # Fast path: nothing to do
-        if not needs_bos and not needs_eos:
-            return tokens
-
-        # Build result with torch.cat
-        parts = []
-        if needs_bos:
-            parts.append(torch.tensor([self.bos_id], dtype=tokens.dtype, device=tokens.device))
-        parts.append(tokens)
-        if needs_eos:
-            parts.append(torch.tensor([self.eos_id], dtype=tokens.dtype, device=tokens.device))
-
-        return torch.cat(parts)
-
-    def _tokenize_conversation_text_cpu(self, messages: List[Dict[str, Any]]):
-        """
-        Common CPU thread for text tokenization of a single conversation.
-        Supports multiple images per conversation.
+    def tokenize_batch(
+        self,
+        images: List[Any],
+        resize_size: Tuple[int, int],
+        text: Optional[List[Any]] = None,
+        group_slices: Optional[np.ndarray] = None,
+    ) -> List[Optional[torch.Tensor]]:
+        """Batched SFT tokenization. GPU image encode runs ∥ CPU chat render.
 
         Args:
-            messages: List of message dicts with role and content
+            images: Flat list of PIL Images for the batch.
+            resize_size: Batch-wide resize target.
+            text: One conversation per group (or per image when ``group_slices``
+                is ``None``).
+            group_slices: Optional ``(num_groups, 2)`` int64 array mapping each
+                group to a contiguous slice of *images*. ``None`` means each
+                image is its own 1-image group.
 
         Returns:
-            Tuple of (text_tokens, num_images, image_positions)
-            - text_tokens: 1D tensor of token IDs with BOS/EOS
-            - num_images: Number of <|image|> placeholders found
-            - image_positions: List of positions where <|image|> tokens are located
-        """
-        with torch.cuda.device(-1):  # Use CPU
-            # Apply chat template and tokenize in one step
-            text_tokens = self.text_tokenizer.apply_chat_template(
-                messages, tokenize=True, add_generation_prompt=False, return_tensors="pt"
-            )
-            text_tokens = text_tokens.squeeze(0)  # Remove batch dimension
-
-            # Add BOS/EOS tokens if missing (handles different chat templates)
-            text_tokens = self._add_special_tokens(text_tokens)
-
-            # Find all image positions (support multiple images)
-            image_mask = text_tokens == self.image_token_id
-            num_images = image_mask.sum().item()
-
-            # Get all image positions as a list
-            if num_images > 0:
-                image_positions = image_mask.nonzero(as_tuple=True)[0].tolist()
-            else:
-                image_positions = []
-
-            return text_tokens, num_images, image_positions
-
-    @torch.inference_mode()
-    def tokenize_conversation(self, messages: List[Dict[str, Any]], images: List[Any]) -> torch.Tensor:
-        """
-        Tokenize ONE conversation with one or multiple images.
-        Uses parallel processing: text on CPU, all images on GPU.
-
-        Args:
-            messages: List of message dicts with role and content. Assumed to be in correct format for tokenizers chat template.
-            images: List of PIL images corresponding to <|image|> placeholders in order
-
-        Returns:
-            Token tensor with <|image|> placeholders replaced by Emu3 vision tokens
-
-        Raises:
-            ValueError: If images list is empty or number of images doesn't match number of placeholders
-        """
-        if not images:
-            raise ValueError("images list cannot be empty")
-
-        # Submit text tokenization on CPU
-        text_future = self.executor.submit(self._tokenize_conversation_text_cpu, messages)
-
-        # Submit all image tokenizations in parallel on GPU (strip BOS/EOS) -> Dont batch here as setup and VRAm and tokenizer not dynamically analyzed.
-        image_futures = [self.executor.submit(lambda img=img: self.tokenize_image(img)[1:-1]) for img in images]
-
-        # Get text tokenization results
-        text_tokens, num_images, image_positions = text_future.result()
-
-        # Validate image count matches placeholders
-        if len(images) != num_images:
-            raise ValueError(
-                f"Number of images ({len(images)}) must match number of <|image|> placeholders ({num_images})"
-            )
-
-        # Collect all image tokens
-        image_tokens_list = [future.result() for future in image_futures]
-
-        # Move text tokens to same device as image tokens for final assembly
-        if image_tokens_list:
-            text_tokens = text_tokens.to(image_tokens_list[0].device)
-
-        # Replace all <|image|> placeholders with actual vision tokens
-        final_tokens = _replace_images(text_tokens, image_positions, image_tokens_list)
-
-        return final_tokens
-
-    def tokenize(self, images, text) -> torch.Tensor:
-        """
-        Unified tokenization interface for SFT mode. One sample, non batched processing.
-
-        Args:
-            images: List of PIL Images (required, one or more images)
-            text: Dataset-specific conversation format.
-
-        Returns:
-            Tokenized tensor ready for model input
-
-        Raises:
-            ValueError: If images list is empty or number of images doesn't match placeholders
-        """
-        messages = apply_conversation_policy(text, self.conversation_policy)
-        return self.tokenize_conversation(messages, images)
-
-    def tokenize_batch(self, images, resize_size, text=None, group_slices=None):
-        """
-        Batched tokenization interface for SFT mode.
-
-        Single-image is a special case of multi-image where every group has
-        exactly one image.  Both paths share the same code: GPU image
-        tokenization runs in parallel with CPU conversation tokenization.
-
-        Args:
-            images: List of PIL Images to tokenize.
-            resize_size: Target size for resizing images (batch-wide).
-            text: List of conversation data (required for SFT mode).
-                One per image (single-image) or one per group (multi-image).
-            group_slices: Optional ``(num_groups, 2)`` array mapping groups
-                to positions in *images*.  When ``None``, each image is
-                treated as its own group.
-
-        Returns:
-            List of token tensors (variable lengths).  ``None`` entries
-            indicate skipped groups (placeholder / image count mismatch).
+            One entry per group: a token tensor, or ``None`` if the group was
+            skipped (render or assembly failure).
         """
         if text is None or len(text) == 0:
             raise ValueError("Text (conversations) is required for SFT tokenization")
+        group_slices = self._normalize_group_slices(group_slices, len(images), len(text))
 
-        # Single-image is multi-image with trivial 1-image groups
-        if group_slices is None:
-            if len(images) != len(text):
-                raise ValueError(
-                    f"Number of images ({len(images)}) must match "
-                    f"number of conversations ({len(text)})"
-                )
-            group_slices = np.array(
-                [[i, i + 1] for i in range(len(images))], dtype=np.int64,
-            )
+        image_future = (
+            self.executor.submit(self.tokenize_images, images, resize_size)
+            if images else None
+        )
+        text_future = self.executor.submit(
+            self._render_and_tokenize_groups, text, group_slices,
+        )
 
-        # GPU image tokenization ∥ CPU conversation tokenization
-        def tokenize_all_texts_cpu():
-            results = []
-            for g_idx in range(len(group_slices)):
-                messages = apply_conversation_policy(text[g_idx], self.conversation_policy)
-                results.append(self._tokenize_conversation_text_cpu(messages))
-            return results
+        segment_groups, text_chunks_by_group = text_future.result()
+        image_tokens_batch = image_future.result() if image_future is not None else None
 
-        image_future = self.executor.submit(self.tokenize_images, images, resize_size)
-        text_future = self.executor.submit(tokenize_all_texts_cpu)
-
-        image_tokens_batch = image_future.result()  # [total_images, seq_len]
-        text_results = text_future.result()
-
-        image_tokens_batch = image_tokens_batch.cpu()
-
-        # Per-group: replace <|image|> placeholders with vision tokens
-        results = []
+        results: List[Optional[torch.Tensor]] = []
         for g_idx, (gs, ge) in enumerate(group_slices):
-            gs, ge = int(gs), int(ge)
-            text_tokens, num_images, image_positions = text_results[g_idx]
-
-            num_group_images = ge - gs
-            if num_images != num_group_images:
-                logger.warning(
-                    f"Group has {num_group_images} images but conversation has "
-                    f"{num_images} <|image|> placeholders — skipping"
-                )
+            segments = segment_groups[g_idx]
+            text_token_chunks = text_chunks_by_group[g_idx]
+            if segments is None or text_token_chunks is None:
                 results.append(None)
                 continue
 
-            img_tokens_list = [image_tokens_batch[i, 1:-1] for i in range(gs, ge)]
-            final_tokens = _replace_images(text_tokens, image_positions, img_tokens_list)
-            results.append(final_tokens)
-
+            gs_i, ge_i = int(gs), int(ge)
+            image_token_chunks = [
+                image_tokens_batch[i, 1:-1] for i in range(gs_i, ge_i)
+            ]
+            try:
+                results.append(self._assemble_sft_group(
+                    segments=segments,
+                    text_token_chunks=text_token_chunks,
+                    image_token_chunks=image_token_chunks,
+                ))
+            except ValueError as exc:
+                logger.warning(
+                    "Failed to assemble SFT group %d — skipping: %s", g_idx, exc,
+                )
+                results.append(None)
         return results
+
+    @staticmethod
+    def _normalize_group_slices(
+        group_slices: Optional[np.ndarray],
+        n_images: int,
+        n_texts: int,
+    ) -> np.ndarray:
+        """Validate or synthesize a ``(num_groups, 2)`` int64 group_slices array.
+
+        When ``group_slices is None``, each image becomes its own 1-image group
+        and ``n_images == n_texts`` is required.
+
+        When provided, the array must:
+        - have shape ``(num_groups, 2)`` and dtype int64-castable,
+        - contain monotonic non-overlapping slices,
+        - satisfy ``0 <= start <= end <= n_images`` for every entry,
+        - have exactly ``n_texts`` rows.
+
+        Note on coverage: gaps between groups are *allowed* — i.e. an image
+        whose index is not covered by any group's ``[start, end)`` is silently
+        dropped. This preserves the current permissive contract; tightening it
+        (requiring every image to belong to exactly one group) would be a
+        separate semantic change.
+        """
+        if group_slices is None:
+            if n_images != n_texts:
+                raise ValueError(
+                    f"Number of images ({n_images}) must match "
+                    f"number of conversations ({n_texts})"
+                )
+            return np.array(
+                [[i, i + 1] for i in range(n_images)], dtype=np.int64,
+            ).reshape(-1, 2)
+
+        gs_arr = np.asarray(group_slices, dtype=np.int64)
+        if gs_arr.ndim != 2 or gs_arr.shape[1] != 2:
+            raise ValueError(
+                f"group_slices must have shape (num_groups, 2), got {gs_arr.shape}"
+            )
+        if len(gs_arr) != n_texts:
+            raise ValueError(
+                f"group_slices has {len(gs_arr)} groups but received {n_texts} conversations"
+            )
+        if len(gs_arr) > 0:
+            starts = gs_arr[:, 0]
+            ends = gs_arr[:, 1]
+            if (starts < 0).any() or (ends > n_images).any() or (starts > ends).any():
+                raise ValueError(
+                    f"group_slices entries must satisfy 0 <= start <= end <= {n_images}"
+                )
+            if len(gs_arr) > 1 and (starts[1:] < ends[:-1]).any():
+                raise ValueError("group_slices must be monotonic and non-overlapping")
+        return gs_arr
+
+    def _render_and_tokenize_groups(
+        self,
+        text: List[Any],
+        group_slices: np.ndarray,
+    ) -> Tuple[
+        List[Optional[List[Dict[str, Any]]]],
+        List[Optional[List[torch.Tensor]]],
+    ]:
+        """Render each group's chat then batch-tokenize all text spans at once."""
+        segment_groups = self._render_groups_to_segments(text, group_slices)
+        text_chunks_by_group = self._batch_tokenize_text_spans(segment_groups)
+        return segment_groups, text_chunks_by_group
+
+    def _render_groups_to_segments(
+        self,
+        text: List[Any],
+        group_slices: np.ndarray,
+    ) -> List[Optional[List[Dict[str, Any]]]]:
+        """Render each group's conversation into structured segments.
+
+        ``tokenize_batch`` never sees fragmented docs — all of a doc's images
+        are passed together — so the group's image count is the conversation's
+        expected placeholder count. Multi-image SFT with batch fragmentation
+        goes through ``SpillBackend`` instead.
+        """
+        segment_groups: List[Optional[List[Dict[str, Any]]]] = []
+        for g_idx, (gs, ge) in enumerate(group_slices):
+            try:
+                rendered_doc = self.render_sft_document(
+                    text[g_idx],
+                    expected_num_images=int(ge) - int(gs),
+                )
+                segment_groups.append(rendered_doc.segments)
+            except ValueError as exc:
+                logger.warning(
+                    "Failed to render SFT conversation for group %d — skipping: %s",
+                    g_idx,
+                    exc,
+                )
+                segment_groups.append(None)
+        return segment_groups
+
+    def _batch_tokenize_text_spans(
+        self,
+        segment_groups: List[Optional[List[Dict[str, Any]]]],
+    ) -> List[Optional[List[torch.Tensor]]]:
+        """Flatten text spans across all groups, batch-tokenize, then regroup."""
+        flat_texts, doc_text_map, _ = build_segment_component_maps(segment_groups)
+        flat_token_chunks = self._tokenize_flat_texts_cpu(flat_texts)
+
+        text_chunks_by_group: List[Optional[List[torch.Tensor]]] = []
+        for segments, text_entries in zip(segment_groups, doc_text_map):
+            if segments is None:
+                text_chunks_by_group.append(None)
+                continue
+            text_chunks_by_group.append(
+                [flat_token_chunks[idx] for _, idx in text_entries]
+            )
+        return text_chunks_by_group
+
+    def _assemble_sft_group(
+        self,
+        *,
+        segments: List[Dict[str, Any]],
+        text_token_chunks: List[torch.Tensor],
+        image_token_chunks: List[torch.Tensor],
+    ) -> torch.Tensor:
+        """Assemble one SFT group's structured segments into a final token sequence.
+
+        Precondition: ``segments`` and ``text_token_chunks`` are both non-None.
+        The caller (``tokenize_batch``) handles the skip-on-None case so this
+        helper has a clean group-local contract.
+        """
+        return assemble_sft_sequence(
+            bos_id=self.bos_id,
+            eos_id=self.eos_id,
+            segments=segments,
+            text_token_chunks=text_token_chunks,
+            image_token_chunks=image_token_chunks,
+        )

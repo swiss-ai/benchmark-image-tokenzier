@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
 
 from ..runtime.checkpoint import WorkerStats
 from ...indexing.planning.tokenization_plan import IMAGE, TEXT
+from ...discrete.sft_segments import build_segment_component_maps
 
 logger = logging.getLogger(__name__)
 
@@ -93,11 +94,13 @@ class SpillBackend:
 
     def __init__(self):
         self._writer = None
+        self._dropped_sft_docs: set[int] = set()
 
     def open(self, output_dir: str, rank: int, resume_state: Optional[dict] = None) -> None:
         from .spill import ComponentSpillWriter, recover_worker_shards
 
         self._writer = ComponentSpillWriter(output_dir, rank, token_dtype=np.int32)
+        self._dropped_sft_docs.clear()
         start_shard = 0
         if resume_state:
             rank_dir = Path(output_dir) / f"rank_{rank:04d}"
@@ -116,27 +119,47 @@ class SpillBackend:
         tokenizer: Any,
         stats: WorkerStats,
     ) -> dict:
+        """Spill one batch's components to disk for offline rebuild."""
         import time
-
-        IMAGE_KIND = int(IMAGE)
-        TEXT_KIND = int(TEXT)
-
         t0 = time.perf_counter()
-
+        kwargs = dict(
+            image_tokens=image_tokens,
+            texts=texts,
+            component_indices=component_indices,
+            group_slices=group_slices,
+            resize_height=resize_height,
+            resize_width=resize_width,
+            plan=plan,
+            tokenizer=tokenizer,
+            stats=stats,
+        )
         if plan.mode == "interleave":
-            self._write_interleave_batch(
-                image_tokens=image_tokens,
-                texts=texts,
-                component_indices=component_indices,
-                group_slices=group_slices,
-                resize_height=resize_height,
-                resize_width=resize_width,
-                plan=plan,
-                tokenizer=tokenizer,
-                stats=stats,
-            )
-            write_ms = (time.perf_counter() - t0) * 1000
-            return {"write_ms": write_ms}
+            self._write_interleave_batch(**kwargs)
+        elif plan.mode == "sft":
+            self._write_sft_batch(**kwargs)
+        else:
+            self._write_unsegmented_batch(**kwargs)
+        return {"write_ms": (time.perf_counter() - t0) * 1000}
+
+    def _write_unsegmented_batch(
+        self,
+        *,
+        image_tokens: List[torch.Tensor],
+        texts: Optional[List[Any]],
+        component_indices: np.ndarray,
+        group_slices: Optional[np.ndarray],
+        resize_height: int,
+        resize_width: int,
+        plan: Any,
+        tokenizer: Any,
+        stats: WorkerStats,
+    ) -> None:
+        """Spill image components and one doc-level text per doc.
+
+        Used by image_only / image2text / text2image modes — every component
+        has a stable plan-level component_index, so spilling is direct.
+        """
+        IMAGE_KIND = int(IMAGE)
 
         # Spill image components without per-image BOS/EOS wrappers.
         for seq, comp_idx in zip(image_tokens, component_indices):
@@ -157,50 +180,49 @@ class SpillBackend:
             stats.tokens_generated += len(tokens_cpu)
 
         # Spill one text component per document for non-interleave modes.
-        if texts is not None:
-            if group_slices is not None:
-                for g_idx, (start, end) in enumerate(group_slices):
-                    start, end = int(start), int(end)
-                    if start >= end:
-                        continue
-                    text = texts[g_idx] if g_idx < len(texts) else None
-                    if text is None:
-                        continue
-                    doc_comp_indices = component_indices[start:end]
-                    # Spill doc-level text only once, from the batch containing image_index=0.
-                    if not np.any(plan.components.image_index[doc_comp_indices] == 0):
-                        continue
-                    doc_id = int(plan.components.document_id[int(doc_comp_indices[0])])
-                    text_np = self._tokenize_doc_text(text, plan.mode, tokenizer)
-                    text_ci = int(plan.documents.num_images[doc_id])
-                    self._writer.add_component(
-                        document_id=doc_id,
-                        component_index=text_ci,
-                        kind=TEXT_KIND,
-                        tokens=text_np,
-                    )
-                    stats.text_tokens += len(text_np)
-                    stats.tokens_generated += len(text_np)
-            else:
-                for i, comp_idx in enumerate(component_indices):
-                    text = texts[i] if i < len(texts) else None
-                    if text is None:
-                        continue
-                    comp_idx = int(comp_idx)
-                    doc_id = int(plan.components.document_id[comp_idx])
-                    text_np = self._tokenize_doc_text(text, plan.mode, tokenizer)
-                    text_ci = int(plan.documents.num_images[doc_id])
-                    self._writer.add_component(
-                        document_id=doc_id,
-                        component_index=text_ci,
-                        kind=TEXT_KIND,
-                        tokens=text_np,
-                    )
-                    stats.text_tokens += len(text_np)
-                    stats.tokens_generated += len(text_np)
+        if texts is None:
+            return
+        if group_slices is not None:
+            for g_idx, (start, end) in enumerate(group_slices):
+                start, end = int(start), int(end)
+                if start >= end:
+                    continue
+                text = texts[g_idx] if g_idx < len(texts) else None
+                if text is None:
+                    continue
+                doc_comp_indices = component_indices[start:end]
+                # Spill doc-level text only once, from the batch containing image_index=0.
+                if not np.any(plan.components.image_index[doc_comp_indices] == 0):
+                    continue
+                doc_id = int(plan.components.document_id[int(doc_comp_indices[0])])
+                self._spill_doc_text(text, doc_id, plan, tokenizer, stats)
+        else:
+            for i, comp_idx in enumerate(component_indices):
+                text = texts[i] if i < len(texts) else None
+                if text is None:
+                    continue
+                doc_id = int(plan.components.document_id[int(comp_idx)])
+                self._spill_doc_text(text, doc_id, plan, tokenizer, stats)
 
-        write_ms = (time.perf_counter() - t0) * 1000
-        return {"write_ms": write_ms}
+    def _spill_doc_text(
+        self,
+        text: Any,
+        doc_id: int,
+        plan: Any,
+        tokenizer: Any,
+        stats: WorkerStats,
+    ) -> None:
+        """Tokenize and spill one document-level text payload under its canonical component index."""
+        text_np = self._tokenize_doc_text(text, plan.mode, tokenizer)
+        text_ci = int(plan.documents.num_images[doc_id])
+        self._writer.add_component(
+            document_id=doc_id,
+            component_index=text_ci,
+            kind=int(TEXT),
+            tokens=text_np,
+        )
+        stats.text_tokens += len(text_np)
+        stats.tokens_generated += len(text_np)
 
     def checkpoint(self) -> Any:
         done = self._writer.checkpoint()
@@ -209,6 +231,20 @@ class SpillBackend:
     def finalize(self) -> None:
         if self._writer:
             self._writer.finalize()
+
+    def _mark_sft_doc_dropped(
+        self,
+        *,
+        doc_id: int,
+        stats: WorkerStats,
+        reason: str,
+    ) -> None:
+        """Mark one SFT doc incomplete so later fragments do not spill partial data."""
+        if doc_id in self._dropped_sft_docs:
+            return
+        self._dropped_sft_docs.add(doc_id)
+        logger.warning("Dropping SFT doc %s from spill: %s", doc_id, reason)
+        stats.samples_skipped += 1
 
     @staticmethod
     def _strip_component_wrapper(tokens: torch.Tensor, tokenizer: Any) -> np.ndarray:
@@ -229,14 +265,6 @@ class SpillBackend:
     @staticmethod
     def _tokenize_doc_text(text: Any, mode: str, tokenizer: Any) -> np.ndarray:
         """Tokenize one document-level text payload for non-interleave modes."""
-        if mode == "sft":
-            from vision_tokenization.discrete.conversation import apply_conversation_policy
-
-            messages = apply_conversation_policy(text, tokenizer.conversation_policy)
-            text_tokens, _num_images, _image_positions = tokenizer._tokenize_conversation_text_cpu(messages)
-            seq = text_tokens.cpu() if text_tokens.is_cuda else text_tokens
-            return seq.numpy().astype(np.int32, copy=False)
-
         encoded = tokenizer.text_tokenizer(
             text,
             truncation=False,
@@ -259,9 +287,6 @@ class SpillBackend:
         tokenizer: Any,
         stats: WorkerStats,
     ) -> None:
-        IMAGE_KIND = int(IMAGE)
-        TEXT_KIND = int(TEXT)
-
         if texts is None or group_slices is None:
             raise ValueError("Interleave spill requires grouped parsed documents")
 
@@ -285,31 +310,95 @@ class SpillBackend:
             )
             normalized_texts.append(None)
 
-        # Batch-tokenize all non-empty text segments across the grouped docs.
-        flat_texts: List[str] = []
-        doc_text_map: List[List[tuple[int, int]]] = []
-        doc_image_comp_indices: List[List[int]] = []
-        for segments in normalized_texts:
-            text_entries: List[tuple[int, int]] = []
-            image_component_positions: List[int] = []
-            runtime_ci = 0
-            if segments is None:
-                doc_text_map.append(text_entries)
-                doc_image_comp_indices.append(image_component_positions)
+        self._write_segmented_batch(
+            normalized_texts=normalized_texts,
+            image_tokens=image_tokens,
+            component_indices=component_indices,
+            group_slices=group_slices,
+            resize_height=resize_height,
+            resize_width=resize_width,
+            plan=plan,
+            tokenizer=tokenizer,
+            stats=stats,
+        )
+
+    def _write_sft_batch(
+        self,
+        *,
+        image_tokens: List[torch.Tensor],
+        texts: Optional[List[Any]],
+        component_indices: np.ndarray,
+        group_slices: Optional[np.ndarray],
+        resize_height: int,
+        resize_width: int,
+        plan: Any,
+        tokenizer: Any,
+        stats: WorkerStats,
+    ) -> None:
+        if texts is None or group_slices is None:
+            raise ValueError("SFT spill requires grouped conversations")
+
+        # normalized_texts must stay index-aligned with group_slices; every
+        # branch below appends exactly one entry per group.
+        normalized_texts: List[Optional[List[Dict[str, Any]]]] = []
+        for g_idx, (start, end) in enumerate(group_slices):
+            start, end = int(start), int(end)
+            if start >= end:
+                normalized_texts.append(None)
                 continue
-            for seg in segments or []:
-                seg_type = seg.get("type")
-                if seg_type == "text":
-                    seg_text = seg.get("text")
-                    if seg_text:
-                        text_entries.append((runtime_ci, len(flat_texts)))
-                        flat_texts.append(seg_text)
-                        runtime_ci += 1
-                elif seg_type == "image":
-                    image_component_positions.append(runtime_ci)
-                    runtime_ci += 1
-            doc_text_map.append(text_entries)
-            doc_image_comp_indices.append(image_component_positions)
+
+            raw_text = texts[g_idx] if g_idx < len(texts) else None
+            if raw_text is None:
+                normalized_texts.append(None)
+                continue
+
+            doc_comp_indices = component_indices[start:end]
+            doc_id = int(plan.components.document_id[int(doc_comp_indices[0])])
+
+            try:
+                rendered_doc = tokenizer.render_sft_document(
+                    raw_text,
+                    expected_num_images=int(plan.documents.num_images[doc_id]),
+                )
+                normalized_texts.append(rendered_doc.segments)
+            except ValueError as exc:
+                logger.warning(
+                    "Failed to render grouped SFT conversation %d for spill — skipping: %s",
+                    g_idx,
+                    exc,
+                )
+                normalized_texts.append(None)
+
+        self._write_segmented_batch(
+            normalized_texts=normalized_texts,
+            image_tokens=image_tokens,
+            component_indices=component_indices,
+            group_slices=group_slices,
+            resize_height=resize_height,
+            resize_width=resize_width,
+            plan=plan,
+            tokenizer=tokenizer,
+            stats=stats,
+        )
+
+    def _write_segmented_batch(
+        self,
+        *,
+        normalized_texts: Sequence[Optional[Sequence[Dict[str, Any]]]],
+        image_tokens: List[torch.Tensor],
+        component_indices: np.ndarray,
+        group_slices: np.ndarray,
+        resize_height: int,
+        resize_width: int,
+        plan: Any,
+        tokenizer: Any,
+        stats: WorkerStats,
+    ) -> None:
+        """Spill grouped structured documents with runtime component ordering."""
+        IMAGE_KIND = int(IMAGE)
+        TEXT_KIND = int(TEXT)
+
+        flat_texts, doc_text_map, doc_image_comp_indices = build_segment_component_maps(normalized_texts)
 
         text_tokens_by_flat_idx: List[np.ndarray] = []
         if flat_texts:
@@ -331,35 +420,58 @@ class SpillBackend:
 
             doc_comp_indices = component_indices[start:end]
             doc_id = int(plan.components.document_id[int(doc_comp_indices[0])])
+            if plan.mode == "sft" and doc_id in self._dropped_sft_docs:
+                continue
             image_indices = plan.components.image_index[doc_comp_indices]
             if normalized_texts[g_idx] is None:
-                logger.warning(
-                    "Skipping interleave doc %s: loader returned no validated segments",
-                    doc_id,
-                )
-                stats.samples_skipped += 1
+                if plan.mode == "sft":
+                    self._mark_sft_doc_dropped(
+                        doc_id=doc_id,
+                        stats=stats,
+                        reason="loader/render step returned no structured segments",
+                    )
+                else:
+                    logger.warning(
+                        "Skipping %s doc %s: loader/render step returned no structured segments",
+                        plan.mode,
+                        doc_id,
+                    )
+                    stats.samples_skipped += 1
                 continue
             image_component_positions = doc_image_comp_indices[g_idx]
 
             max_image_index = int(image_indices.max()) if len(image_indices) > 0 else -1
             if max_image_index >= len(image_component_positions):
-                logger.warning(
-                    "Interleave doc %s has image_index outside parsed segment range — skipping batch fragment",
-                    doc_id,
-                )
-                stats.samples_skipped += 1
+                if plan.mode == "sft":
+                    self._mark_sft_doc_dropped(
+                        doc_id=doc_id,
+                        stats=stats,
+                        reason="image_index lies outside runtime segment range",
+                    )
+                else:
+                    logger.warning(
+                        "%s doc %s has image_index outside runtime segment range — skipping batch fragment",
+                        plan.mode,
+                        doc_id,
+                    )
+                    stats.samples_skipped += 1
                 continue
 
-            # Skip documents with no text content
             if not doc_text_map[g_idx]:
-                logger.warning(
-                    "Interleave doc %s has no text segments — skipping",
-                    doc_id,
-                )
-                stats.samples_skipped += 1
+                if plan.mode == "sft":
+                    self._mark_sft_doc_dropped(
+                        doc_id=doc_id,
+                        stats=stats,
+                        reason="rendered structure has no text segments",
+                    )
+                else:
+                    logger.warning("%s doc %s has no text segments — skipping", plan.mode, doc_id)
+                    stats.samples_skipped += 1
                 continue
 
-            # Spill text segments once per document, from the batch containing image_index=0.
+            # Spill text segments exactly once per document — only from the
+            # fragment that owns image_index == 0, so fragmented docs don't
+            # emit duplicate text.
             if np.any(image_indices == 0):
                 for runtime_ci, text_flat_idx in doc_text_map[g_idx]:
                     text_np = text_tokens_by_flat_idx[text_flat_idx]

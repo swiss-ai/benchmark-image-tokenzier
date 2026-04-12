@@ -44,6 +44,8 @@ from vision_tokenization.utils.interleave_documents import (
 
 logger = logging.getLogger(__name__)
 
+DOC_NUM_IMAGES_KEY = "__doc_num_images__"
+
 
 # ---------------------------------------------------------------------------
 # WDS image loader
@@ -516,6 +518,8 @@ class HFImageLoader:
         image_list_column: Optional[str] = None,
         parser: Optional[str] = None,
         parser_columns: Optional[List[str]] = None,
+        parser_args: Optional[Dict[str, Any]] = None,
+        parser_kind: Optional[str] = None,
     ):
         self.input_pattern = str(input_pattern)
         self.image_column = image_column
@@ -523,6 +527,8 @@ class HFImageLoader:
         self._image_list_column = image_list_column
         self._parser = parser
         self._parser_columns = parser_columns or []
+        self._parser_args = dict(parser_args or {})
+        self._parser_kind = parser_kind
 
         self._shards: List[_HFShardInfo] = []
         self._shard_starts: List[int] = []
@@ -933,6 +939,106 @@ class HFImageLoader:
                 values.append(None)
         return values
 
+    def _parse_row_dicts(
+        self,
+        row_dict_by_batch_pos: Dict[int, dict[str, Any]],
+        *,
+        batch_size: int,
+        group_slices: Optional[np.ndarray] = None,
+    ) -> List[Any]:
+        """Parse cached row dicts into structured text payloads.
+
+        ``HFImageLoader`` supports two parser families:
+        - ``interleave`` parsers return ordered ``text/image`` segments.
+        - ``sft`` parsers return canonical conversation/message lists.
+
+        SFT parsers receive ``num_images`` from the row's stored full image
+        count so fragmented multi-image documents render the right placeholder
+        count rather than the current fragment size.
+        """
+        if not self._parser:
+            return []
+
+        if self._parser_kind == "interleave":
+            from vision_tokenization.parsers import (
+                parse_segments as parse_fn,
+                is_row_shaped_interleave_parser,
+            )
+
+            row_shaped = is_row_shaped_interleave_parser(self._parser)
+            if not row_shaped:
+                # Document parsers take one column's value as the positional payload.
+                if len(self._parser_columns) != 1:
+                    raise ValueError(
+                        f"Interleave parser {self._parser!r} is document-shaped and "
+                        f"requires exactly one parser_columns entry, got "
+                        f"{self._parser_columns!r}"
+                    )
+                payload_column = self._parser_columns[0]
+
+            def _parse(row_dict: dict[str, Any], num_images: int) -> Any:
+                if row_shaped:
+                    return parse_fn(
+                        row_dict,
+                        parser=self._parser,
+                        num_images=num_images,
+                        **self._parser_args,
+                    )
+                payload = row_dict.get(payload_column)
+                return parse_fn(
+                    payload,
+                    parser=self._parser,
+                    num_images=num_images,
+                    **self._parser_args,
+                )
+        elif self._parser_kind == "sft":
+            from vision_tokenization.parsers import parse_sft_messages as parse_fn
+
+            def _parse(row_dict: dict[str, Any], num_images: int) -> Any:
+                return parse_fn(
+                    row_dict,
+                    parser=self._parser,
+                    num_images=num_images,
+                    parser_args=self._parser_args,
+                )
+        else:
+            raise ValueError(f"Unknown parser_kind: {self._parser_kind!r}")
+
+        def _doc_num_images(row_dict: dict[str, Any], fragment_count: int) -> int:
+            return int(row_dict.get(DOC_NUM_IMAGES_KEY, fragment_count))
+
+        if group_slices is None:
+            parsed_results: List[Any] = []
+            # ``row_dict_by_batch_pos`` is sparse when earlier reads fail, so
+            # iterate the requested batch width instead of the populated dict.
+            for batch_pos in range(batch_size):
+                row_dict = row_dict_by_batch_pos.get(batch_pos)
+                if row_dict is None:
+                    parsed_results.append(None)
+                    continue
+                try:
+                    parsed_results.append(_parse(row_dict, _doc_num_images(row_dict, 1)))
+                except Exception:
+                    logger.warning("Parser failed for sample", exc_info=True)
+                    parsed_results.append(None)
+            return parsed_results
+
+        parsed_results = []
+        for start, end in group_slices:
+            start, end = int(start), int(end)
+            row_dict = row_dict_by_batch_pos.get(start)
+            if row_dict is None:
+                parsed_results.append(None)
+                continue
+            try:
+                parsed_results.append(
+                    _parse(row_dict, _doc_num_images(row_dict, end - start))
+                )
+            except Exception:
+                logger.warning("Parser failed for group", exc_info=True)
+                parsed_results.append(None)
+        return parsed_results
+
     def _resolve_batch_rows(
         self,
         sample_indices: np.ndarray,
@@ -1009,11 +1115,16 @@ class HFImageLoader:
             return self._load_batch_multi(sample_indices, group_slices)
 
         img_results: List[Optional[Image.Image]] = [None] * len(sample_indices)
-        txt_results: List[Any] = [None] * len(sample_indices) if self.text_column else []
+        txt_results: List[Any] = [None] * len(sample_indices) if (self.text_column or self._parser) else []
 
         columns = [self.image_column]
         if self.text_column:
             columns.append(self.text_column)
+        for col in self._parser_columns:
+            if col not in columns:
+                columns.append(col)
+
+        parser_row_by_batch_pos: Dict[int, dict[str, Any]] = {}
 
         grouped_rows = self._iter_single_grouped_rows(sample_indices)
 
@@ -1031,6 +1142,14 @@ class HFImageLoader:
                             img_results[batch_pos] = self._decode_image(img_data)
                             if text_column is not None:
                                 txt_results[batch_pos] = text_column[row_in_chunk].as_py()
+                            if self._parser:
+                                row_dict: dict[str, Any] = {}
+                                for col in self._parser_columns:
+                                    try:
+                                        row_dict[col] = table.column(col)[row_in_chunk].as_py()
+                                    except Exception:
+                                        row_dict[col] = None
+                                parser_row_by_batch_pos[batch_pos] = row_dict
                         except Exception:
                             logger.warning(
                                 f"Failed to read row {row_in_chunk} from chunk {chunk_idx} "
@@ -1040,10 +1159,16 @@ class HFImageLoader:
             except Exception:
                 logger.warning(f"Failed to read shard {shard.path}", exc_info=True)
 
-        if self.text_column and group_slices is not None:
+        if self._parser:
+            txt_results = self._parse_row_dicts(
+                parser_row_by_batch_pos,
+                batch_size=len(sample_indices),
+                group_slices=group_slices,
+            )
+        elif self.text_column and group_slices is not None:
             txt_results = [txt_results[int(start)] for start, _end in group_slices]
 
-        return img_results, txt_results if self.text_column else None
+        return img_results, txt_results if (self.text_column or self._parser) else None
 
     def load_text_batch(
         self,
@@ -1051,13 +1176,20 @@ class HFImageLoader:
         group_slices: Optional[np.ndarray] = None,
     ) -> Optional[List[Any]]:
         """Load only text by manifest index, without decoding any images."""
-        if not self.text_column:
+        if not self.text_column and not self._parser:
             return None
         if self._is_multi:
             return self._load_text_batch_multi(sample_indices, group_slices)
 
         txt_results: List[Any] = [None] * len(sample_indices)
-        columns = [self.text_column]
+        columns: List[str] = []
+        if self.text_column:
+            columns.append(self.text_column)
+        for col in self._parser_columns:
+            if col not in columns:
+                columns.append(col)
+
+        parser_row_by_batch_pos: Dict[int, dict[str, Any]] = {}
 
         grouped_rows = self._iter_single_grouped_rows(sample_indices)
 
@@ -1067,18 +1199,37 @@ class HFImageLoader:
                 self._ensure_chunks(shard, list(chunk_groups.keys()), columns)
                 for chunk_idx, positions in chunk_groups.items():
                     table = self._chunk_table(shard, chunk_idx, columns)
-                    batch_positions = [batch_pos for batch_pos, _ in positions]
                     row_indices = [row_in_chunk for _, row_in_chunk in positions]
-                    values = self._load_text_values_for_rows(
-                        table,
-                        row_indices,
-                        shard_path=shard.path,
-                        chunk_idx=chunk_idx,
+                    values = (
+                        self._load_text_values_for_rows(
+                            table,
+                            row_indices,
+                            shard_path=shard.path,
+                            chunk_idx=chunk_idx,
+                        )
+                        if self.text_column
+                        else [None] * len(row_indices)
                     )
-                    for batch_pos, value in zip(batch_positions, values):
-                        txt_results[batch_pos] = value
+                    for (batch_pos, row_in_chunk), value in zip(positions, values):
+                        if self.text_column:
+                            txt_results[batch_pos] = value
+                        if self._parser:
+                            row_dict: dict[str, Any] = {}
+                            for col in self._parser_columns:
+                                try:
+                                    row_dict[col] = table.column(col)[row_in_chunk].as_py()
+                                except Exception:
+                                    row_dict[col] = None
+                            parser_row_by_batch_pos[batch_pos] = row_dict
             except Exception:
                 logger.warning(f"Failed to read shard {shard.path}", exc_info=True)
+
+        if self._parser:
+            return self._parse_row_dicts(
+                parser_row_by_batch_pos,
+                batch_size=len(sample_indices),
+                group_slices=group_slices,
+            )
 
         if group_slices is not None:
             txt_results = [txt_results[int(start)] for start, _end in group_slices]
@@ -1092,7 +1243,7 @@ class HFImageLoader:
     ) -> Tuple[List[Optional[Image.Image]], Optional[List[Any]]]:
         """Load a multi-image batch using manifest-row indirection."""
         img_results: List[Optional[Image.Image]] = [None] * len(sample_indices)
-        txt_results: List[Any] = [None] * len(sample_indices) if self.text_column else []
+        txt_results: List[Any] = [None] * len(sample_indices) if (self.text_column or self._parser) else []
 
         columns = [self._image_list_column]
         if self.text_column:
@@ -1135,6 +1286,8 @@ class HFImageLoader:
                         try:
                             img_list = image_column[row_in_chunk].as_py()
                             text_val = text_column[row_in_chunk].as_py() if text_column is not None else None
+                            if self._parser:
+                                _row_dict_cache[row_in_chunk][DOC_NUM_IMAGES_KEY] = len(img_list)
 
                             for batch_pos, img_pos in positions:
                                 try:
@@ -1158,23 +1311,12 @@ class HFImageLoader:
             except Exception:
                 logger.warning(f"Failed to read shard {shard.path}", exc_info=True)
 
-        if self._parser and group_slices is not None:
-            from vision_tokenization.parsers import parse_segments
-
-            txt_results = []
-            for start, end in group_slices:
-                start, end = int(start), int(end)
-                row_dict = parser_row_by_batch_pos.get(start)
-                if row_dict is not None:
-                    try:
-                        txt_results.append(parse_segments(
-                            row_dict, parser=self._parser,
-                        ))
-                    except Exception:
-                        logger.warning("Parser failed for group", exc_info=True)
-                        txt_results.append(None)
-                else:
-                    txt_results.append(None)
+        if self._parser:
+            txt_results = self._parse_row_dicts(
+                parser_row_by_batch_pos,
+                batch_size=len(sample_indices),
+                group_slices=group_slices,
+            )
         elif self.text_column and group_slices is not None:
             txt_results = [txt_results[int(start)] for start, _end in group_slices]
 
@@ -1186,7 +1328,16 @@ class HFImageLoader:
         group_slices: Optional[np.ndarray] = None,
     ) -> List[Any]:
         txt_results: List[Any] = [None] * len(sample_indices)
-        columns = [self.text_column]
+        columns: List[str] = []
+        if self._parser and self._parser_kind == "sft" and self._image_list_column:
+            columns.append(self._image_list_column)
+        if self.text_column:
+            columns.append(self.text_column)
+        for col in self._parser_columns:
+            if col not in columns:
+                columns.append(col)
+
+        parser_row_by_batch_pos: Dict[int, dict[str, Any]] = {}
 
         grouped_rows = self._iter_multi_grouped_rows(sample_indices)
 
@@ -1196,18 +1347,48 @@ class HFImageLoader:
                 self._ensure_chunks(shard, list(chunk_groups.keys()), columns)
                 for chunk_idx, row_map in chunk_groups.items():
                     table = self._chunk_table(shard, chunk_idx, columns)
+                    image_list_column = (
+                        table.column(self._image_list_column)
+                        if self._parser and self._parser_kind == "sft" and self._image_list_column
+                        else None
+                    )
                     row_indices = list(row_map.keys())
-                    values = self._load_text_values_for_rows(
-                        table,
-                        row_indices,
-                        shard_path=shard.path,
-                        chunk_idx=chunk_idx,
+                    values = (
+                        self._load_text_values_for_rows(
+                            table,
+                            row_indices,
+                            shard_path=shard.path,
+                            chunk_idx=chunk_idx,
+                        )
+                        if self.text_column
+                        else [None] * len(row_indices)
                     )
                     for row_in_chunk, text_val in zip(row_indices, values):
                         for batch_pos, _img_pos in row_map[row_in_chunk]:
-                            txt_results[batch_pos] = text_val
+                            if self.text_column:
+                                txt_results[batch_pos] = text_val
+                            if self._parser:
+                                row_dict: dict[str, Any] = {}
+                                for col in self._parser_columns:
+                                    try:
+                                        row_dict[col] = table.column(col)[row_in_chunk].as_py()
+                                    except Exception:
+                                        row_dict[col] = None
+                                if image_list_column is not None:
+                                    try:
+                                        row_dict[DOC_NUM_IMAGES_KEY] = len(image_list_column[row_in_chunk].as_py())
+                                    except Exception:
+                                        row_dict[DOC_NUM_IMAGES_KEY] = None
+                                parser_row_by_batch_pos[batch_pos] = row_dict
             except Exception:
                 logger.warning(f"Failed to read shard {shard.path}", exc_info=True)
+
+        if self._parser:
+            return self._parse_row_dicts(
+                parser_row_by_batch_pos,
+                batch_size=len(sample_indices),
+                group_slices=group_slices,
+            )
 
         if group_slices is not None:
             txt_results = [txt_results[int(start)] for start, _end in group_slices]
@@ -1233,6 +1414,18 @@ def create_loader(cfg: Dict[str, Any]):
     """Factory to create the appropriate loader based on dataset_type."""
     dataset_type = cfg.get("dataset_type", "hf")
     text_column = cfg.get("text_column")
+    parser = cfg.get("parser")
+
+    parser_kind = None
+    if dataset_type == "hf_interleave":
+        parser_kind = "interleave"
+    elif cfg.get("mode") == "sft" and parser:
+        parser_kind = "sft"
+
+    if parser_kind and not cfg.get("parser_columns"):
+        raise ValueError(
+            f"{dataset_type} dataset with parser={parser!r} requires parser_columns to be set"
+        )
 
     if dataset_type == "wds":
         return WDSImageLoader(
@@ -1251,8 +1444,10 @@ def create_loader(cfg: Dict[str, Any]):
             max_cached_chunks=cfg.get("max_cached_chunks", 32),
             manifest_path=cfg.get("manifest_path"),
             image_list_column=cfg.get("image_list_column"),
-            parser=cfg.get("parser") if dataset_type == "hf_interleave" else None,
-            parser_columns=cfg.get("parser_columns") if dataset_type == "hf_interleave" else None,
+            parser=parser if parser_kind else None,
+            parser_columns=cfg.get("parser_columns") if parser_kind else None,
+            parser_args=cfg.get("parser_args") if parser_kind else None,
+            parser_kind=parser_kind,
         )
     if dataset_type == "jsonl_tar_interleave":
         return JSONLTarInterleaveLoader(

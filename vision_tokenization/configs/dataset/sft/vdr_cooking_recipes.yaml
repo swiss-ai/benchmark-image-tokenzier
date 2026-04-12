@@ -1,13 +1,16 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# ShizhenGPT TCM web_vision — interleave, JSONL + tar
+# VDR Cooking Recipes — SFT, single-image QA (12K train rows)
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
-  - _base_interleave
+  - _base_sft
 
-output_name: shizhen_web_vision
-output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/shizhen_web_vision/manifest.parquet
-parser: shizhen
-document_field: content
-min_pixels: "192*192"
-plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/shizhen_web_vision.pt
+output_name: vdr_cooking_recipes
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/sft
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/sft/hf___racineai___VDR_Cooking_Recipes/train-*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/vdr_cooking_recipes/manifest.parquet
+image_column: image
+
+parser: qa
+parser_columns:
+  - query
+  - answer

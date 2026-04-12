@@ -39,7 +39,7 @@ def _find_shard_pairs(
     for search_dir in search_dirs:
         for f in sorted(search_dir.glob("rank_*_chunk_*.bin")):
             idx = f.with_suffix(".idx")
-            if idx.exists() and f.stem not in seen:
+            if idx.exists() and f.stat().st_size > 0 and f.stem not in seen:
                 seen.add(f.stem)
                 pairs.append((str(f), str(idx)))
     return pairs

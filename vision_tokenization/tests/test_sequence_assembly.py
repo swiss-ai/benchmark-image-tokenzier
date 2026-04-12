@@ -14,9 +14,11 @@ from vision_tokenization.common.assembly import (
     assemble_image2text,
     assemble_interleaved_sequence,
     assemble_sequence,
+    assemble_sft_sequence,
     assemble_text2image,
     encapsulate_image_structure,
     encapsulate_image_structure_batch,
+    ensure_bos_eos,
     replace_image_placeholders,
     split_interleaved_sequence,
 )
@@ -289,6 +291,66 @@ class TestReplaceImagePlaceholders:
         text = torch.tensor([BOS, IMAGE_PLACEHOLDER, EOS])
         with pytest.raises(ValueError):
             replace_image_placeholders(text, [1], [])
+
+
+# --- ensure_bos_eos tests ---------------------------------------------------
+
+class TestEnsureBosEos:
+    def test_preserves_existing_wrapper(self):
+        tokens = torch.tensor([BOS, 10, 11, EOS])
+        result = ensure_bos_eos(tokens, bos_id=BOS, eos_id=EOS)
+        assert torch.equal(result, tokens)
+
+    def test_adds_missing_wrapper(self):
+        tokens = torch.tensor([10, 11])
+        result = ensure_bos_eos(tokens, bos_id=BOS, eos_id=EOS)
+        assert torch.equal(result, torch.tensor([BOS, 10, 11, EOS]))
+
+    def test_empty_sequence_becomes_bos_eos(self):
+        tokens = torch.tensor([], dtype=torch.long)
+        result = ensure_bos_eos(tokens, bos_id=BOS, eos_id=EOS)
+        assert torch.equal(result, torch.tensor([BOS, EOS]))
+
+
+# --- assemble_sft_sequence tests --------------------------------------------
+
+class TestAssembleSFTSequence:
+    def test_uses_existing_bos_eos_from_text_spans(self):
+        segments = [
+            {"type": "text", "text": "left"},
+            {"type": "image"},
+            {"type": "text", "text": "right"},
+        ]
+        text_chunks = [
+            torch.tensor([BOS, 10]),
+            torch.tensor([11, EOS]),
+        ]
+        image_chunks = [torch.tensor([30, 31])]
+        result = assemble_sft_sequence(
+            bos_id=BOS,
+            eos_id=EOS,
+            segments=segments,
+            text_token_chunks=text_chunks,
+            image_token_chunks=image_chunks,
+        )
+        assert torch.equal(result, torch.tensor([BOS, 10, 30, 31, 11, EOS]))
+
+    def test_adds_missing_bos_eos_after_structured_concat(self):
+        segments = [
+            {"type": "text", "text": "left"},
+            {"type": "image"},
+            {"type": "text", "text": "right"},
+        ]
+        text_chunks = [torch.tensor([10]), torch.tensor([11])]
+        image_chunks = [torch.tensor([30, 31])]
+        result = assemble_sft_sequence(
+            bos_id=BOS,
+            eos_id=EOS,
+            segments=segments,
+            text_token_chunks=text_chunks,
+            image_token_chunks=image_chunks,
+        )
+        assert torch.equal(result, torch.tensor([BOS, 10, 30, 31, 11, EOS]))
 
 
 # --- Mode-specific assembly tests ------------------------------------------

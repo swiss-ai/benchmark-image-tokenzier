@@ -1,13 +1,19 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# LLaVA-OneVision Instruct — SFT, HuggingFace
+# PathVQA — SFT, single-image QA (19K train rows)
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
   - _base_sft
 
-output_name: llava_onevision_sft
-text_column: conversations
+output_name: path_vqa
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/sft
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/sft/hf___flaviagiammarino___path-vqa/data/train-*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/path_vqa/manifest.parquet
+image_column: image
 
-# --- Conversation normalization -----------------------------------------------
+parser: qa
+parser_columns:
+  - question
+  - answer
+
 conversation_policy:
   add_image_placeholder: true
-  add_system_message: true

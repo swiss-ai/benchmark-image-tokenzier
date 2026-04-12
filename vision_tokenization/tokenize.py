@@ -135,7 +135,7 @@ def main(cfg: DictConfig):
     pipeline_cfg = _merge_config(resolved_cfg, dataset_cfg)
 
     tokenizer_cfg_resolved = pipeline_cfg.pop("tokenizer", {})
-    pipeline_cfg["tokenizer_path"] = tokenizer_path
+    pipeline_cfg["tokenizer_path"] = pipeline_cfg.get("tokenizer_path", tokenizer_path)
     pipeline_cfg["tokenizer_min_pixels"] = tokenizer_min_pixels
     pipeline_cfg["tokenizer_max_pixels"] = tokenizer_max_pixels
     pipeline_cfg["max_encode_pixels"] = tokenizer_cfg_resolved.get("max_encode_pixels")

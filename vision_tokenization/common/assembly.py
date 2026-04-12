@@ -196,33 +196,68 @@ def assemble_interleaved_sequence(
     Preserves the original segment ordering. Components should already be
     WITHOUT BOS/EOS; this function only adds the outer wrapper once.
     """
-    if sum(1 for seg in segments if seg.get("type") == "text" and seg.get("text")) != len(
-        text_token_chunks
-    ):
-        raise ValueError("Number of text token chunks does not match non-empty text segments")
-    if sum(1 for seg in segments if seg.get("type") == "image") != len(image_token_chunks):
-        raise ValueError("Number of image token chunks does not match image segments")
-
-    # We stream through ``segments`` once and consume text/image chunks in the
-    # same order they were produced by the loader/tokenizer.
-    parts: list[torch.Tensor] = [torch.tensor([bos_id], dtype=torch.long)]
-    text_idx = 0
-    image_idx = 0
-
-    for seg in segments:
-        seg_type = seg.get("type")
-        if seg_type == "text":
-            if seg.get("text"):
-                parts.append(text_token_chunks[text_idx])
-                text_idx += 1
-        elif seg_type == "image":
-            parts.append(image_token_chunks[image_idx])
-            image_idx += 1
-        else:
-            raise ValueError(f"Unsupported interleave segment type: {seg_type!r}")
-
-    parts.append(torch.tensor([eos_id], dtype=torch.long))
+    ordered_chunks = _ordered_segment_chunks(
+        segments,
+        text_token_chunks=text_token_chunks,
+        image_token_chunks=image_token_chunks,
+    )
+    dtype, device = _infer_dtype_device(ordered_chunks)
+    parts: list[torch.Tensor] = [torch.tensor([bos_id], dtype=dtype, device=device)]
+    parts.extend(ordered_chunks)
+    parts.append(torch.tensor([eos_id], dtype=dtype, device=device))
     return torch.cat(parts)
+
+
+def ensure_bos_eos(
+    tokens: torch.Tensor,
+    *,
+    bos_id: int,
+    eos_id: int,
+) -> torch.Tensor:
+    """Ensure a sequence has exactly one outer BOS/EOS wrapper.
+
+    Chat templates vary: some emit BOS/EOS in the rendered string, some do not.
+    SFT assembly therefore concatenates the structured components first and then
+    normalizes the outer wrapper once here.
+    """
+    if tokens.numel() == 0:
+        return torch.tensor([bos_id, eos_id], dtype=torch.long)
+
+    parts: list[torch.Tensor] = []
+    if int(tokens[0]) != int(bos_id):
+        parts.append(torch.tensor([bos_id], dtype=tokens.dtype, device=tokens.device))
+    parts.append(tokens)
+    if int(tokens[-1]) != int(eos_id):
+        parts.append(torch.tensor([eos_id], dtype=tokens.dtype, device=tokens.device))
+    return torch.cat(parts) if len(parts) > 1 else tokens
+
+
+def assemble_sft_sequence(
+    *,
+    bos_id: int,
+    eos_id: int,
+    segments: Sequence[dict[str, Any]],
+    text_token_chunks: Sequence[torch.Tensor],
+    image_token_chunks: Sequence[torch.Tensor],
+) -> torch.Tensor:
+    """Assemble an SFT sequence from rendered text/image segments.
+
+    Unlike interleave mode, the chat template may already emit BOS/EOS tokens
+    inside the text spans. We therefore concatenate the ordered chunks first
+    and normalize the outer wrapper afterwards with :func:`ensure_bos_eos`.
+    """
+    ordered_chunks = _ordered_segment_chunks(
+        segments,
+        text_token_chunks=text_token_chunks,
+        image_token_chunks=image_token_chunks,
+    )
+    if not ordered_chunks:
+        return torch.tensor([bos_id, eos_id], dtype=torch.long)
+    return ensure_bos_eos(
+        torch.cat(list(ordered_chunks)),
+        bos_id=bos_id,
+        eos_id=eos_id,
+    )
 
 
 def split_interleaved_sequence(
@@ -350,6 +385,42 @@ def replace_image_placeholders(
     return torch.cat(parts, dim=0) if parts else torch.tensor(
         [], dtype=text_tokens.dtype, device=text_tokens.device
     )
+
+
+def _ordered_segment_chunks(
+    segments: Sequence[dict[str, Any]],
+    *,
+    text_token_chunks: Sequence[torch.Tensor],
+    image_token_chunks: Sequence[torch.Tensor],
+) -> list[torch.Tensor]:
+    if sum(1 for seg in segments if seg.get("type") == "text" and seg.get("text")) != len(
+        text_token_chunks
+    ):
+        raise ValueError("Number of text token chunks does not match non-empty text segments")
+    if sum(1 for seg in segments if seg.get("type") == "image") != len(image_token_chunks):
+        raise ValueError("Number of image token chunks does not match image segments")
+
+    ordered_chunks: list[torch.Tensor] = []
+    text_idx = 0
+    image_idx = 0
+    for seg in segments:
+        seg_type = seg.get("type")
+        if seg_type == "text":
+            if seg.get("text"):
+                ordered_chunks.append(text_token_chunks[text_idx])
+                text_idx += 1
+        elif seg_type == "image":
+            ordered_chunks.append(image_token_chunks[image_idx])
+            image_idx += 1
+        else:
+            raise ValueError(f"Unsupported structured segment type: {seg_type!r}")
+    return ordered_chunks
+
+
+def _infer_dtype_device(chunks: Sequence[torch.Tensor]) -> tuple[torch.dtype, torch.device]:
+    if chunks:
+        return chunks[0].dtype, chunks[0].device
+    return torch.long, torch.device("cpu")
 
 
 #

@@ -15,6 +15,7 @@ Usage::
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -28,8 +29,8 @@ from ...common.assembly import (
     StructureTokenIds,
     assemble_image2text,
     assemble_sequence,
+    assemble_sft_sequence,
     assemble_text2image,
-    replace_image_placeholders,
     split_interleaved_sequence,
 )
 from ...indexing.planning.tokenization_plan import (
@@ -42,9 +43,46 @@ logger = logging.getLogger(__name__)
 _PROVENANCE_KEY_SHIFT = 32  # compound key = (doc_id << 32) | component_index
 
 
-# ---------------------------------------------------------------------------
-# Validation
-# ---------------------------------------------------------------------------
+def finalize_builders(builders: dict, prefixes: dict) -> None:
+    """Finalize builders; drop empty shards so Megatron mmap won't crash."""
+    for key, builder in builders.items():
+        bin_path = str(prefixes[key]) + ".bin"
+        idx_path = str(prefixes[key]) + ".idx"
+        builder.finalize(idx_path)
+        if os.path.exists(bin_path) and os.path.getsize(bin_path) == 0:
+            os.unlink(bin_path)
+            if os.path.exists(idx_path):
+                os.unlink(idx_path)
+
+
+def _split_components_by_kind(
+    components: List[Tuple[dict, torch.Tensor]],
+) -> Tuple[List[dict], List[torch.Tensor], List[torch.Tensor]]:
+    """Convert spilled components into structured segments + text/image chunks."""
+    segments: List[dict] = []
+    text_chunks: List[torch.Tensor] = []
+    image_chunks: List[torch.Tensor] = []
+    for row, tokens in components:
+        if row["kind"] == int(TEXT):
+            segments.append({"type": "text", "text": True})
+            text_chunks.append(tokens)
+        elif row["kind"] == int(IMAGE):
+            segments.append({"type": "image"})
+            image_chunks.append(tokens)
+    return segments, text_chunks, image_chunks
+
+
+def _validate_sft_rebuild(
+    text_chunks: List[torch.Tensor],
+    image_chunks: List[torch.Tensor],
+    expected_num_images: Optional[int],
+) -> Optional[str]:
+    """Return a failure reason if the SFT doc is incomplete, or None if valid."""
+    if not text_chunks:
+        return "no text components"
+    if expected_num_images is not None and len(image_chunks) != expected_num_images:
+        return f"expected {expected_num_images} images but found {len(image_chunks)}"
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -56,6 +94,7 @@ def _assemble_document(
     components: List[Tuple[dict, torch.Tensor]],
     token_ids: StructureTokenIds,
     max_sequence_tokens: Optional[int] = None,
+    expected_num_images: Optional[int] = None,
 ) -> List[torch.Tensor]:
     """Assemble final sequence(s) for one document."""
     if mode == "image_only":
@@ -89,26 +128,21 @@ def _assemble_document(
         )]
 
     if mode == "sft":
-        text_parts = [t for row, t in components if row["kind"] == int(TEXT)]
-        image_parts = [t for row, t in components if row["kind"] == int(IMAGE)]
-        if not text_parts:
-            raise ValueError("SFT document has no text component")
-        text_tokens = text_parts[0]
-        image_positions = (text_tokens == token_ids.image_token_id).nonzero(as_tuple=True)[0].tolist()
-        return [replace_image_placeholders(text_tokens, image_positions, image_parts)]
+        segments, text_chunks, image_chunks = _split_components_by_kind(components)
+        reason = _validate_sft_rebuild(text_chunks, image_chunks, expected_num_images)
+        if reason is not None:
+            logger.warning("Skipping SFT document during rebuild: %s", reason)
+            return []
+        return [assemble_sft_sequence(
+            bos_id=token_ids.bos_id,
+            eos_id=token_ids.eos_id,
+            segments=segments,
+            text_token_chunks=text_chunks,
+            image_token_chunks=image_chunks,
+        )]
 
     if mode == "interleave":
-        segments = []
-        text_chunks = []
-        image_chunks = []
-        for row, tokens in components:
-            if row["kind"] == int(TEXT):
-                segments.append({"type": "text", "text": True})
-                text_chunks.append(tokens)
-            elif row["kind"] == int(IMAGE):
-                segments.append({"type": "image"})
-                image_chunks.append(tokens)
-
+        segments, text_chunks, image_chunks = _split_components_by_kind(components)
         return split_interleaved_sequence(
             bos_id=token_ids.bos_id,
             eos_id=token_ids.eos_id,
@@ -239,6 +273,7 @@ def _assemble_and_write(
     mode: str,
     token_ids: StructureTokenIds,
     max_sequence_tokens: Optional[int],
+    expected_num_images_to_process: Optional[np.ndarray],
     megatron_dtype,
     seqlen_threshold: Optional[int],
     builders: dict,
@@ -281,7 +316,7 @@ def _assemble_and_write(
 
     n_processed = 0
     n_rejected = 0
-    for doc_id in doc_ids_to_process:
+    for doc_pos, doc_id in enumerate(doc_ids_to_process):
         doc_id = int(doc_id)
         if reject_doc_ids is not None and doc_id in reject_doc_ids:
             n_rejected += 1
@@ -308,7 +343,20 @@ def _assemble_and_write(
         if not components:
             continue
 
-        sequences = _assemble_document(mode, components, token_ids, max_sequence_tokens)
+        expected_num_images = None
+        if expected_num_images_to_process is not None:
+            expected_num_images = int(expected_num_images_to_process[doc_pos])
+
+        sequences = _assemble_document(
+            mode,
+            components,
+            token_ids,
+            max_sequence_tokens,
+            expected_num_images=expected_num_images,
+        )
+        if not sequences:
+            n_rejected += 1
+            continue
 
         for seq in sequences:
             seq_np = seq.numpy().astype(megatron_dtype)
@@ -398,8 +446,15 @@ def rebuild_rank(
     plan_doc_order = np.argsort(plan.documents.output_order)
     plan_doc_ids_ordered = plan.documents.document_id[plan_doc_order]
     rank_doc_set = set(spill["unique_docs"].tolist())
-    doc_ids_to_process = np.array(
-        [d for d in plan_doc_ids_ordered if int(d) in rank_doc_set],
+    ordered_num_images = plan.documents.num_images[plan_doc_order]
+    selected_docs = [
+        (int(doc_id), int(num_images))
+        for doc_id, num_images in zip(plan_doc_ids_ordered, ordered_num_images)
+        if int(doc_id) in rank_doc_set
+    ]
+    doc_ids_to_process = np.array([doc_id for doc_id, _ in selected_docs], dtype=np.int64)
+    expected_num_images_to_process = np.array(
+        [num_images for _, num_images in selected_docs],
         dtype=np.int64,
     )
 
@@ -426,14 +481,14 @@ def rebuild_rank(
         mode=mode,
         token_ids=token_ids,
         max_sequence_tokens=max_sequence_tokens,
+        expected_num_images_to_process=expected_num_images_to_process,
         megatron_dtype=megatron_dtype,
         seqlen_threshold=seqlen_threshold,
         builders=builders,
         reject_doc_ids=reject_doc_ids,
     )
 
-    for key, builder in builders.items():
-        builder.finalize(str(prefixes[key]) + ".idx")
+    finalize_builders(builders, prefixes)
 
     if seqlen_threshold is not None:
         logger.info(
@@ -566,6 +621,7 @@ def rebuild_from_plan(
     # Process all documents in plan output order
     doc_order = np.argsort(plan.documents.output_order)
     doc_ids_ordered = plan.documents.document_id[doc_order]
+    expected_num_images_to_process = plan.documents.num_images[doc_order].astype(np.int64, copy=False)
 
     stats = _assemble_and_write(
         doc_ids_to_process=doc_ids_ordered,
@@ -575,6 +631,7 @@ def rebuild_from_plan(
         mode=mode,
         token_ids=token_ids,
         max_sequence_tokens=max_sequence_tokens,
+        expected_num_images_to_process=expected_num_images_to_process,
         megatron_dtype=megatron_dtype,
         seqlen_threshold=seqlen_threshold,
         builders=builders,
@@ -582,8 +639,7 @@ def rebuild_from_plan(
         reject_doc_ids=reject_doc_ids,
     )
 
-    for key, builder in builders.items():
-        builder.finalize(str(prefixes[key]) + ".idx")
+    finalize_builders(builders, prefixes)
 
     if seqlen_threshold is not None:
         logger.info(

@@ -49,14 +49,14 @@ class BatchPrefetcher:
             images, texts = self._loader.load_batch(
                 ba.sample_indices, group_slices=ba.group_slices,
             )
-            load_s = time.perf_counter() - t0
+            load_ms = (time.perf_counter() - t0) * 1000
 
             return PrefetchResult(
                 batch_index=batch_index,
                 assignment=ba,
                 images=images,
                 texts=texts,
-                timing={"load_s": load_s},
+                timing={"load_ms": load_ms},
             )
         except Exception as exc:
             return PrefetchResult(

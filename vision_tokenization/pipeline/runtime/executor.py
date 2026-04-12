@@ -491,7 +491,7 @@ def run_executor(
                     errors=stats.errors,
                     skipped=stats.samples_skipped,
                     timing={
-                        "load_ms": result.timing["load_s"] * 1000,
+                        "load_ms": result.timing["load_ms"],
                         "tokenize_gpu_ms": gpu_ms,
                         "tokenize_wall_ms": tokenize_wall_ms,
                         "write_ms": write_ms,
