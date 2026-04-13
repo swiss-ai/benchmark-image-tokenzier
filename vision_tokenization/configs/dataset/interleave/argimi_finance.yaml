@@ -1,0 +1,16 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Argimi-Ardian-Finance-10k — interleave, JSONL + tar, multi-page documents
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/jsonl_tar@_here_
+  - /dataset/_task/interleave@_here_
+
+output_name: argimi_finance
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/argimi_finance/manifest.parquet
+tar_pattern: "part-*.tar"
+parser: pin200m
+document_field: md
+plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/argimi_finance.pt
+rebuild: false

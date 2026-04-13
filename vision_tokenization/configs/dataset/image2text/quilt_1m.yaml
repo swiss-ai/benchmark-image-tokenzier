@@ -2,7 +2,9 @@
 # Quilt-1M — image2text, HF Parquet (image + text)
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
-  - _base_hf
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/image2text@_here_
 
 output_name: quilt_1m
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/Quilt_1M/tokenized

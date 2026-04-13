@@ -3,9 +3,10 @@
 # image + code pairs + overall_description
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
-  - _base_hf
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/interleave@_here_
 
-dataset_type: hf_interleave
 multi_image: true
 
 output_name: molmo_syn_multiimage

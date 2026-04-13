@@ -2,7 +2,9 @@
 # Megalith-10M-Florence2 — image2text, WDS tar
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
-  - _base_wds
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/wds@_here_
+  - /dataset/_task/image2text@_here_
 
 output_name: megalith_10m_florence2_v2
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized

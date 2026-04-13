@@ -1,0 +1,9 @@
+# SFT uses the instruct tokenizer so apply_chat_template is available.
+
+tokenizer_path: /capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_wavtok_instruct
+
+text_column: null
+parser: null
+parser_columns: null
+parser_args: {}
+conversation_policy: {}

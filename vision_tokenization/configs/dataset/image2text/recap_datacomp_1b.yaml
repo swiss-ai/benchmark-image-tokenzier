@@ -1,0 +1,14 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Recap-DataComp-1B — image2text, WDS tar (recaptioned web images, 160M)
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/wds@_here_
+  - /dataset/_task/image2text@_here_
+
+output_name: recap_datacomp_1b
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/recap_datacomp_1b/manifest.parquet
+text_column: txt
+
+max_batch_tokens: 32_768

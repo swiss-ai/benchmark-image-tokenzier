@@ -2,7 +2,9 @@
 # Shopify/product-catalogue — image2text, HF Parquet (image + text)
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
-  - _base_hf
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/image2text@_here_
 
 output_name: shopify_product_catalogue
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/Shopify_product_catalogue/tokenized

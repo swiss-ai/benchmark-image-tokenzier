@@ -2,7 +2,9 @@
 # LaTeX Formulas 80M — image2text, HF Parquet (image + latex_formula)
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
-  - _base_hf
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/image2text@_here_
 
 output_name: latex_formulas_80m
 output_dir: /capstor/scratch/cscs/xyixuan/vision-datasets-tokenized

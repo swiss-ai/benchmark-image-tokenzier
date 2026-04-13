@@ -2,7 +2,9 @@
 # BLIP3o Pretrain Long Caption — image2text, HF Arrow (29M, detailed captions)
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
-  - _base_hf
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/image2text@_here_
 
 output_name: blip3o_long_caption
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized

@@ -1,0 +1,16 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# DaTikZ-V4 — image2text, HF parquet (TikZ diagrams + VLM descriptions)
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/image2text@_here_
+
+output_name: datikz_v4
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/hf___nllg___DaTikZ-V4/data/*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/datikz_v4/manifest.parquet
+image_column: png_image
+text_column: vlm_description
+
+max_batch_tokens: 32_768

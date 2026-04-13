@@ -1,0 +1,20 @@
+# Shared dataset defaults that are identical across storage backends and tasks.
+
+output_dir: ???
+manifest_path: ???
+
+min_pixels: "64*128"
+max_pixels: "2048*2048"
+max_images_per_doc: null
+
+plan_path: null
+batch_size: 128
+max_batch_tokens: 32_768
+spatial_factor: 16
+
+prefetch:
+  num_workers: 8
+
+checkpoint_interval_batches: 2_500
+max_consecutive_errors: 50
+torch_compile: false

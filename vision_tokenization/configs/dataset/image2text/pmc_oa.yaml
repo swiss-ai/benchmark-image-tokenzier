@@ -2,7 +2,9 @@
 # PMC-OA — image2text, WebDataset, single-image + caption
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
-  - _base_wds
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/wds@_here_
+  - /dataset/_task/image2text@_here_
 
 output_name: pmc_oa_v2
 output_dir: /capstor/scratch/cscs/xyixuan/vision-datasets-tokenized

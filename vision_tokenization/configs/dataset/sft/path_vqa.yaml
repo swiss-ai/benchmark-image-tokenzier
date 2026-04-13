@@ -2,7 +2,9 @@
 # PathVQA — SFT, single-image QA (19K train rows)
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
-  - _base_sft
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/sft@_here_
 
 output_name: path_vqa
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/sft

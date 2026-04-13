@@ -1,0 +1,20 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# PD12M-Full Recap2 — image2text, WDS tar (recaptioned, all resolutions)
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/wds@_here_
+  - /dataset/_task/image2text@_here_
+
+output_name: pd12m_full_recap2
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/pd12m_full_recap2/manifest.parquet
+text_column: txt
+
+max_pixels: "65536*65536"
+max_batch_tokens: 32_768
+checkpoint_interval_batches: 5_000
+
+prefetch:
+  num_workers: 8
+  queue_size: 16

@@ -1,0 +1,17 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# PersonaVLM SFT — JSONL+tar, multi-image (46K image docs, personalized VLM)
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/jsonl_tar@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: personavlm
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/sft
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/personavlm/manifest.parquet
+
+image_field: image
+text_column: conversations
+tar_pattern: "imgs.tar"
+multi_image: true
+max_images_per_doc: 10

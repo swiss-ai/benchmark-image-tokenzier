@@ -2,7 +2,9 @@
 # LLaVA-OneVision 85M mid-training — image2text, HuggingFace
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
-  - _base_hf
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/image2text@_here_
 
 output_name: llava85m_midtrain
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized

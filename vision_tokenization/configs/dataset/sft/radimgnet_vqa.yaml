@@ -2,7 +2,9 @@
 # RadImageNet-VQA Instruct — SFT, single-image multi-turn QA (750K train rows)
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
-  - _base_sft
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/sft@_here_
 
 output_name: radimgnet_vqa
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/sft
