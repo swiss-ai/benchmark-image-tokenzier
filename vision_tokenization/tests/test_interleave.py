@@ -1221,7 +1221,7 @@ class TestLoaderMultiGroup:
 
 
 class TestCreateLoaderFactory:
-    """Test the create_loader factory recognizes jsonl_tar_interleave."""
+    """Test the create_loader factory recognizes storage-only interleave configs."""
 
     def test_creates_interleave_loader(self, tmp_path):
         pytest.importorskip("orjson")
@@ -1255,7 +1255,8 @@ class TestCreateLoaderFactory:
         )
 
         cfg = {
-            "dataset_type": "jsonl_tar_interleave",
+            "dataset_type": "jsonl_tar",
+            "mode": "interleave",
             "manifest_path": str(manifest_path),
             "document_format": "pin_markdown",
             "document_field": "md",

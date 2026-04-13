@@ -597,6 +597,7 @@ def build_plan_image2text(
     parser: Optional[str] = None,
     min_pixels: Optional[int] = None,
     max_pixels: Optional[int] = None,
+    max_images_per_doc: Optional[int] = None,
     batch_size: int = 128,
     max_batch_tokens: int = 32768,
     spatial_factor: int = 16,
@@ -648,6 +649,25 @@ def build_plan_image2text(
 
     # Count images per document (vectorized)
     images_per_doc = np.bincount(doc_inverse, minlength=N_docs).astype(np.int16)
+
+    if max_images_per_doc is not None:
+        keep_docs = images_per_doc <= max_images_per_doc
+        if not keep_docs.all():
+            n_dropped = int((~keep_docs).sum())
+            logger.info(
+                "max_images_per_doc=%d: dropping %d documents with too many images",
+                max_images_per_doc,
+                n_dropped,
+            )
+            keep_rows = keep_docs[doc_inverse]
+            valid_idx = valid_idx[keep_rows]
+            valid_gids = group_ids[valid_idx]
+            valid_img_idx = image_indices[valid_idx]
+            unique_docs, doc_inverse = np.unique(valid_gids, return_inverse=True)
+            N_docs = len(unique_docs)
+            N_rows = len(valid_idx)
+            images_per_doc = np.bincount(doc_inverse, minlength=N_docs).astype(np.int16)
+
     components_per_doc = images_per_doc + 1  # images + 1 text
 
     # Build component arrays: image components first, then text components
@@ -856,6 +876,7 @@ def build_tokenization_plan(
     parser: Optional[str] = None,
     min_pixels: Optional[int] = None,
     max_pixels: Optional[int] = None,
+    max_images_per_doc: Optional[int] = None,
     batch_size: int = 128,
     max_batch_tokens: int = 32768,
     spatial_factor: int = 16,
@@ -887,20 +908,19 @@ def build_tokenization_plan(
         resize_max_pixels=resize_max_pixels,
         window_size=window_size,
     )
+    image_doc_filter = dict(max_images_per_doc=max_images_per_doc)
 
     if mode == "image_only":
         return build_plan_image_only(manifest_path, **common)
     elif mode in ("image2text", "text2image"):
         return build_plan_image2text(
-            manifest_path, text_column=text_column, parser=parser, mode=mode, **common,
+            manifest_path, text_column=text_column, parser=parser, mode=mode,
+            **common, **image_doc_filter,
         )
     elif mode == "sft":
-        # SFT: one text component (conversation) + N image components per doc.
-        # Same structure as image2text — text component is the full conversation,
-        # image components are the images from the group.
-        # The rebuild handles placeholder replacement.
         return build_plan_image2text(
-            manifest_path, text_column=text_column, parser=parser, mode="sft", **common,
+            manifest_path, text_column=text_column, parser=parser, mode="sft",
+            **common, **image_doc_filter,
         )
     elif mode == "interleave":
         return build_plan_interleave(

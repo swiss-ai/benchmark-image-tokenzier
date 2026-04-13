@@ -51,6 +51,7 @@ def _load_or_build_plan(cfg: Dict[str, Any]) -> TokenizationPlan:
         parser=cfg.get("parser"),
         min_pixels=cfg.get("filter_min_pixels"),
         max_pixels=cfg.get("filter_max_pixels"),
+        max_images_per_doc=cfg.get("max_images_per_doc"),
         batch_size=cfg.get("batch_size", 128),
         max_batch_tokens=cfg.get("max_batch_tokens", 32768),
         spatial_factor=cfg.get("spatial_factor", 16),

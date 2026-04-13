@@ -4,8 +4,8 @@ Two loader classes:
 - ``WDSImageLoader``: Random-access via TarRandomAccessReader (byte offsets from manifest).
 - ``HFImageLoader``: Reads from HF Arrow/Parquet shard files, preferring
   physical manifest coordinates when available.
-- ``JSONLTarInterleaveLoader``: Reads grouped interleave samples from a
-  JSONL+tar manifest, with document text loaded by byte offsets.
+- ``JSONLTarLoader``: Reads images from a JSONL+tar manifest, with document
+  text loaded from JSONL by byte offsets.
 
 Both support loading associated text for SFT / image-text-pair modes.
 
@@ -285,22 +285,34 @@ class WDSImageLoader:
         self.close()
 
 
-class JSONLTarInterleaveLoader:
-    """Load grouped interleave samples from a JSONL+tar manifest."""
+class JSONLTarLoader:
+    """Load images and optional text from a JSONL+tar manifest."""
 
     def __init__(
         self,
         manifest_path: Union[str, Path],
         *,
-        document_format: str,
+        document_format: Optional[str] = None,
         document_field: Optional[str] = None,
         local_image_prefixes: Optional[List[str]] = None,
+        mode: str = "interleave",
+        text_column: Optional[str] = None,
         max_open_files: int = 64,
     ):
         self.manifest = load_interleave_manifest(manifest_path)
+        self.mode = mode
         self.document_format = document_format
         self.document_field = document_field
         self.local_image_prefixes = local_image_prefixes
+        self.text_column = text_column
+
+        if self.mode == "interleave":
+            if self.document_format is None:
+                raise ValueError("JSONLTarLoader(mode='interleave') requires document_format")
+        elif self.text_column is None:
+            raise ValueError(
+                "JSONLTarLoader requires text_column for non-interleave modes"
+            )
 
         self._tar_paths = self.manifest.column("tar_path")
         self._offsets = self.manifest.column("offset_data").to_numpy()
@@ -360,12 +372,41 @@ class JSONLTarInterleaveLoader:
             )
         return raw
 
+    def _load_text_value(self, manifest_idx: int) -> Optional[Any]:
+        jsonl_path = self._jsonl_paths[manifest_idx].as_py()
+        line_start = int(self._line_starts[manifest_idx])
+        line_length = int(self._line_lengths[manifest_idx])
+
+        try:
+            raw = self._read_jsonl_line(jsonl_path, line_start, line_length)
+            sample = orjson.loads(raw)
+            if not isinstance(sample, dict):
+                logger.warning(
+                    "Expected JSON object row for %s at offset %d when loading text_column=%r",
+                    jsonl_path,
+                    line_start,
+                    self.text_column,
+                )
+                return None
+            return sample.get(self.text_column) if self.text_column is not None else None
+        except Exception:
+            logger.warning(
+                "Failed to load JSONL row at offset %d in %s",
+                line_start,
+                jsonl_path,
+                exc_info=True,
+            )
+            return None
+
     def _load_group_text(
         self,
         sample_indices: np.ndarray,
         start: int,
         end: int,
-    ) -> Optional[List[Dict[str, Any]]]:
+    ) -> Optional[Any]:
+        if self.mode != "interleave":
+            return self._load_text_value(int(sample_indices[start]))
+
         manifest_idx = int(sample_indices[start])
         jsonl_path = self._jsonl_paths[manifest_idx].as_py()
         line_start = int(self._line_starts[manifest_idx])
@@ -374,6 +415,7 @@ class JSONLTarInterleaveLoader:
         try:
             raw = self._read_jsonl_line(jsonl_path, line_start, line_length)
             sample = orjson.loads(raw)
+            # Interleave rows are reparsed at load time so text and manifest stay consistent.
             segments = parse_interleave_segments(
                 sample,
                 document_format=self.document_format,
@@ -435,6 +477,19 @@ class JSONLTarInterleaveLoader:
             )
             return None
 
+    def _load_texts_grouped(
+        self,
+        sample_indices: np.ndarray,
+        group_slices: np.ndarray,
+    ) -> List[Optional[Any]]:
+        return [
+            self._load_group_text(sample_indices, int(start), int(end))
+            for start, end in group_slices
+        ]
+
+    def _load_texts_flat(self, sample_indices: np.ndarray) -> List[Optional[Any]]:
+        return [self._load_text_value(int(manifest_idx)) for manifest_idx in sample_indices]
+
     def load_batch(
         self,
         sample_indices: np.ndarray,
@@ -447,11 +502,13 @@ class JSONLTarInterleaveLoader:
         images = self._reader.read_batch(refs)
 
         texts = None
-        if group_slices is not None:
-            texts = [
-                self._load_group_text(sample_indices, int(start), int(end))
-                for start, end in group_slices
-            ]
+        if self.mode == "interleave":
+            if group_slices is not None:
+                texts = self._load_texts_grouped(sample_indices, group_slices)
+        elif group_slices is None:
+            texts = self._load_texts_flat(sample_indices)
+        else:
+            texts = self._load_texts_grouped(sample_indices, group_slices)
 
         return images, texts
 
@@ -460,17 +517,15 @@ class JSONLTarInterleaveLoader:
         sample_indices: np.ndarray,
         group_slices: Optional[np.ndarray] = None,
     ) -> Optional[List[Any]]:
-        """Load only grouped interleave text payloads.
+        """Load text payloads without decoding any image bytes."""
+        if self.mode == "interleave":
+            if group_slices is None:
+                return None
+            return self._load_texts_grouped(sample_indices, group_slices)
 
-        Interleave documents span multiple manifest rows, so text loading only
-        makes sense when ``group_slices`` is provided.
-        """
         if group_slices is None:
-            return None
-        return [
-            self._load_group_text(sample_indices, int(start), int(end))
-            for start, end in group_slices
-        ]
+            return self._load_texts_flat(sample_indices)
+        return self._load_texts_grouped(sample_indices, group_slices)
 
     def close(self):
         self._reader.close()
@@ -486,6 +541,10 @@ class JSONLTarInterleaveLoader:
 
     def __exit__(self, *args):
         self.close()
+
+
+# Keep the old import path working while the generic loader replaces it.
+JSONLTarInterleaveLoader = JSONLTarLoader
 
 
 # ---------------------------------------------------------------------------
@@ -1410,33 +1469,73 @@ class HFImageLoader:
 
 # ---------------------------------------------------------------------------
 
+_LEGACY_INTERLEAVE_DATASET_TYPES = {
+    "hf_interleave": ("hf", "interleave"),
+    "jsonl_tar_interleave": ("jsonl_tar", "interleave"),
+}
+
+
+def _normalize_loader_storage_and_mode(cfg: Dict[str, Any]) -> Tuple[str, Optional[str]]:
+    """Keep legacy alias types working while configs move to storage-only dataset_type."""
+    dataset_type = cfg.get("dataset_type", "hf")
+    mode = cfg.get("mode")
+
+    alias_target = _LEGACY_INTERLEAVE_DATASET_TYPES.get(dataset_type)
+    if alias_target is not None:
+        normalized_type, alias_mode = alias_target
+        if mode is not None and mode != alias_mode:
+            raise ValueError(
+                f"dataset_type={dataset_type!r} is incompatible with mode={mode!r}; "
+                f"use dataset_type={normalized_type!r} mode={alias_mode!r} instead"
+            )
+        return normalized_type, alias_mode
+
+    if mode is None:
+        if dataset_type == "wds" and cfg.get("parser"):
+            mode = "interleave"
+        elif dataset_type == "jsonl_tar" and cfg.get("document_format"):
+            mode = "interleave"
+
+    return dataset_type, mode
+
+
 def create_loader(cfg: Dict[str, Any]):
     """Factory to create the appropriate loader based on dataset_type."""
-    dataset_type = cfg.get("dataset_type", "hf")
+    dataset_type, mode = _normalize_loader_storage_and_mode(cfg)
     text_column = cfg.get("text_column")
     parser = cfg.get("parser")
 
+    if dataset_type == "jsonl_tar" and parser and mode != "interleave":
+        raise ValueError(
+            "jsonl_tar datasets do not support parser-backed loading yet; use text_column directly"
+        )
+
     parser_kind = None
-    if dataset_type == "hf_interleave":
+    if dataset_type == "hf" and mode == "interleave":
         parser_kind = "interleave"
-    elif cfg.get("mode") == "sft" and parser:
+    elif dataset_type == "hf" and mode == "sft" and parser:
         parser_kind = "sft"
 
+    if dataset_type == "hf" and mode == "interleave" and parser is None:
+        raise ValueError("hf interleave datasets require parser to be set")
     if parser_kind and not cfg.get("parser_columns"):
         raise ValueError(
             f"{dataset_type} dataset with parser={parser!r} requires parser_columns to be set"
         )
 
     if dataset_type == "wds":
+        document_format = cfg.get("document_format")
+        if mode == "interleave":
+            document_format = document_format or parser
         return WDSImageLoader(
             manifest_path=cfg["manifest_path"],
             text_field=text_column,
-            document_format=cfg.get("parser"),
+            document_format=document_format,
             document_field=cfg.get("document_field"),
             local_image_prefixes=cfg.get("local_image_prefixes"),
             max_open_files=cfg.get("max_open_files", 64),
         )
-    if dataset_type in ("hf", "hf_interleave"):
+    if dataset_type == "hf":
         return HFImageLoader(
             input_pattern=cfg["input_pattern"],
             image_column=cfg.get("image_column", "image"),
@@ -1449,12 +1548,17 @@ def create_loader(cfg: Dict[str, Any]):
             parser_args=cfg.get("parser_args") if parser_kind else None,
             parser_kind=parser_kind,
         )
-    if dataset_type == "jsonl_tar_interleave":
-        return JSONLTarInterleaveLoader(
+    if dataset_type == "jsonl_tar":
+        interleave_format = cfg.get("document_format")
+        if mode == "interleave":
+            interleave_format = interleave_format or parser
+        return JSONLTarLoader(
             manifest_path=cfg["manifest_path"],
-            document_format=cfg["document_format"],
+            document_format=interleave_format,
             document_field=cfg.get("document_field"),
             local_image_prefixes=cfg.get("local_image_prefixes"),
+            mode=mode or "interleave",
+            text_column=text_column,
             max_open_files=cfg.get("max_open_files", 64),
         )
     raise ValueError(f"Unknown dataset_type: {dataset_type!r}")
