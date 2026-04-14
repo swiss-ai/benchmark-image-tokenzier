@@ -305,7 +305,7 @@
     },
     {
       "image": {
-        "path": "assets/medmnist_train_01.tif",
+        "path": "assets/medmnist_train_01.png",
         "tags": [
           "general",
           "medical"
@@ -320,7 +320,7 @@
     },
     {
       "image": {
-        "path": "assets/medmnist_train_02.tif",
+        "path": "assets/medmnist_train_02.png",
         "tags": [
           "general",
           "medical"
@@ -335,7 +335,7 @@
     },
     {
       "image": {
-        "path": "assets/medmnist_train_03.tif",
+        "path": "assets/medmnist_train_03.png",
         "tags": [
           "general",
           "medical"

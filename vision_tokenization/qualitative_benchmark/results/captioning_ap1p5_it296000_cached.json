@@ -305,7 +305,7 @@
     },
     {
       "image": {
-        "path": "assets/medmnist_train_01.tif",
+        "path": "assets/medmnist_train_01.png",
         "tags": [
           "general",
           "medical"
@@ -320,7 +320,7 @@
     },
     {
       "image": {
-        "path": "assets/medmnist_train_02.tif",
+        "path": "assets/medmnist_train_02.png",
         "tags": [
           "general",
           "medical"
@@ -335,7 +335,7 @@
     },
     {
       "image": {
-        "path": "assets/medmnist_train_03.tif",
+        "path": "assets/medmnist_train_03.png",
         "tags": [
           "general",
           "medical"
@@ -469,7 +469,8 @@
         ]
       },
       "init_phrase": "",
-      "caption": "This well-structured sentence integrates the detailed real-world information from Sentence 1 while ensuring proper sentence structure and grammar:\n\nThe provided image is a meticulously crafted map of a residential area, complete with a color-coded key indicating various land use types, such as residential, commercial, and green spaces. The map is adorned with numbers and letters, likely representing specific addresses or plot numbers. A legend on the right side of the map clarifies the symbols used, including 'Parzelle' for plots, 'Fl\u00e4che' for areas, and 'Umgebung' for surroundings. The map also bears a scale at the bottom, enabling users to measure distances in meters.</s>",      "metrics": {
+      "caption": "This well-structured sentence integrates the detailed real-world information from Sentence 1 while ensuring proper sentence structure and grammar:\n\nThe provided image is a meticulously crafted map of a residential area, complete with a color-coded key indicating various land use types, such as residential, commercial, and green spaces. The map is adorned with numbers and letters, likely representing specific addresses or plot numbers. A legend on the right side of the map clarifies the symbols used, including 'Parzelle' for plots, 'Fl\u00e4che' for areas, and 'Umgebung' for surroundings. The map also bears a scale at the bottom, enabling users to measure distances in meters.</s>",
+      "metrics": {
         "clip_score": 0.2831219732761383,
         "polos_score": null
       }
