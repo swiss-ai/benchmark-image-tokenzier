@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --account=infra01
 #SBATCH --reservation=PA-2338-RL
-#SBATCH --job-name=pin200m-tokenize
+#SBATCH --job-name=pixmo-cap-tokenize
 #SBATCH --environment=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/scripts/envs/nemo_25_11.toml
-#SBATCH --output=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs/pin_200m_%j.out
-#SBATCH --error=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs/pin_200m_%j.err
-#SBATCH --time=12:00:00
-#SBATCH --nodes=100
+#SBATCH --output=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs/pixmo_cap_filtered_%j.out
+#SBATCH --error=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs/pixmo_cap_filtered_%j.err
+#SBATCH --time=06:00:00
+#SBATCH --nodes=20
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=72
@@ -16,7 +16,7 @@
 set -e
 
 echo "=========================================="
-echo "PIN-200M Interleave Tokenization"
+echo "Pixmo-Cap Filtered Image2Text Tokenization"
 echo "=========================================="
 echo "Job ID: ${SLURM_JOB_ID}"
 echo "Node: $(hostname -s)"
@@ -29,12 +29,13 @@ mkdir -p /iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs
 srun -u --kill-on-bad-exit=0 bash -c "
     set -e
     uv pip install --python /opt/venv/bin/python3 orjson
+
     export PYTHONPATH=/iopsstor/scratch/cscs/xyixuan/apertus/Megatron-LM:/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier:\$PYTHONPATH
 
     cd /iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier
 
     python -m vision_tokenization.tokenize \
-        mode=interleave dataset=pin_200m \
+        mode=image2text dataset=pixmo_cap_filtered \
         num_gpus=${NUM_GPUS} \
         wandb.enabled=true \
         resume=true

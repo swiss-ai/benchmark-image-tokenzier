@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --account=infra01
-#SBATCH --reservation=SD-69241-apertus-1-5-5
-#SBATCH --job-name=path-vqa-sft
-#SBATCH --environment=nemo_25_11
-#SBATCH --output=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs/path_vqa_%j.out
-#SBATCH --error=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs/path_vqa_%j.err
-#SBATCH --time=02:00:00
-#SBATCH --nodes=1
+#SBATCH --reservation=PA-2338-RL
+#SBATCH --job-name=artmuseums-tok
+#SBATCH --environment=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/scripts/envs/nemo_25_11.toml
+#SBATCH --output=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs/art_museums_recap_%j.out
+#SBATCH --error=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs/art_museums_recap_%j.err
+#SBATCH --time=06:00:00
+#SBATCH --nodes=20
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=72
@@ -18,7 +18,7 @@ set -e
 export NUM_GPUS=$(( SLURM_NNODES * SLURM_NTASKS_PER_NODE ))
 
 echo "=========================================="
-echo "PathVQA SFT Tokenization"
+echo "Art Museums Recap Multilingual Tokenization"
 echo "  GPUs: ${NUM_GPUS}, Nodes: ${SLURM_NNODES}"
 echo "=========================================="
 
@@ -33,7 +33,7 @@ srun -u --kill-on-bad-exit=0 bash -c "
     cd /iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier
 
     python -m vision_tokenization.tokenize \
-        mode=sft dataset=sft/path_vqa \
+        mode=interleave dataset=art_museums_recap \
         num_gpus=${NUM_GPUS} \
         wandb.enabled=true \
         resume=true

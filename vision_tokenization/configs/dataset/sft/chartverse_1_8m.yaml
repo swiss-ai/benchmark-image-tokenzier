@@ -1,17 +1,20 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# TCM-ShizhenGPT Vision Instruction — SFT, JSONL+tar (67K docs, Chinese medical)
+# ChartVerse-SFT-1.8M — SFT with CoT, single-image-in-list (1.8M rows, charts)
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
   - /dataset/_pipeline@_here_
-  - /dataset/_storage/jsonl_tar@_here_
+  - /dataset/_storage/hf@_here_
   - /dataset/_task/sft@_here_
 
-
-output_name: tcm_shizhen_vision
+output_name: chartverse_1_8m
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/tcm_shizhen_vision/manifest.parquet
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/sft/hf___opendatalab___ChartVerse-SFT-1.8M/train-*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/chartverse_1_8m/manifest.parquet
+image_list_column: images
 
-image_field: image
-text_column: conversations
-tar_pattern: "image_*.tar"
-multi_image: true
+parser: qa
+parser_columns:
+  - question
+  - cot_solution
+parser_args:
+  answer_column: cot_solution

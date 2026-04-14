@@ -7,7 +7,7 @@ defaults:
   - /dataset/_task/sft@_here_
 
 output_name: path_vqa
-output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/sft
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/sft/hf___flaviagiammarino___path-vqa/data/train-*.parquet"
 manifest_path: /capstor/scratch/cscs/xyixuan/manifests/path_vqa/manifest.parquet
 image_column: image

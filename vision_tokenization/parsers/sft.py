@@ -62,8 +62,11 @@ def _parse_qa(
     num_images: Optional[int],
     parser_args: Optional[dict[str, Any]] = None,
 ) -> list[dict[str, Any]]:
-    prompt = _first_present(row, "question", "query", "input", "prompt")
-    answer = _first_present(row, "answer", "output", "response")
+    parser_args = parser_args or {}
+    prompt_col = parser_args.get("prompt_column")
+    answer_col = parser_args.get("answer_column")
+    prompt = row.get(prompt_col) if prompt_col else _first_present(row, "question", "query", "input", "prompt")
+    answer = row.get(answer_col) if answer_col else _first_present(row, "answer", "output", "response")
     if prompt is None or answer is None:
         raise ValueError("qa parser requires a prompt/question field and an answer field")
 

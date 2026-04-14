@@ -1,17 +1,21 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# TCM-ShizhenGPT Vision Instruction — SFT, JSONL+tar (67K docs, Chinese medical)
+# MMFineReason-1.8M — SFT with CoT, single-image (1.8M rows, STEM reasoning)
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
   - /dataset/_pipeline@_here_
-  - /dataset/_storage/jsonl_tar@_here_
+  - /dataset/_storage/hf@_here_
   - /dataset/_task/sft@_here_
 
-
-output_name: tcm_shizhen_vision
+output_name: mmfinereason_1_8m
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/tcm_shizhen_vision/manifest.parquet
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/sft/hf___OpenDataArena___MMFineReason-1.8M-Qwen3-VL-235B-Thinking/data/sft-*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/mmfinereason_1_8m/manifest.parquet
+image_column: image
+min_pixels: "32*64"
 
-image_field: image
-text_column: conversations
-tar_pattern: "image_*.tar"
-multi_image: true
+parser: qa
+parser_columns:
+  - question
+  - qwen3vl_235b_thinking_response
+parser_args:
+  answer_column: qwen3vl_235b_thinking_response

@@ -30,7 +30,7 @@ srun -u bash -c "
     set -e
     uv pip install --python /opt/venv/bin/python3 orjson
 
-    export PYTHONPATH=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier:\$PYTHONPATH
+    export PYTHONPATH=/iopsstor/scratch/cscs/xyixuan/apertus/Megatron-LM:/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier:\$PYTHONPATH
 
     cd /iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier
 

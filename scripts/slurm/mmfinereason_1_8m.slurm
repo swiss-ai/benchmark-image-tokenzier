@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --account=infra01
-#SBATCH --reservation=SD-69241-apertus-1-5-5
-#SBATCH --job-name=path-vqa-sft
+#SBATCH --reservation=SD-69241-apertus-1-5
+#SBATCH --job-name=mmfr-sft
 #SBATCH --environment=nemo_25_11
-#SBATCH --output=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs/path_vqa_%j.out
-#SBATCH --error=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs/path_vqa_%j.err
-#SBATCH --time=02:00:00
-#SBATCH --nodes=1
+#SBATCH --output=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs/mmfinereason_1_8m_%j.out
+#SBATCH --error=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs/mmfinereason_1_8m_%j.err
+#SBATCH --time=06:00:00
+#SBATCH --nodes=2
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=72
@@ -18,7 +18,7 @@ set -e
 export NUM_GPUS=$(( SLURM_NNODES * SLURM_NTASKS_PER_NODE ))
 
 echo "=========================================="
-echo "PathVQA SFT Tokenization"
+echo "MMFineReason-1.8M SFT+CoT Tokenization"
 echo "  GPUs: ${NUM_GPUS}, Nodes: ${SLURM_NNODES}"
 echo "=========================================="
 
@@ -33,7 +33,7 @@ srun -u --kill-on-bad-exit=0 bash -c "
     cd /iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier
 
     python -m vision_tokenization.tokenize \
-        mode=sft dataset=sft/path_vqa \
+        mode=sft dataset=sft/mmfinereason_1_8m \
         num_gpus=${NUM_GPUS} \
         wandb.enabled=true \
         resume=true

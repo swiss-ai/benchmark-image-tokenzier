@@ -8,7 +8,7 @@ defaults:
   - /dataset/_task/sft@_here_
 
 output_name: culturalground
-output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/sft
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 manifest_path: /capstor/scratch/cscs/xyixuan/manifests/culturalground/manifest.parquet
 
 image_field: image
