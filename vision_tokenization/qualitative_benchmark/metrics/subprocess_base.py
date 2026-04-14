@@ -46,6 +46,10 @@ class SubprocessMetric(BaseMetric):
     WORKER_SCRIPT: ClassVar[str] = ""
     SUBPROCESS_TIMEOUT: ClassVar[int] = 120
 
+    # Class-level set of (metric name, missing-thing) keys that have been warned
+    # about — keeps the per-sample loop quiet after the first warning.
+    _missing_warned: ClassVar[set[tuple[str, str]]] = set()
+
     @property
     def _venv_python(self) -> Path:
         """Path to the Python executable in the isolated venv."""
@@ -72,14 +76,23 @@ class SubprocessMetric(BaseMetric):
             Parsed JSON dict from stdout, or None on failure.
         """
         if not self._venv_ready:
-            logger.warning(
-                f"Metric '{self.name}': venv not found at {METRICS_DIR / self.VENV_DIR}. "
-                f"Run the setup script to install it. Returning None."
-            )
+            key = (self.name, "venv")
+            if key not in self._missing_warned:
+                logger.warning(
+                    f"Metric '{self.name}': venv not found at {METRICS_DIR / self.VENV_DIR}. "
+                    f"Run the setup script to install it. Subsequent samples will silently return None."
+                )
+                self._missing_warned.add(key)
             return None
 
         if not self._worker_path.is_file():
-            logger.warning(f"Metric '{self.name}': worker script not found at {self._worker_path}. " f"Returning None.")
+            key = (self.name, "worker")
+            if key not in self._missing_warned:
+                logger.warning(
+                    f"Metric '{self.name}': worker script not found at {self._worker_path}. "
+                    f"Subsequent samples will silently return None."
+                )
+                self._missing_warned.add(key)
             return None
 
         try:

@@ -240,5 +240,53 @@
       "painting",
       "face"
     ]
+  },
+  {
+    "path": "assets/map-1.png",
+    "tags": [
+      "map"
+    ]
+  },
+  {
+    "path": "assets/map-2.png",
+    "tags": [
+      "map"
+    ]
+  },
+  {
+    "path": "assets/map-3.png",
+    "tags": [
+      "map"
+    ]
+  },
+  {
+    "path": "assets/rs-1.png",
+    "tags": [
+      "remote_sensing"
+    ]
+  },
+  {
+    "path": "assets/rs-2.png",
+    "tags": [
+      "remote_sensing"
+    ]
+  },
+  {
+    "path": "assets/rs-3.png",
+    "tags": [
+      "remote_sensing"
+    ]
+  },
+  {
+    "path": "assets/rs-4.png",
+    "tags": [
+      "remote_sensing"
+    ]
+  },
+  {
+    "path": "assets/rs-5.png",
+    "tags": [
+      "remote_sensing"
+    ]
   }
 ]
