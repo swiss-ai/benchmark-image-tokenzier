@@ -1,13 +1,13 @@
 # VLM Qualitative Benchmark
 
-A toolkit for running qualitative benchmarks on Vision-Language Models (VLMs) and exploring results through an interactive web interface.
+A toolkit for running qualitative benchmarks on Vision-Language Models (VLMs) and publishing results to the repo's static GitHub Pages viewer.
 
 ## Overview
 
 This toolkit consists of two main components:
 
 1. **`vlm_benchmark.py`**: Script to run VLM inference in three modes: VLM Q&A, image completion, and captioning
-2. **Webapp**: Flask-based web interface to browse, filter, and compare benchmark results
+2. **Static viewer**: the repo-root `docs/` site served by GitHub Pages
 
 ## Table of Contents
 
@@ -18,7 +18,7 @@ This toolkit consists of two main components:
   - [Image Completion](#image-completion)
   - [Captioning](#captioning)
 - [Command-Line Reference](#command-line-reference)
-- [Results Viewer Webapp](#results-viewer-webapp)
+- [Static Results Viewer](#static-results-viewer)
 - [Data Format](#data-format)
 - [Troubleshooting](#troubleshooting)
 
@@ -28,8 +28,6 @@ This toolkit consists of two main components:
 
 - Python 3.8 or higher
 - PyTorch with CUDA support (for VLM inference)
-- Flask 3.0.0 or higher (for webapp)
-
 ### Setup
 
 ```bash
@@ -48,8 +46,6 @@ pip install vllm          # Fast inference (recommended)
 # Perceptual metrics (needed for image completion benchmarks)
 pip install lpips scikit-image
 
-# Webapp
-pip install -r webapp/requirements.txt
 ```
 
 ---
@@ -268,14 +264,16 @@ sbatch vision_tokenization/scripts/run_qualitative_benchmarks.sh \
 | `--strict-row-count` | Image completion | Require exact row count match for validity |
 | `--captioning` | - | Enable captioning mode |
 | `--caption-init-phrase` | Captioning | Seed phrase for caption generation |
+| `--cache-image-tokens` | - | Cache encoded image tokens on disk and reuse them across runs |
+| `--publish-to-docs` | - | Copy the result JSON and referenced assets into `docs/` and refresh the manifest |
 
 ---
 
-## Results Viewer Webapp
+## Static Results Viewer
 
 ### Overview
 
-A Flask web application for browsing, filtering, and comparing VLM benchmark results.
+The repo-root `docs/` folder is the supported viewer. It is a static site that GitHub Pages can host directly.
 
 ### Features
 
@@ -283,33 +281,28 @@ A Flask web application for browsing, filtering, and comparing VLM benchmark res
 - View input images, prompts, and model outputs side-by-side
 - Compare multiple experiments side-by-side
 - Filter results by tags
-- REST API for programmatic access
+- Works without Flask or a server-side runtime
 
 ### Usage
 
 ```bash
-cd webapp
-pip install -r requirements.txt
-python app.py
+python vlm_benchmark.py \
+  --tokenizer_path /path/to/tokenizer \
+  --model_path /path/to/model \
+  --experiment_name my_captioning_experiment \
+  --captioning \
+  --publish-to-docs
 ```
 
-The webapp starts on `http://localhost:5000`.
+This publishes:
+- the result JSON into `docs/results/`
+- the referenced images into `docs/assets/`
+- an updated `docs/results/manifest.json`
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--results_folder` | `results/` | Path to results directory |
-| `--assets_folder` | `assets/` | Path to image assets |
-| `--port` | `5000` | Port number |
-| `--host` | `0.0.0.0` | Host address |
-| `--debug` | `False` | Debug mode with auto-reload |
-
-### REST API
-
-| Endpoint | Description |
-|----------|-------------|
-| `GET /api/experiments` | List all experiments |
-| `GET /api/experiment/<name>` | Get results for a specific experiment |
-| `GET /assets/<filename>` | Serve image assets |
+| `--publish-to-docs` | `False` | Publish the finished result into the static `docs/` site |
+| `--docs-dir` | repo `docs/` | Override the target docs directory |
 
 ---
 
@@ -396,11 +389,7 @@ qualitative_benchmark/
 │   └── emu3_5_ibq.py          # EMU3.5 IBQ wrapper
 ├── utils/                     # Prompt formatting utilities
 ├── README.md                  # This file
-└── webapp/                    # Results viewer
-    ├── app.py
-    ├── requirements.txt
-    ├── static/
-    └── templates/
+└── publish_to_docs.py         # Copies results/assets into repo docs/
 ```
 
 ---
@@ -461,12 +450,12 @@ After setup, POLOS scores appear automatically in captioning benchmark results. 
 **Results file already exists:**
 - Use `--overwrite` or choose a different experiment name
 
-### Webapp Issues
+### Static Viewer Issues
 
 **No experiments showing up:**
-- Check `--results_folder` points to the directory containing JSON result files
-- Ensure JSON files are valid
+- Check that the result JSON was copied into `docs/results/`
+- Rebuild `docs/results/manifest.json` with `python docs/update_manifest.py`
 
 **Images not loading:**
-- Check `--assets_folder` path
-- Ensure image paths in results match actual file locations
+- Check that the referenced files exist in `docs/assets/`
+- Ensure image paths in results are relative like `assets/example.png`

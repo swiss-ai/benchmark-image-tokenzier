@@ -19,11 +19,16 @@ from typing import Any, Dict, List, Tuple
 import torch
 from tqdm import tqdm
 
+from vision_tokenization.qualitative_benchmark.image_token_cache import ImageTokenCache
 from vision_tokenization.qualitative_benchmark.inferencers import create_inferencer
+from vision_tokenization.qualitative_benchmark.publish_to_docs import publish_result_to_docs
 from vision_tokenization.qualitative_benchmark.utils.prompt_formatter import CHAT_TRANFORMS, PROMPT_BUILDERS
+from vision_tokenization.qualitative_benchmark.v_tokenizers.lazy_cached import LazyCachedVisionTokenizer
 from vision_tokenization.qualitative_benchmark.vlm import VLM, InferenceArgs
 
 base_dir = Path(__file__).parent.parent.parent
+DEFAULT_IMAGE_TOKEN_CACHE_DIR = Path(__file__).resolve().parent / ".cache" / "image_tokens"
+DEFAULT_DOCS_DIR = base_dir / "docs"
 sys.path.append(str(base_dir))
 sys.path.append(str(base_dir / "Tokenizer"))
 
@@ -602,6 +607,28 @@ def parse_args():
         default=None,
         help="Optional initialization phrase for caption generation (e.g., 'The image shows')",
     )
+    parser.add_argument(
+        "--cache-image-tokens",
+        action="store_true",
+        help="Cache encoded image tokens on disk and reuse them across benchmark runs",
+    )
+    parser.add_argument(
+        "--image-token-cache-dir",
+        type=str,
+        default=str(DEFAULT_IMAGE_TOKEN_CACHE_DIR),
+        help="Directory used for cached image token tensors",
+    )
+    parser.add_argument(
+        "--publish-to-docs",
+        action="store_true",
+        help="Copy the finished result JSON and referenced assets into docs/ for GitHub Pages",
+    )
+    parser.add_argument(
+        "--docs-dir",
+        type=str,
+        default=str(DEFAULT_DOCS_DIR),
+        help="Path to the repo docs/ directory used by the static GitHub Pages viewer",
+    )
 
     # Vision tokenizer arguments
     tokenizer_group = parser.add_argument_group("vision tokenizer arguments", "Configuration for vision tokenizer")
@@ -769,7 +796,38 @@ def setup_vlm_inferencer(args):
         # Optional for emu3
         vision_tokenizer_kwargs["model_path"] = args.vision_tokenizer_path
 
-    vision_tokenizer = create_vision_tokenizer(args.vision_tokenizer_type, **vision_tokenizer_kwargs)
+    image_token_cache = None
+    if args.cache_image_tokens:
+        image_token_cache = ImageTokenCache(
+            cache_dir=args.image_token_cache_dir,
+            tokenizer_type=args.vision_tokenizer_type,
+            tokenizer_kwargs=vision_tokenizer_kwargs,
+        )
+        with open(args.image_list, "r") as f:
+            image_configs = json.load(f)
+        cache_summary = image_token_cache.inspect_many(image["path"] for image in image_configs)
+        print(
+            "Image token cache: "
+            f"{cache_summary['hits']} hit(s), {cache_summary['misses']} miss(es) "
+            f"at {Path(args.image_token_cache_dir).resolve()}"
+        )
+        if cache_summary["reasons"]:
+            reasons = ", ".join(f"{reason}={count}" for reason, count in sorted(cache_summary["reasons"].items()))
+            print(f"Cache miss reasons: {reasons}")
+        if cache_summary["misses"] == 0:
+            print("All listed images are already cached; the vision tokenizer will stay unloaded unless inputs change.")
+
+        vision_tokenizer = LazyCachedVisionTokenizer(
+            tokenizer_type=args.vision_tokenizer_type,
+            tokenizer_factory=lambda: create_vision_tokenizer(args.vision_tokenizer_type, **vision_tokenizer_kwargs),
+            tokenizer_path=args.tokenizer_path,
+            device=vision_tokenizer_kwargs["device"],
+            min_pixels=min_pixels,
+            max_pixels=max_pixels,
+            model_path=vision_tokenizer_kwargs.get("model_path"),
+        )
+    else:
+        vision_tokenizer = create_vision_tokenizer(args.vision_tokenizer_type, **vision_tokenizer_kwargs)
 
     # Create inferencer based on selected backend
     inferencer_type = getattr(args, "inferencer_type", "vllm")
@@ -822,6 +880,7 @@ def setup_vlm_inferencer(args):
         inf_args=inference_args,
         tokenizer_path=args.tokenizer_path,
         model_path=args.model_path,
+        image_token_cache=image_token_cache,
     )
 
     # Print inference configuration
@@ -921,5 +980,26 @@ if __name__ == "__main__":
             debug=args.debug,
         )
         results = benchmark.run(output_filename=f"{args.experiment_name}.json")
+
+    if vlm.image_token_cache is not None:
+        stats = vlm.image_token_cache_stats
+        print(
+            "Image token cache summary: "
+            f"{stats['hits']} hit(s), {stats['misses']} miss(es), {stats['writes']} write(s)"
+        )
+
+    if args.publish_to_docs:
+        summary = publish_result_to_docs(
+            result_path=output_file,
+            docs_dir=args.docs_dir,
+            benchmark_dir=Path(__file__).resolve().parent,
+        )
+        print(f"Published result to docs: {summary['result']}")
+        print(f"Updated docs manifest: {summary['manifest']}")
+        print(f"Copied {len(summary['assets_copied'])} asset(s) into docs/assets")
+        if summary["missing_assets"]:
+            print("WARNING: Some referenced assets could not be copied:")
+            for asset in summary["missing_assets"]:
+                print(f"  - {asset}")
 
     print("Done!")

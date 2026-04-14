@@ -82,5 +82,45 @@
     {
         "path": "assets/medmnist_train_03.tif",
         "tags": ["general", "medical"]
+    },
+    {
+        "path": "assets/cute_cat.png",
+        "tags": ["general", "natural_image", "objects"]
+    },
+    {
+        "path": "assets/face1.png",
+        "tags": ["general", "natural_image", "face"]
+    },
+    {
+        "path": "assets/face2.png",
+        "tags": ["general", "natural_image", "face"]
+    },
+    {
+        "path": "assets/food1.png",
+        "tags": ["general", "food", "objects"]
+    },
+    {
+        "path": "assets/food2.png",
+        "tags": ["general", "food", "objects"]
+    },
+    {
+        "path": "assets/item1.png",
+        "tags": ["general", "objects"]
+    },
+    {
+        "path": "assets/item2.png",
+        "tags": ["general", "objects", "ocr"]
+    },
+    {
+        "path": "assets/map1.png",
+        "tags": ["document", "ocr", "map"]
+    },
+    {
+        "path": "assets/meme1.png",
+        "tags": ["general", "face", "ocr", "meme"]
+    },
+    {
+        "path": "assets/painting1.png",
+        "tags": ["general", "painting", "face"]
     }
 ]
