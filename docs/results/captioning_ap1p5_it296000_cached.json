@@ -314,7 +314,7 @@
       "init_phrase": "",
       "caption": "<|img1|>\nA histopathology image of colorectal tissue showing adipose tissue.</s>",
       "metrics": {
-        "clip_score": 0.33130961656570435,
+        "clip_score": 0.3313198983669281,
         "polos_score": null
       }
     },
@@ -327,9 +327,9 @@
         ]
       },
       "init_phrase": "",
-      "caption": "This microscopic image shows a tissue sample stained with hematoxylin and eosin, common in histology. The scene features irregularly shaped, pink-stained cells with dark purple nuclei, arranged in clusters separated by lighter, fibrous tissue. The cells vary in size, some with distinct, round nuclei, while others appear more elongated. The background is a pale pink matrix, with small, dark purple dots likely representing cell nuclei scattered throughout. The lighting is even, highlighting the contrast between stained structures, typical of brightfield microscopy. The perspective is a close-up, eye-level view focusing on cellular details, aiding in identifying tissue architecture. This image is likely intended for medical students or pathologists studying tissue structure, with no visible text. The color palette is dominated by pinks and purples, emphasizing cellular components, and the texture appears granular due to the microscopic scale. No time, season, or emotional cues are present, as the focus is on scientific observation.</s>",
+      "caption": "This microscopic image shows a tissue sample stained with hematoxylin and eosin, common in histology. The scene features irregularly shaped, pale pink to purple structures (likely cells or cell clusters) with dark purple nuclei scattered throughout. The background is a lighter pink, with fibrous, thread-like structures weaving between the cells. The lighting is even, highlighting the contrast between stained components, typical of brightfield microscopy. The perspective is a close-up, eye-level view focusing on cellular details, with no visible text. The image likely targets medical students or pathologists, aiding in tissue analysis. No specific time, season, or characters are present; the focus is on biological structure, with fine details like nuclear shape and cellular arrangement providing diagnostic context.</s>",
       "metrics": {
-        "clip_score": 0.34096384048461914,
+        "clip_score": 0.3320541977882385,
         "polos_score": null
       }
     },
@@ -341,10 +341,10 @@
           "medical"
         ]
       },
-      "init_phrase": "The image shows ",
-      "caption": "100% cotton fabric with a detailed, real-world appearance. Its texture is slightly rough, and the color is a light beige or off-white. The fabric exhibits a subtle weave pattern, and there are visible folds and creases, suggesting it has been used or stored in a way that causes it to bunch up. Despite its nice sentence structure and appearance, this description is based on accurate and in-depth real-world knowledge.</s>",
+      "init_phrase": "",
+      "caption": "<|img_start|>16*16<|img_token_start|><|img_end_of_row|><|img_end_of_frame|><|img_end|><|img_start|>16*16<|img_token_start|><|img_end_of_row|><|img_end_of_frame|><|img_end|></s>",
       "metrics": {
-        "clip_score": 0.19978460669517517,
+        "clip_score": 0.1158769428730011,
         "polos_score": null
       }
     },
@@ -461,7 +461,7 @@
     },
     {
       "image": {
-        "path": "assets/map1.png",
+        "path": "assets/site_plan.png",
         "tags": [
           "document",
           "ocr",
