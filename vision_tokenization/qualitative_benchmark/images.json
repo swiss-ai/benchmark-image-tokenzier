@@ -288,5 +288,13 @@
     "tags": [
       "remote_sensing"
     ]
+  },
+  {
+    "path": "assets/cool_guy.png",
+    "tags": [
+      "face",
+      "general",
+      "outdoor"
+    ]
   }
 ]

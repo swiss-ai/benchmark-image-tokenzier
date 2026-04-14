@@ -619,6 +619,22 @@
         "clip_score": 0.35071274638175964,
         "polos_score": null
       }
+    },
+    {
+      "image": {
+        "path": "assets/cool_guy.png",
+        "tags": [
+          "face",
+          "general",
+          "outdoor"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "A man with short dark hair and a beard sits at an outdoor café table, wearing a blue and white checkered shirt with rolled-up sleeves. He holds a slice of pizza with red sauce and melted cheese in his left hand, while his right hand rests near a white coffee cup on a saucer. The café has yellow walls with large windows displaying signs that read \"Café\" and \"Kaffee Kaffee\" (coffee coffee in German), indicating a European setting, possibly a German-speaking region. Behind him, there are empty wooden chairs and tables, and another person sits at a table further back, facing away. The scene is lit by bright sunlight, suggesting a warm, sunny day, likely summer, with shadows cast on the ground. The man wears sunglasses and smiles softly, conveying a relaxed, content mood. The table has a few items: a small plate with pizza slices, a fork, and a napkin. The perspective is eye-level, focusing on the man as the focal point, with the café and outdoor seating in the background, creating a casual, inviting atmosphere suitable for a general audience enjoying a leisurely meal.</s>",
+      "metrics": {
+        "clip_score": 0.2845933735370636,
+        "polos_score": null
+      }
     }
   ],
   "mode": "captioning",
