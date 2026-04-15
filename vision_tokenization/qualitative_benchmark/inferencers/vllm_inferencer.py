@@ -3,7 +3,7 @@ Simple wrapper for VLLM hosted LLM. Takes model path, load the model into VLLM a
 """
 
 import logging
-from typing import List, Union
+from typing import List, Optional, Union
 
 from transformers import AutoTokenizer
 from vllm import LLM, SamplingParams
@@ -43,17 +43,20 @@ class VLLMInferencer(BaseInferencer):
             self._txt_tokenizer = None
 
         logger.info(f"Loading model from {self.model_path}")
-        self.llm = LLM(
-            model=self.model_path,
-            trust_remote_code=True,
-            tokenizer=self.tokenizer_path,
-            tensor_parallel_size=self.tp_size,
-            max_model_len=self.max_seq_len,
-            skip_tokenizer_init=self._txt_tokenizer is not None,
-            dtype=self.model_dtype,
-            quantization=self.model_quantization,
-            seed=self.seed,
-        )
+        llm_kwargs = {
+            "model": self.model_path,
+            "trust_remote_code": True,
+            "tokenizer": self.tokenizer_path,
+            "tensor_parallel_size": self.tp_size,
+            "max_model_len": self.max_seq_len,
+            "skip_tokenizer_init": self._txt_tokenizer is not None,
+            "dtype": self.model_dtype,
+            "quantization": self.model_quantization,
+        }
+        if self.seed is not None:
+            llm_kwargs["seed"] = self.seed
+
+        self.llm = LLM(**llm_kwargs)
 
     @property
     def txt_tokenizer(self):
@@ -67,7 +70,8 @@ class VLLMInferencer(BaseInferencer):
         sampling_topp: float = 0.95,
         sampling_max_tok: int = 500,
         sampling_min_tok: int = 3,
-        sampling_stop_token_ids: List[int] = None,
+        sampling_stop_token_ids: Optional[List[int]] = None,
+        seed: Optional[int] = None,
         debug: bool = False,
     ) -> dict:
         """
@@ -93,6 +97,7 @@ class VLLMInferencer(BaseInferencer):
             min_tokens=sampling_min_tok,
             stop_token_ids=sampling_stop_token_ids,
             skip_special_tokens=False,
+            seed=seed,
         )
 
         if isinstance(prompt, str):

@@ -8,7 +8,7 @@ common interface so that VLLMInferencer and HFInferencer are interchangeable.
 import logging
 import warnings
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Dict, List, Union
+from typing import Any, ClassVar, Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,8 @@ class BaseInferencer(ABC):
         sampling_topp: float = 0.95,
         sampling_max_tok: int = 500,
         sampling_min_tok: int = 3,
-        sampling_stop_token_ids: List[int] = None,
+        sampling_stop_token_ids: Optional[List[int]] = None,
+        seed: Optional[int] = None,
         debug: bool = False,
     ) -> dict:
         """Run inference on *prompt* and return a result dict.

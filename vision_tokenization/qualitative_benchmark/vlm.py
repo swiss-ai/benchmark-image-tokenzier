@@ -207,7 +207,7 @@ class VLM(object):
         formatted_prompt_str = self._prepare_final_prompt(img_tokens_str, prompt)
         return formatted_prompt_str  # Return string, not token IDs
 
-    def generate(self, prompt_string: str, debug: bool = False):
+    def generate(self, prompt_string: str, debug: bool = False, seed: Optional[int] = None):
         """Run VLM inference on formatted prompt string."""
         result = self.inferencer.run_inference(
             prompt_string,
@@ -217,6 +217,7 @@ class VLM(object):
             sampling_max_tok=self.inf_args.max_new_tokens,
             sampling_min_tok=1,
             sampling_stop_token_ids=self.inf_args.stop_token_ids,
+            seed=seed,
             debug=debug,
         )
         return result["generated_text"]

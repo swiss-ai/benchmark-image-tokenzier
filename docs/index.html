@@ -470,9 +470,6 @@
                 if (run.metrics.clip_score != null) {
                     parts.push(`CLIP: ${run.metrics.clip_score.toFixed(3)}`);
                 }
-                if (run.metrics.polos_score != null) {
-                    parts.push(`POLOS: ${run.metrics.polos_score.toFixed(3)}`);
-                }
                 if (parts.length) {
                     metricsHtml = `<div class="card-tags">${parts.map(p => `<span class="tag">${escapeHtml(p)}</span>`).join('')}</div>`;
                 }

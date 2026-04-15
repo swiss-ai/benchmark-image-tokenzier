@@ -619,6 +619,27 @@ def parse_args():
         help="Directory used for cached image token tensors",
     )
     parser.add_argument(
+        "--retry-clip-threshold",
+        type=float,
+        default=None,
+        help="Captioning only: re-roll captions whose CLIP score is below this "
+        "threshold using a different seed (up to --retry-max-attempts).",
+    )
+    parser.add_argument(
+        "--retry-max-attempts",
+        type=int,
+        default=1,
+        help="Captioning only: total attempts per image (default 1 = no retry). "
+        "Used together with --retry-clip-threshold.",
+    )
+    parser.add_argument(
+        "--retry-base-seed",
+        type=int,
+        default=None,
+        help="Captioning only: base seed; attempt k uses (base + k). "
+        "Unset = backend default randomness.",
+    )
+    parser.add_argument(
         "--publish-to-docs",
         action="store_true",
         help="Copy the finished result JSON and referenced assets into docs/ for GitHub Pages",
@@ -747,6 +768,28 @@ def validate_args(args):
     if current_mode != "captioning":
         if args.caption_init_phrase is not None:
             print(f"WARNING: --caption-init-phrase ignored in {current_mode} mode")
+        if args.retry_clip_threshold is not None:
+            print(f"WARNING: --retry-clip-threshold ignored in {current_mode} mode")
+        if args.retry_max_attempts > 1:
+            print(f"WARNING: --retry-max-attempts ignored in {current_mode} mode")
+        if args.retry_base_seed is not None:
+            print(f"WARNING: --retry-base-seed ignored in {current_mode} mode")
+    else:
+        if args.retry_max_attempts < 1:
+            print(
+                f"ERROR: --retry-max-attempts must be >= 1, got {args.retry_max_attempts}"
+            )
+            sys.exit(1)
+        if args.retry_clip_threshold is not None and args.retry_max_attempts <= 1:
+            print(
+                "WARNING: --retry-clip-threshold has no effect when "
+                "--retry-max-attempts <= 1"
+            )
+        if args.retry_clip_threshold is not None and args.retry_max_attempts > 1 and args.greedy:
+            print(
+                "WARNING: --greedy disables sampling, so retries will produce "
+                "identical captions; set --temperature > 0 for retries to differ"
+            )
 
     # VLM Q&A specific args
     if current_mode != "vlm-qa":
@@ -964,6 +1007,9 @@ if __name__ == "__main__":
             results_dir=str(results_dir),
             init_phrase=args.caption_init_phrase,
             debug=args.debug,
+            retry_clip_threshold=args.retry_clip_threshold,
+            retry_max_attempts=args.retry_max_attempts,
+            retry_base_seed=args.retry_base_seed,
         )
         results = benchmark.run(output_filename=f"{args.experiment_name}.json")
     else:

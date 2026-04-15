@@ -5,7 +5,7 @@ This is slower but more compatible with models not yet supported by vLLM.
 """
 
 import logging
-from typing import Dict, List, Union
+from typing import Dict, List, Optional, Union
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
@@ -75,7 +75,8 @@ class HFInferencer(BaseInferencer):
         sampling_topp: float = 0.95,
         sampling_max_tok: int = 500,
         sampling_min_tok: int = 3,
-        sampling_stop_token_ids: List[int] = None,
+        sampling_stop_token_ids: Optional[List[int]] = None,
+        seed: Optional[int] = None,
         debug: bool = False,
     ) -> Dict:
         """
@@ -146,6 +147,11 @@ class HFInferencer(BaseInferencer):
         )
 
         # Generate
+        if seed is not None:
+            torch.manual_seed(seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seed)
+
         with torch.no_grad():
             output = self.model.generate(
                 input_tensor,
