@@ -1,22 +1,25 @@
 """Tests for vision_tokenization.indexing — CPU-only, no tokenizer needed."""
 
 import io
+import logging
 import os
 import tarfile
 import tempfile
+from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
+import torch
 import pyarrow as pa
 import pyarrow.ipc as ipc
 import pyarrow.parquet as pq
 import pytest
 from PIL import Image
 
-from vision_tokenization.indexing._scan_wds_worker import scan_single_tar
-from vision_tokenization.indexing.clustered_batch_planner import (
-    BatchAssignment,
-    BatchPlan,
-    plan_clustered_batches,
+from vision_tokenization.indexing.scanners._workers.wds import scan_single_tar
+from vision_tokenization.indexing.planning.tokenization_plan import (
+    TokenizationPlan,
+    build_tokenization_plan,
 )
 from vision_tokenization.indexing.manifest import (
     load_hf_manifest,
@@ -24,17 +27,111 @@ from vision_tokenization.indexing.manifest import (
     load_wds_manifest,
     save_wds_manifest,
 )
-from vision_tokenization.indexing.scanner_hf import scan_hf_dataset
+from vision_tokenization.indexing.scanners.hf import scan_hf_dataset
 from vision_tokenization.indexing.reader import TarRandomAccessReader
-from vision_tokenization.indexing.scanner_wds import scan_wds_dataset
-from vision_tokenization.pipelines.distributed.data import HFImageLoader
-from vision_tokenization.pipelines.distributed.dry_run import dry_run_batch_plan
+from vision_tokenization.indexing.scanners.wds import scan_wds_dataset
+from vision_tokenization.pipeline.runtime.data import HFImageLoader, WDSImageLoader
+from vision_tokenization.pipeline.runtime.dry_run import dry_run_batch_plan
+from vision_tokenization.utils.partitioning import weighted_contiguous_split
 from vision_tokenization.utils.image_geometry import estimate_image_tokens, smart_resize_dims
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+@dataclass
+class BatchAssignment:
+    """Test-side view of one planned batch in manifest-row coordinates."""
+
+    sample_indices: np.ndarray
+    resize_height: int
+    resize_width: int
+    batch_token_count: int
+
+
+@dataclass
+class BatchPlan:
+    """Small test adapter over the current ``TokenizationPlan`` shape.
+
+    The production planner no longer exposes the old ``BatchPlan`` API, but the
+    behavioral assertions in this test file are still useful. This adapter lets
+    the tests reason in terms of manifest rows and per-batch token cost without
+    reintroducing the old product abstraction.
+    """
+
+    batches: list[BatchAssignment]
+    total_samples: int = 0
+    total_filtered: int = 0
+
+    @staticmethod
+    def _estimate_batch_cost(batch: BatchAssignment) -> float:
+        return float(batch.batch_token_count)
+
+    def split_for_workers(self, num_workers: int) -> list[list[BatchAssignment]]:
+        costs = [self._estimate_batch_cost(batch) for batch in self.batches]
+        return weighted_contiguous_split(self.batches, costs, num_workers)
+
+
+def plan_clustered_batches(
+    manifest_path: str,
+    *,
+    batch_size: int,
+    max_batch_tokens: int,
+    min_pixels: int | None = None,
+    max_pixels: int | None = None,
+    resize_min_pixels: int = 16384,
+    resize_max_pixels: int = 1960000,
+    spatial_factor: int = 16,
+    multi_image: bool = False,
+) -> BatchPlan:
+    """Build a test-friendly batch plan from the current execution plan.
+
+    The real planner persists component identities and execution batches. These
+    tests mostly want the older manifest-row view, so we project each image
+    batch back to its manifest rows via ``components.source_ref``.
+    """
+    metadata = pq.read_metadata(manifest_path)
+    column_names = list(metadata.schema.names)
+    total_rows = int(metadata.num_rows)
+
+    if multi_image and "group_id" not in column_names:
+        raise ValueError("multi_image=True but manifest has no group_id")
+
+    plan = build_tokenization_plan(
+        manifest_path=manifest_path,
+        mode="image_only",
+        min_pixels=min_pixels,
+        max_pixels=max_pixels,
+        batch_size=batch_size,
+        max_batch_tokens=max_batch_tokens,
+        resize_min_pixels=resize_min_pixels,
+        resize_max_pixels=resize_max_pixels,
+        spatial_factor=spatial_factor,
+    )
+
+    batches: list[BatchAssignment] = []
+    for batch in plan.execution.image_batches:
+        component_indices = np.asarray(batch.component_indices, dtype=np.int64)
+        sample_indices = np.asarray(
+            plan.components.source_ref[component_indices],
+            dtype=np.int64,
+        )
+        batches.append(
+            BatchAssignment(
+                sample_indices=sample_indices,
+                resize_height=int(batch.resize_height),
+                resize_width=int(batch.resize_width),
+                batch_token_count=int(batch.batch_token_count),
+            )
+        )
+
+    return BatchPlan(
+        batches=batches,
+        total_samples=int(plan.total_image_components),
+        total_filtered=max(0, total_rows - int(plan.total_image_components)),
+    )
 
 def _make_image(width: int, height: int, color: tuple = (255, 0, 0)) -> Image.Image:
     """Create a solid-colour RGB image."""
@@ -89,6 +186,8 @@ def _write_hf_arrow_shard(
     column_name: str = "image",
     multi_image: bool = False,
     batch_size: int | None = None,
+    text_rows: list | None = None,
+    text_column: str = "text",
 ):
     if multi_image:
         array = pa.array(
@@ -104,7 +203,10 @@ def _write_hf_arrow_shard(
             type=_HF_IMAGE_TYPE,
         )
 
-    table = pa.table({column_name: array})
+    columns = {column_name: array}
+    if text_rows is not None:
+        columns[text_column] = pa.array(text_rows)
+    table = pa.table(columns)
     with pa.OSFile(shard_path, "wb") as sink:
         with ipc.new_stream(sink, table.schema) as writer:
             for batch in table.to_batches(max_chunksize=batch_size):
@@ -117,6 +219,8 @@ def _write_hf_parquet_shard(
     column_name: str = "image",
     multi_image: bool = False,
     row_group_size: int | None = None,
+    text_rows: list | None = None,
+    text_column: str = "text",
 ):
     if multi_image:
         array = pa.array(
@@ -132,7 +236,10 @@ def _write_hf_parquet_shard(
             type=_HF_IMAGE_TYPE,
         )
 
-    pq.write_table(pa.table({column_name: array}), shard_path, row_group_size=row_group_size)
+    columns = {column_name: array}
+    if text_rows is not None:
+        columns[text_column] = pa.array(text_rows)
+    pq.write_table(pa.table(columns), shard_path, row_group_size=row_group_size)
 
 
 # ======================================================================
@@ -543,6 +650,23 @@ class TestWDSRandomAccess:
         for img, (_, _, _, orig) in zip(images, refs):
             assert img.size == orig.size
 
+    def test_read_batch_logs_truncated_image_cleanly(self, caplog, monkeypatch):
+        """Common PIL corruption errors should log one-line warnings only."""
+        reader = TarRandomAccessReader()
+
+        def _broken_read_image(_tar_path, _offset, _size):
+            raise OSError("image file is truncated")
+
+        monkeypatch.setattr(reader, "read_image", _broken_read_image)
+
+        with caplog.at_level(logging.WARNING):
+            images = reader.read_batch([("broken.tar", 123, 456)])
+
+        assert images == [None]
+        assert len(caplog.records) == 1
+        assert caplog.records[0].exc_info is None
+        assert "image file is truncated" in caplog.text
+
     def test_file_handle_caching(self, tmp_path):
         """LRU cache: 1 handle for same tar, eviction when max reached."""
         # Create 3 tars
@@ -607,7 +731,7 @@ class TestClusteredBatchPlanner:
         h = np.concatenate([rng.randint(200, 300, 334), rng.randint(200, 300, 333), rng.randint(400, 600, 333)])
         path = self._create_manifest(tmp_path, w, h)
 
-        plan = plan_clustered_batches(path, batch_size=32, max_batch_tokens=999999)
+        plan = plan_clustered_batches(path, batch_size=32, max_batch_tokens=999999, resize_min_pixels=64*64, resize_max_pixels=1024*1024)
         assert isinstance(plan, BatchPlan)
         assert len(plan.batches) > 0
         assert plan.total_samples == 1000
@@ -620,7 +744,7 @@ class TestClusteredBatchPlanner:
         path = self._create_manifest(tmp_path, w, h)
 
         bs = 16
-        plan = plan_clustered_batches(path, batch_size=bs, max_batch_tokens=999999)
+        plan = plan_clustered_batches(path, batch_size=bs, max_batch_tokens=999999, resize_min_pixels=64*64, resize_max_pixels=1024*1024)
         for batch in plan.batches:
             assert len(batch.sample_indices) <= bs
 
@@ -632,7 +756,7 @@ class TestClusteredBatchPlanner:
         h = rng.randint(100, 500, N)
         path = self._create_manifest(tmp_path, w, h)
 
-        plan = plan_clustered_batches(path, batch_size=20, max_batch_tokens=999999)
+        plan = plan_clustered_batches(path, batch_size=20, max_batch_tokens=999999, resize_min_pixels=64*64, resize_max_pixels=1024*1024)
         all_indices = np.concatenate([b.sample_indices for b in plan.batches])
         assert len(all_indices) == N
         assert len(np.unique(all_indices)) == N
@@ -645,7 +769,7 @@ class TestClusteredBatchPlanner:
         h = rng.randint(100, 1000, 600)
         path = self._create_manifest(tmp_path, w, h)
 
-        plan = plan_clustered_batches(path, batch_size=32, max_batch_tokens=999999)
+        plan = plan_clustered_batches(path, batch_size=32, max_batch_tokens=999999, resize_min_pixels=64*64, resize_max_pixels=1024*1024)
 
         global_ar = w.astype(np.float64) / h.astype(np.float64)
         global_std = np.std(global_ar)
@@ -672,7 +796,7 @@ class TestClusteredBatchPlanner:
         h = np.array([10] * 50 + [200] * 50)
         path = self._create_manifest(tmp_path, w, h)
 
-        plan = plan_clustered_batches(path, batch_size=10, max_batch_tokens=999999, min_pixels=1000)
+        plan = plan_clustered_batches(path, batch_size=10, max_batch_tokens=999999, min_pixels=1000, resize_min_pixels=64*64, resize_max_pixels=1024*1024)
         assert plan.total_filtered == 50
         all_idx = np.concatenate([b.sample_indices for b in plan.batches])
         assert len(all_idx) == 50
@@ -686,7 +810,7 @@ class TestClusteredBatchPlanner:
         h = rng.randint(100, 500, 200)
         path = self._create_manifest(tmp_path, w, h)
 
-        plan = plan_clustered_batches(path, batch_size=10, max_batch_tokens=999999)
+        plan = plan_clustered_batches(path, batch_size=10, max_batch_tokens=999999, resize_min_pixels=64*64, resize_max_pixels=1024*1024)
         chunks = plan.split_for_workers(4)
         assert len(chunks) == 4
         # Flatten and verify all batches covered
@@ -810,7 +934,7 @@ class TestEndToEnd:
         assert len(table) == 30
 
         # --- Plan batches ---
-        plan = plan_clustered_batches(manifest_path, batch_size=8, max_batch_tokens=999999)
+        plan = plan_clustered_batches(manifest_path, batch_size=8, max_batch_tokens=999999, resize_min_pixels=64*64, resize_max_pixels=1024*1024)
         assert plan.total_samples == 30
         all_idx = np.concatenate([b.sample_indices for b in plan.batches])
         assert len(np.unique(all_idx)) == 30
@@ -832,6 +956,40 @@ class TestEndToEnd:
                 for img, idx in zip(images, batch.sample_indices):
                     assert img is not None
                     assert img.size == (widths_col[idx], heights_col[idx])
+
+
+# ======================================================================
+# TestWDSLoader
+# ======================================================================
+class TestWDSLoader:
+
+    def test_load_text_batch_reads_text_without_loading_images(self, tmp_path, monkeypatch):
+        samples = [
+            {"key": "000001", "ext": "jpg", "width": 64, "height": 64, "text": "alpha"},
+            {"key": "000002", "ext": "jpg", "width": 32, "height": 48, "text": "beta"},
+        ]
+        tar_path = str(tmp_path / "shard.tar")
+        _create_tar(tar_path, samples)
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        scan_wds_dataset(
+            input_pattern=tar_path,
+            output_manifest=manifest_path,
+            num_workers=1,
+            text_extensions=frozenset({"txt"}),
+        )
+
+        loader = WDSImageLoader(manifest_path=manifest_path, text_field="text")
+        monkeypatch.setattr(
+            loader._reader,
+            "read_batch",
+            lambda refs: pytest.fail("load_text_batch should not load images"),
+        )
+
+        texts = loader.load_text_batch(np.array([0, 1], dtype=np.int64))
+        loader.close()
+
+        assert texts == ["alpha", "beta"]
 
 
 # ======================================================================
@@ -915,6 +1073,72 @@ class TestHFLoader:
         assert loader._uses_physical_manifest is True
         assert [img.size for img in images] == [(32, 48), (80, 120), (20, 30)]
 
+    def test_parquet_loader_load_text_batch_avoids_image_decode(self, tmp_path, monkeypatch):
+        rows = [(32, 48), (64, 96), (80, 120)]
+        texts = ["alpha", "beta", "gamma"]
+        _write_hf_parquet_shard(
+            str(tmp_path / "part_000.parquet"),
+            rows,
+            row_group_size=1,
+            text_rows=texts,
+        )
+
+        loader = HFImageLoader(input_pattern=tmp_path, text_column="text")
+        monkeypatch.setattr(
+            loader,
+            "_decode_image",
+            lambda img_data: pytest.fail("load_text_batch should not decode images"),
+        )
+
+        loaded = loader.load_text_batch(np.array([0, 2], dtype=np.int64))
+        loader.close()
+
+        assert loaded == ["alpha", "gamma"]
+
+    def test_parquet_multi_image_loader_load_text_batch_groups_docs(self, tmp_path, monkeypatch):
+        rows = [
+            [(11, 21), (31, 41)],
+            [(51, 61)],
+        ]
+        texts = ["doc0", "doc1"]
+        shard_path = str(tmp_path / "part_000.parquet")
+        _write_hf_parquet_shard(
+            shard_path,
+            rows,
+            column_name="images",
+            multi_image=True,
+            row_group_size=1,
+            text_rows=texts,
+        )
+
+        manifest_path = str(tmp_path / "physical_multi_manifest.parquet")
+        scan_hf_dataset(
+            input_pattern=str(tmp_path / "*.parquet"),
+            output_manifest=manifest_path,
+            image_list_column="images",
+            num_workers=1,
+        )
+
+        loader = HFImageLoader(
+            input_pattern=str(tmp_path / "*.does_not_matter"),
+            manifest_path=manifest_path,
+            image_list_column="images",
+            text_column="text",
+        )
+        monkeypatch.setattr(
+            loader,
+            "_decode_image",
+            lambda img_data: pytest.fail("load_text_batch should not decode images"),
+        )
+
+        loaded = loader.load_text_batch(
+            np.array([0, 1, 2], dtype=np.int64),
+            group_slices=np.array([[0, 2], [2, 3]], dtype=np.int64),
+        )
+        loader.close()
+
+        assert loaded == ["doc0", "doc1"]
+
     def test_parquet_multi_image_loader_uses_physical_manifest_coordinates(self, tmp_path):
         rows_a = [
             [(11, 21), (31, 41)],
@@ -956,3 +1180,157 @@ class TestHFLoader:
 
         assert loader._uses_physical_manifest is True
         assert [img.size for img in images] == [(11, 21), (31, 41), (71, 81), (91, 101)]
+
+
+class TestOrderedPool:
+    def test_fatal_error_shuts_down_pool_without_waiting(self, monkeypatch):
+        from vision_tokenization.indexing.scanners import _parallel as parallel_mod
+
+        created_pools = []
+
+        class FakeFuture:
+            def __init__(self, *, result=None, exc=None):
+                self._result = result
+                self._exc = exc
+                self.cancelled = False
+
+            def result(self):
+                if self._exc is not None:
+                    raise self._exc
+                return self._result
+
+            def cancel(self):
+                self.cancelled = True
+
+        class FakeExecutor:
+            def __init__(self, max_workers):
+                self.max_workers = max_workers
+                self.shutdown_calls = []
+                created_pools.append(self)
+
+            def shutdown(self, wait=True, cancel_futures=False):
+                self.shutdown_calls.append((wait, cancel_futures))
+
+        futures = [
+            FakeFuture(exc=ValueError("boom")),
+            FakeFuture(result="ok"),
+        ]
+
+        def fake_wait(fs, return_when):
+            return {fs[0]}, set(fs[1:])
+
+        monkeypatch.setattr(parallel_mod, "ProcessPoolExecutor", FakeExecutor)
+        monkeypatch.setattr(parallel_mod, "wait", fake_wait)
+
+        with pytest.raises(ValueError, match="boom"):
+            parallel_mod.run_ordered_pool(
+                n_items=2,
+                submit_fn=lambda _pool, idx: futures[idx],
+                emit_fn=lambda _idx, _result: None,
+                num_workers=2,
+            )
+
+        assert len(created_pools) == 1
+        assert created_pools[0].shutdown_calls == [(False, True)]
+        assert futures[1].cancelled is True
+
+
+class TestMergeShards:
+    """Tests for the post-tokenization shard merger."""
+
+    def _create_shard(self, path, sequences):
+        """Create a .bin/.idx shard with the given sequences."""
+        try:
+            from vision_tokenization.formats.megatron import (
+                IndexedDatasetBuilder,
+            )
+        except ImportError:
+            pytest.skip("indexed_dataset_megatron not available")
+
+        builder = IndexedDatasetBuilder(str(path) + ".bin", dtype=np.int32)
+        for seq in sequences:
+            builder.add_item(torch.tensor(seq, dtype=torch.int32))
+            builder.end_document()
+        builder.finalize(str(path) + ".idx")
+
+    def _read_shard(self, path):
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+        from megatron.core.datasets.indexed_dataset import IndexedDataset
+        ds = IndexedDataset(str(path))
+        return [ds[i].tolist() for i in range(len(ds))]
+
+    def test_merge_combines_shards(self, tmp_path):
+        """Merge multiple rank shards into a single file."""
+        try:
+            from megatron.core.datasets.indexed_dataset import IndexedDataset
+        except ImportError:
+            pytest.skip("megatron not available")
+
+        from vision_tokenization.pipeline.output.merge import merge_shards
+
+        # Create fake rank shards
+        self._create_shard(tmp_path / "rank_0000_chunk_0000", [[1, 2, 3], [4, 5]])
+        self._create_shard(tmp_path / "rank_0001_chunk_0000", [[6, 7], [8, 9, 10, 11]])
+
+        result = merge_shards(tmp_path, output_name="merged")
+        assert result is not None
+
+        seqs = self._read_shard(tmp_path / "merged")
+        assert len(seqs) == 4
+        assert seqs[0] == [1, 2, 3]
+        assert seqs[1] == [4, 5]
+        assert seqs[2] == [6, 7]
+        assert seqs[3] == [8, 9, 10, 11]
+
+    def test_maybe_merge_waits_for_all_ranks(self, tmp_path):
+        """maybe_merge_shards returns None until all checkpoints exist."""
+        try:
+            from megatron.core.datasets.indexed_dataset import IndexedDataset
+        except ImportError:
+            pytest.skip("megatron not available")
+
+        from vision_tokenization.pipeline.output.merge import maybe_merge_shards
+
+        self._create_shard(tmp_path / "rank_0000_chunk_0000", [[1, 2]])
+        self._create_shard(tmp_path / "rank_0001_chunk_0000", [[3, 4]])
+
+        # Only rank 0 checkpoint exists
+        torch.save({}, tmp_path / "rank_0000_checkpoint.pt")
+        result = maybe_merge_shards(tmp_path, expected_ranks=2)
+        assert result is None
+        assert not (tmp_path / "merged.bin").exists()
+
+        # Now rank 1 finishes
+        torch.save({}, tmp_path / "rank_0001_checkpoint.pt")
+        result = maybe_merge_shards(tmp_path, expected_ranks=2)
+        assert result is not None
+        assert (tmp_path / "merged.bin").exists()
+
+    def test_maybe_merge_is_idempotent(self, tmp_path):
+        """Calling maybe_merge_shards again skips if merged file exists."""
+        try:
+            from megatron.core.datasets.indexed_dataset import IndexedDataset
+        except ImportError:
+            pytest.skip("megatron not available")
+
+        from vision_tokenization.pipeline.output.merge import maybe_merge_shards
+
+        self._create_shard(tmp_path / "rank_0000_chunk_0000", [[1, 2]])
+        torch.save({}, tmp_path / "rank_0000_checkpoint.pt")
+
+        # First call merges
+        result1 = maybe_merge_shards(tmp_path, expected_ranks=1)
+        assert result1 is not None
+        mtime1 = (tmp_path / "merged.bin").stat().st_mtime
+
+        # Second call skips (file already exists)
+        result2 = maybe_merge_shards(tmp_path, expected_ranks=1)
+        assert result2 is not None
+        mtime2 = (tmp_path / "merged.bin").stat().st_mtime
+        assert mtime1 == mtime2
+
+    def test_merge_empty_dir_returns_none(self, tmp_path):
+        """No shards → returns None."""
+        from vision_tokenization.pipeline.output.merge import merge_shards
+        assert merge_shards(tmp_path) is None

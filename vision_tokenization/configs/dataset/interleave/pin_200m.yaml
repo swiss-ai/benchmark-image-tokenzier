@@ -1,0 +1,18 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# PIN-200M — interleave, JSONL + tar (OBELICS, DocLayNet, PIN-Arxiv, etc.)
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/jsonl_tar@_here_
+  - /dataset/_task/interleave@_here_
+
+output_name: pin_200m
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/pin_200m_licensed/manifest.parquet
+tar_pattern: "content_image.tar*"
+parser: pin200m
+document_field: md
+min_pixels: "192*192"
+
+prefetch:
+  num_workers: 16

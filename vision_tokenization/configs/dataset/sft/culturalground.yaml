@@ -1,0 +1,19 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# CulturalGround OE-Filtered — SFT, JSONL+tar, single-image multilingual QA
+# 14.2M rows, 2.7M unique images, 39 languages
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/jsonl_tar@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: culturalground
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/culturalground/manifest.parquet
+
+image_field: image
+text_column: conversations
+tar_pattern: "*.tar"
+tar_scope: global
+tar_root: CultureGroundImages_tar
+image_path_prefix_strip: "Wikidata_images_v3/"

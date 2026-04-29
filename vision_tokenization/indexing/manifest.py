@@ -86,6 +86,25 @@ HF_SCHEMA_PHYSICAL_MULTI_IMAGE = pa.schema(
 )
 
 # ---------------------------------------------------------------------------
+# JSONL + tar interleave manifest schema
+# ---------------------------------------------------------------------------
+INTERLEAVE_JSONL_TAR_SCHEMA = pa.schema(
+    [
+        pa.field("tar_path", pa.dictionary(pa.int32(), pa.string())),
+        pa.field("offset_data", pa.int64()),
+        pa.field("file_size", pa.int64()),
+        pa.field("width", pa.int32()),
+        pa.field("height", pa.int32()),
+        pa.field("group_id", pa.int64()),
+        pa.field("image_index", pa.int16()),
+        pa.field("jsonl_path", pa.dictionary(pa.int32(), pa.string())),
+        pa.field("line_start", pa.int64()),
+        pa.field("line_length", pa.int32()),
+        pa.field("image_ref", pa.dictionary(pa.int32(), pa.string())),
+    ]
+)
+
+# ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 _CHUNK_SIZE = 1_000_000  # rows per Parquet row-group
@@ -138,8 +157,40 @@ def append_parquet_records(
 
 
 # ---------------------------------------------------------------------------
-# WDS manifest I/O
+# Manifest I/O (shared implementation)
 # ---------------------------------------------------------------------------
+def _save_manifest(
+    records: Union[List[Dict], pa.Table],
+    output_path: Union[str, Path],
+    schema: pa.Schema,
+    label: str,
+    chunk_size: int = _CHUNK_SIZE,
+) -> str:
+    """Write manifest records to a zstd-compressed Parquet file."""
+    output_path = str(output_path)
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    table = _records_to_table(records, schema)
+    n_rows = len(table)
+
+    writer = pq.ParquetWriter(output_path, schema, compression="zstd")
+    try:
+        _write_table_chunks(writer, table, chunk_size=chunk_size)
+    finally:
+        writer.close()
+
+    logger.info(f"Saved {label} manifest: {n_rows:,} rows -> {output_path}")
+    return output_path
+
+
+def load_manifest(
+    path: Union[str, Path],
+    columns: Optional[Sequence[str]] = None,
+) -> pa.Table:
+    """Read a manifest Parquet file with optional column pruning."""
+    return pq.read_table(str(path), columns=columns)
+
+
 def save_wds_manifest(
     records: Union[List[Dict], pa.Table],
     output_path: Union[str, Path],
@@ -147,49 +198,12 @@ def save_wds_manifest(
     include_text: bool = False,
     schema: Optional[pa.Schema] = None,
 ) -> str:
-    """Write WDS manifest records to a zstd-compressed Parquet file.
-
-    Args:
-        records: List of dicts with keys matching the chosen schema, or a pa.Table.
-        output_path: Destination Parquet file path.
-        chunk_size: Number of rows per row-group (default 1M).
-        include_text: If ``True``, use the extended schema with text sidecar
-            columns (``offset_text``, ``text_file_size``, ``text_ext``).
-            Ignored when *schema* is provided explicitly.
-        schema: Explicit schema override (e.g. multi-image schemas).
-
-    Returns:
-        The output path as a string.
-    """
-    output_path = str(output_path)
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-
+    """Write WDS manifest records to a zstd-compressed Parquet file."""
     if schema is None:
         schema = WDS_SCHEMA_WITH_TEXT if include_text else WDS_SCHEMA
-    table = _records_to_table(records, schema)
-    n_rows = len(table)
-
-    writer = pq.ParquetWriter(output_path, schema, compression="zstd")
-    try:
-        _write_table_chunks(writer, table, chunk_size=chunk_size)
-    finally:
-        writer.close()
-
-    logger.info(f"Saved WDS manifest: {n_rows:,} rows -> {output_path}")
-    return output_path
+    return _save_manifest(records, output_path, schema, "WDS", chunk_size)
 
 
-def load_wds_manifest(
-    path: Union[str, Path],
-    columns: Optional[Sequence[str]] = None,
-) -> pa.Table:
-    """Read a WDS manifest Parquet file with optional column pruning."""
-    return pq.read_table(str(path), columns=columns)
-
-
-# ---------------------------------------------------------------------------
-# HF manifest I/O
-# ---------------------------------------------------------------------------
 def save_hf_manifest(
     records: Union[List[Dict], pa.Table],
     output_path: Union[str, Path],
@@ -197,30 +211,27 @@ def save_hf_manifest(
     schema: Optional[pa.Schema] = None,
 ) -> str:
     """Write HF manifest records to a zstd-compressed Parquet file."""
-    output_path = str(output_path)
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-
     if schema is None:
         schema = HF_SCHEMA
-    table = _records_to_table(records, schema)
-    n_rows = len(table)
-
-    writer = pq.ParquetWriter(output_path, schema, compression="zstd")
-    try:
-        _write_table_chunks(writer, table, chunk_size=chunk_size)
-    finally:
-        writer.close()
-
-    logger.info(f"Saved HF manifest: {n_rows:,} rows -> {output_path}")
-    return output_path
+    return _save_manifest(records, output_path, schema, "HF", chunk_size)
 
 
-def load_hf_manifest(
-    path: Union[str, Path],
-    columns: Optional[Sequence[str]] = None,
-) -> pa.Table:
-    """Read an HF manifest Parquet file with optional column pruning."""
-    return pq.read_table(str(path), columns=columns)
+def save_interleave_manifest(
+    records: Union[List[Dict], pa.Table],
+    output_path: Union[str, Path],
+    chunk_size: int = _CHUNK_SIZE,
+    schema: Optional[pa.Schema] = None,
+) -> str:
+    """Write interleave manifest records to a zstd-compressed Parquet file."""
+    if schema is None:
+        schema = INTERLEAVE_JSONL_TAR_SCHEMA
+    return _save_manifest(records, output_path, schema, "interleave", chunk_size)
+
+
+# Typed aliases for readability; all delegate to the same implementation.
+load_wds_manifest = load_manifest
+load_hf_manifest = load_manifest
+load_interleave_manifest = load_manifest
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,602 @@
+{
+  "timestamp": "2026-04-17T01:20:37.340224",
+  "model_path": "/capstor/store/cscs/swissai/infra01/hf-checkpoints/Apertus-1p5-8B-it430000",
+  "tokenizer_path": "/capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_wavtok",
+  "vision_tokenizer": "EMU3.5-IBQ",
+  "inferencer": "VLLMInferencer",
+  "inference_args": {
+    "apply_chat_template": false,
+    "prompt_builder": null,
+    "temperature": 0.3,
+    "top_p": 0.9,
+    "max_new_tokens": 300,
+    "max_emu_aspect_ratio": 1048576,
+    "min_emu_aspect_ratio": 65536,
+    "stop_token_ids": [
+      2
+    ]
+  },
+  "total_runs": 40,
+  "runs": [
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image presents a visually appealing arrangement of three fruits: a red apple with a green leaf, a yellow banana, and an orange with a green leaf. Detailed in real life, the apple is a common fruit with a vibrant red color and a green leaf attached to its stem. The banana, a popular tropical fruit, is depicted as yellow and elongated. The orange, another widely consumed fruit, is shown as round and orange in color with a green leaf attached to its stem.</s>",
+      "metrics": {
+        "clip_score": 0.33517247438430786
+      }
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image depicts a modern urban scene featuring a tall, rectangular high-rise building with a glass and concrete facade, characterized by numerous windows and a grid-like pattern of green-tinted panels. The building stands prominently in the foreground, surrounded by smaller, lower-rise structures, including a beige building with a flat roof to its left and a taller, darker skyscraper in the background to the right. Lush green trees with leafy canopies are scattered throughout the area, particularly around the base of the high-rise, adding a natural element to the urban setting. The scene is set outdoors during what appears to be late afternoon or early evening, as the sky is a soft blue with scattered white clouds, and the lighting is warm, casting gentle shadows. The perspective is an aerial view from a slightly elevated angle, looking down on the buildings and surrounding landscape, which includes a paved plaza at the base of the high-rise and a distant cityscape with rolling hills on the horizon. The color palette is dominated by neutral tones\u2014grays, beiges, and whites\u2014contrasted by the vibrant green of the trees and the blue of the sky. The overall mood is calm and contemporary, suggesting a residential or mixed-use development designed to blend urban living with green space. The target audience might be potential residents, urban planners, or architects interested in modern housing design. Small details include the evenly spaced windows on the high-rise, the texture of the tree leaves,",
+      "metrics": {
+        "clip_score": 0.2715136706829071
+      }
+    },
+    {
+      "image": {
+        "path": "assets/checkerboard_pattern.png",
+        "tags": [
+          "general",
+          "pattern",
+          "general"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image displays a grid of alternating black and white squares arranged in a 6x6 pattern, creating a checkerboard. Each square is uniform in size, with black squares positioned at the corners, edges, and center of the grid, and white squares filling the remaining spaces. The background is plain, with no additional objects, people, or text present. The lighting is even, casting no shadows, and the colors are solid and vibrant, with high contrast between the black and white squares. The perspective is a straight-on, eye-level view, emphasizing the symmetry and balance of the grid. This type of pattern is commonly associated with chessboards, though no chess pieces are visible here. The simplicity of the design suggests it could be intended for a general audience, perhaps as a basic visual example of pattern or symmetry. There are no clues to indicate time, season, or specific environment, as the focus is solely on the geometric arrangement of the squares. The fine details include the sharp edges of each square and the consistent spacing between them, contributing to the overall orderly appearance.</s>",
+      "metrics": {
+        "clip_score": 0.34161311388015747
+      }
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_1.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image features a white rectangular card with a beige background, displaying the title \"Access to Irrigated vs. Non-Irrigated Land\" in bold brown text at the top. Below the title, \"Land Distribution\" is written in smaller gray text, followed by a circular pie chart. The chart is split into two equal halves: the left half is orange labeled \"Non-Irrigated Land\" and the right half is green labeled \"Irrigated Land,\" with a legend at the bottom matching these colors to their respective categories. The pie chart is centered on the card, with the text and chart arranged symmetrically, creating a balanced composition. The overall color palette is simple, using brown, gray, green, orange, and white, which keeps the focus on the data. The image likely targets an audience interested in agricultural economics or land use, as it presents a clear comparison of land distribution types. The lighting is even, with no shadows, emphasizing the clean, informative design typical of data visualization. The perspective is a straightforward, eye-level view, making the chart easy to read and interpret.</s>",
+      "metrics": {
+        "clip_score": 0.4445072412490845
+      }
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_2.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image is a bar graph titled \"HVAC Maintenance Requests per Month\" with a \"Last Year Overview\" subtitle, set against a light blue background. The graph features 12 blue bars, each labeled with a month from January to December on the x-axis, and a y-axis ranging from 0 to 80. The tallest bar is in July, reaching around 75, followed by August just below it at approximately 70. June and September have bars around 60, while May is slightly lower at about 55. January starts with a bar around 40, February drops to around 35, March to about 30, April to 40, August to 60, September to 55, October to 45, November to 40, and December to 35. The bars are smooth with a solid blue color, and the graph has a clean, minimalist design with black grid lines and text. The lighting is even, with no shadows, emphasizing clarity for data interpretation. The target audience is likely facility managers or maintenance teams needing to track HVAC request trends, using a straightforward, easy-to-read composition with a clear focal point on the monthly data.</s>",
+      "metrics": {
+        "clip_score": 0.4033847749233246
+      }
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "A small, fluffy white Pomeranian dog sits prominently on a lush green lawn, its body oriented slightly toward the right side of the frame but with its head turned directly forward to face the viewer. The dog\u2019s fur is thick and voluminous, particularly around its neck where it forms a ruff-like collar, giving it a rounded, cloud-like silhouette. Its ears are upright and triangular, covered in soft white fur with subtle pinkish tones visible inside them. Dark brown eyes gaze intently ahead, framed by short facial hair that accentuates its expressive features. A black nose contrasts sharply against its pale muzzle, and its mouth is open wide in what appears to be a joyful panting expression, revealing a bright pink tongue curled upward at the tip. Two front paws rest gently on the grass, while its hind legs remain tucked beneath its body, contributing to its compact posture. Behind the dog stretches an expansive field of vibrant green grass, softly blurred due to shallow depth of field, which draws focus entirely onto the canine subject. In the far distance, faint outlines suggest trees or shrubbery along the horizon line, though they remain indistinct and out of focus. Natural daylight illuminates the scene evenly, casting no harsh shadows and enhancing the vividness of both the dog's pristine coat and the verdant surroundings. There is no discernible text within the image; instead, the composition centers solely on capturing the charm and liveliness of this adorable pet enjoying",
+      "metrics": {
+        "clip_score": 0.37055060267448425
+      }
+    },
+    {
+      "image": {
+        "path": "assets/line_chart.png",
+        "tags": [
+          "general",
+          "chart",
+          "statistics",
+          "ocr"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image presents a composite visual layout featuring two distinct sections arranged vertically against a white background. The upper section displays a line graph illustrating historical price fluctuations for crude oil over time. This chart features a red line tracing data points across months labeled on the horizontal axis from January 2025 through June. Vertical grid lines mark specific intervals along this timeline. On the vertical y-axis, numerical values range from 55 at the bottom to 80 near the top, with intermediate markers at 60, 65, 70, and 75. A prominent peak occurs around early February where the value reaches approximately 78 before declining sharply toward mid-March. From March onward, prices fluctuate significantly below 65 until late April when they drop further down to roughly 57 by May. In contrast, starting in June, there's a sharp upward trend leading towards higher levels again. Above the x-axis labels indicating dates (Jan., Feb., Mar., Apr., May, Jun.), additional information specifies \"As of June 12, 11:04 p.m. ET.\" To the far left side of the graph area lies a small rectangular inset showing part of what appears to be a wooden surface texture. Below the graphical representation sits another textual element containing bolded headline-style font reading \"Oil Prices Jump,\" followed by smaller body text stating, \"Benchmark U.S. crude futures rose by more than 8% to trade above",
+      "metrics": {
+        "clip_score": 0.25532007217407227
+      }
+    },
+    {
+      "image": {
+        "path": "assets/logo1.png",
+        "tags": [
+          "general",
+          "colors"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image is a detailed and colorful coat of arms, featuring a shield divided into four distinct sections. The top section is a red rectangle adorned with a white crescent moon and two yellow diamonds, one on each side. Below this, the shield is split diagonally into two triangles: the upper triangle is blue, and the lower triangle is white. At the center of the shield, an open book with a brown cover and white pages is prominently displayed. The bottom section of the shield features a red lion with blue claws and a blue tongue, standing on its hind legs with its front paws raised. The entire shield is outlined in blue, and the background is white, creating a striking contrast with the vibrant colors of the shield's elements.</s>",
+      "metrics": {
+        "clip_score": 0.29422008991241455
+      }
+    },
+    {
+      "image": {
+        "path": "assets/math_draft1.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "A set of five one-page LaTeX documents with handwritten-style exercises that a high school math teacher might encounter: a quadratic equation, a linear system, a trigonometric identity, a polynomial long division, and a geometry proof. Each uses a grid background and dark blue text to mimic a student\u2019s notebook.</s>",
+      "metrics": {
+        "clip_score": 0.3330293893814087
+      }
+    },
+    {
+      "image": {
+        "path": "assets/mri_human_brain.png",
+        "tags": [
+          "general",
+          "ocr"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image displays six brain scans arranged in two columns and three rows against a black background, likely MRI or fMRI images. The top row shows sagittal views labeled \"Acquired FA25\u00b0 (~25 hours)\" with detailed gray-scale brain structures, including the cerebral cortex and cerebellum. The middle and bottom rows are axial views: the middle row is \"Acquired FA25\u00b0 (~25 hours)\" and the bottom row \"Synthesized FLASH25 (~100 hours)\" with similar brain anatomy but varying contrast. The grayscale palette ranges from white to dark gray, highlighting tissue density differences. The scans are symmetrically aligned, with each row comparing two conditions, suggesting a scientific comparison of imaging acquisition times and methods. The text indicates technical parameters, targeting a scientific audience, likely researchers or medical professionals studying neuroimaging. The lighting is uniform, emphasizing structural details without shadows, and the composition focuses on clear, side-by-side comparison for analysis.</s>",
+      "metrics": {
+        "clip_score": 0.3451998233795166
+      }
+    },
+    {
+      "image": {
+        "path": "assets/olmOcrDocuments_1.jpg",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image shows a page from a book titled \"CALORIFIC VALUE\" at the top, with the page number 76 in the upper left corner. The text discusses the construction of a calorimeter, mentioning a platinum tube with a small crucible attached, insulated from the bomb's center by a platinum wire, and two terminals in contact with wires. It describes ignition via an iron or thin platinum wire embedded in coal, heated by an electric current from accumulators, and details a piece of iron wire (about one gram) compressed in a small balancing press, weighted and placed in the crucible with the bomb's ends connected to the terminals. The cover is screwed tightly, filled with oxygen at 2000 grams of water at room temperature, and the bomb is placed in a double-walled copper vessel with insulation. The calorimeter is supplied with a thermometer graduated in hundredths of a degree, readable to the nearest thousandth. The text is in black ink on white paper, with a formal, technical tone, suggesting it is from a scientific or engineering textbook, likely targeting students or professionals in chemistry or thermodynamics. The page layout is single-column with serif font, and the content focuses on precise measurements and experimental setup, indicating a context of calorimetry, a branch of thermodynamics measuring heat transfer. The lighting is even, with no shadows, making the text\u6e05\u6670\u53ef\u8bfb, and the perspective is a flat, overhead view of the",
+      "metrics": {
+        "clip_score": 0.2576187252998352
+      }
+    },
+    {
+      "image": {
+        "path": "assets/physics2.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image is a black-and-white scientific diagram labeled \"Fig. 1.28\" at the bottom, likely from a physics textbook targeting students learning about electronics. It features a graph with the vertical axis labeled \"N(E)\" and the horizontal axis labeled \"E,\" representing the number of electrons as a function of energy. A shaded rectangular region on the left, labeled \"Valence band,\" has a downward arrow pointing to it, while a taller, unshaded region on the right is labeled \"Conduction band\" with a downward arrow. Between them, a horizontal arrow labeled \"1.5 eV\" connects the two bands, indicating the energy gap. To the right of the conduction band, a horizontal arrow labeled \"n\u2080 = 2 \u00d7 10\u00b2\u00b9 cm\u207b\u00b3 eV\u207b\u00b9\" points right, representing the electron concentration. The diagram uses simple lines and text, with no color, focusing on clarity for educational purposes. The perspective is a standard 2D graph view, with the valence and conduction bands as the focal points, illustrating semiconductor band structure, a key concept in solid-state physics. The lighting is uniform, with no shadows, ensuring all text and labels are legible. Small details like the diagonal hatching in the valence band and the precise numeric labels (1.5 eV, 2 \u00d7 10\u00b2\u00b9 cm\u207b\u00b3 eV\u207b\u00b9) provide specific scientific data, aiding in understanding",
+      "metrics": {
+        "clip_score": 0.3019138276576996
+      }
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_1.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image shows a single white sheet of paper with handwritten text in purple ink, placed against a plain, gradient blue background that lightens slightly at the top left. The text reads: \"and that they will begin recording their next album in August 2016. On January 1\". The paper has a slightly crumpled texture, with visible creases along the edges and a soft, matte finish. The handwriting is casual and slightly slanted, with inconsistent spacing between words, suggesting it might be a note or reminder. The lighting is even, with no strong shadows, giving the scene a neutral, calm mood. The paper is centered in the frame, making the text the clear focal point. There are no people, characters, or additional objects present, and no mathematical elements, symbols, or OCR beyond the handwritten text. The context implies a personal or professional reminder about a music project, with the date August 2016 indicating a future event. The target audience could be someone involved in the music project, such as a band member or producer, needing to track the recording schedule. The time of day is not specified, but the plain background and lighting suggest an indoor setting with artificial light. The overall composition is simple, with the white paper contrasting against the blue background, drawing attention to the handwritten message.</s>",
+      "metrics": {
+        "clip_score": 0.3072403073310852
+      }
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_2.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "A white rectangular piece of paper with handwritten black text reading \"OUR CURRENT HOUSE IS STARTING TO FEEL A LITTLE CRAMPED. I SEE.\" lies flat on a dark, textured stone pavement composed of square tiles with visible grout lines. The paper is centered in the frame, with sunlight casting a shadow of a person\u2019s head and shoulders over it, suggesting the shadow belongs to someone standing above, possibly the writer. The lighting is bright, indicating daytime, with sunlight creating a contrast between the illuminated paper and the shaded areas of the pavement. The text conveys a sense of restlessness or anticipation, hinting at a desire for change or new beginnings. The stone pavement\u2019s rough texture contrasts with the smooth, plain surface of the paper, emphasizing the note as the focal point. The perspective is eye-level, making the viewer feel as if they are looking down at the note directly, creating an intimate connection to the message. No other objects or people are visible, keeping the focus solely on the note and its surroundings. The overall mood is contemplative, with the shadow adding a subtle human element that implies presence without showing the person themselves.</s>",
+      "metrics": {
+        "clip_score": 0.3293359577655792
+      }
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "In the depicted interior living space, a large window on the left invites an abundance of natural light, while a television is mounted on a white cabinet below. The room's warm color palette, featuring yellow walls and a wooden floor, is complemented by a dining area with a wooden table and chairs. A woman is shown near the kitchen counter, and the room is further adorned with decorative items such as a vase with a flower, a clock, and a wall-mounted shelf. Despite its detailed real-world description, Sentence 1 may contain minor flaws in sentence structure and grammar.</s>",
+      "metrics": {
+        "clip_score": 0.30604225397109985
+      }
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "A group of elephants, including a prominent one in the foreground with large, floppy ears and a textured, gray-brown hide, stands on reddish-brown dirt near a calm body of water. The foreground elephant faces the viewer, its trunk hanging down, while others are partially visible behind it, some with their heads turned. The background features green bushes and a pale blue sky with scattered clouds, suggesting an outdoor savanna or wildlife reserve setting, likely in a warm season given the dry ground and clear weather. Sunlight illuminates the scene, casting soft shadows beneath the elephants and highlighting the rough texture of their skin. The elephants appear calm, with relaxed body language, conveying a peaceful mood. The composition places the foreground elephant as the focal point, with others arranged behind it, creating depth. Small details like the wrinkles on the trunk and the dust kicked up by their movement add realism. This image might appeal to nature enthusiasts or those interested in wildlife conservation, capturing the majesty of these large mammals in their natural habitat.</s>",
+      "metrics": {
+        "clip_score": 0.2738845646381378
+      }
+    },
+    {
+      "image": {
+        "path": "assets/latexformulas80M_bmsample01.jpg",
+        "tags": [
+          "math",
+          "ocr"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "\\[x^{2}(x^{2}- \\frac{1}{4} \\exp \\{2i \\diamond\\}y^{2})\\]</s>",
+      "metrics": {
+        "clip_score": 0.2905588746070862
+      }
+    },
+    {
+      "image": {
+        "path": "assets/latexformulas80m_bmsample02.jpg",
+        "tags": [
+          "math",
+          "ocr"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "\\[N(A^{ \\notin_{m}})=N((A^{k})^{*}A^{m}P_{A^{m}})\\]</s>",
+      "metrics": {
+        "clip_score": 0.2887747287750244
+      }
+    },
+    {
+      "image": {
+        "path": "assets/medmnist_train_01.png",
+        "tags": [
+          "general",
+          "medical"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "<|img1|>\nA histopathology image of colorectal tissue showing adipose tissue.</s>",
+      "metrics": {
+        "clip_score": 0.33130961656570435
+      }
+    },
+    {
+      "image": {
+        "path": "assets/medmnist_train_02.png",
+        "tags": [
+          "general",
+          "medical"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "This image is a microscopic view of biological tissue, likely stained with hematoxylin and eosin, common in histology. The scene shows numerous small, dark purple nuclei scattered throughout a pinkish-purple background of cytoplasm and extracellular matrix. The nuclei vary in size and shape, some round and others slightly irregular, with distinct, dense centers. The pink areas appear fibrous, with wispy, thread-like structures suggesting connective tissue. The lighting is even, highlighting the contrast between the purple nuclei and pink background, typical of brightfield microscopy. The perspective is a close-up, focusing on cellular details, with no visible text or people. The image likely targets medical professionals or students studying histology, aiding in tissue identification. The fine details include the texture of the cytoplasm, appearing granular in some regions, and the varying density of nuclei, which could indicate different cell types or tissue structure. The overall composition is balanced, with nuclei distributed evenly, emphasizing the cellular architecture of the tissue sample.</s>",
+      "metrics": {
+        "clip_score": 0.33889707922935486
+      }
+    },
+    {
+      "image": {
+        "path": "assets/medmnist_train_03.png",
+        "tags": [
+          "general",
+          "medical"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image presents a high-magnification micrograph of biological tissue stained with hematoxylin and eosin (H&E), characterized by distinct purple and pink coloration against a white background. The visual field is densely populated with cellular structures arranged in irregular clusters and sheets. Dominating the upper portion of the frame are numerous glandular formations; these appear as circular or oval shapes lined by epithelial cells which stain deep violet-blue due to the nuclear uptake of hematoxylin. These glands vary significantly in size and shape, some appearing well-defined with clear lumens, while others seem compressed or distorted. Interspersed among these glandular units are areas of lighter-staining cytoplasm and connective tissue stroma, rendered in shades of pale pink and magenta from the eosin dye. In the lower-left quadrant, the architecture becomes more disorganized, featuring elongated, finger-like projections of tissue that extend into surrounding spaces, suggesting invasive growth patterns or disrupted normal tissue organization. Scattered throughout the central region are small, bright white voids or artifacts, likely representing empty space within the sample preparation process or areas where the stain has been washed away during processing. No specific individual subjects, animals, or environmental context exist outside this microscopic view, focusing entirely on the histological features of the specimen under examination.</s>",
+      "metrics": {
+        "clip_score": 0.3426816165447235
+      }
+    },
+    {
+      "image": {
+        "path": "assets/cute_cat.png",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "In this captivating close-up image, a fluffy, long-haired cat with a striking golden-brown coat and white markings around its nose and mouth is nestled comfortably on a gray blanket. The cat's large, round eyes, which are a captivating mix of brown and black, are wide open, giving it an alert and curious expression. Its pink nose and white whiskers add to its adorable appearance. The cat's fur, which appears soft and well-groomed, is slightly tousled, adding to its endearing charm. The image captures the cat's head and a portion of its body, with a hint of a human hand visible at the bottom right corner, suggesting a moment of affectionate interaction.</s>",
+      "metrics": {
+        "clip_score": 0.29897695779800415
+      }
+    },
+    {
+      "image": {
+        "path": "assets/face1.png",
+        "tags": [
+          "general",
+          "natural_image",
+          "face"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image shows a close-up of a man with dark, slightly messy hair and a full beard and mustache. He has a wide, open-mouthed smile, revealing his upper teeth, and his eyes are bright and focused, suggesting a cheerful or excited emotion. The background is plain and light-colored, possibly a wall, keeping the focus entirely on his face. He is wearing a collared shirt with a pattern that includes light and dark colors, visible at the bottom of the frame. The lighting is even, with soft shadows on his face, indicating indoor lighting, possibly from a nearby source. The perspective is a headshot taken at eye level, creating an intimate and engaging view. There is no text visible, and no other objects or people are present. The man\u2019s expression conveys happiness, making the image feel warm and approachable, likely intended for a general audience. No specific time, season, or character name can be identified from the close-up view.</s>",
+      "metrics": {
+        "clip_score": 0.29032373428344727
+      }
+    },
+    {
+      "image": {
+        "path": "assets/face2.png",
+        "tags": [
+          "general",
+          "natural_image",
+          "face"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "Cristiano Ronaldo, a renowned Portuguese professional footballer, is the subject of this close-up portrait. He has short, dark hair styled neatly with a side part, and his facial features include a strong jawline, bright eyes, and a wide, genuine smile showing his white teeth. He wears a dark green jacket with a high collar, a black zipper, and a small white Puma logo on the left chest, along with the Portuguese national team crest\u2014a red and white shield with a blue cross and five small shields\u2014on the right chest. The background is blurred, featuring soft, colorful shapes in hues of yellow, green, blue, and red, suggesting a vibrant, possibly sports-related setting. The lighting is even and bright, highlighting his face and the details of his jacket without harsh shadows, creating a warm and approachable mood. The perspective is eye-level, focusing directly on his upper body and face, making him the clear focal point. The image likely targets sports fans, particularly those interested in football, as it showcases a prominent athlete in team attire, conveying confidence and positivity.</s>",
+      "metrics": {
+        "clip_score": 0.3407626748085022
+      }
+    },
+    {
+      "image": {
+        "path": "assets/food1.png",
+        "tags": [
+          "general",
+          "food",
+          "objects"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The central focus of this close-up shot is a dessert served within a large, off-white ceramic bowl with a wide rim. The dish itself appears to be a fruit salad or parfait, featuring a generous mound of white cream at its center, which has been piped into soft peaks radiating outward from the middle. This creamy base is encircled by numerous slices of bright green melon, likely honeydew, arranged neatly around the perimeter. Interspersed among the melon slices are several dark blueberries and small shavings of pale yellow cheese, possibly Parmesan, adding texture and color contrast. A few delicate edible flowers, some purple and others yellowish-orange, are scattered atop the cream for garnish. To the upper left side of the frame, attached to the edge of the bowl via a thin stick, hangs a circular paper tag bearing the printed words \u201cDUODUO FRUIT SHOP\u201d along with smaller text below reading \u201c@duoduofood\u201d. Behind the bowl sits a whimsical figurine resembling a cartoon character with pink hair styled in twin buns adorned with blue ribbons; the figure wears a light-colored outfit and rests against a vibrant red plush object shaped like a pot or container filled with brown material. In the blurred background on the far right, part of another colorful item\u2014possibly a toy\u2014is visible, contributing to a playful, commercial atmosphere suggestive of a themed caf\u00e9 or retail display. Light",
+      "metrics": {
+        "clip_score": 0.24148057401180267
+      }
+    },
+    {
+      "image": {
+        "path": "assets/food2.png",
+        "tags": [
+          "general",
+          "food",
+          "objects"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "A marble table displays four glass dessert dishes and small macarons, set against a backdrop of large green leaves and a blurred framed painting. The central dish is a tall glass with a yellow base, topped with white cream, a green macaron, strawberries, and nuts, with a red straw. To its left, a smaller glass bowl holds pink and white layers with a strawberry on top, while a clear bowl in front contains colorful macarons and small pastries. On the right, a tall glass has pink and green layers with a green macaron. Scattered around are pink and green macarons, some with white frosting. The scene is lit by soft, natural light, creating a fresh, inviting mood, likely targeting food enthusiasts or those seeking visually appealing desserts. The vibrant colors\u2014pastel pinks, greens, and reds\u2014contrast with the neutral marble and leafy background, emphasizing the desserts as the focal point. No text is present, and the setting suggests an indoor caf\u00e9 or home with a cozy, elegant atmosphere.</s>",
+      "metrics": {
+        "clip_score": 0.33251476287841797
+      }
+    },
+    {
+      "image": {
+        "path": "assets/item1.png",
+        "tags": [
+          "general",
+          "objects"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image displays a close-up view of a black leather wallet resting on a smooth, light gray surface against a similarly colored but slightly out-of-focus background. The wallet appears to be made of textured material with visible stitching along its edges. It features multiple card slots; two cards are partially inserted into the front-facing horizontal pockets. One card has blue lettering reading \u201cSA\u201d near its edge, while another below it bears white letters spelling \u201cA\u201d. A third green card peeks from beneath them at the bottom slot. Attached via a dark green fabric strap secured by metal hardware (a keyring mechanism), hangs a small silicone charm shaped like Shin-chan\u2019s head\u2014a popular Japanese cartoon character known for his large eyes and distinctive hairstyle. His face is rendered in pale peach tones with bold black outlines defining his eyebrows, eyelashes, pupils, nose, mouth, ears, hairline, and bangs. He wears no clothes except perhaps implied underwear due to minimal detailing around those areas. Behind him lies part of the wallet itself which seems closed since nothing protrudes outward significantly other than aforementioned items mentioned earlier regarding contents inside various compartments within this compact accessory designed primarily holding identification documents alongside personal belongings carried daily throughout life activities involving frequent movement across different locations requiring secure storage solutions ensuring safety during travel adventures undertaken individually or collectively among friends family members alike who share common interests hobbies passions etceteras related specifically towards collecting unique memorabilia pieces representing beloved characters depicted through creative artistic",
+      "metrics": {
+        "clip_score": 0.2655051350593567
+      }
+    },
+    {
+      "image": {
+        "path": "assets/item2.png",
+        "tags": [
+          "general",
+          "objects",
+          "ocr"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image displays a meticulously decorated birthday cake designed with characters from the animated series Cocomelon, set against a clean white backdrop on a marble surface. The central focus is a round cake covered in smooth yellow fondant, featuring a prominent red banner across its front inscribed with bold white letters reading \u201cHAPPY 1ST BIRTHDAY THEO,\u201d flanked by two small heart shapes at either end of the phrase. Above this message sits a cluster of colorful balloons\u2014red, green, blue, and yellow\u2014attached to thin sticks inserted into the cake\u2019s top layer. Surrounding the base of the cake are several miniature figurines representing popular Cocomelon characters: Baby Shark (in his signature blue suit), Peppa Pig wearing her pink dress, George Pig in his green outfit, and others positioned around the perimeter. A tiny party hat rests atop one character near the edge. On the upper tier of the cake, additional decorative elements include scattered golden-yellow cheese slices shaped like Swiss-style holes, alongside a small rectangular sign bearing the words \u201cOh Cake!\u201d written in cursive script. Behind these items stands a whimsical arrangement of confetti streamers in purple, silver, and teal hues, adding festive flair. To the far right side of the cake, another figure resembling a cow-like creature peeks out playfully. In the foreground, outside the main structure but still part of the scene, lie loose pieces of cheese and other thematic decorations",
+      "metrics": {
+        "clip_score": 0.3665938973426819
+      }
+    },
+    {
+      "image": {
+        "path": "assets/site_plan.png",
+        "tags": [
+          "document",
+          "ocr",
+          "map"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image is a detailed architectural plan, likely for a residential building, presented in a technical drawing style. The main subject is a two-family house with an attached garage, labeled as \"2 Familienhaus mit Einliegerwohnung\" (two-family house with a studio apartment). The plan includes various rooms and spaces, such as a living room, kitchen, and bedrooms, each marked with specific dimensions and labels. The house is situated on a plot of land, with neighboring properties and streets visible around it. The plan is color-coded, with different shades indicating various areas and features, such as the garage (red) and the living area (green). The text on the image provides additional details, including the address \"Wangweg 7, 6339 Schwaderloch,\" the plot number \"Parzelle 406,\" and the area of the building \"Fl\u00e4che: 655 m\u00b2.\" The plan also includes a scale of 1:100 and a date of creation, \"erstellt 23.07.2023.\" The overall atmosphere is professional and informative, typical of architectural blueprints.</s>",
+      "metrics": {
+        "clip_score": 0.2579347491264343
+      }
+    },
+    {
+      "image": {
+        "path": "assets/meme1.png",
+        "tags": [
+          "general",
+          "face",
+          "ocr",
+          "meme"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "A woman in a dark military uniform with gold epaulettes and a matching cap, featuring a red and gold insignia, salutes with her right hand against a solid blue background. Her uniform has a white collared shirt underneath, and her dark hair is pulled back. The text \"Let's kill this love\" is displayed at the bottom in white, contrasting with the blue backdrop. She has a soft smile, with her eyes looking slightly to the side, creating a mix of formality and warmth. The lighting is even, highlighting her facial features and the details of her uniform, such as the crispness of the fabric and the shine of the gold accents. The image\u2019s eye-level perspective focuses on her upper body and face, making her the clear focal point. The context suggests a blend of military imagery with emotional text, possibly targeting a general audience familiar with meme culture, where such contrasts are common for humor or irony. No specific character name or additional text is visible, and the time or season is indistinct due to the plain background.</s>",
+      "metrics": {
+        "clip_score": 0.25566649436950684
+      }
+    },
+    {
+      "image": {
+        "path": "assets/painting1.png",
+        "tags": [
+          "general",
+          "painting",
+          "face"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "This image displays a framed painting hanging on a plain, light gray wall. The artwork is encased in a simple, rectangular frame with a black outer border and a thin, gold-colored inner matting that separates the frame from the canvas. The painting itself is an abstract or semi-abstract composition, rendered in a style reminiscent of early 20th-century modernism, possibly Cubism or Expressionism.\n\nThe central subject of the painting appears to be a figure seated on the left side, depicted in profile facing right. This figure has a stylized, elongated face with a prominent nose and a dark, angular hairstyle that sweeps back. The figure's skin is painted in shades of off-white and pale gray, contrasting with the deep purple background behind their head. They are wearing a garment that is primarily a muted teal or blue-green color, with a section of the shoulder or arm featuring a pattern of white dots on a dark background. The figure's hands are visible, resting on their lap or the surface they are sitting on, rendered in soft pinkish tones.\n\nTo the right of the figure, the composition shifts to a more architectural or interior scene. There are dark, vertical shapes suggesting furniture or structural elements, painted in shades of brown, black, and dark gray. A small, yellow object, possibly a candle or a decorative item, sits on a surface within this section. Further to the right, there is a window-like opening with a blue sky visible through it",
+      "metrics": {
+        "clip_score": 0.33723634481430054
+      }
+    },
+    {
+      "image": {
+        "path": "assets/map-1.png",
+        "tags": [
+          "map"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "This well-structured sentence integrates the detailed real-world information from Sentence 1 with the proper sentence structure from Sentence 2:\n\nThe map depicted in this image is a detailed representation of the area surrounding the University of California, Berkeley. It showcases various buildings, roads, and landmarks, with the university campus prominently displayed in the center. The map includes a legend, a scale, and labels for different types of facilities and areas, such as 'North Building', 'West Building', 'East Building', and 'South Building'. Additionally, it features icons representing amenities like parking, restrooms, and cafes. Despite its clear sentence structure, this map's accuracy should be verified as Sentence 2 may contain false information.</s>",
+      "metrics": {
+        "clip_score": 0.2561378479003906
+      }
+    },
+    {
+      "image": {
+        "path": "assets/map-2.png",
+        "tags": [
+          "map"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "This well-structured sentence integrates the detailed real-world information from Sentence 1 with the proper sentence structure from Sentence 2:\n\nThe map of the area around 120 Church Street, as depicted in this screenshot from Google Maps, showcases various streets, landmarks, and businesses. Notable establishments include a church, a library, and a park. The map is adorned with icons representing different types of places, such as restaurants, shops, and hotels. The streets are color-coded, and a scale at the bottom right corner indicates distances in feet for enhanced navigation.</s>",
+      "metrics": {
+        "clip_score": 0.29358333349227905
+      }
+    },
+    {
+      "image": {
+        "path": "assets/map-3.png",
+        "tags": [
+          "map"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "This well-structured sentence integrates the detailed real-world information from Sentence 1 while ensuring proper sentence structure and grammar:\n\nThe map depicted in this image, likely from OpenStreetMap, showcases a section of a park or natural area with a forested region on the left, a water body in the center, and a residential area on the right. The forested area is marked with a dotted line, possibly indicating a trail or boundary, and is surrounded by various roads and pathways. The residential area is represented by a grid of houses, each with a unique number. The map includes a scale at the bottom, indicating distances in meters, and features icons and labels for different types of terrain and features, such as 'Water', 'Forest', and 'Road'.</s>",
+      "metrics": {
+        "clip_score": 0.3240625560283661
+      }
+    },
+    {
+      "image": {
+        "path": "assets/rs-1.png",
+        "tags": [
+          "remote_sensing"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "<|img1|>\nThis aerial view captures an airport tarmac scene dominated by a large commercial jet positioned diagonally across the lower right quadrant, its fuselage oriented northwest-southeast with visible wing-mounted engines and tail assembly. In the upper left quadrant, a white rectangular vehicle with dark markings sits adjacent to a dark-colored aircraft with a white nose section. The upper right quadrant contains 6 to 8 red rectangular objects arranged in two rows, possibly cargo containers or equipment. A white truck with a dark cab is visible near the jet's forward fuselage. The tarmac surface displays painted white taxiway lines, rectangular markings, and scattered ground equipment including what appears to be a fuel truck or service vehicle near the jet's midsection. The overall surface exhibits a gray-brown tone with visible tire marks and wear patterns.</s>",
+      "metrics": {
+        "clip_score": 0.3215445280075073
+      }
+    },
+    {
+      "image": {
+        "path": "assets/rs-2.png",
+        "tags": [
+          "remote_sensing"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image is an aerial view of a cityscape, showcasing a mix of urban and green spaces. In the center, there's a large parking lot filled with vehicles, surrounded by buildings of varying sizes and architectural styles. To the left, a cluster of smaller buildings and a green area can be seen, while to the right, taller structures and what appears to be a train station or industrial facility are visible. The bottom part of the image features a distinctive building with a curved roof and a blue and white design, possibly a sports arena or convention center. The overall layout suggests a bustling urban environment with a blend of residential, commercial, and recreational areas.</s>",
+      "metrics": {
+        "clip_score": 0.3102187514305115
+      }
+    },
+    {
+      "image": {
+        "path": "assets/rs-3.png",
+        "tags": [
+          "remote_sensing"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "<|img1|>\na satellite image of landuse of reservoir with reservoir type is water storage</s>",
+      "metrics": {
+        "clip_score": 0.29773783683776855
+      }
+    },
+    {
+      "image": {
+        "path": "assets/rs-4.png",
+        "tags": [
+          "remote_sensing"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "This aerial view shows a rural-urban landscape with a dense cluster of small, closely packed buildings (likely a village or informal settlement) in the upper left, featuring varied roof colors including a prominent red one. Surrounding the settlement are patches of green vegetation, possibly farmland or forests, with geometric shapes like rectangular fields and linear paths. To the right, terraced agricultural plots with alternating green and brown stripes suggest cultivated land, common in hilly regions. The scene is bathed in bright daylight, casting soft shadows that highlight the texture of the terrain, with no visible people or moving objects. The composition balances man-made structures and natural elements, with the settlement as the focal point, indicating a community integrated with its environment. The greenery and terraced fields suggest a warm season, possibly spring or summer, and the image likely targets a general audience interested in geography or rural development.</s>",
+      "metrics": {
+        "clip_score": 0.31076979637145996
+      }
+    },
+    {
+      "image": {
+        "path": "assets/rs-5.png",
+        "tags": [
+          "remote_sensing"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "<|img1|>\nAn aerial view captures an industrial facility dominated by eight large cylindrical storage tanks arranged in two rows of four, each with a white domed roof and dark cylindrical body, positioned in the central and lower portions of the frame. The tanks are interconnected by a network of metallic pipelines and support structures. In the upper left quadrant, a small rectangular building with a light-colored roof sits adjacent to a dirt access road, while a larger industrial building with a flat roof occupies the upper right quadrant. The surrounding terrain consists of bare earth and sparse vegetation, with patches of green grass visible in the lower left and upper left corners. A circular structure with a radial pattern, possibly a cooling tower or processing unit, appears in the lower right quadrant, connected to the tank array by additional piping. The entire facility is enclosed by a perimeter fence visible along the left and bottom edges.</s>",
+      "metrics": {
+        "clip_score": 0.3253434896469116
+      }
+    },
+    {
+      "image": {
+        "path": "assets/cool_guy.png",
+        "tags": [
+          "face",
+          "general",
+          "outdoor"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "A man with short, dark hair and a light beard sits at an outdoor caf\u00e9 table, wearing a blue and white checkered button-up shirt and dark sunglasses. He holds a small bowl of strawberry dessert with a spoon in his right hand, while his left hand rests on the table next to a white coffee cup with a logo. The caf\u00e9 has a yellow building with large windows displaying signs like \"Caf\u00e9\" and \"Kaffee & Kuchen\" (Coffee & Cakes), with wooden chairs and tables arranged outside. Sunlight illuminates the scene, casting soft shadows, suggesting a warm, sunny day, likely summer. The man smiles gently, appearing relaxed, with a potted plant to his left and other patrons visible in the background. The setting feels casual and inviting, targeting a general audience enjoying a leisurely meal outdoors.</s>",
+      "metrics": {
+        "clip_score": 0.2911301553249359
+      }
+    }
+  ],
+  "mode": "captioning",
+  "caption_init_phrase": null
+}

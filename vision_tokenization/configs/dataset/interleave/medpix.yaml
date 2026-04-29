@@ -1,0 +1,21 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# MedPix medical cases — interleave, WebDataset, multi-image
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/wds@_here_
+  - /dataset/_task/interleave@_here_
+
+output_name: medpix
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/medpix/manifest.parquet
+text_column: txt
+
+multi_image: true
+image_field_pattern: img
+
+parser: medpix
+document_field: txt
+plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/medpix.pt
+max_sequence_tokens: 262_144
+seqlen_threshold: 8_192

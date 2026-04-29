@@ -1,0 +1,18 @@
+# JSON/JSONL rows with images stored in uncompressed tar files.
+
+dataset_type: jsonl_tar
+
+input_pattern: null
+image_field: null
+multi_image: null
+max_open_files: 64
+
+tar_pattern: ???
+tar_scope: parent_dir
+tar_root: null
+image_path_prefix_strip: null
+
+window_size: 2000
+prefetch:
+  queue_size: 32
+seqlen_threshold: null

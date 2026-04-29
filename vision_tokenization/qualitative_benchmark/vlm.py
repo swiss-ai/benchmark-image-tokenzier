@@ -1,7 +1,8 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image
 
+from vision_tokenization.qualitative_benchmark.image_token_cache import ImageTokenCache
 from vision_tokenization.qualitative_benchmark.utils.prompt_formatter import PromptFormatter
 from vision_tokenization.qualitative_benchmark.v_tokenizers import VLMVisionTokenizer
 
@@ -78,6 +79,7 @@ class VLM(object):
         inf_args: InferenceArgs,
         tokenizer_path: str,
         model_path: str,
+        image_token_cache: Optional[ImageTokenCache] = None,
     ):
         """
         Initialize VLM with vision tokenizer and inferencer.
@@ -95,6 +97,8 @@ class VLM(object):
         self.inf_args = inf_args
         self.model_path = model_path
         self.tokenizer_path = tokenizer_path
+        self.image_token_cache = image_token_cache
+        self.image_token_cache_stats = {"hits": 0, "misses": 0, "writes": 0}
 
         # Extract stop tokens from tokenizer TODO: hardcoded for now, may later want to try to load from GenerationConfig
         stop_tokens = []
@@ -139,6 +143,31 @@ class VLM(object):
 
         return img_tokens_str
 
+    def _format_image_tokens_from_encoded(self, indices, metadata) -> str:
+        """Convert already-encoded image tokens into the prompt string form."""
+        if "height" in metadata and "width" in metadata:
+            h, w = metadata["height"], metadata["width"]
+            print(f"   Token dimensions: {h}×{w} = {metadata.get('num_tokens', h*w)} tokens")
+        return self.vision_tokenizer.format_tokens_for_chat(indices, metadata, {})
+
+    def _load_or_encode_image_tokens(self, image_path: str):
+        """Load cached image tokens when available, otherwise encode and cache them."""
+        if self.image_token_cache is not None:
+            cached = self.image_token_cache.load(image_path)
+            if cached is not None:
+                self.image_token_cache_stats["hits"] += 1
+                return cached
+            self.image_token_cache_stats["misses"] += 1
+
+        img = self._load_image(image_path)
+        indices, metadata = self.vision_tokenizer.encode_for_vlm(img)
+
+        if self.image_token_cache is not None:
+            self.image_token_cache.save(image_path, self.vision_tokenizer.name, indices, metadata)
+            self.image_token_cache_stats["writes"] += 1
+
+        return indices, metadata
+
     def _prepare_final_prompt(self, image_token_string, prompt) -> str:
         """
         Prepare final prompt for VLM inference.
@@ -173,12 +202,12 @@ class VLM(object):
 
     def preprocess(self, img_path, prompt):
         """Prepare image and prompt for VLM inference. Returns formatted string."""
-        img = self._load_image(img_path)
-        img_tokens_str = self._prepare_image_text_tokens(img)
+        indices, metadata = self._load_or_encode_image_tokens(img_path)
+        img_tokens_str = self._format_image_tokens_from_encoded(indices, metadata)
         formatted_prompt_str = self._prepare_final_prompt(img_tokens_str, prompt)
         return formatted_prompt_str  # Return string, not token IDs
 
-    def generate(self, prompt_string: str, debug: bool = False):
+    def generate(self, prompt_string: str, debug: bool = False, seed: Optional[int] = None):
         """Run VLM inference on formatted prompt string."""
         result = self.inferencer.run_inference(
             prompt_string,
@@ -188,6 +217,7 @@ class VLM(object):
             sampling_max_tok=self.inf_args.max_new_tokens,
             sampling_min_tok=1,
             sampling_stop_token_ids=self.inf_args.stop_token_ids,
+            seed=seed,
             debug=debug,
         )
         return result["generated_text"]
@@ -217,12 +247,16 @@ class VLM(object):
                 - statistics: Token counts and special token counts
                 - metadata: Image token dimensions
         """
-        img = self._load_image(image_path)
-        indices, metadata = self.vision_tokenizer.encode_for_vlm(img)
+        indices, metadata = self._load_or_encode_image_tokens(image_path)
 
         height = metadata["height"]
         width = metadata["width"]
-        visual_indices = indices[0].flatten().tolist() if hasattr(indices[0], "flatten") else list(indices[0])
+        if indices.ndim == 3:
+            visual_indices = indices[0].flatten().tolist()
+        elif indices.ndim == 2:
+            visual_indices = indices.flatten().tolist()
+        else:
+            raise ValueError(f"Unexpected indices shape: {indices.shape}")
 
         print(f"   Original image tokenized: {height}×{width} = {len(visual_indices)} tokens")
 

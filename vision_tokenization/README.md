@@ -2,47 +2,43 @@
 
 # Vision Tokenization Pipeline
 
-**Scalable GPU tokenization for vision datasets — WebDataset & HuggingFace to Megatron micro-shards**
-
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![PyTorch](https://img.shields.io/badge/pytorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
-[![Hydra](https://img.shields.io/badge/config-Hydra-89b8cd.svg)](https://hydra.cc/)
+**Distributed GPU tokenization for vision datasets — WebDataset and HuggingFace into Megatron `.bin/.idx` shards.**
 
 </div>
-
----
 
 <table>
 <tr>
 <td width="50%">
 
-**Input formats**
-- WebDataset `.tar` archives
-- HuggingFace Arrow / Parquet
+**Inputs**
+- WebDataset `.tar` archives (with optional text/JSON sidecars)
+- HuggingFace Arrow / Parquet datasets
+- JSONL+tar interleaved documents
 
 </td>
 <td width="50%">
 
 **Output**
-- Megatron-compatible `.bin/.idx` micro-shards
-- Deterministic, resumable, no NCCL
+- Megatron `IndexedDataset` micro-shards (`MMIDIDX` magic)
+- One file pair per `(rank, chunk)`, then merged
+- Deterministic and resumable; no NCCL between ranks
 
 </td>
 </tr>
 <tr>
 <td>
 
-**Tokenizer**
-- EMU vision tokenizers (Emu3, Emu3.5)
-- Pluggable — any `BaseTokenizer` subclass
+**Tokenizers**
+- EMU family (`Emu3`, `Emu3.5`) under `discrete/emu/`
+- Pluggable via `discrete.base.BaseTokenizer`
 
 </td>
 <td>
 
-**Modes**
-- `image_only` — pretraining
-- `image2text` / `text2image` — captioning & generation
-- `sft` — multi-turn conversations
+**Modes** (factory: `discrete/emu/__init__.py`)
+- `image_only`, `image2text`, `text2image`
+- `sft` (multi-turn conversations)
+- `interleave` (multi-modal documents)
 
 </td>
 </tr>
@@ -50,849 +46,558 @@
 
 ---
 
-## Table of Contents
+## Contents
 
-| | Section | Description |
-|---:|---------|-------------|
-| 1 | [End-to-End Pipeline](#1-end-to-end-pipeline) | High-level architecture diagram |
-| 2 | [Create a Manifest](#2-create-a-manifest) | Scan datasets into Parquet index |
-| 3 | [Batch Planning](#3-batch-planning--how-images-are-grouped) | k-means clustering and token-budget packing |
-| 4 | [Tokenization Modes](#4-tokenization-modes) | image\_only, image2text, text2image, sft |
-| 5 | [Token Structure](#5-token-structure) | Per-image token layout |
-| 6 | [GPU Tokenization Loop](#6-gpu-tokenization-loop) | Main per-rank processing loop |
-| 7 | [Data Loading](#7-data-loading) | WDS and HF random-access loaders |
-| 8 | [Multi-Image Support](#8-multi-image-support) | Group slices and per-group assembly |
-| 9 | [SFT Conversation Flow](#9-sft-conversation-flow) | Conversation normalization and chat templates |
-| 10 | [Checkpointing & Output](#10-checkpointing-and-output) | Micro-shard lifecycle and resume |
-| 11 | [Multi-GPU Distribution](#11-multi-gpu-distribution) | Independent ranks, no inter-GPU communication |
-| 12 | [Class Hierarchy](#12-class-hierarchy) | Tokenizer and handler class diagrams |
-| 13 | [Configuration](#13-configuration-hydra) | Hydra config structure and keys |
-| 14 | [CLI Usage](#14-cli-usage) | Launch commands for single/multi-node |
-| 15 | [Directory Structure](#15-directory-structure) | Source tree layout |
-| 16 | [Design Decisions](#16-key-design-decisions) | Rationale for architectural choices |
-| 17 | [Profiling](#17-profiling) | GH200 throughput and OOM boundaries |
+1. [Pipeline at a glance](#1-pipeline-at-a-glance)
+2. [Quickstart](#2-quickstart)
+3. [Modes](#3-modes)
+4. [Architecture](#4-architecture)
+5. [Design rationale](#5-design-rationale)
+6. [Configuration](#6-configuration)
+7. [Output format and merge](#7-output-format-and-merge)
+8. [Pointers](#8-pointers)
 
 ---
 
-## 1. End-to-End Pipeline
+## 1. Pipeline at a glance
+
+Three stages. The first two run once per dataset; the third is the
+distributed loop that runs every time you tokenize.
 
 ```mermaid
-graph TD
-    subgraph Manifest["1 — Create Manifest"]
-        direction TB
-        TAR["WebDataset .tar files"]
-        HF_ARROW["HuggingFace Arrow/Parquet"]
-        TAR --> SCAN_WDS["scan_wds_dataset()"]
-        HF_ARROW --> SCAN_HF["scan_hf_dataset()"]
-        SCAN_WDS & SCAN_HF --> PARQUET[("Parquet Manifest<br/>width, height, offsets")]
+graph LR
+    subgraph Index["1 — Index"]
+        TAR["WebDataset .tar"]
+        HF["HF Arrow / Parquet"]
+        JSONL["JSONL + tar"]
+        TAR & HF & JSONL --> SCAN["scanners/<br/>(wds, hf, jsonl_tar, interleave)"]
+        SCAN --> MAN[("manifest.parquet<br/>widths · heights · offsets")]
     end
 
-    subgraph Plan["2 — Batch Planning"]
-        direction TB
-        PARQUET --> CLUSTER["Faiss k-means clustering<br/>(aspect ratio + log area)"]
-        CLUSTER --> PACK["Pack into batches<br/>(token budget or fixed size)"]
-        PACK --> BP[("BatchPlan<br/>saved to .pt")]
+    subgraph Plan["2 — Plan"]
+        MAN --> TP["TokenizationPlan<br/>+ ExecutionPlan<br/>(documents, components,<br/>image batches, splits)"]
     end
 
-    subgraph Tokenize["3 — GPU Tokenization (distributed)"]
-        direction TB
-        BP --> SPLIT["split_for_workers(world_size)"]
-        SPLIT --> LOOP["Per-rank tokenize_loop()"]
-        LOOP --> BIN[".bin/.idx micro-shards"]
+    subgraph Run["3 — Tokenize (per rank, GPU)"]
+        TP --> SPLIT["split_for_workers(world_size)"]
+        SPLIT --> EXE["executor.run_executor()<br/>+ prefetch thread"]
+        EXE --> SHARDS[("rank_XXXX_chunk_YYYY<br/>.bin / .idx")]
+        SHARDS --> MERGE["merge_shards()"]
+        MERGE --> OUT[("merged.bin / merged.idx<br/>(+ merged_no_cot for SFT)")]
     end
 
-    BIN --> TRAIN["Megatron-LM Training"]
-
-    click SCAN_WDS href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/indexing/scanner_wds.py"
-    click SCAN_HF href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/indexing/scanner_hf.py"
-    click CLUSTER href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/indexing/clustered_batch_planner.py"
-    click LOOP href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/pipelines/distributed/handler.py"
-
-    style Manifest fill:#e3f2fd,stroke:#1565C0
-    style Plan fill:#fff3e0,stroke:#EF6C00
-    style Tokenize fill:#f3e5f5,stroke:#7B1FA2
-    style PARQUET fill:#fff9c4,stroke:#F9A825
-    style BP fill:#fff9c4,stroke:#F9A825
-    style BIN fill:#e8f5e9,stroke:#2E7D32
-    style TRAIN fill:#e0f2f1,stroke:#00695C
+    OUT --> TRAIN["Megatron-LM training"]
 ```
+
+The plan is the **single source of truth**: ranks never coordinate at
+runtime. They each own a contiguous slice of batches, write
+independently, and the merge step stitches the shards together when all
+ranks have finished.
 
 ---
 
-## 2. Create a Manifest
+## 2. Quickstart
 
-Before tokenizing, scan your dataset to create a **Parquet manifest** that indexes every image's location and dimensions. This is a one-time cost per dataset.
+The Hydra entry point is `vision_tokenization.tokenize`, configured under
+`vision_tokenization/configs/`. The shorthand `mode=X dataset=Y` is
+rewritten to `dataset=X/Y` before Hydra parses it (see
+`tokenize.py:_preprocess_dataset_override`).
 
-```mermaid
-flowchart LR
-    subgraph src["Input Formats"]
-        direction TB
-        A["WebDataset .tar"]
-        B["HuggingFace Arrow/Parquet"]
-    end
-
-    A --> SCAN_WDS["scan_wds_dataset()"]
-    B --> SCAN_HF["scan_hf_dataset()"]
-    SCAN_WDS & SCAN_HF --> MFST
-
-    subgraph mfst["Parquet Manifest"]
-        direction TB
-        MFST[("Manifest")]
-        COL_WDS["WDS: sample_key, tar_path,<br/>offset_data, file_size,<br/>width, height, image_ext,<br/>offset_text, text_file_size"]
-        COL_HF["HF: sample_index,<br/>width, height,<br/>group_id, image_index"]
-    end
-
-    click SCAN_WDS href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/indexing/scanner_wds.py"
-    click SCAN_HF href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/indexing/scanner_hf.py"
-
-    style src fill:#e3f2fd,stroke:#1565C0
-    style mfst fill:#fff9c4,stroke:#F9A825
-    style MFST fill:#fff9c4,stroke:#F9A825
-```
-
-<details>
-<summary><b>WebDataset example</b> — parallel scanning of tar files with optional text sidecars</summary>
+**From the login node (the normal path) — submit a Slurm wrapper:**
 
 ```bash
-python -c "
-from vision_tokenization.indexing import scan_wds_dataset
-scan_wds_dataset(
-    input_pattern='/data/shards/{00000..01000}.tar',
-    output_manifest='manifest.parquet',
-    text_extensions=['json', 'txt'],  # optional: index text sidecars
-    image_field_pattern='img',        # optional: parse sample.img1.jpg naming
-    multi_image=True,                 # only set for logical multi-image datasets
-    num_workers=64,
-)
-"
+sbatch scripts/slurm/docci.slurm
 ```
 
-</details>
-
-<details>
-<summary><b>HuggingFace example</b> — shard-parallel header-only dimension extraction</summary>
+Every dataset has a wrapper under `scripts/slurm/<dataset>.slurm` that
+declares its container TOML via `#SBATCH --environment=...`, exports
+`NUM_GPUS = nodes × ntasks-per-node`, and srun's:
 
 ```bash
-python -c "
-from vision_tokenization.indexing import scan_hf_dataset
-scan_hf_dataset(
-    input_pattern='/data/hf/train-*.parquet',  # or /data/hf/*.arrow
-    output_manifest='manifest.parquet',
-    image_column='image',
-    image_list_column='images',  # optional: for multi-image datasets
-    num_workers=8,
+python -m vision_tokenization.tokenize \
+    mode=image2text dataset=docci \
+    num_gpus=$NUM_GPUS wandb.enabled=true resume=true
+```
+
+That second snippet is also what you run **inside an interactive
+container session** for debugging — e.g. `srun --pty --environment=...`
+on a single node — but it cannot be run directly from a login node
+because `/opt/venv` and the GPU drivers live inside the container, not
+on login.
+
+The merge step is a separate cpu-only job. Submit it with an `afterany`
+dependency so it still runs when tokenization exits on a benign signal
+(e.g. SIGTERM at time limit) — the merge itself fails cleanly if shards
+are incomplete:
+
+```bash
+JOBID=$(sbatch --parsable scripts/slurm/docci.slurm)
+OUTPUT_DIR=/.../tokenized/image2text/docci EXPECTED_RANKS=4 \
+    sbatch --dependency=afterany:$JOBID scripts/slurm/merge.slurm
+```
+
+`merge.slurm` defaults to `STRIP_THINKING=true`, which additionally
+emits `merged_no_cot.{bin,idx}` with `<think>…</think>` spans removed
+(SFT only — a no-op for non-conversational modes).
+
+---
+
+## 3. Modes
+
+| Mode | Tokenizer class | Input shape | Output sequence |
+|---|---|---|---|
+| `image_only` | `EMUImageOnlyTokenizer` | images | `[BOS] [vision tokens] [EOS]` |
+| `image2text` | `EMUImageTextPairTokenizer` | image + caption | `[BOS] [vision] [text] [EOS]` |
+| `text2image` | `EMUImageTextPairTokenizer` | prompt + image | `[BOS] [text] [vision] [EOS]` |
+| `sft` | `EMUSftTokenizer` | image(s) + multi-turn conversation | chat template with embedded vision spans |
+| `interleave` | `EMUInterleaveTokenizer` | streaming multi-modal document | image/text segments interleaved per source order |
+
+Vision tokens live in a contiguous range above the text vocabulary; the
+offset comes from the tokenizer's vision sub-tokenizer config and is
+applied inside `discrete/emu/image_only.py`.
+
+### Conversation policy (SFT only)
+
+`ConversationPolicy` (`discrete/conversation.py`) is the one place where
+SFT datasets diverge — every dataset arrives in a slightly different
+schema. The policy auto-detects the input format and then applies four
+optional normalisations.
+
+**Three input schemas detected** by `_normalize`:
+
+| Schema | Example shape | Source convention |
+|---|---|---|
+| `{role, content}` | `[{"role": "user", "content": "…"}]` | canonical / OpenAI-style |
+| `{from, value}` | `[{"from": "human", "value": "…"}]` | ShareGPT, LLaVA |
+| `{user, assistant}` | `[{"user": "…", "assistant": "…"}]` | paired turns; expanded into role/content |
+
+**Four policy fields** (all optional):
+
+```yaml
+conversation_policy:
+  role_map:                       # rename non-standard roles
+    human: user                   # default mapping; override for exotic schemas
+    gpt: assistant
+  add_system_message: false       # prepend `{"role":"system","content":""}` if absent
+  add_image_placeholder: false    # prepend image_placeholder to first user message
+  image_placeholder: "<image>"    # the placeholder string
+```
+
+Real-world examples from `configs/dataset/sft/`:
+
+| Dataset | Policy | Why |
+|---|---|---|
+| `path_vqa`, `pixmo_ask_model_anything`, `bigearthnet` | `add_image_placeholder: true` | dataset omits `<image>` from the user turn |
+| `llava_onevision_sft` | `add_image_placeholder: true` + `add_system_message: true` | needs both injected |
+| `google_rsrcc` | `add_image_placeholder: false` | source already includes `<image>` |
+| `radimgnet_vqa`, `pixmo_cap_qa` | (block present, all defaults) | role schema is canonical, no injection needed |
+
+**Edges and gotchas.** Reading `discrete/conversation.py` carefully reveals
+behaviours that are easy to miss but often the cause of mysterious SFT
+failures:
+
+- **Format detection is on the *first* message only.** `_normalize`
+  inspects `raw_messages[0]`'s keys (line 86 onward) and commits the
+  whole conversation to that schema. Mixed-schema conversations (e.g.
+  ShareGPT with a stray `{"role","content"}` dict somewhere in the
+  middle) raise from `_from_fields`/`_from_pairs` rather than degrade
+  gracefully. Auto-detection priority: `{user, assistant}` →
+  `{role, content}` → `{from, value}`.
+
+- **Unknown roles pass through unchanged.** `role_map.get(str(role),
+  str(role))` (line 122) keeps any role string the dataset uses if it's
+  not in the map. Datasets with `"observation"`, `"function"`,
+  `"tool"`, etc. won't fail in normalization — they fail later in
+  `render_sft_document` with a less obvious error. Add custom roles to
+  `role_map` explicitly if you see this.
+
+- **`add_image_placeholder` only touches the *first* user message.**
+  `_prepend_image` returns after the first `role == "user"` it finds
+  (line 157). Multi-image conversations with images referenced in
+  later turns must include `<image>` markers in the source — the
+  policy will not insert them.
+
+- **String vs structured content asymmetry.** For string content the
+  check is `not content.startswith(placeholder)` — duplicate-safe. For
+  list content (OpenAI multimodal-style) the check is *"is there an
+  `{"type":"image"}` part anywhere?"* — so a `[{"type":"text","text":
+  "<image> hello"}]` would not be detected as already having an image
+  marker, and a second placeholder dict gets prepended. Pick one
+  content shape per dataset and stick to it.
+
+- **`add_system_message` only checks position 0.** A stray system
+  message at index ≥ 1 will not block prepending a new empty system
+  message at index 0 — you'd end up with two. Most datasets are fine;
+  worth knowing if yours has system turns mid-conversation.
+
+- **Image-count enforcement is downstream.** `apply_conversation_policy`
+  does not validate that the number of `<image>` markers equals the
+  number of images in the batch group. That check happens in
+  `render_sft_document` (`discrete/emu/sft.py:209`) via
+  `expected_num_images = ge - gs`. The canonical signal:
+  *"Rendered chat contains no recognized image marker"* → enable
+  `add_image_placeholder: true`. Mismatched count → fix the source
+  conversation, not the policy.
+
+- **Hydra `dict` → `ConversationPolicy` conversion happens once.** The
+  `dict → ConversationPolicy(**dict)` cast lives in `tokenize.py` (grep
+  for `ConversationPolicy(**`). Don't replicate it in handlers or
+  worker code — the dataclass is what flows past the entry point.
+
+---
+
+## 4. Architecture
+
+The code is organised so each layer is replaceable. New formats need a
+scanner; new tokenizer families need a `BaseTokenizer` subclass; the
+runtime and writer don't care which.
+
+### 4.1 Manifest
+
+`indexing/manifest.py` defines a Parquet schema with widths, heights,
+and byte offsets. Scanners under `indexing/scanners/` populate it:
+
+| Scanner | Function | For |
+|---|---|---|
+| `scanners/wds.py` | `scan_wds_dataset` | WebDataset tars (with optional text sidecars in `WDS_SCHEMA_WITH_TEXT`) |
+| `scanners/hf.py` | `scan_hf_dataset` | HuggingFace Arrow / Parquet |
+| `scanners/jsonl_tar.py` | `scan_jsonl_tar_dataset` | JSONL with referenced tar offsets |
+| `scanners/interleave.py` | `scan_jsonl_tar_interleave_dataset` | Interleaved documents |
+
+The manifest is treated as immutable: regenerating it is cheap and
+guarantees consistency between cluster nodes that read from shared
+storage.
+
+### 4.2 Plan
+
+`indexing/planning/tokenization_plan.py` defines `TokenizationPlan` and
+`ExecutionPlan`. The split is intentional:
+
+- **Logical state** — documents and components. Identity is
+  `(document_id, component_index)`. Components are typed `IMAGE` or
+  `TEXT`.
+- **Execution state** — image batches and rank-safe split boundaries.
+  Batches are packed by token budget (default `max_batch_tokens=32_768`)
+  and grouped by aspect ratio so a batch's smart-resize dimensions are
+  homogeneous.
+
+`split_for_workers(world_size)` produces a contiguous slice of batches
+for each rank. The slice is cost-weighted, so a rank loaded with high-
+resolution images gets fewer batches than a rank loaded with thumbnails.
+
+### 4.3 Tokenizer factory + handler
+
+The factory returns a single object that exposes one method,
+`tokenize_batch(images, resize_size, text=, group_slices=)`:
+
+```python
+from vision_tokenization.discrete.emu import create_tokenizer
+
+tokenizer = create_tokenizer(
+    mode="image2text",
+    text_tokenizer_path="/.../apertus_emu3.5_wavtok",
+    min_pixels=128 * 128,
+    max_pixels=1400 * 1400,
 )
-"
 ```
 
-</details>
+Internally the factory dispatches `image_only` → `EMUImageOnlyTokenizer`,
+`{image2text, text2image}` → `EMUImageTextPairTokenizer`, `sft` →
+`EMUSftTokenizer`, `interleave` → `EMUInterleaveTokenizer`. The base
+contract lives in `discrete/base.py`.
+
+The runtime never touches a tokenizer-specific class. It calls the
+`TokenizationHandler` in `pipeline/output/direct/handler.py`, which:
+
+1. drops `None` images (decode failures),
+2. calls `tokenizer.tokenize_batch(...)`,
+3. forwards sequences to `MicroShardWriter`,
+4. accumulates per-batch `WorkerStats`.
+
+`needs_text` — whether a mode requires a text sidecar — is derived from
+the mode string at construction time.
+
+### 4.4 Distributed loop
+
+Entry: `pipeline/__init__.py:run_distributed_pipeline` →
+`pipeline/runtime/executor.py:run_executor`. Each rank:
+
+1. Reads `RANK / WORLD_SIZE / LOCAL_RANK` from `torchrun` or
+   `SLURM_PROCID / SLURM_NTASKS / SLURM_LOCALID`. There is **no
+   `init_process_group`** — ranks are independent.
+2. Loads (or rebuilds) the plan and takes its `split_for_workers` slice.
+3. Spawns a background prefetch thread (`pipeline/runtime/prefetch.py`)
+   that overlaps tar/Arrow I/O with GPU encoding through a bounded queue.
+4. Iterates batches: decode → tokenize → write → checkpoint.
+5. On exit, calls `maybe_merge_shards` — the last rank to observe a
+   complete checkpoint set performs the merge inline; the others return
+   immediately.
+
+Per-batch metrics (samples, tokens, throughput) stream to W&B when
+`wandb.enabled=true`. Per-rank stats files are reduced into a global
+report in `pipeline/output/`.
+
+### 4.5 Resume and checkpointing
+
+Checkpointing is **batch-index based**: each rank writes
+`rank_XXXX_chunk_YYYY.{bin,idx}` plus a small JSON checkpoint that
+records the highest batch index it has fully written. Resuming with
+`resume=true` reloads the plan, fast-forwards to the next un-written
+batch, and continues. Writes go through `os.replace()` on `.tmp` files
+for atomicity, with explicit `fsync` for Lustre durability.
 
 ---
 
-## 3. Batch Planning — How Images Are Grouped
+## 5. Design rationale
 
-Images with similar aspect ratios and sizes are clustered together so every image in a batch resizes to the **same target dimensions**, minimizing wasted computation from padding. Per-image token estimation is accelerated with [Numba](https://numba.pydata.org/) JIT when available (falls back to pure Python).
+Four choices that aren't obvious from reading the code top-down. Each one
+is a deliberate response to a measured cost.
 
-```mermaid
-flowchart TD
-    MFST[("Parquet Manifest")] --> LOAD["Load widths, heights"]
-    LOAD --> FILTER["Filter by pixel range<br/>(min_pixels, max_pixels)<br/>+ spatial_factor dim guard"]
-    FILTER --> FEAT["Compute features:<br/>aspect_ratio, log(area)"]
-    FEAT --> NORM["Normalize to [0, 1]"]
-    NORM --> KM["Faiss k-means<br/>(k = num_clusters, GPU or CPU)"]
-    KM --> SORT["Sort within cluster by log_area"]
-    SORT --> PACK["Token-budget packing<br/>with sample cap<br/>(batch_size + max_batch_tokens)"]
-    PACK --> RESIZE["Compute resize target<br/>(avg/min/max per batch)"]
-    RESIZE --> BP[("BatchPlan<br/>List[BatchAssignment]")]
+### 5.1 GPU image encode runs in parallel with CPU text work — in every multimodal mode
 
-    click KM href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/indexing/clustered_batch_planner.py"
+`image_only` has no text, so it's pure GPU. **Every other mode**
+(`image2text`, `text2image`, `sft`, `interleave`) wraps the image encode
+and the text-side work in a `ThreadPoolExecutor.submit` pair and awaits
+both:
 
-    style MFST fill:#fff9c4,stroke:#F9A825
-    style BP fill:#fff9c4,stroke:#F9A825
+```python
+# discrete/emu/image_text_pair.py:78  (and analogous in sft.py, interleave.py)
+image_future = self.executor.submit(self.tokenize_images, images, resize_size)
+text_future  = self.executor.submit(tokenize_texts_cpu)
+image_tokens_batch = image_future.result()
+text_tokens_list   = text_future.result()
 ```
 
-Each `BatchAssignment` contains:
+The first principle: image encoding is the dominant cost (the GH200
+profile attributes ~92% of the encode batch to the vision encoder,
+hottest kernel `SpatialSoftMax` at 26%); CPU-side text tokenization or
+chat-template rendering is essentially free. Serialising them would
+leave the CPU idle during the encode and the GPU idle during text
+work — overlapping makes both costs the cost of the *larger* one.
+It works without explicit synchronization because both submitted
+callables release the GIL inside their C/C++ extensions: the CUDA
+launches in `tokenize_images` and the HuggingFace fast tokenizer in
+`tokenize_texts_cpu` proceed in genuine parallel on the two pool
+threads.
 
-| Field | Description |
-|-------|-------------|
-| `sample_indices` | Array of manifest row indices (one per image) |
-| `resize_height` | Target resize height for all images in this batch |
-| `resize_width` | Target resize width for all images in this batch |
-| `batch_token_count` | Pre-computed token count for cost-weighted worker splitting |
-| `group_slices` | Optional `(num_groups, 2)` array for multi-image datasets |
+SFT does *more* CPU work than image2text (chat-template rendering plus
+text tokenization), which is precisely the case where the overlap
+matters most.
 
-> [!TIP]
-> The BatchPlan is **deterministic** and can be saved/reloaded via `torch.save()` for reuse across runs.
+### 5.2 `torch.compile` is opt-in and off by default
 
-### Single-image vs Multi-image Clustering
+It's plumbed only into the Emu3.5 (IBQ) tokenizer
+(`discrete/emu/image_only.py:88-94`) and the config defaults to
+`torch_compile: false`. The reasoning is shape-driven:
 
-The planner uses explicit `multi_image=True/False` when set. If `multi_image` is unset, it falls back to `image_list_column is not None`. If the manifest has a `group_id` column but `multi_image=False`, a warning is logged.
+- Batches in this pipeline have **non-stationary shapes**. The planner
+  groups by `(final_h, final_w)` resolution key within a window
+  (`_plan_image_batches` sorts by `keys = final_h * 100_000 + final_w`),
+  but successive batches across a rank's slice can pick different keys.
+  Every new shape triggers a recompile under `mode="reduce-overhead"` /
+  `"max-autotune"`, and recompile cost dominates for short jobs.
+- The encoder is already a single forward of a heavy convolutional VQ
+  stack — Python-side launch overhead is amortised over large CUDA
+  kernels, so compile's main lever (kernel fusion + reduced launch
+  overhead) yields only a few percent.
+- The pipeline is embarrassingly parallel and bound by GPU encode time
+  (see §4.4). A few-percent kernel speedup that comes with recompile
+  spikes is a net loss for a job that finishes in tens of minutes.
 
-<details>
-<summary><b>Single-image</b> — each image is its own clustering unit</summary>
+Turn it on (`tokenizer.torch_compile=true`) only when you've pinned a
+single resolution (large `min_pixels`/`max_pixels` band collapsed to
+near-equal) and the job is long enough to amortise warmup.
 
-```
-Manifest rows:  img_A (800x600)  img_B (810x590)  img_C (200x200)  img_D (190x210)
-                      |                |                |                |
-Features:       (1.33, 12.7)     (1.37, 12.7)     (1.0, 10.6)      (0.9, 10.6)
-                \_____________ cluster 0 __________/  \____________ cluster 1 _________/
-                                  |                                  |
-Batch 0:  sample_indices=[A, B]              Batch 1:  sample_indices=[C, D]
-          resize_height=600                            resize_height=200
-          group_slices=None                            group_slices=None
-```
+### 5.3 Three stages (`manifest → plan → tokenize`) instead of one
 
-</details>
+The pipeline could just iterate the dataset and tokenize on the fly.
+It doesn't, because each stage has a different cost profile and a
+different failure mode:
 
-<details>
-<summary><b>Multi-image</b> — entire groups are the clustering unit (never split)</summary>
+| Stage | Cost | Frequency | Failure mode |
+|---|---|---|---|
+| **Scan** → manifest | minutes — never image-bytes (see below) | once per dataset version | wrong dataset path; partial scan |
+| **Plan** → batch + split | seconds (numpy-only, no I/O, no GPU) | once per `(batch_size, max_batch_tokens, world_size)` | bad cost weights → idle ranks |
+| **Tokenize** → micro-shards | hours, GPU-bound | every run, possibly resumed | OOM; storage hiccup |
 
-```
-Manifest rows:  group 0: img_A (800x600), img_B (810x590)    <- 2 images, 1 conversation
-                group 1: img_C (200x200), img_D (190x210)    <- 2 images, 1 conversation
-                                  |
-Per-group features:  group 0 -> max dims (810, 600), total tokens = tok(A) + tok(B)
-                     group 1 -> max dims (200, 210), total tokens = tok(C) + tok(D)
-                                  |
-                     k-means clusters groups, not images
-                                  |
-Batch 0:  sample_indices=[A, B]              Batch 1:  sample_indices=[C, D]
-          resize_height=600                            resize_height=200
-          group_slices=[[0, 2]]                        group_slices=[[0, 2]]
-```
+> **Scanning is intentionally cheap.** The scanners (`indexing/scanners/wds.py`,
+> `hf.py`, `jsonl_tar.py`, `interleave.py`) drive a `ProcessPoolExecutor`
+> via `_parallel.run_ordered_pool` (default 64 workers, in-flight cap
+> `2 × num_workers`). A WDS scan reads only the **tar header chain** —
+> never the image bytes — recording `(sample_key, tar_path, offset_data,
+> file_size, width, height)` per record. This makes the scan I/O-bound
+> on tar TOC reads, parallel across hundreds of shards: hundreds of
+> millions of samples scan in O(minutes), not O(hours). A re-scan after
+> ingesting a new dataset version costs less than a single tokenization
+> rank's startup overhead.
 
-Groups are **atomic** — the packer never splits a group across batches. The `tokenize_batch()` interface is the same for both: when `group_slices is None`, each image is treated as its own trivial 1-image group.
+Decoupling means:
 
-</details>
+- **Re-tokenizing the same dataset** with a different batch size or
+  rank count costs *seconds* of replanning, not minutes of rescan.
+- **Resume is `argmax(rank_*_chunk_*.idx) + 1`** — no sampler state, no
+  RNG state, no walltime fragility, because the plan is deterministic.
+- **Dry-run** (`dry_run=true`) loads the plan and prints
+  `total_documents`, `total_batches`, `total_image_tokens` *without
+  loading a GPU* (`pipeline/__init__.py:50`). Bugs in batching are
+  caught before burning compute.
+- **Cost weights are the only knob the planner exposes** —
+  `weighted_contiguous_split` consumes them and produces rank slices
+  that stay within ~1.5 % wallclock spread across ranks (measured at
+  1.23 % on 4-rank `bigearthnet`, 1.61 % on 4-rank `google_rsrcc`).
+
+The contract: `(document_id, component_index)` is the only logical
+identity. Execution-state fields (batch assignment, rank assignment)
+never define identity, so re-planning is always safe.
+
+### 5.4 Locality is what makes throughput work
+
+A WDS tar is typically 1–50 GB and holds 10k–100k images. On Lustre,
+`open()` + initial seek is the expensive operation; sequential
+`pread()` after that is bandwidth-bound. The pipeline is aggressive
+about exploiting that asymmetry:
+
+1. **Window-based batching** (`_plan_image_batches`, line 360+).
+   Components are bucketed by `manifest_row // window_size` so each
+   window covers a contiguous slice of the source — and the manifest
+   was written in tar-traversal order, so a contiguous slice typically
+   lives in a small set of tars.
+2. **Window boundaries snap to document boundaries** (line 369–373).
+   Without this, a multi-image SFT document could be split across
+   ranks, forcing cross-rank coordination at runtime — which we don't
+   have.
+3. **Rank splits cut on window boundaries** — every rank reads from
+   contiguous manifest rows, so each rank touches O(1) tars per batch
+   instead of O(batch_size).
+4. **Per-thread LRU of open file handles** in `TarRandomAccessReader`
+   (`indexing/reader.py:65`, default 32 handles per thread). With
+   contiguous reads, the LRU rarely evicts; with random reads, it
+   thrashes. The architecture chooses the regime that lets the simple
+   cache work.
+5. **Within a window, sort by resolution key** before greedy-packing
+   batches. This keeps each batch shape-uniform (better GPU memory
+   utilisation, no padding waste) *and* keeps adjacent images
+   byte-adjacent inside the same tar (free OS read-ahead).
+
+The payoff is concrete: I/O drops out of the critical path, so the GPU
+encode becomes the bottleneck — which is the regime the §4 prefetcher
+and the §5.1 GPU/CPU overlap are tuned for. Break locality (random
+shuffling, e.g.) and the same job becomes I/O-bound on tar opens
+instead, with the LRU thrashing and the GPU idle.
 
 ---
 
-## 4. Tokenization Modes
-
-```mermaid
-graph TB
-    subgraph image_only["image_only — pretraining"]
-        IO_In["PIL Image"] --> IO_Tok["EMUImageOnlyTokenizer"]
-        IO_Tok --> IO_Out["[BOS] [img_struct] [EOS]"]
-    end
-
-    subgraph image2text["image2text — captioning"]
-        I2T_Img["PIL Image"] --> I2T_Tok["EMUImageTextPairTokenizer"]
-        I2T_Txt["Caption"] --> I2T_Tok
-        I2T_Tok --> I2T_Out["[BOS] [img_struct] [text_tokens] [EOS]"]
-    end
-
-    subgraph text2image["text2image — generation"]
-        T2I_Txt["Prompt"] --> T2I_Tok["EMUImageTextPairTokenizer"]
-        T2I_Img["PIL Image"] --> T2I_Tok
-        T2I_Tok --> T2I_Out["[BOS] [text_tokens] [img_struct] [EOS]"]
-    end
-
-    subgraph sft["sft — conversations"]
-        SFT_Img["PIL Image"] --> SFT_Tok["EMUSftTokenizer"]
-        SFT_Conv["Conversation"] --> SFT_Policy["ConversationPolicy"]
-        SFT_Policy --> SFT_Tok
-        SFT_Tok --> SFT_Out["[chat template with embedded<br/>vision tokens]"]
-    end
-
-    style image_only fill:#e3f2fd,stroke:#1565C0
-    style image2text fill:#fff3e0,stroke:#EF6C00
-    style text2image fill:#fce4ec,stroke:#C62828
-    style sft fill:#f3e5f5,stroke:#7B1FA2
-```
-
-| Mode | Tokenizer | Text? | Input | Output |
-|------|-----------|:-----:|-------|--------|
-| `image_only` | [`EMUImageOnlyTokenizer`](./vokenizers/emu/image_only.py) | | Images | `[BOS] [img_struct] [EOS]` |
-| `image2text` | [`EMUImageTextPairTokenizer`](./vokenizers/emu/image_text_pair.py) | Yes | Images + captions | `[BOS] [img_struct] [text] [EOS]` |
-| `text2image` | [`EMUImageTextPairTokenizer`](./vokenizers/emu/image_text_pair.py) | Yes | Prompts + images | `[BOS] [text] [img_struct] [EOS]` |
-| `sft` | [`EMUSftTokenizer`](./vokenizers/emu/sft.py) | Yes | Images + conversations | Chat template with vision tokens |
-
-> [!NOTE]
-> A single [`TokenizationHandler`](./pipelines/distributed/handler.py) drives all modes — `needs_text` is derived from the mode string. The handler is tokenizer-agnostic: any tokenizer implementing `tokenize_batch(images, resize_size, text=, group_slices=)` works.
-
----
-
-## 5. Token Structure
-
-Each image is encoded into a structured token sequence by [`encapsulate_image()`](./vokenizers/emu/image_only.py):
-
-```
-[BOS]
-  [img_start]
-    "32*32"                  <- dimension tokens (height x width as text)
-    [img_token_start]
-      [vis_tok_0 + offset]   <- row 1 vision tokens
-      [vis_tok_1 + offset]
-      ...
-      [img_end_of_row]       <- row delimiter
-      [vis_tok_N + offset]   <- row 2 vision tokens
-      ...
-      [img_end_of_row]
-      ...                    <- all H rows
-    [img_end_of_frame]
-  [img_end]
-[EOS]
-```
-
-> [!IMPORTANT]
-> The `vision_token_offset` maps raw vision indices into the omni-tokenizer's unified vocabulary (e.g., vision token 100 becomes token ID `offset + 100`). This allows text, vision, and audio tokens to coexist in one vocabulary.
-
----
-
-## 6. GPU Tokenization Loop
-
-All modes share the same per-rank loop ([`tokenize_loop()`](./pipelines/distributed/core.py)): a background [`BatchPrefetcher`](./pipelines/distributed/prefetch.py) thread loads and augments batches while the main thread tokenizes on GPU and writes micro-shards. This overlaps CPU I/O with GPU compute, eliminating GPU idle stalls.
-
-```mermaid
-flowchart TD
-    Start([Start]) --> LoadPlan["Load or compute BatchPlan"]
-    LoadPlan --> Split["split_for_workers(world_size)<br/>-> my_batches for this rank"]
-    Split --> Resume{"resume?"}
-
-    Resume -->|Yes| LoadCkpt["Load checkpoint<br/>(batch_index, chunk_id, stats)"]
-    Resume -->|No| InitStats["Initialize from zero"]
-    LoadCkpt & InitStats --> CreateTok
-
-    CreateTok["Create tokenizer on GPU<br/>create_tokenizer(mode, ...)"]
-    CreateTok --> Setup["handler.setup_writer()<br/>create_loader() + augmenter"]
-    Setup --> StartPrefetch["Start BatchPrefetcher<br/>(dispatcher thread + ThreadPoolExecutor)"]
-    StartPrefetch --> LoopStart
-
-    subgraph PrefetchThread["Prefetch (background)"]
-        direction TB
-        DISPATCH["Dispatcher thread<br/>pool.map(load_one, batches)"]
-
-        subgraph Pool["ThreadPoolExecutor (num_workers=4)"]
-            direction LR
-            W1["Worker 1<br/>load + augment"]
-            W2["Worker 2<br/>load + augment"]
-            W3["Worker 3<br/>load + augment"]
-            W4["Worker 4<br/>load + augment"]
-        end
-
-        DISPATCH --> Pool
-        Pool --> PF_Queue["queue.put(result)<br/>in order"]
-    end
-
-    subgraph MainLoop["Main Thread (GPU)"]
-        LoopStart{"queue.get()"} --> Process["handler.process_batch()<br/>(GPU tokenize + write)"]
-        Process --> WandB["wandb.log(timing/*)<br/>(rate-limited)"]
-        WandB --> ChkPt{"checkpoint<br/>interval?"}
-        ChkPt -->|Yes| DoChkPt["checkpoint_writer()<br/>+ save_checkpoint()"]
-        ChkPt -->|No| LoopStart
-        DoChkPt --> LoopStart
-    end
-
-    PF_Queue -.->|"Queue(maxsize=4)"| LoopStart
-
-    Process -.->|"on error"| ErrHandle["stats.errors++<br/>CUDA OOM -> empty cache"]
-    ErrHandle -.->|"< max"| LoopStart
-    ErrHandle -.->|">= max"| Abort([Abort])
-
-    MainLoop --> Finalize["prefetcher.shutdown()<br/>finalize_writer()<br/>save final checkpoint"]
-    Finalize --> Done([Return stats])
-
-    click LoadPlan href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/pipelines/distributed/core.py"
-    click CreateTok href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/vokenizers/emu/__init__.py"
-    click StartPrefetch href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/pipelines/distributed/prefetch.py"
-
-    style PrefetchThread fill:#e8f5e9,stroke:#2E7D32
-    style MainLoop fill:#f3e5f5,stroke:#7B1FA2
-```
-
-### Timing & Monitoring
-
-When W&B is enabled, per-batch timing metrics from both threads are merged and logged as time-series under the `timing/` prefix:
-
-| Metric | Source | Description |
-|--------|--------|-------------|
-| `timing/load_ms` | prefetch thread | Batch I/O (tar/arrow read + PIL decode) |
-| `timing/augment_ms` | prefetch thread | Image augmentation |
-| `timing/tokenize_gpu_ms` | CUDA events | GPU tokenization kernel time |
-| `timing/tokenize_wall_ms` | wall clock | Tokenization wall time (includes launch overhead) |
-| `timing/write_ms` | wall clock | Micro-shard write |
-
-CUDA event timing is gated behind `wandb.enabled` to avoid overhead when disabled.
-
-> [!TIP]
-> **GPU/CPU bounce optimization** — Images are tokenized in batch on GPU, transferred to CPU once, then assembled with text tokens on CPU. This avoids per-sample GPU-CPU transfers.
-
-> [!WARNING]
-> **OOM prevention** — `tokenize_images()` chunks large multi-image batches into groups of `max_images_per_encode` images for the GPU encode call. If a batch still OOMs, it is skipped and the loop continues (up to `max_consecutive_errors`).
-
----
-
-## 7. Data Loading
-
-[`data.py`](./pipelines/distributed/data.py) provides two loaders, selected by `dataset_type`. Both return `(images, texts)` tuples via manifest row indices.
-
-```mermaid
-flowchart TB
-    subgraph Factory["create_loader(cfg)"]
-        DT{"dataset_type?"}
-    end
-
-    subgraph WDS["WDSImageLoader"]
-        WM["Load WDS Parquet manifest"]
-        TR["TarRandomAccessReader<br/>(LRU cache of open file handles)"]
-        WL["load_batch(): seek to byte<br/>offset in tar -> PIL Image"]
-        WT["Optional: read text sidecars<br/>(JSON/TXT from tar)"]
-        WM --> TR --> WL
-        TR --> WT
-    end
-
-    subgraph HFL["HFImageLoader"]
-        HI["Build shard index<br/>(cumulative row offsets)"]
-        HC["LRU shard cache<br/>(arrow/parquet tables in memory)"]
-        HL["load_batch(): locate<br/>(shard, local_row) -> PIL Image"]
-        HI --> HC --> HL
-    end
-
-    DT -->|"wds"| WDS
-    DT -->|"hf"| HFL
-
-    click WL href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/pipelines/distributed/data.py"
-    click HL href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/pipelines/distributed/data.py"
-
-    style Factory fill:#e3f2fd,stroke:#1565C0
-    style WDS fill:#fff3e0,stroke:#EF6C00
-    style HFL fill:#fce4ec,stroke:#C62828
-```
-
-| Loader | Dataset type | Random access via | Text loading |
-|--------|-------------|-------------------|-------------|
-| `WDSImageLoader` | WebDataset `.tar` | Byte offset + file size from manifest | Text sidecars (`.json`/`.txt`) at indexed offsets |
-| `HFImageLoader` | HuggingFace `.arrow`/`.parquet` | Shard index -> (shard_path, local_row) | Text column from same table |
-
----
-
-## 8. Multi-Image Support
-
-When a dataset has multiple images per sample (e.g., multi-image conversations), the manifest includes `group_id` and `image_index` columns. The batch planner produces `group_slices` that map groups to their images within the flat `sample_indices` array.
-
-### Worked Example
-
-A batch with 3 groups (2, 3, and 2 images respectively):
-
-```
-sample_indices = [42, 43,  70, 71, 72,  99, 100]
-group_slices   = [[0, 2],  [2, 5],      [5, 7]]
-                   ^ group 0  ^ group 1    ^ group 2
-```
-
-**Processing steps:**
-
-| Step | Where | What |
-|------|-------|------|
-| 1 | GPU | All 7 images tokenized in one `tokenize_images()` call |
-| 2 | CPU | Text tokenized separately (one text per group) |
-| 3 | CPU | Per group, combine image + text tokens |
-| 4 | Disk | One document per group (not per image) |
-
-For **image2text** mode, each group assembles as:
-```
-[BOS] [img0_struct] [img1_struct] ... [text_tokens] [EOS]
-```
-
-For **SFT** mode, `<|image|>` placeholders in the conversation are replaced with vision tokens via [`_replace_images()`](./vokenizers/emu/sft.py).
-
----
-
-## 9. SFT Conversation Flow
-
-SFT datasets store conversations in many different formats. The [`ConversationPolicy`](./vokenizers/conversation_policy.py) auto-detects and normalizes them before tokenization.
-
-```mermaid
-flowchart LR
-    subgraph Input
-        RAW["Raw conversation<br/>(any format)"]
-    end
-
-    subgraph Normalize["ConversationPolicy"]
-        DET["Auto-detect format:<br/>role/content | from/value<br/>| user/assistant pairs"]
-        MAP["Map roles via role_map<br/>(human->user, gpt->assistant)"]
-        SYS["Optionally add<br/>empty system message"]
-        IMG["Optionally prepend<br/>image placeholder"]
-        DET --> MAP --> SYS --> IMG
-    end
-
-    subgraph Tokenize_SFT["EMUSftTokenizer"]
-        CHAT["Apply chat template"]
-        TOK_TEXT["Tokenize text on CPU<br/>(find &lt;|image|&gt; positions)"]
-        TOK_IMG["Tokenize image on GPU<br/>(strip per-image BOS/EOS)"]
-        REPLACE["Replace placeholder tokens<br/>with vision tokens"]
-        CHAT --> TOK_TEXT
-        TOK_IMG --> REPLACE
-        TOK_TEXT --> REPLACE
-    end
-
-    RAW --> DET
-    IMG --> CHAT
-    REPLACE --> FINAL["Final token sequence"]
-
-    click DET href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/vokenizers/conversation_policy.py"
-    click REPLACE href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/vokenizers/emu/sft.py"
-
-    style Input fill:#e3f2fd,stroke:#1565C0
-    style Normalize fill:#fff3e0,stroke:#EF6C00
-    style Tokenize_SFT fill:#f3e5f5,stroke:#7B1FA2
-```
-
-**Supported input formats** (auto-detected from the first message):
-
-| Format | Example |
-|--------|---------|
-| `role/content` | `[{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]` |
-| `from/value` | `[{"from": "human", "value": "..."}, {"from": "gpt", "value": "..."}]` |
-| `user/assistant` pairs | `[{"user": "...", "assistant": "..."}]` |
-
----
-
-## 10. Checkpointing and Output
-
-Each rank writes independent micro-shards — no inter-rank coordination needed. See [`checkpoint.py`](./pipelines/distributed/checkpoint.py) for micro-shard I/O and stats, [`wandb_logger.py`](./pipelines/distributed/wandb_logger.py) for W&B resume, and [`stats_reducer.py`](./pipelines/distributed/stats_reducer.py) for aggregate stats.
-
-```mermaid
-sequenceDiagram
-    participant H as Handler
-    participant B as IndexedDatasetBuilder
-    participant FS as Filesystem
-
-    Note over H,FS: Normal processing
-    loop For each token sequence
-        H->>B: add_item(seq_cpu)
-        H->>B: end_document()
-    end
-
-    Note over H,FS: Checkpoint (every N batches)
-    H->>B: finalize(tmp_idx)
-    B->>FS: rank_XXXX_chunk_YYYY.bin.tmp
-    B->>FS: rank_XXXX_chunk_YYYY.idx.tmp
-    FS->>FS: fsync both files
-    FS->>FS: os.replace(.tmp -> final)
-    H->>FS: save_checkpoint(batch_index, chunk_id, stats)
-    Note over H: Open next chunk (chunk_id + 1)
-```
-
-<details>
-<summary><b>Output directory layout</b></summary>
-
-```
-output_dir/{mode}/{output_name}/
-+-- rank_0000_chunk_0000.bin     # Token data (Megatron MMIDIDX binary)
-+-- rank_0000_chunk_0000.idx     # Index for random access
-+-- rank_0000_chunk_0001.bin
-+-- rank_0000_chunk_0001.idx
-+-- rank_0000_checkpoint.pt      # Resume state (batch_index, chunk_id, stats, wandb)
-+-- rank_0001_chunk_0000.bin
-+-- rank_0001_chunk_0000.idx
-+-- rank_0001_checkpoint.pt
-+-- ...
-+-- stats.jsonl                  # Per-rank stats (appended by each rank)
-+-- stats_summary.json           # Aggregate summary (written atomically by first finishing rank)
-+-- wandb_run_id.txt             # W&B run ID for resume continuity
-```
-
-</details>
-
-| Property | Detail |
-|----------|--------|
-| **Atomic writes** | `.tmp` suffix during write, `os.replace()` to final name |
-| **fsync** | Ensures durability on network filesystems (Lustre) |
-| **Deterministic resume** | BatchPlan is deterministic; checkpoint = `(batch_index, chunk_id)`. W&B state (run ID, step) is persisted in the checkpoint for seamless plot continuity across sessions |
-| **Stats aggregation** | Each rank appends to `stats.jsonl`; whichever rank finishes last and sees all entries atomically writes `stats_summary.json` — no polling loop |
-| **Document boundaries** | One document per image (single-image) or per group (multi-image) |
-
----
-
-## 11. Multi-GPU Distribution
-
-Each rank processes an independent subset of batches — **no NCCL, no inter-rank communication**. See [`__init__.py`](./pipelines/distributed/__init__.py) and [`core.py`](./pipelines/distributed/core.py).
-
-`split_for_workers()` uses **cost-weighted contiguous splitting**: batches are assigned to workers in order (preserving shard/tar locality) but split boundaries are chosen to equalize total token cost per worker, reducing long-tail stragglers on skewed image-size distributions.
-
-```mermaid
-graph TD
-    BP[("BatchPlan<br/>N batches")] --> SPLIT["split_for_workers(world_size)<br/>cost-weighted contiguous chunks"]
-
-    SPLIT --> R0 & R1 & RN
-
-    subgraph R0["Rank 0"]
-        direction TB
-        PF0["Prefetch Thread<br/>load + augment"] -.->|"Queue"| H0["Main Thread<br/>GPU tokenize + write<br/>GPU 0"] --> O0["rank_0000_chunk_*"]
-    end
-
-    subgraph R1["Rank 1"]
-        direction TB
-        PF1["Prefetch Thread<br/>load + augment"] -.->|"Queue"| H1["Main Thread<br/>GPU tokenize + write<br/>GPU 1"] --> O1["rank_0001_chunk_*"]
-    end
-
-    subgraph RN["Rank N"]
-        direction TB
-        PFN["Prefetch Thread<br/>load + augment"] -.->|"Queue"| HN["Main Thread<br/>GPU tokenize + write<br/>GPU N"] --> ON["rank_NNNN_chunk_*"]
-    end
-
-    click SPLIT href "https://github.com/swiss-ai/benchmark-image-tokenzier/blob/main/vision_tokenization/indexing/clustered_batch_planner.py"
-
-    style BP fill:#fff9c4,stroke:#F9A825
-    style R0 fill:#fce4ec,stroke:#C62828
-    style R1 fill:#fff3e0,stroke:#EF6C00
-    style RN fill:#e8eaf6,stroke:#283593
-```
-
----
-
-## 12. Class Hierarchy
-
-### Tokenizers ([`vokenizers/emu/`](./vokenizers/emu/))
-
-```mermaid
-classDiagram
-    class BaseTokenizer {
-        <<abstract>>
-        +tokenize(image, text)*
-        +tokenize_batch(images, resize_size, text, group_slices)*
-        +__call__(image, text)
-    }
-
-    class EMUImageOnlyTokenizer {
-        +text_tokenizer
-        +vision_tokenizer
-        +vision_token_offset
-        +tokenize_batch(images, resize_size, text, group_slices)
-        +tokenize_images(images, resize_size)
-        #encapsulate_image(vision_indices)
-    }
-
-    class EMUImageTextPairTokenizer {
-        +mode: image2text | text2image
-        +tokenize_batch(images, resize_size, text, group_slices)
-    }
-
-    class EMUSftTokenizer {
-        +conversation_policy
-        +tokenize_batch(images, resize_size, text, group_slices)
-        #_tokenize_conversation_text_cpu()
-    }
-
-    BaseTokenizer <|-- EMUImageOnlyTokenizer
-    EMUImageOnlyTokenizer <|-- EMUImageTextPairTokenizer
-    EMUImageOnlyTokenizer <|-- EMUSftTokenizer
-```
-
-> [!NOTE]
-> New tokenizer families (Cosmos, Chameleon, ...) subclass `BaseTokenizer` and implement `tokenize_batch()` — the `TokenizationHandler` works with any of them.
-
-### Handler + Writer ([`pipelines/distributed/`](./pipelines/distributed/))
-
-```mermaid
-classDiagram
-    class TokenizationHandler {
-        +writer: MicroShardWriter
-        +needs_text: bool
-        +process_batch(images, resize_size, tokenizer, stats, device, texts, group_slices)
-        -_filter_none()
-    }
-
-    class MicroShardWriter {
-        +chunk_samples: int
-        +setup_writer()
-        +checkpoint_writer()
-        +finalize_writer()
-        +write_sequence(seq_cpu, stats)
-    }
-
-    class SplitMicroShardWriter {
-        -_threshold: int
-        -_stage2: MicroShardWriter
-        -_lct: MicroShardWriter
-        +write_sequence(seq_cpu, stats)
-        +checkpoint_writer() Tuple
-    }
-
-    TokenizationHandler --> MicroShardWriter : uses
-    SplitMicroShardWriter *-- MicroShardWriter : stage2 + lct
-```
-
-`TokenizationHandler` is tokenizer-agnostic — it calls `tokenizer.tokenize_batch()` and writes results via `MicroShardWriter` (or `SplitMicroShardWriter` when `seqlen_threshold` is set, routing short sequences to `stage2/` and long ones to `lct/`).
-
----
-
-## 13. Configuration (Hydra)
-
-The pipeline uses [Hydra](https://hydra.cc/) for hierarchical configuration. The main config composes a dataset sub-config via the `defaults` list, and every field can be overridden from the CLI.
-
-<details>
-<summary><b>Config directory structure</b></summary>
+## 6. Configuration
+
+`configs/config.yaml` is the root. It composes one dataset config from
+`configs/dataset/{mode}/{name}.yaml`, plus the shared bases under
+`configs/dataset/_pipeline.yaml`, `_storage/`, and `_task/`.
 
 ```
 configs/
-+-- config.yaml                   # Main: mode, tokenizer, W&B, resume
-+-- dataset/
-    +-- image_only/
-    |   +-- llava85m_midtrain.yaml
-    |   +-- ...
-    +-- sft/
-    |   +-- llava_onevision_sft.yaml
-    |   +-- ...
-    +-- image2text/
-    |   +-- ...
-    +-- text2image/
-        +-- ...
+├── config.yaml                   # tokenizer path, wandb, resume, merge_shards, …
+└── dataset/
+    ├── _pipeline.yaml            # pipeline defaults (prefetch, num_workers, …)
+    ├── _storage/                 # storage adapters: hf, wds, jsonl_tar
+    ├── _task/                    # task defaults: image_only, sft, image2text, text2image, interleave
+    ├── image_only/    (≈39 yamls)
+    ├── image2text/    (≈28 yamls)
+    ├── sft/           (≈14 yamls)
+    └── interleave/    (≈10 yamls)
 ```
 
-</details>
+> `text2image` is supported by the factory but currently has no dataset
+> configs — add one under `configs/dataset/text2image/` when needed.
 
-### Main config ([`config.yaml`](./configs/config.yaml))
-
-| Key | Description | Default |
-|-----|-------------|---------|
-| `mode` | `image_only`, `sft`, `image2text`, or `text2image` | required |
-| `tokenizer.path` | Path to omni-tokenizer (vision tokenizer auto-loaded from config) | required |
-| `tokenizer.min_pixels` | Minimum pixels for image preprocessing | `"128*128"` |
-| `tokenizer.max_pixels` | Maximum pixels for image preprocessing | `"1400*1400"` |
-| `tokenizer.max_images_per_encode` | Max images per GPU encode call; larger batches are chunked to avoid OOM. Relevant for multi-image datasets and future video support — set `batch_size` larger than the max number of images per sample so the chunking can take effect. | `16` |
-| `tokenizer.torch_compile` | Compile the Emu3.5 encode path with `torch.compile`. Only beneficial for datasets with **uniform image resolutions** (fixed or few distinct sizes); variable-size datasets trigger constant recompilation which hurts performance. | `false` |
-| `tokenizer.torch_compile_mode` | `torch.compile` mode (e.g. `reduce-overhead` for CUDA graphs) | `reduce-overhead` |
-| `num_gpus` | Total GPU count (cross-checked against `SLURM_NTASKS`) | required |
-| `resume` | Resume from rank checkpoints | `false` |
-| `dry_run` | Estimate tokens without GPU | `false` |
-| `checkpoint_interval_batches` | How often to write rank checkpoints | `1000` |
-| `wandb.*` | Weights & Biases logging settings | enabled |
-
-### Dataset configs
-
-| Key | Description |
-|-----|-------------|
-| `dataset_type` | `wds` (WebDataset tars) or `hf` (HuggingFace Arrow) |
-| `output_name` | Name for output subdirectory |
-| `manifest_path` | Path to Parquet manifest |
-| `input_pattern` | File, glob, braceexpand pattern, or directory for HF arrow/parquet shards (HF only) |
-| `image_column` / `text_column` | Column names in the dataset |
-| `max_batch_tokens` | Token budget per batch (required) |
-| `batch_size` | Max samples per batch (required, acts as sample cap) |
-| `spatial_factor` | Vision tokenizer spatial downsampling factor (default 16) |
-| `num_clusters` | k-means cluster count for batch planning (default 2000) |
-| `conversation_policy.*` | SFT conversation normalization (SFT mode only) |
-
----
-
-## 14. CLI Usage
+Override anything from the CLI:
 
 ```bash
-# Single node, 4 GPUs (srun — each task is one independent rank)
-srun --ntasks-per-node=4 --gpus-per-node=4 \
-    python -m vision_tokenization.tokenize \
-    mode=image2text dataset=pmc_oa num_gpus=4
-```
-
-<details>
-<summary><b>More launch examples</b></summary>
-
-```bash
-# Multi-node (4 nodes x 4 GPUs = 16 GPUs)
-srun --nodes=4 --ntasks-per-node=4 --gpus-per-node=4 \
-    python -m vision_tokenization.tokenize \
-    mode=sft dataset=llava_onevision_sft num_gpus=16
-
-# Resume from checkpoint
-srun --ntasks-per-node=4 --gpus-per-node=4 \
-    python -m vision_tokenization.tokenize \
-    mode=image2text dataset=pmc_oa num_gpus=4 resume=true
-
-# Dry run (estimate tokens, no GPU needed)
 python -m vision_tokenization.tokenize \
-    mode=image_only dataset=my_dataset num_gpus=1 dry_run=true
-
-# Override any config field from CLI
-srun --ntasks-per-node=4 --gpus-per-node=4 \
-    python -m vision_tokenization.tokenize \
-    mode=sft dataset=llava_sft num_gpus=4 \
-    dataset.max_batch_tokens=25600 \
-    dataset.checkpoint_interval_batches=200
+    mode=sft dataset=bigearthnet \
+    num_gpus=8 \
+    dataset.max_batch_tokens=32_768 \
+    tokenizer.max_pixels="2048*2048" \
+    wandb.enabled=true
 ```
 
-</details>
+A typical dataset YAML inherits the right `_storage` and `_task` bases
+and only specifies dataset-specific paths and limits:
 
----
+```yaml
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/wds@_here_
+  - /dataset/_task/sft@_here_
 
-## 15. Directory Structure
+output_name: bigearthnet
+output_dir: /capstor/.../tokenized
+input_pattern: "/.../bigearthnet-all-*.tar"
+manifest_path: /.../manifests/bigearthnet/manifest.parquet
 
-```
-vision_tokenization/
-+-- tokenize.py                          # Hydra entry point
-+-- configs/
-|   +-- config.yaml                      # Main config
-|   +-- dataset/                         # Per-dataset configs (nested by mode)
-|
-+-- indexing/                            # Manifest creation + batch planning
-|   +-- scanner_wds.py                   # Scan tar files -> Parquet manifest
-|   +-- scanner_hf.py                    # Scan HF datasets -> Parquet manifest
-|   +-- manifest.py                      # Parquet schema + I/O helpers
-|   +-- reader.py                        # TarRandomAccessReader (LRU cache)
-|   +-- clustered_batch_planner.py       # k-means -> BatchPlan
-|   +-- _scan_wds_worker.py              # Parallel tar scanning logic
-|
-+-- pipelines/distributed/               # torch.distributed pipeline
-|   +-- __init__.py                      # run_distributed_pipeline()
-|   +-- core.py                          # tokenize_loop() -- main per-rank loop
-|   +-- prefetch.py                      # BatchPrefetcher (threaded I/O overlap)
-|   +-- handler.py                       # TokenizationHandler (tokenizer-agnostic)
-|   +-- writer.py                        # MicroShardWriter (micro-shard lifecycle)
-|   +-- checkpoint.py                    # Micro-shard I/O, WorkerStats
-|   +-- wandb_logger.py                  # SimpleWandbLogger, W&B resume state
-|   +-- stats_reducer.py                 # Aggregate per-rank stats into summary
-|   +-- data.py                          # WDSImageLoader, HFImageLoader, augmenter
-|   +-- dry_run.py                       # Token estimation without GPU
-|
-+-- vokenizers/                          # Tokenizer implementations
-|   +-- base.py                          # BaseTokenizer ABC (tokenize + tokenize_batch)
-|   +-- conversation_policy.py           # SFT conversation normalization
-|   +-- emu/
-|       +-- __init__.py                  # create_tokenizer() factory
-|       +-- image_only.py               # EMUImageOnlyTokenizer
-|       +-- image_text_pair.py          # EMUImageTextPairTokenizer
-|       +-- sft.py                      # EMUSftTokenizer
-|
-+-- utils/
-    +-- ...                              # Miscellaneous utilities
+text_column: conversations
+conversation_policy:
+  add_image_placeholder: true     # SFT-only
+
+max_pixels: "65536*65536"
+max_batch_tokens: 32_768
 ```
 
----
+To onboard a new dataset:
 
-## 16. Key Design Decisions
-
-| Decision | Rationale |
-|----------|-----------|
-| **No NCCL** | Each rank is independent — BatchPlan provides deterministic work assignment, no inter-GPU communication needed |
-| **Cost-weighted split** | `split_for_workers()` balances token cost across ranks while preserving contiguous batch order for shard locality |
-| **Batch-index checkpointing** | BatchPlan is deterministic, so checkpoint = `(batch_index, chunk_id)` — no sampler state. W&B run ID and step are checkpointed for seamless resume across sessions |
-| **GPU/CPU bounce** | Images tokenized in batch on GPU, transferred to CPU once, assembled with text on CPU — avoids per-sample transfers |
-| **Clustered batching** | k-means on (aspect_ratio, log_area) groups similar images -> same resize target -> no padding waste |
-| **Atomic file writes** | `.tmp` + `os.replace()` pattern for crash safety on network filesystems |
-| **Tokenizer-agnostic handler** | Single `TokenizationHandler` for all modes — `needs_text` derived from mode string, tokenizer only needs `tokenize_batch()` |
-| **Micro-sharding** | Output partitioned by `rank_XXXX_chunk_YYYY` — deterministic restart, no merge step needed |
-
----
-
-## 17. Profiling
-
-See [`profile/README.md`](./profile/README.md) for Emu3.5 VQ encoder profiling results on GH200 120GB:
-
-| Metric | Value |
-|--------|-------|
-| **Bottleneck** | encode (VQ forward pass) at ~92% of wall time |
-| **Hottest kernel** | SpatialSoftMax (~26% GPU time, fp32, architectural) |
-| **OOM boundary** | batch=64 @ 512x512, batch=16 @ 768x768 |
-
-> [!TIP]
-> **Recommended settings**: `max_batch_tokens=32768`, `batch_size=32`, `max_images_per_encode=16` — 99.5% peak throughput with 30% VRAM headroom.
+1. **Build the manifest** (upstream of this repo). The scanners are
+   library functions — `scan_wds_dataset`, `scan_hf_dataset`,
+   `scan_jsonl_tar_dataset` in `indexing/scanners/` — not CLI tools.
+   In practice the manifest is produced by the `multimodal-data` repo's
+   preprocessing step or by a small Python script you submit through
+   Slurm; the resulting `manifest.parquet` is read-only from this
+   repo's perspective.
+2. **Copy the closest sibling YAML** under `configs/dataset/<mode>/`
+   and edit `output_name`, `input_pattern`, and `manifest_path` to
+   point at the new manifest.
+3. **Add a Slurm wrapper** under `scripts/slurm/` (copy a sibling),
+   then `sbatch` it from the login node.
 
 ---
 
-## TODO
+## 7. Output format and merge
 
-- [ ] **URL-based robots.txt filtering in manifest** — filter out samples whose source URLs are disallowed by robots.txt during manifest creation
-- [ ] **SFT conversation parsing** — improve conversation format detection and normalization to handle more edge cases and structured content
-- [x] **Sequence-length-based split writing** — `SplitMicroShardWriter` routes sequences to `stage2/` or `lct/` based on `seqlen_threshold`
+Per-rank, per-chunk shards land at:
+
+```
+{output_dir}/{mode}/{output_name}/rank_XXXX_chunk_YYYY.bin
+                                  rank_XXXX_chunk_YYYY.idx
+                                  rank_XXXX.checkpoint.json
+```
+
+The `.bin/.idx` pair is the Megatron `IndexedDataset` format
+(`formats/megatron.py`, magic `MMIDIDX\x00\x00`, version 1, dtype +
+sequence-length / pointer arrays). It is the same format Megatron-LM
+training reads natively, no conversion required.
+
+`merge_shards` (`pipeline/output/merge.py`) concatenates all
+`rank_*_chunk_*.bin/idx` files into one `merged.bin/idx`. Two ways to
+trigger it:
+
+- **Inline** — set `merge_shards=true` in config; the last rank to
+  finish performs the merge before returning. Good for small/fast
+  datasets.
+- **Standalone** — `scripts/slurm/merge.slurm` with an `afterany`
+  dependency, as shown in §2. Recommended for large datasets where
+  the merge needs its own time budget and shouldn't block GPU nodes.
+
+For SFT runs, `--strip-thinking` produces an additional
+`merged_no_cot.{bin,idx}` with `<think>…</think>` token spans elided —
+useful when the same data feeds both cot and no-cot training mixes.
+
+---
+
+## 8. Pointers
+
+- **Tests** — `vision_tokenization/tests/` (25 files: format
+  integrity, integration, SFT parsers, sequence reconstruction,
+  resume). See `tests/README.md` for the format spec.
+- **Profiling** — `vision_tokenization/profile/README.md` — GH200 120GB
+  numbers, encode-vs-decode bottleneck, OOM boundaries.
+- **Qualitative benchmarks** — `vision_tokenization/qualitative_benchmark/`
+  is a separate sub-package for VLM Q&A, captioning, and image
+  completion. It has its own README.

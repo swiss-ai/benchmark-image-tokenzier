@@ -1,0 +1,21 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# LLaVA-OneVision 85M mid-training — image2text, HuggingFace
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/image2text@_here_
+
+output_name: llava85m_midtrain
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: /capstor/store/cscs/swissai/infra01/vision-datasets/raw/mvp-lab__LLaVA-OneVision-1.5-Mid-Training-85M
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/llava_onevision_mid_85m/manifest.parquet
+text_column: caption
+multi_image: false
+
+plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/llava_onevision_mid_85m_locality_w2k_v2.pt
+max_batch_tokens: 32_768
+max_cached_chunks: 128
+prefetch:
+  num_workers: 8
+  queue_size: 32

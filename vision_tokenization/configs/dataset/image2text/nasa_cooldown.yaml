@@ -1,0 +1,33 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# NASA cooldown — image2text, high-res NASA public-domain photos (PD license)
+# captioned by Qwen3.6-27B with prompt ``qwen3p6_27b_image_captioned``.
+# Captions are DOCCI-style dense descriptions.
+#
+# Filtered to ``verdict == KEEP`` via manifest post-processing: 23,234 of
+# the original 36,997 rows (62.8%) passed QA review; the rest were flagged
+# ``DROP`` by the review pipeline. Filter is applied in the manifest, not
+# at tokenize time — the source parquets contain both verdicts.
+#
+# Image size is notably large (mean 3059×2579, up to 30000×15853). 79.5%
+# of rows exceed 1400×1400 and will be downscaled by the tokenizer.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/image2text@_here_
+
+output_name: nasa_cooldown
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/cooldown
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/nasa_cooldown/qwen3p6_27b_image_captioned/*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/nasa_cooldown/manifest.parquet
+image_column: image_bytes
+text_column: caption
+
+max_pixels: "65536*65536"
+max_batch_tokens: 32_768
+
+# Keep split layout consistent with other cooldown datasets. Most NASA
+# samples will land in stage2/ (image tokens dominate at ~6-7K post-downscale,
+# captions are ~150 tokens), with a small lct/ tail for very large images
+# (some source >15000×15000).
+seqlen_threshold: 8192

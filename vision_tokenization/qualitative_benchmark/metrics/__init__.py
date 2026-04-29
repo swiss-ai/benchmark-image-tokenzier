@@ -5,12 +5,21 @@ Provides a registry system for metrics that can be dynamically loaded and used
 across different benchmark types.
 """
 
+import logging
+from importlib import import_module
 from typing import Dict, List, Type
 
 from vision_tokenization.qualitative_benchmark.metrics.base import BaseMetric
 
+logger = logging.getLogger(__name__)
+
 # Global metric registry
 METRIC_REGISTRY: Dict[str, Type[BaseMetric]] = {}
+_BUILTIN_METRIC_MODULES = (
+    ("vision_tokenization.qualitative_benchmark.metrics.clip_score", "CLIPScoreMetric"),
+    ("vision_tokenization.qualitative_benchmark.metrics.completion_quality", "CompletionQualityMetric"),
+)
+_BUILTINS_REGISTERED = False
 
 
 def register_metric(name: str):
@@ -32,6 +41,23 @@ def register_metric(name: str):
     return decorator
 
 
+def ensure_builtin_metrics_registered() -> None:
+    """Import bundled metric modules lazily so optional deps stay optional."""
+    global _BUILTINS_REGISTERED
+    if _BUILTINS_REGISTERED:
+        return
+
+    for module_name, class_name in _BUILTIN_METRIC_MODULES:
+        try:
+            module = import_module(module_name)
+        except ModuleNotFoundError as exc:
+            logger.debug("Skipping optional metric module %s: %s", module_name, exc)
+            continue
+        globals()[class_name] = getattr(module, class_name)
+
+    _BUILTINS_REGISTERED = True
+
+
 def get_metric(name: str, **kwargs) -> BaseMetric:
     """
     Factory function to create a metric instance by name.
@@ -46,6 +72,7 @@ def get_metric(name: str, **kwargs) -> BaseMetric:
     Raises:
         ValueError: If metric name is not found in registry
     """
+    ensure_builtin_metrics_registered()
     if name not in METRIC_REGISTRY:
         available = ", ".join(METRIC_REGISTRY.keys()) or "none"
         raise ValueError(f"Unknown metric '{name}'. Available metrics: {available}")
@@ -61,23 +88,14 @@ def list_metrics() -> List[str]:
     Returns:
         List of metric identifiers
     """
+    ensure_builtin_metrics_registered()
     return list(METRIC_REGISTRY.keys())
-
-
-from vision_tokenization.qualitative_benchmark.metrics.clip_score import CLIPScoreMetric
-
-# Import metrics to trigger registration
-# These imports must come after the registry is defined
-from vision_tokenization.qualitative_benchmark.metrics.completion_quality import CompletionQualityMetric
-from vision_tokenization.qualitative_benchmark.metrics.polos_score import POLOSMetric
 
 __all__ = [
     "BaseMetric",
     "METRIC_REGISTRY",
     "register_metric",
+    "ensure_builtin_metrics_registered",
     "get_metric",
     "list_metrics",
-    "CompletionQualityMetric",
-    "CLIPScoreMetric",
-    "POLOSMetric",
 ]

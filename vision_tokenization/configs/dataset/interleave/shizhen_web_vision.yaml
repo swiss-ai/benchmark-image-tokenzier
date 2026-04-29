@@ -1,0 +1,16 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# ShizhenGPT TCM web_vision — interleave, JSONL + tar
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/jsonl_tar@_here_
+  - /dataset/_task/interleave@_here_
+
+output_name: shizhen_web_vision
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/shizhen_web_vision/manifest.parquet
+tar_pattern: "image_*.tar"
+parser: shizhen
+document_field: content
+min_pixels: "192*192"
+plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/shizhen_web_vision.pt

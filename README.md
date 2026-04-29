@@ -1,61 +1,200 @@
-# Benchmark: Discrete Image Tokenizers
+# Apertus — Image Tokenization at Scale
 
-Repo supports benchmarking and large-scale tokenization with discrete image tokenizers.
+Production tokenization infrastructure for **discrete image tokenizers**
+in the Apertus multimodal stack. The primary workflow here is turning
+hundreds of millions of images into Megatron `.bin/.idx` micro-shards
+for training; a smaller benchmarking sandbox lives alongside it.
 
-**Authors:** Yixuan Xu, Raphael Kreft, Nicola Irmiger
+Two workflows:
 
-## Repository Structure
+1. **Distributed dataset tokenization** *(the main thing)* — WebDataset
+   and HuggingFace corpora into Megatron shards via `torch.distributed`,
+   one independent rank per GPU, no NCCL between ranks. Built and run
+   on multi-node Slurm; measured rank-wallclock imbalance under 2 % at
+   real run sizes.
+2. **Tokenizer benchmarking** *(the sandbox)* — encode → decode → score
+   ~14 discrete tokenizers (Emu3, IBQ, FlowMo, OpenMAGViT2, Cosmos,
+   TokenFlow, TiTok, UniTok, LlamaGen, Selftok, Seed, VQGAN, …) for
+   reconstruction quality, plus qualitative VLM evaluations.
+
+### Scale already in production
+
+- **42 dataset wrappers** under [`scripts/slurm/`](scripts/slurm/) —
+  including `pin_200m` (~200 M samples), `llava85m_midtrain` (~85 M),
+  `latex_formulas_80m` (~80 M), `blip3_grounding_50m`,
+  `innovator_vl_46m`, `facecaption_15m`,
+  `megalith_10m_florence2`, `mit_10m_recap`, and dozens of smaller
+  SFT / interleave datasets.
+- **5 modes**: `image_only`, `image2text`, `text2image`, `sft`,
+  `interleave`.
+- Outputs feed Apertus 1.5 multimodal training directly — the same
+  `.bin/.idx` pair Megatron-LM reads natively, no conversion step.
+- Tens of TB of training-ready tokens produced and reused across
+  ablations; manifests are reused so re-tokenizing for a different
+  batch size or rank count costs *seconds* of replanning.
+
+This is **not a generic pip-installable library**. It targets the CSCS
+Clariden cluster (GH200) with a Slurm + container runtime; expect to
+adapt paths and the Slurm preamble for any other site.
+
+**Authors:** Yixuan Xu*, Raphael Krest, Nicola Irmiger.
+
+*Major contributor and maintainer.
+
+---
+
+## Quickstart — tokenize one dataset
+
+Everything below runs from the **CSCS login node**. The login node only
+submits `sbatch`; all heavy work — Python, GPU, manifest scans —
+happens on compute nodes inside the container declared by each Slurm
+script (`#SBATCH --environment=scripts/envs/nemo_25_11.toml`).
+
+**One-time setup** (if you haven't cloned yet):
+
+```bash
+git clone --recurse-submodules <repo-url> benchmark-image-tokenzier
+cd benchmark-image-tokenzier
+```
+
+**Prerequisite** — the manifest Parquet for your dataset must already
+exist at the path declared in
+`vision_tokenization/configs/dataset/<mode>/<name>.yaml`. Manifest
+creation lives upstream in the `multimodal-data` repo; this repo
+**consumes** manifests, it doesn't build them.
+
+**Submit the tokenization job, then chain the merge:**
+
+```bash
+# Submit. Each scripts/slurm/<dataset>.slurm srun's
+#   `python -m vision_tokenization.tokenize mode=<mode> dataset=<name> num_gpus=$NUM_GPUS`
+# inside the container.
+JOBID=$(sbatch --parsable scripts/slurm/docci.slurm)
+
+# Chain a CPU-only merge job with `afterany` so it still runs if the
+# tokenizer exited on a benign signal (e.g. SIGTERM at time limit).
+OUTPUT_DIR=/.../tokenized/image2text/docci EXPECTED_RANKS=4 \
+    sbatch --dependency=afterany:$JOBID scripts/slurm/merge.slurm
+```
+
+What you get: `merged.bin` + `merged.idx` ready to be loaded by
+Megatron-LM. Everything is deterministic and resumable; re-submitting
+the same job with `resume=true` (already on in `docci.slurm`) continues
+from the last completed batch index.
+
+For a new dataset, copy the closest sibling Slurm wrapper under
+[`scripts/slurm/`](scripts/slurm/) (44 to choose from), edit the dataset
+name, and submit. For what each step *does*, see
+[`vision_tokenization/README.md`](vision_tokenization/README.md).
+
+---
+
+## Workflows
+
+### 1. Distributed tokenization → `vision_tokenization/`
+
+The production data path. `torch.distributed` with one independent rank
+per GPU (no NCCL between ranks), Hydra config composition, deterministic
+batch plans, last-rank-out merging. Five modes: `image_only`,
+`image2text`, `text2image`, `sft`, `interleave`.
+
+→ See [`vision_tokenization/README.md`](vision_tokenization/README.md)
+for architecture, design rationale, and full configuration reference.
+
+### 2. Tokenizer reconstruction benchmarks → `benchmarks/`
+
+Encode-decode 14 tokenizers on a shared image set, score with PSNR /
+SSIM / LPIPS, save reconstructions side-by-side under `assets/`.
+Best LPIPS in the current sweep: `Emu3VisionTokenizer` at 0.019
+(30.14 PSNR, 10.9k tokens).
+
+→ See [`benchmarks/README.md`](benchmarks/README.md) for the layout,
+how to run a sweep, and the tokenizer comparison reference card.
+Hard numbers in [`benchmarks/metrics/metrics_results.md`](benchmarks/metrics/metrics_results.md).
+
+### 3. Qualitative VLM benchmarks → `vision_tokenization/qualitative_benchmark/`
+
+Evaluate a vision-language model trained on top of these tokenizers:
+captioning, VQA, image completion. Publishes a static viewer to
+[`docs/index.html`](docs/index.html).
+
+→ See [`vision_tokenization/qualitative_benchmark/README.md`](vision_tokenization/qualitative_benchmark/README.md).
+
+---
+
+## Requirements
+
+| Component | Expectation |
+|---|---|
+| **Python** | Provided by the container's `/opt/venv` (Python 3.11+). No `pip install -e .` flow — the repo is run in-place. |
+| **GPU** | Tested on NVIDIA GH200 120 GB at CSCS Clariden. |
+| **Runtime** | Slurm + Pyxis containers. The container TOMLs live under [`scripts/envs/`](scripts/envs/) (`nemo_25_11.toml`, `nemo_26_02.toml`); every Slurm script references one via `#SBATCH --environment=`. |
+| **Megatron-LM** | Required at runtime for the `IndexedDatasetBuilder`. The pipeline expects a sibling `Megatron-LM` checkout next to this repo, or `MEGATRON_PATH` set; the merge step will also auto-discover it. |
+| **Submodules** | One git submodule (`Tokenizer/submodules/Emu3.5`). Clone with `--recurse-submodules` or run `git submodule update --init --recursive`. |
+| **Storage** | Designed for Lustre (CSCS `/capstor` and `/iopsstor`). Manifests are small (≤ MB-scale); shards land under `/capstor/.../tokenized/{mode}/{name}/`. |
+
+There is no `requirements.txt` for production deps — the container is
+the source of truth. `requirements-dev.txt` only carries the formatter
+toolchain (see [Developer formatting](#developer-formatting) below).
+
+---
+
+## Repository structure
 
 ```
 .
-├── vision_tokenization/    # Distributed tokenization pipeline (torch.distributed + Hydra)
-│   ├── configs/            # Hydra config files
-│   ├── pipelines/          # Distributed pipeline (core loop, data loading, writing)
-│   ├── vokenizers/         # Tokenizer wrappers (EMU image-only, SFT, image-text-pair)
-│   └── indexing/           # Manifest creation, batch planning, tar reading
-├── Tokenizer/              # Vision tokenizer implementations (submodules + patches)
-├── benchmarks/             # Benchmarking scripts and results
-│   ├── notebooks/          # Tokenizer exploration notebooks
-│   ├── reconstruction/     # Image encode-decode reconstruction
-│   ├── inference/          # Conditional generation and vLLM inference
-│   ├── metrics/            # Quality metrics (LPIPS, PSNR, SSIM, FID)
-│   ├── tiling/             # Image tiling utilities
-│   └── assets/             # Reconstructed images for metric comparison
-├── conftest.py             # Pytest configuration
-├── pyproject.toml          # Project configuration
-└── format.sh               # Auto-formatting (black, isort, flake8)
+├── vision_tokenization/    # Distributed tokenization pipeline
+│   ├── pipeline/           # Executor, prefetch, writers, merge
+│   ├── discrete/           # Tokenizer wrappers (Emu3, Emu3.5; image_only/sft/pair/interleave)
+│   ├── indexing/           # Manifest scanners, batch planning, tar reader
+│   ├── formats/            # Megatron IndexedDataset (.bin/.idx) I/O
+│   ├── configs/            # Hydra config tree (root + per-mode dataset YAMLs)
+│   ├── tests/              # 25 tests: format integrity, integration, SFT parsers
+│   ├── qualitative_benchmark/  # VLM Q&A, captioning, image completion (own README)
+│   └── profile/            # GH200 throughput / OOM profiling notes
+├── Tokenizer/              # Vendored tokenizer implementations + submodules (Emu3.5)
+├── benchmarks/             # Reconstruction sweeps, metrics, notebooks (own README)
+├── scripts/
+│   ├── envs/               # Container TOMLs for Slurm
+│   └── slurm/              # Per-dataset Slurm wrappers + merge.slurm
+├── docs/                   # Static viewer for qualitative VLM results
+├── conftest.py
+├── pyproject.toml          # Black config (not a package definition)
+├── requirements-dev.txt    # Formatter toolchain only
+└── format.sh               # Wraps black / isort / flake8
 ```
 
-## Distributed Tokenization Pipeline
+---
 
-The pipeline in `vision_tokenization/` tokenizes large image datasets using `torch.distributed` (one independent rank per GPU, no NCCL). A background prefetch thread overlaps CPU I/O with GPU encoding. Per-batch timing metrics are streamed to W&B when enabled.
+## Tokenizer comparison (summary)
 
-See [`vision_tokenization/README.md`](vision_tokenization/README.md) for full architecture diagrams, configuration reference, and usage examples.
+The decision-critical columns. Full reference card and reconstruction
+metrics in [`benchmarks/README.md`](benchmarks/README.md) and
+[`benchmarks/metrics/metrics_results.md`](benchmarks/metrics/metrics_results.md).
 
-## Setup Autoformatting
+| Model | Token type | # Tokens / image | Codebook | Understanding | Generation |
+|---|---|---|---|:-:|:-:|
+| Open-MagVit2 | Spatial 2D | 16×16 compression | 262,144 | ✅ | ✅ |
+| Emu3-VisionTokenizer | Spatial 2D | 8×8 compression | 32,768 | ✅ | ✅ |
+| Cosmos | Spatial 2D | 16×16 or 8×8 | 64,000 | ✅ | ✅ |
+| FlowMo Hi | Sequential 1D | 1,024 | 16,384 | — | ✅ |
+| TiTok | Sequential 1D | 256 | 4,096 | — | ✅ |
+| Selftok | Sequential AR | 512 / 1,024 / 1,536 | 32,768 | ✅ | ✅ |
+| UniTok | Sequential 1D | 8 × 256 | 8 × 16,000 | ✅ | ✅ |
+| DetailFlow | Sequential AR | 128 / 256 / 512 | 8,192 | — | ✅ |
+| TokenFlow | Spatial 2D (next-scale) | 16×16 / 27×27 | 32,768 | ✅ | ✅ |
+| VILA-U | Spatial 2D (RQ) | 16×16×4 | 16,384 | ✅ | ✅ |
 
-This repo supports auto-formatting using flake8, black and isort. Submodules are ignored by default.
+---
 
-Install dev requirements:
+## Developer formatting
+
+Black + isort + flake8, configured to skip submodules:
+
 ```bash
 pip install -r requirements-dev.txt
-```
-Then run formatting any time using:
-```bash
 ./format.sh
 ```
 
-## Benchmarked Tokenizers
-
-| Model | Approach | Token Type | Training Resolution | Inference Resolution | # Tokens per Image | Codebook Size | Training Data Augmented | Image Understanding | Image Generation | Pretraining Data |
-|-------|----------|------------|---------------------|---------------------|-------------------|---------------|----------------------|---------------------|------------------|---------------------------|
-| **Open-MagVit2** | VQ-VAE + MLM | Spatial (2D Grid) | 256×256 | Flexible (e.g., 256×256) | 16×16 Compression | 262,144 | Unknown | ✅ | ✅ |  Imagenet2012 |
-| **Emu3-VisionTokenizer** | VQ-GAN (MoVQGAN) | Spatial (2D Grid) | ≥ 512×512 | Flexible (e.g., 512×512) | 8×8 Compression | 32,768 | Unknown | ✅ | ✅ | [laion-high-resolution](https://github.com/rom1504/img2dataset/blob/main/dataset_examples/laion-high-resolution.md) |
-| **Cosmos** | VQ-AE (Discrete) | Spatial (2D Grid) | Flexible (256px to 4K) | Original | 16×16 or 8×8 Compression | 64,000 | Unknown | ✅ | ✅ | VIDEO: <br> Driving (11%), <br> Hand motion and object manipulation (16%), <br>Human motion and activity (10%), <br> Spatial awareness and navigation (16%), <br> First person point-of-view (8%), <br> Nature dynamics (20%), <br> Dynamic camera movements (8%), <br> Synthetically rendered (4%), <br> Others (7%) |
-| **FlowMo Hi** | Diffusion Autoencoder (Transformer-based) | Sequential (1D latent) | 256×256 | 256×256 | 1,024 | 16,384 | Unknown | — | ✅ | Imagenet2012 |
-| **TiTok** | 1D VQ-VAE (Transformer-based) | Sequential (1D latent) | 256×256, 512×512 | 256×256, 512×512 | 256 | 4,096 | Unknown | — | ✅ | ImageNet |
-| **Selftok** | Diffusion-based AR Prior | Sequential (Autoregressive Prior) | 256×256 | 256×256 | 512 / 1,024 / 1,536 | 32,768 | Unknown | ✅ | ✅ | DataComp: 25.45%, <br> LAION-2B En: 25.36%, <br> LAION-2B Multi: 24.26%, <br> COYO-700M: 12.96%, <br> In-house T2I: 7.98%, <br> In-house Text: 4.00% |
-| **UniTok** | VQ-VAE | Sequential (1D latent) | 256×256 | flexible | flexible(8 x 256 for 256 x 256) | 8 x 16000 | Unknown | ✅ | ✅ | DataComp-1B |
-| **DetailFlow** | Autoregressive | Sequential (AR coarse-to-fine, next-detail-prediction) | 256×256 | 256×256 | 128 / 256 / 512 | 8,192 | Unknown | - | ✅ | ImageNet-1K |
-| **TokenFlow** | VQ-VAE (Transformer-based) | Spatial (2D latent, next-scale-prediction) | 256×256 / 384x384 | 256×256 / 384x384 |  16x16 / 27x27 | 32,768 | Unknown | ✅ | ✅ | LAION and COYO-700M (no ocr data!) |
-| **VILA-U** | RQ-VAE | Spatial (2D latent) | 256×256 | 256×256 |  16x16x4 | 16,384 | Unknown | ✅ | ✅ | COYO-700M |
+`pyproject.toml` only carries Black's line length and exclude rules — it
+is *not* a package manifest.

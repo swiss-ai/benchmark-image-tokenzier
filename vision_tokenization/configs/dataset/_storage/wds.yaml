@@ -1,0 +1,14 @@
+# WebDataset tar shards.
+
+dataset_type: wds
+
+input_pattern: null
+image_column: image
+image_field_pattern: null
+multi_image: null
+max_open_files: 64
+
+window_size: 5000
+prefetch:
+  queue_size: 64
+seqlen_threshold: null

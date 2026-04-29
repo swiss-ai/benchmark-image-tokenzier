@@ -1,0 +1,37 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Smithsonian (cleaned5) — image2text, museum-curator-authored captions.
+# 41,837 high-resolution images (mean 5295×5422) across 8 Smithsonian
+# collections (NPG, NPM, NMAH, CHNDM, NMAAHC, SIA, NASM, ACM).
+#
+# Captions are NOT VLM-generated — 91.7% are taken directly from museum
+# curator notes (``caption_source: notes`` in metadata) and 8.3% are
+# templated from structured metadata (``template+metadata``). This makes
+# Smithsonian the highest-trust caption source in the cooldown mix and
+# an anti-hallucination anchor against VLM-generated cooldown sources
+# (HQ-50K, NASA, MINT-1T-ArXiv, OWID grapher_charts).
+#
+# Schema is already image2text-shape: scalar ``image: Binary`` +
+# scalar ``caption: String`` + ``metadata: String`` (JSON-encoded
+# provenance). No preprocessing or filtering needed.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/image2text@_here_
+
+output_name: smithsonian
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/cooldown
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/smithsonian/smithsonian_cleaned5/*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/smithsonian/manifest.parquet
+image_column: image
+text_column: caption
+
+# Source images are very large (mean 5295×5422). Don't filter; tokenizer
+# downscales to 1400×1400 cap.
+max_pixels: "65536*65536"
+max_batch_tokens: 32_768
+
+# Captions are short (median ~95 tokens), image tokens dominate at ~6.8K
+# post-downscale. Keep stage2/lct split for layout consistency with
+# docci, owid_grapher_charts, hq50k, nasa_cooldown.
+seqlen_threshold: 8192

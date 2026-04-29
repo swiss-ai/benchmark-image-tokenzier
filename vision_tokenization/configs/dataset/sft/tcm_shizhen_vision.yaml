@@ -1,0 +1,17 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# TCM-ShizhenGPT Vision Instruction — SFT, JSONL+tar (67K docs, Chinese medical)
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/jsonl_tar@_here_
+  - /dataset/_task/sft@_here_
+
+
+output_name: tcm_shizhen_vision
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/tcm_shizhen_vision/manifest.parquet
+
+image_field: image
+text_column: conversations
+tar_pattern: "image_*.tar"
+multi_image: true

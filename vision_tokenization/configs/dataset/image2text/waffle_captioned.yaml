@@ -1,0 +1,23 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# WAFFLE captioned (~12K floorplans from Wikimedia Commons, Qwen3.5-397B captions)
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/image2text@_here_
+
+output_name: waffle_captioned
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/waffle_captions/waffle_captioned_clean_shards/waffle_captioned_full_*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/waffle_captioned/manifest.parquet
+image_column: image_bytes
+text_column: caption
+
+# Disable the 2048*2048 default cap — WAFFLE images observed up to 2500*2500.
+max_pixels: "65536*65536"
+max_batch_tokens: 32_768
+
+# Split output into stage2/ (≤ threshold tokens) and lct/ (> threshold),
+# matching the interleave datasets so downstream training can bucket
+# short- and long-context sequences.
+seqlen_threshold: 8192

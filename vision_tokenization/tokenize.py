@@ -5,11 +5,16 @@ Usage::
 
     python -m vision_tokenization.tokenize \
         mode=image2text dataset=pmc_oa num_gpus=4
+
+    python -m vision_tokenization.tokenize \
+        mode=interleave dataset=pin_subset num_gpus=4
 """
 
 # Avoid thread oversubscription with many dataloader workers
 import os
 os.environ.setdefault("OMP_NUM_THREADS", "1")
+# Reduce CUDA memory fragmentation with expandable virtual-memory segments.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
@@ -24,7 +29,7 @@ from omegaconf import DictConfig, OmegaConf
 
 logger = logging.getLogger(__name__)
 
-_VALID_MODES = {"image_only", "sft", "image2text", "text2image"}
+_VALID_MODES = {"image_only", "sft", "image2text", "text2image", "interleave"}
 
 
 def _preprocess_dataset_override():
@@ -63,12 +68,45 @@ def _resolve_mode(cfg: DictConfig) -> None:
     mode = cfg.get("mode")
     if mode is None:
         raise ValueError(
-            "mode is required. Use: mode=image_only | sft | image2text | text2image"
+            "mode is required. Use: mode=image_only | sft | image2text | text2image | interleave"
         )
     if mode not in _VALID_MODES:
         raise ValueError(
             f"mode={mode!r} is not valid. Expected one of: {sorted(_VALID_MODES)}"
         )
+
+
+def _merge_config(root_cfg: dict, dataset_cfg: dict) -> dict:
+    """Flatten root + dataset config into one pipeline config dict."""
+    pipeline_cfg = dict(root_cfg)
+    pipeline_cfg.update(dict(dataset_cfg))
+    return pipeline_cfg
+
+
+def _build_tokenizer_kwargs(cfg: DictConfig) -> dict:
+    """Resolve tokenizer runtime kwargs with tokenizer-scoped precedence.
+
+    ``tokenizer.*`` overrides should win over dataset defaults, because they
+    control tokenizer implementation details rather than dataset semantics.
+    Dataset-scoped values remain as a fallback for existing dataset configs.
+    """
+    tokenizer_cfg = cfg.tokenizer
+    dataset_cfg = cfg.dataset
+
+    tokenizer_kwargs = {
+        "torch_compile": tokenizer_cfg.get(
+            "torch_compile",
+            dataset_cfg.get("torch_compile", False),
+        ),
+        "torch_compile_mode": tokenizer_cfg.get(
+            "torch_compile_mode",
+            dataset_cfg.get("torch_compile_mode", "max-autotune"),
+        ),
+    }
+    max_sequence_tokens = dataset_cfg.get("max_sequence_tokens")
+    if max_sequence_tokens is not None:
+        tokenizer_kwargs["max_sequence_tokens"] = int(max_sequence_tokens)
+    return tokenizer_kwargs
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="config")
@@ -85,76 +123,42 @@ def main(cfg: DictConfig):
     tokenizer_path = tokenizer_cfg.path
     tokenizer_min_pixels = parse_resolution(str(tokenizer_cfg.min_pixels))["pixels"]
     tokenizer_max_pixels = parse_resolution(str(tokenizer_cfg.max_pixels))["pixels"]
-    tokenizer_kwargs = {
-        "torch_compile": tokenizer_cfg.get("torch_compile", False),
-        "torch_compile_mode": tokenizer_cfg.get("torch_compile_mode", "reduce-overhead"),
-    }
+    tokenizer_kwargs = _build_tokenizer_kwargs(cfg)
 
-    # Dataset-level pixel bounds for batch-planner filtering.
-    # Format: "H*W" string (e.g. "64*128") or plain integer.
     filter_min_pixels = parse_resolution(str(cfg.dataset.min_pixels))["pixels"]
     filter_max_pixels = parse_resolution(str(cfg.dataset.max_pixels))["pixels"]
 
-    from vision_tokenization.pipelines.distributed import run_distributed_pipeline
+    from vision_tokenization.pipeline import run_distributed_pipeline
 
-    # Build flat config dict for the pipeline
-    pipeline_cfg = {
-        "tokenizer_path": tokenizer_path,
-        "tokenizer_min_pixels": tokenizer_min_pixels,
-        "tokenizer_max_pixels": tokenizer_max_pixels,
-        "max_images_per_encode": tokenizer_cfg.get("max_images_per_encode"),
-        "filter_min_pixels": filter_min_pixels,
-        "filter_max_pixels": filter_max_pixels,
-        "output_dir": cfg.dataset.output_dir,
-        "num_gpus": cfg.get("num_gpus"),
-        "mode": cfg.mode,
-        "resume": cfg.get("resume", False),
-        "dry_run": cfg.get("dry_run", False),
-        # Dataset config (flattened from dataset group)
-        "dataset_type": cfg.dataset.get("dataset_type", "hf"),
-        "output_name": cfg.dataset.get("output_name"),
-        "manifest_path": cfg.dataset.get("manifest_path"),
-        "input_pattern": cfg.dataset.get("input_pattern"),
-        "image_column": cfg.dataset.get("image_column", "image"),
-        "text_column": cfg.dataset.get("text_column"),
-        "multi_image": cfg.dataset.get("multi_image"),
-        # Batch planning
-        "batch_plan_path": cfg.dataset.get("batch_plan_path"),
-        "batch_size": cfg.dataset.get("batch_size"),
-        "max_batch_tokens": cfg.dataset.get("max_batch_tokens"),
-        "spatial_factor": cfg.dataset.get("spatial_factor", 16),
-        "num_clusters": cfg.dataset.get("num_clusters", 2000),
-        "niter": cfg.dataset.get("niter", 10),
-        "gpu_kmeans": cfg.dataset.get("gpu_kmeans", True),
-        "resize_mode": cfg.dataset.get("resize_mode", "avg"),
-        # Augmentation
-        "augmentation": OmegaConf.to_container(cfg.dataset.augmentation, resolve=True)
-        if cfg.dataset.get("augmentation") is not None
-        else None,
-        # Checkpointing
-        "checkpoint_interval_batches": cfg.dataset.get("checkpoint_interval_batches", 500),
-        "max_consecutive_errors": cfg.dataset.get("max_consecutive_errors", 50),
-        "prefetch": OmegaConf.to_container(cfg.dataset.get("prefetch", {}), resolve=True),
-        # Sequence-length split
-        "seqlen_threshold": cfg.dataset.get("seqlen_threshold"),
-        # WDS-specific
-        "max_open_files": cfg.dataset.get("max_open_files", 64),
-        "max_cached_chunks": cfg.dataset.get("max_cached_chunks", 32),
-        # Multi-image
-        "image_field_pattern": cfg.dataset.get("image_field_pattern"),
-        "image_list_column": cfg.dataset.get("image_list_column"),
-        # W&B
-        "wandb": OmegaConf.to_container(cfg.get("wandb", {}), resolve=True),
-    }
+    resolved_cfg = OmegaConf.to_container(cfg, resolve=True)
+    dataset_cfg = resolved_cfg.pop("dataset", {})
+    pipeline_cfg = _merge_config(resolved_cfg, dataset_cfg)
+
+    tokenizer_cfg_resolved = pipeline_cfg.pop("tokenizer", {})
+    pipeline_cfg["tokenizer_path"] = pipeline_cfg.get("tokenizer_path", tokenizer_path)
+    pipeline_cfg["tokenizer_min_pixels"] = tokenizer_min_pixels
+    pipeline_cfg["tokenizer_max_pixels"] = tokenizer_max_pixels
+    pipeline_cfg["max_encode_pixels"] = tokenizer_cfg_resolved.get("max_encode_pixels")
+    pipeline_cfg["filter_min_pixels"] = filter_min_pixels
+    pipeline_cfg["filter_max_pixels"] = filter_max_pixels
+
+    # Parser → document_format mapping
+    if not pipeline_cfg.get("document_format"):
+        _parser_to_format = {
+            "pin200m": "pin_markdown", "shizhen": "content_array",
+            "medpix": "medpix",
+        }
+        pipeline_cfg["document_format"] = _parser_to_format.get(
+            pipeline_cfg.get("parser", "auto")
+        )
     pipeline_cfg["tokenizer_kwargs"] = tokenizer_kwargs
 
     # Conversation policy for SFT mode
-    conv_policy = cfg.dataset.get("conversation_policy")
+    conv_policy = pipeline_cfg.get("conversation_policy")
     if conv_policy is not None:
-        from vision_tokenization.vokenizers.conversation_policy import ConversationPolicy
-
+        from vision_tokenization.discrete.conversation import ConversationPolicy
         pipeline_cfg["tokenizer_kwargs"]["conversation_policy"] = ConversationPolicy(
-            **OmegaConf.to_container(conv_policy, resolve=True)
+            **(conv_policy if isinstance(conv_policy, dict) else {})
         )
 
     result = run_distributed_pipeline(pipeline_cfg)

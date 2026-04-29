@@ -2,7 +2,9 @@
 # MedTrinity-Full — image2text, WebDataset, single-image + caption
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
-  - _base_wds
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/wds@_here_
+  - /dataset/_task/image2text@_here_
 
 output_name: medtrinity_full
 output_dir: /capstor/scratch/cscs/xyixuan/vision-datasets-tokenized
@@ -16,5 +18,5 @@ image_field_pattern: img
 # --- Overrides ----------------------------------------------------------------
 batch_size: 32
 gpu_kmeans: false
-batch_plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/medtrinity_full.pt
-checkpoint_interval_batches: 5000
+plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/medtrinity_full.pt
+checkpoint_interval_batches: 5_000

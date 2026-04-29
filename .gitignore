@@ -20,6 +20,8 @@ venv.bak/
 # IDE and tools
 .vscode/
 .idea/
+.codex
+.codex/
 *.swp
 *.swo
 *~
@@ -89,3 +91,4 @@ vision_tokenization/profile/reports/
 
 # Isolated metric venvs
 vision_tokenization/qualitative_benchmark/metrics/.polos_env/
+outputs/

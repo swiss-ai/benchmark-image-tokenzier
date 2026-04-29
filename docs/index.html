@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apertus Vision Ablations</title>
+    <style>
+        :root {
+            --bg: #f8f9fa;
+            --surface: #ffffff;
+            --border: #dee2e6;
+            --text: #212529;
+            --text-secondary: #6c757d;
+            --accent: #2563eb;
+            --accent-light: #dbeafe;
+            --tag-bg: #e9ecef;
+            --radius: 8px;
+            --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+            --shadow-lg: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #e8eaf6 0%, #f3e5f5 30%, #e8f5e9 60%, #e3f2fd 100%);
+            background-attachment: fixed;
+            color: var(--text);
+            line-height: 1.5;
+            min-height: 100vh;
+        }
+
+        /* Header */
+        header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 24px 32px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            z-index: 100;
+            box-shadow: var(--shadow);
+        }
+
+        header h1 {
+            font-size: 22px;
+            font-weight: 700;
+        }
+
+        header .subtitle {
+            font-size: 14px;
+            color: var(--text-secondary);
+            max-width: 600px;
+            text-align: center;
+            line-height: 1.5;
+        }
+
+        /* Controls bar */
+        .controls-bar {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 12px 32px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        select {
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            font-size: 14px;
+            background: var(--surface);
+            color: var(--text);
+            cursor: pointer;
+            min-width: 280px;
+        }
+
+        select:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-light);
+        }
+
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: auto;
+        }
+
+        .filter-group label {
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        /* Metadata bar */
+        .metadata-bar {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 10px 32px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            display: none;
+        }
+
+        .metadata-bar.visible { display: flex; gap: 24px; flex-wrap: wrap; }
+
+        .metadata-item {
+            display: flex;
+            gap: 4px;
+        }
+
+        .metadata-item strong {
+            color: var(--text);
+            font-weight: 500;
+        }
+
+        /* Empty state */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 60vh;
+            color: var(--text-secondary);
+            gap: 12px;
+            max-width: 65%;
+            margin: 0 auto;
+        }
+
+        .empty-state svg {
+            width: 48px;
+            height: 48px;
+            opacity: 0.4;
+        }
+
+        .empty-state p {
+            font-size: 15px;
+        }
+
+        .empty-state .hint {
+            font-size: 13px;
+            max-width: 420px;
+            text-align: center;
+        }
+
+        /* Results container */
+        .results-container {
+            padding: 24px 32px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            max-width: 65%;
+            margin: 0 auto;
+        }
+
+        .results-count {
+            font-size: 13px;
+            color: var(--text-secondary);
+            padding-bottom: 4px;
+        }
+
+        /* Result card */
+        .result-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            overflow: hidden;
+        }
+
+        .card-left {
+            padding: 20px;
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .card-right {
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .card-label {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+        }
+
+        .card-image-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: var(--bg);
+            border-radius: 6px;
+            overflow: hidden;
+            min-height: 200px;
+        }
+
+        .card-image-wrapper img {
+            max-width: 100%;
+            max-height: 400px;
+            object-fit: contain;
+        }
+
+        .card-query {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text);
+            padding: 10px 14px;
+            background: var(--accent-light);
+            border-radius: 6px;
+            border-left: 3px solid var(--accent);
+        }
+
+        .card-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+
+        .tag {
+            font-size: 11px;
+            padding: 2px 8px;
+            background: var(--tag-bg);
+            border-radius: 12px;
+            color: var(--text-secondary);
+        }
+
+        .card-output {
+            font-size: 14px;
+            line-height: 1.7;
+            color: var(--text);
+            white-space: pre-wrap;
+            word-break: break-word;
+            flex: 1;
+        }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            header {
+                padding: 16px;
+            }
+
+            .controls-bar {
+                flex-direction: column;
+                align-items: stretch;
+                padding: 12px 16px;
+                gap: 10px;
+            }
+
+            .filter-group {
+                margin-left: 0;
+            }
+
+            select { min-width: unset; width: 100%; }
+
+            .results-container { padding: 16px; max-width: 100%; }
+            .empty-state { max-width: 100%; }
+
+            .result-card {
+                grid-template-columns: 1fr;
+            }
+
+            .card-left {
+                border-right: none;
+                border-bottom: 1px solid var(--border);
+            }
+
+            .metadata-bar { padding: 10px 16px; }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>Apertus Vision Ablations</h1>
+    <p class="subtitle">Qualitative QA and captioning benchmarks comparing Apertus vision model ablations, tested on diverse images covering charts, diagrams, OCR, photos, and illustrations.</p>
+</header>
+
+<div class="controls-bar">
+    <select id="experiment-select">
+        <option value="">-- Select an experiment --</option>
+    </select>
+    <div class="filter-group">
+        <label for="tag-filter">Filter by tag:</label>
+        <select id="tag-filter">
+            <option value="">All</option>
+        </select>
+    </div>
+</div>
+
+<div class="metadata-bar" id="metadata-bar">
+    <div class="metadata-item"><strong>Model:</strong> <span id="meta-model">-</span></div>
+    <div class="metadata-item"><strong>Tokenizer:</strong> <span id="meta-tokenizer">-</span></div>
+    <div class="metadata-item"><strong>Runs:</strong> <span id="meta-runs">-</span></div>
+    <div class="metadata-item"><strong>Date:</strong> <span id="meta-date">-</span></div>
+</div>
+
+<div id="content">
+    <div class="empty-state">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 0 0-1.883 2.542l.857 6a2.25 2.25 0 0 0 2.227 1.932H19.05a2.25 2.25 0 0 0 2.227-1.932l.857-6a2.25 2.25 0 0 0-1.883-2.542m-16.5 0V6A2.25 2.25 0 0 1 6 3.75h3.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 0 1.06.44H18A2.25 2.25 0 0 1 20.25 9v.776" />
+        </svg>
+        <p>Select an experiment to view results</p>
+        <p class="hint">Place QA benchmark JSON files in the <code>results/</code> folder and list them in <code>results/manifest.json</code>.</p>
+    </div>
+</div>
+
+<script>
+(function() {
+    const experimentSelect = document.getElementById('experiment-select');
+    const tagFilter = document.getElementById('tag-filter');
+    const metadataBar = document.getElementById('metadata-bar');
+    const content = document.getElementById('content');
+
+    let currentData = null;
+    let currentTag = '';
+
+    // Load manifest and populate experiment dropdown
+    async function init() {
+        try {
+            const resp = await fetch('results/manifest.json');
+            if (!resp.ok) throw new Error('manifest.json not found');
+            const manifest = await resp.json();
+
+            manifest.experiments.forEach(exp => {
+                const opt = document.createElement('option');
+                opt.value = exp.file;
+                opt.textContent = exp.name || exp.file.replace('.json', '');
+                experimentSelect.appendChild(opt);
+            });
+
+            // Restore from URL hash
+            const hash = window.location.hash.slice(1);
+            if (hash) {
+                experimentSelect.value = hash;
+                loadExperiment(hash);
+            }
+        } catch (e) {
+            console.warn('Could not load manifest:', e);
+            content.innerHTML = `
+                <div class="empty-state">
+                    <p>No manifest found</p>
+                    <p class="hint">Create <code>results/manifest.json</code> listing your experiment files. See the README for the format.</p>
+                </div>`;
+        }
+    }
+
+    async function loadExperiment(file) {
+        if (!file) {
+            currentData = null;
+            renderEmpty();
+            metadataBar.classList.remove('visible');
+            return;
+        }
+
+        try {
+            const resp = await fetch('results/' + file);
+            if (!resp.ok) throw new Error('Failed to load ' + file);
+            currentData = await resp.json();
+
+            window.location.hash = file;
+            populateTags();
+            renderMetadata();
+            renderResults();
+        } catch (e) {
+            content.innerHTML = `
+                <div class="empty-state">
+                    <p>Error loading experiment</p>
+                    <p class="hint">${e.message}</p>
+                </div>`;
+        }
+    }
+
+    function populateTags() {
+        tagFilter.innerHTML = '<option value="">All</option>';
+        if (!currentData) return;
+
+        const tags = new Set();
+        (currentData.runs || []).forEach(run => {
+            (run.image?.tags || []).forEach(t => tags.add(t));
+            (run.prompt?.tags || []).forEach(t => tags.add(t));
+        });
+
+        Array.from(tags).sort().forEach(tag => {
+            const opt = document.createElement('option');
+            opt.value = tag;
+            opt.textContent = tag;
+            tagFilter.appendChild(opt);
+        });
+
+        currentTag = '';
+        tagFilter.value = '';
+    }
+
+    function renderMetadata() {
+        if (!currentData) {
+            metadataBar.classList.remove('visible');
+            return;
+        }
+
+        document.getElementById('meta-model').textContent = currentData.model_path || '-';
+        document.getElementById('meta-tokenizer').textContent = currentData.vision_tokenizer || currentData.tokenizer_path || '-';
+        document.getElementById('meta-runs').textContent = currentData.total_runs || (currentData.runs || []).length;
+        document.getElementById('meta-date').textContent = currentData.timestamp ? currentData.timestamp.split('T')[0] : '-';
+
+        metadataBar.classList.add('visible');
+    }
+
+    function renderEmpty() {
+        content.innerHTML = `
+            <div class="empty-state">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 0 0-1.883 2.542l.857 6a2.25 2.25 0 0 0 2.227 1.932H19.05a2.25 2.25 0 0 0 2.227-1.932l.857-6a2.25 2.25 0 0 0-1.883-2.542m-16.5 0V6A2.25 2.25 0 0 1 6 3.75h3.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 0 1.06.44H18A2.25 2.25 0 0 1 20.25 9v.776" />
+                </svg>
+                <p>Select an experiment to view results</p>
+                <p class="hint">Place QA benchmark JSON files in the <code>results/</code> folder and list them in <code>results/manifest.json</code>.</p>
+            </div>`;
+    }
+
+    function cleanOutput(text) {
+        // Remove special tokens like <|extra_204|>
+        return (text || '').replace(/<\|[^|]*\|>/g, '').trim();
+    }
+
+    function renderResults() {
+        if (!currentData || !currentData.runs) {
+            renderEmpty();
+            return;
+        }
+
+        let runs = currentData.runs;
+        if (currentTag) {
+            runs = runs.filter(r =>
+                (r.image?.tags || []).includes(currentTag) ||
+                (r.prompt?.tags || []).includes(currentTag)
+            );
+        }
+
+        let html = `<div class="results-container">`;
+        html += `<div class="results-count">${runs.length} result${runs.length !== 1 ? 's' : ''}${currentTag ? ' (filtered by: ' + currentTag + ')' : ''}</div>`;
+
+        runs.forEach(run => {
+            const imagePath = run.image?.path || '';
+            const isCaptioning = 'caption' in run;
+            const tags = [...new Set([...(run.image?.tags || []), ...(run.prompt?.tags || [])])];
+            const query = isCaptioning
+                ? (run.init_phrase ? 'Init: ' + run.init_phrase : 'Caption this image')
+                : (run.prompt?.text || '');
+            const output = cleanOutput((isCaptioning ? run.caption : run.output) || '');
+            const outputLabel = isCaptioning ? 'Caption' : 'Model Output';
+
+            let metricsHtml = '';
+            if (isCaptioning && run.metrics) {
+                const parts = [];
+                if (run.metrics.clip_score != null) {
+                    parts.push(`CLIP: ${run.metrics.clip_score.toFixed(3)}`);
+                }
+                if (parts.length) {
+                    metricsHtml = `<div class="card-tags">${parts.map(p => `<span class="tag">${escapeHtml(p)}</span>`).join('')}</div>`;
+                }
+            }
+
+            html += `
+            <div class="result-card">
+                <div class="card-left">
+                    <div class="card-label">${isCaptioning ? 'Image' : 'Image &amp; Query'}</div>
+                    <div class="card-image-wrapper">
+                        <img src="${imagePath}" alt="Benchmark image" loading="lazy">
+                    </div>
+                    ${isCaptioning && !run.init_phrase ? '' : `<div class="card-query">${escapeHtml(query)}</div>`}
+                    ${tags.length ? `<div class="card-tags">${tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
+                </div>
+                <div class="card-right">
+                    <div class="card-label">${outputLabel}</div>
+                    <div class="card-output">${escapeHtml(output)}</div>
+                    ${metricsHtml}
+                </div>
+            </div>`;
+        });
+
+        html += `</div>`;
+        content.innerHTML = html;
+    }
+
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    // Event listeners
+    experimentSelect.addEventListener('change', () => loadExperiment(experimentSelect.value));
+    tagFilter.addEventListener('change', () => {
+        currentTag = tagFilter.value;
+        renderResults();
+    });
+
+    init();
+})();
+</script>
+</body>
+</html>

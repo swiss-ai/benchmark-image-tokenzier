@@ -1,0 +1,20 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# ChartVerse-SFT-1.8M — SFT with CoT, single-image-in-list (1.8M rows, charts)
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: chartverse_1_8m
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/sft/hf___opendatalab___ChartVerse-SFT-1.8M/train-*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/chartverse_1_8m/manifest.parquet
+image_list_column: images
+
+parser: qa
+parser_columns:
+  - question
+  - cot_solution
+parser_args:
+  answer_column: cot_solution

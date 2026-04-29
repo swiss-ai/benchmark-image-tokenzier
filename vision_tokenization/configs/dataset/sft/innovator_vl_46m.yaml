@@ -1,0 +1,15 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Innovator-VL-Instruct-46M — SFT, mixed single/multi-image (36M image docs)
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: innovator_vl_46m
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/sft/hf___InnovatorLab___Innovator-VL-Instruct-46M/*/SFT_*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/innovator_vl_46m/manifest.parquet
+image_list_column: images
+text_column: conversations
+multi_image: true

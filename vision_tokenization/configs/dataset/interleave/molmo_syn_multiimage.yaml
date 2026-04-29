@@ -1,0 +1,25 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Molmo2-SynMultiImageQA — HF parquet, multi-image interleave
+# image + code pairs + overall_description
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/interleave@_here_
+
+multi_image: true
+
+output_name: molmo_syn_multiimage
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/hf___allenai___Molmo2-SynMultiImageQA/*/train-*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/molmo_syn_multiimage/manifest.parquet
+image_list_column: images
+
+parser: molmo_syn
+parser_columns:
+  - code
+  - metadata
+
+max_sequence_tokens: 262_144
+seqlen_threshold: 8192
+rebuild: false

@@ -1,0 +1,42 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# google/RSRCC — SFT, multi-image (before+after geospatial change-detection),
+# QA with CoT reasoning. 103,867 samples, all images 512×512 (no downscale).
+#
+# Each sample has 2 images (``before`` + ``after``) and a multiple-choice or
+# yes/no question about the change between them. Generator: gemma-4-31B-it,
+# prompt ``gemma4_rsrcc_cot_v1``.
+#
+# Source data was preprocessed (read from /capstor/store/.../hf___google___RSRCC,
+# combined into ``images: List[Binary]`` + canonical chat ``messages`` column)
+# at /capstor/scratch/cscs/xyixuan/vision-datasets-processed/google_rsrcc_sft.
+#
+# CoT is wrapped in ``<think>...</think>`` so the merge step can produce a
+# no-CoT variant via ``--strip-thinking`` (same pattern as
+# ``mmfinereason_1_8m`` / ``mmfinereason_1_8m_no_cot``).
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/sft@_here_
+
+multi_image: true
+
+output_name: google_rsrcc
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/scratch/cscs/xyixuan/vision-datasets-processed/google_rsrcc_sft/*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/google_rsrcc/manifest.parquet
+image_list_column: images
+
+# ``messages`` is already a list[{role, content}] in canonical chat form. The
+# user turn already contains TWO ``<image>`` markers (one per image), so the
+# conversation policy MUST NOT auto-prepend another marker.
+parser: conversation
+parser_columns:
+  - messages
+
+conversation_policy:
+  add_image_placeholder: false
+
+# Images are uniformly 512×512 — well under the tokenizer 1400×1400 cap.
+max_pixels: "65536*65536"
+max_batch_tokens: 32_768

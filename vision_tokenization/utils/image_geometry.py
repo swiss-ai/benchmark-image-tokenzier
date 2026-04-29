@@ -7,9 +7,10 @@ from typing import Optional, Tuple
 import numpy as np
 
 try:
-    from numba import njit
+    from numba import njit, prange
 except ImportError:  # pragma: no cover - optional dependency
     njit = None
+    prange = None
 
 
 _USE_NUMBA = os.environ.get("VISION_TOKENIZATION_USE_NUMBA", "1").lower() not in {
@@ -55,6 +56,27 @@ if njit is not None:
         return resized_height, resized_width
 
 
+    @njit(parallel=True, cache=True)
+    def _smart_resize_dims_batch_numba(
+        heights: np.ndarray,
+        widths: np.ndarray,
+        min_pixels: int,
+        max_pixels: int,
+        factor: int,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        n = len(heights)
+        out_h = np.empty(n, dtype=np.int32)
+        out_w = np.empty(n, dtype=np.int32)
+        for idx in prange(n):
+            rh, rw = _smart_resize_dims_numba(
+                int(heights[idx]), int(widths[idx]),
+                min_pixels, max_pixels, factor,
+            )
+            out_h[idx] = rh
+            out_w[idx] = rw
+        return out_h, out_w
+
+
     @njit(cache=True)
     def _estimate_image_tokens_numba(
         height: int,
@@ -68,7 +90,7 @@ if njit is not None:
         return vision_tokens + structural_tokens
 
 
-    @njit(cache=True)
+    @njit(parallel=True, cache=True)
     def _estimate_image_tokens_batch_numba(
         heights: np.ndarray,
         widths: np.ndarray,
@@ -77,7 +99,7 @@ if njit is not None:
         max_pixels: int,
     ) -> np.ndarray:
         tokens = np.empty(len(heights), dtype=np.int64)
-        for idx in range(len(heights)):
+        for idx in prange(len(heights)):
             final_height, final_width = _smart_resize_dims_numba(
                 int(heights[idx]),
                 int(widths[idx]),
@@ -189,3 +211,38 @@ def estimate_image_tokens_batch(
             spatial_factor=spatial_factor,
         )
     return tokens
+
+
+def smart_resize_dims_batch(
+    heights: np.ndarray,
+    widths: np.ndarray,
+    *,
+    min_pixels: Optional[int],
+    max_pixels: Optional[int],
+    factor: int,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Vectorized smart_resize_dims for arrays of heights/widths.
+
+    Returns (final_heights, final_widths) as int32 arrays.
+    """
+    heights_arr = np.asarray(heights, dtype=np.int64)
+    widths_arr = np.asarray(widths, dtype=np.int64)
+    min_pixels_i = _pixel_limit(min_pixels)
+    max_pixels_i = _pixel_limit(max_pixels)
+
+    if _NUMBA_AVAILABLE:
+        return _smart_resize_dims_batch_numba(
+            heights_arr, widths_arr, min_pixels_i, max_pixels_i, int(factor),
+        )
+
+    n = len(heights_arr)
+    out_h = np.empty(n, dtype=np.int32)
+    out_w = np.empty(n, dtype=np.int32)
+    for idx in range(n):
+        rh, rw = smart_resize_dims(
+            int(heights_arr[idx]), int(widths_arr[idx]),
+            min_pixels=min_pixels, max_pixels=max_pixels, factor=factor,
+        )
+        out_h[idx] = rh
+        out_w[idx] = rw
+    return out_h, out_w

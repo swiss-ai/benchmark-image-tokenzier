@@ -1,0 +1,31 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# BigEarthNet v2.0 (BIFOLD) — SFT, WebDataset, 240×240 Sentinel-2 composites
+# with per-image multi-turn ``conversations`` (~24 turns each) in the
+# ``.json`` sidecar. Covers land-cover Q/A, point→bbox grounding,
+# referring expression → bbox, multiple-choice, and captioning.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/wds@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: bigearthnet
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/sft/hf___BIFOLD-BigEarthNetv2-0___BigEarthNet/preprocessed/bigearthnet-all-*.tar"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/bigearthnet_sft_train/manifest.parquet
+
+# ``conversations`` is a list[{role, content}] already in canonical SFT form,
+# so no parser is needed — the WDS loader reads the JSON sidecar in each tar
+# record and returns ``parsed["conversations"]`` directly to the SFT handler.
+text_column: conversations
+
+# BigEarthNet conversations omit the ``<image>`` placeholder from the first
+# user message, so we ask the conversation policy to prepend one
+# automatically. Without this, every sample is rejected with
+# "Rendered chat contains no recognized image marker".
+conversation_policy:
+  add_image_placeholder: true
+
+# BigEarthNet tiles are 240×240 — tiny. No filtering needed.
+max_pixels: "65536*65536"
+max_batch_tokens: 32_768

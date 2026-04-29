@@ -7,7 +7,7 @@
 #        mode=image2text dataset=pmc_oa num_gpus=4
 #
 #  Override any field from CLI:
-#    ... dataset.max_batch_tokens=32768 tokenizer.max_pixels="2048*2048"
+#    ... dataset.max_batch_tokens=32_768 tokenizer.max_pixels="2048*2048"
 #
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -18,29 +18,22 @@ defaults:
 # --- Pipeline -----------------------------------------------------------------
 
 num_gpus: ???                      # total GPU count (verified against SLURM_NTASKS)
-mode: ???                          # required: image_only | sft | image2text | text2image
+mode: ???                          # required: image_only | sft | image2text | text2image | interleave
 
 # --- Tokenizer ----------------------------------------------------------------
-# Path to omni-tokenizer (vision tokenizer auto-loaded from its config).
-# min/max_pixels control the tokenizer's aspect-ratio-aware resize grid.
-# Format: "H*W" string (e.g. "128*128") or plain integer.
 
 tokenizer:
   path: /capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_wavtok
   min_pixels: "128*128"
   max_pixels: "1400*1400"
-  max_images_per_encode: 16        # multi-image only: chunk large groups to avoid GPU OOM
-  torch_compile: false             # compile Emu3.5 encode path when shapes are stable
-  torch_compile_mode: reduce-overhead
+  max_encode_pixels: 8_000_000
 
 # --- Checkpointing & Resume --------------------------------------------------
 
-resume: false                      # resume from per-rank checkpoints
-checkpoint_interval_batches: 1000  # finalize chunk + save progress every N batches
-
-# --- Dry Run ------------------------------------------------------------------
-
-dry_run: false                     # estimate token counts without GPU
+resume: false
+merge_shards: false
+rebuild: true
+dry_run: false
 
 # --- Weights & Biases --------------------------------------------------------
 

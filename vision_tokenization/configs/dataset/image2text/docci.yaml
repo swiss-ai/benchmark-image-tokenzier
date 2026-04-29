@@ -1,8 +1,20 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# Google DOCCI — image2text, HuggingFace
+# Google DOCCI — image2text, HuggingFace Arrow (15K hand-narrated captions,
+# fine-grained descriptions covering reflections, occlusions, small text).
+# Train split only.
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
-  - _base_hf
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/image2text@_here_
 
 output_name: docci
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/cooldown
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/stage2/hf___google___docci/docci-train.arrow"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/docci/manifest.parquet
+image_column: image
 text_column: description
+
+# Disable the 2048*2048 default cap — DOCCI images go up to 3500*3500 (~12M px).
+max_pixels: "65536*65536"
+max_batch_tokens: 32_768

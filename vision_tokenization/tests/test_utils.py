@@ -41,7 +41,7 @@ def read_index_header(idx_path: str) -> Dict:
         version = struct.unpack("<Q", f.read(8))[0]
         dtype_code = struct.unpack("<B", f.read(1))[0]
         num_sequences = struct.unpack("<Q", f.read(8))[0]
-        num_documents = struct.unpack("<Q", f.read(8))[0]
+        doc_index_count = struct.unpack("<Q", f.read(8))[0]
 
         return {
             "magic": magic,
@@ -49,7 +49,9 @@ def read_index_header(idx_path: str) -> Dict:
             "dtype_code": dtype_code,
             "dtype_size": 2 if dtype_code == 8 else 4,  # uint16 vs int32
             "num_sequences": num_sequences,
-            "num_documents": num_documents,
+            # Megatron stores len(document_indices) here, not the logical doc count.
+            "doc_index_count": doc_index_count,
+            "num_documents": max(0, doc_index_count - 1),
             "header_size": f.tell(),
         }
 
@@ -63,11 +65,11 @@ def read_index_file(idx_path: str) -> Dict:
 
         # Read arrays
         num_seq = header["num_sequences"]
-        num_doc = header["num_documents"]
+        doc_index_count = header["doc_index_count"]
 
         seq_lengths = np.frombuffer(f.read(num_seq * 4), dtype=np.int32)
         seq_pointers = np.frombuffer(f.read(num_seq * 8), dtype=np.int64)
-        doc_indices = np.frombuffer(f.read((num_doc + 1) * 8), dtype=np.int64)
+        doc_indices = np.frombuffer(f.read(doc_index_count * 8), dtype=np.int64)
 
         return {
             **header,
@@ -224,7 +226,7 @@ def create_test_indexed_dataset(
     sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
     if multimodal:
-        from vision_tokenization.pipelines.indexed_dataset_megatron import VisionTokenIndexedDatasetBuilder
+        from vision_tokenization.formats.megatron import VisionTokenIndexedDatasetBuilder
 
         builder = VisionTokenIndexedDatasetBuilder(
             output_prefix=prefix, image_vocab_size=32768, text_vocab_size=text_vocab_size
@@ -232,7 +234,7 @@ def create_test_indexed_dataset(
         for seq in sequences:
             builder.add_image_tokens(np.array(seq, dtype=np.int32))
     else:
-        from vision_tokenization.pipelines.indexed_dataset_megatron import IndexedDatasetBuilder
+        from vision_tokenization.formats.megatron import IndexedDatasetBuilder
 
         builder = IndexedDatasetBuilder(f"{prefix}.bin", dtype=np.int32)
         for seq in sequences:
