@@ -1,0 +1,35 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Pixmo-Cap-QA (AllenAI) — SFT, single-image descriptive/creative Q/A.
+# 167,417 preprocessed rows (from 271,714 raw; 38% lost to dead URLs during
+# image download). 96% single-round Q/A, 4% short multi-turn. Questions derived
+# from image captions via LLM; answers are longer and more analytical/creative
+# than pixmo-ask-model-anything (median ~415 chars, p95 ~1.6K, max ~8K).
+# Images stored as raw JPEG bytes in the ``jpg`` column.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: pixmo_cap_qa
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/sft/hf___allenai___pixmo-cap-qa/preprocessed/*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/pixmo_cap_qa/manifest.parquet
+image_column: jpg
+
+# ``messages`` is already a list[{role, content}] in canonical chat form; the
+# ``conversation`` parser passes it through unchanged. No ``<image>`` marker
+# anywhere in the messages (0/167K rows), so the policy auto-prepends one to
+# the first user turn.
+parser: conversation
+parser_columns:
+  - messages
+
+conversation_policy:
+  add_image_placeholder: true
+
+# Source images range from 50×48 up to 19200×31557; ~28% are above 1400×1400
+# and will be downscaled by the tokenizer. Don't filter any at the dataset
+# level — let the tokenizer cap handle resizing.
+max_pixels: "65536*65536"
+max_batch_tokens: 32_768

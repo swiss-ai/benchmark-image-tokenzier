@@ -25,13 +25,14 @@ _REGISTRY = {
     "molmo_syn": "molmo_syn",
     "multilingual_recap": "multilingual_recap",
     "recap_multilingual": "multilingual_recap",  # alias
+    "owid_article": "owid_article",
 }
 
 # Interleave parsers that take a full row dict (with multiple named fields)
 # instead of a single-column document payload as their positional argument.
 # Any parser NOT listed here is assumed to take the value of a single
 # ``parser_columns`` entry as its positional payload.
-_ROW_SHAPED_INTERLEAVE_PARSERS: frozenset[str] = frozenset({"molmo_syn"})
+_ROW_SHAPED_INTERLEAVE_PARSERS: frozenset[str] = frozenset({"molmo_syn", "owid_article"})
 
 
 def is_row_shaped_interleave_parser(parser: str) -> bool:

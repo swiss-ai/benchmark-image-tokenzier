@@ -1,20 +1,27 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# Google DOCCI — image2text, HuggingFace Arrow (15K hand-narrated captions,
-# fine-grained descriptions covering reflections, occlusions, small text).
-# Train split only.
+# OWID Articles — interleave, HF parquet (long-form data-journalism pieces,
+# 481 articles with images_bytes stored inline, DOM-ordered segments_json).
+# CC BY 4.0.
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
   - /dataset/_pipeline@_here_
   - /dataset/_storage/hf@_here_
-  - /dataset/_task/image2text@_here_
+  - /dataset/_task/interleave@_here_
 
-output_name: docci
+multi_image: true
+
+output_name: owid_articles
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/cooldown
-input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/stage2/hf___google___docci/docci-train.arrow"
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/docci/manifest.parquet
-image_column: image
-text_column: description
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/owid___charts/articles.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/owid_articles/manifest.parquet
+image_list_column: images_bytes
 
-# Disable the 2048*2048 default cap — DOCCI images go up to 3500*3500 (~12M px).
+parser: owid_article
+parser_columns:
+  - segments_json
+  - title
+  - subtitle
+
+# Article chart images can reach multi-megapixel sizes; don't filter any.
 max_pixels: "65536*65536"
 max_batch_tokens: 32_768
