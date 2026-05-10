@@ -13,6 +13,10 @@
       "name": "Captioning Ap1P5 S2 It180000"
     },
     {
+      "file": "captioning_ap1p5_stage3_it478000_cached.json",
+      "name": "Captioning Ap1P5 Stage3 It478000 Cached"
+    },
+    {
       "file": "qa_apertus8b_emu3_5_s2_onlytxt_sft.json",
       "name": "Qa - Apertus8B Emu3 5 S2 Onlytxt Sft"
     },
