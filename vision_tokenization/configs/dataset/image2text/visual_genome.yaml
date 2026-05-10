@@ -1,0 +1,50 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Visual Genome — image2text, BLIP3-Grounding-style dense grounded captions.
+#
+# 108,077 images from VG (CC-BY-4.0), each paired with a single grounded text
+# string formatted from VG's human-drawn region descriptions:
+#
+#   <object>phrase_1</object><bbox>[x1, y1][x2, y2]</bbox>,
+#   <object>phrase_2</object><bbox>[x1, y1][x2, y2]</bbox>, …
+#
+# Coordinates: normalized 0.0-1.0 (x1, y1 top-left → x2, y2 bottom-right).
+# All bboxes are 100% human ground truth (Krishna et al. 2017, Mechanical
+# Turk).  No Qwen pass — pure data transformation from the VG JSONs.
+#
+# Pre-processed at:
+#   /capstor/store/cscs/swissai/infra01/vision-datasets/raw/stage2/visual_genome/parquet_blip3/
+#
+# Schema (per row):
+#   image_id      : int64 — VG canonical image id
+#   image         : struct<bytes,path> — embedded JPEG
+#   width         : int32
+#   height        : int32
+#   n_regions     : int32 — count of GT regions covered
+#   grounded_text : string — BLIP3 Level-2 dense list (text_column)
+#
+# Targets RefCOCO-shape grounding skill: at inference the model emits
+# <object>X</object><bbox>[a,b][c,d]</bbox> patterns the eval parser extracts.
+# Same syntax as crello — consistent token shape across cooldown bucket.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/image2text@_here_
+
+output_name: visual_genome
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/cooldown
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/stage2/visual_genome/parquet_blip3_clean/*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/visual_genome/manifest.parquet
+
+image_column: image
+text_column: grounded_text
+multi_image: false
+
+# VG images are typically 800×600 (well within tokenizer's 1400×1400 cap);
+# no need to widen max_pixels.
+max_batch_tokens: 32_768
+
+# Dense grounded captions average ~50 regions/image × ~80 chars ≈ 4 K chars
+# of text + ~600-1500 image tokens → typical sequence well under 8K.  Skip
+# stage2/lct split (matches crello, latex, docci convention for compact
+# image2text rows).
