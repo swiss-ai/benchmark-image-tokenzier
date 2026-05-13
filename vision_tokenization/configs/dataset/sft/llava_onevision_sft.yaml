@@ -1,5 +1,8 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# LLaVA-OneVision Instruct — SFT, HuggingFace
+# LLaVA-OneVision 1.5 Instruct — SFT, multi-subset HF Arrow IPC.
+# Aggregates 161 sub-datasets (cambrian, ai2d, docvqa, textvqa, mathqa, ...)
+# into one SFT corpus.  Arrow streaming-IPC shards, ~5.3 TB raw.
+# Excludes the CoT subset (llava_cot_100k, separated into raw/sft_cot/).
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
   - /dataset/_pipeline@_here_
@@ -7,9 +10,33 @@ defaults:
   - /dataset/_task/sft@_here_
 
 output_name: llava_onevision_sft
-text_column: conversations
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/sft/hf___mvp-lab___LLaVA-OneVision-1.5-Instruct-Data/**/*.arrow"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/llava_onevision_sft/manifest.parquet
 
-# --- Conversation normalization -----------------------------------------------
+image_column: image
+
+# 95 subsets use {from,value} (ShareGPT); 62 use {role,content} (HF chat).
+# The conversation parser's auto-detect handles both.  Some subsets are
+# text-only (mathqa, magpie_pro, openmathinstruct, etc.) — image=None for
+# those rows; the SFT pipeline routes them through the text-only branch.
+parser: conversation
+parser_columns:
+  - conversations
+
+# Most rows already start the first user message with "<image>\n", but a few
+# subsets omit it.  Policy auto-prepends when missing (no-op when present).
+# add_system_message keeps an empty system slot so the chat template renders
+# a consistent shell.
 conversation_policy:
   add_image_placeholder: true
   add_system_message: true
+
+# Source images vary widely (Docmatix scans can hit 5K×3K, infographics
+# bigger).  Disable manifest-level cap; smart_resize at 1400² handles the rest.
+max_pixels: "65536*65536"
+
+# Split routing: stage2 (≤8K) / lct (>8K).  Long-context tail = high-image
+# docs (multi-page Docmatix etc.).
+seqlen_threshold: 8192
+max_batch_tokens: 32_768
