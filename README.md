@@ -45,12 +45,15 @@ adapt paths and the Slurm preamble for any other site.
 
 ## Quickstart — tokenize one dataset
 
-Everything below runs from the **CSCS login node**. The login node only
-submits `sbatch`; all heavy work — Python, GPU, manifest scans —
-happens on compute nodes inside the container declared by each Slurm
-script (`#SBATCH --environment=scripts/envs/nemo_25_11.toml`).
+Submit `sbatch` from a **CSCS login node**. The repository checkout only
+needs to live on shared storage visible from both login and compute
+nodes; it does not need to be cloned specifically on the login node.
+The login node only submits jobs. Heavy work — Python, GPU execution,
+and manifest access — happens on compute nodes inside the container
+declared by each Slurm script
+(`#SBATCH --environment=scripts/envs/nemo_25_11.toml`).
 
-**One-time setup** (if you haven't cloned yet):
+**One-time setup** (if you do not already have a shared checkout):
 
 ```bash
 git clone --recurse-submodules <repo-url> benchmark-image-tokenzier

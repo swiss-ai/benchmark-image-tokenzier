@@ -26,6 +26,7 @@ _REGISTRY = {
     "multilingual_recap": "multilingual_recap",
     "recap_multilingual": "multilingual_recap",  # alias
     "owid_article": "owid_article",
+    "dailymed": "dailymed",
 }
 
 # Interleave parsers that take a full row dict (with multiple named fields)

@@ -1,5 +1,7 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# LaTeX Formulas 80M — image2text, HF Parquet (image + latex_formula)
+# LaTeX Formulas 80M (OleehyO) — image2text, HF Parquet (image + latex_formula).
+# 78,150,689 rows across 2,693 parquet shards (en + zh + handwritten + benchmarks).
+# Apache-2.0.
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
   - /dataset/_pipeline@_here_
@@ -7,14 +9,13 @@ defaults:
   - /dataset/_task/image2text@_here_
 
 output_name: latex_formulas_80m
-output_dir: /capstor/scratch/cscs/xyixuan/vision-datasets-tokenized
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/latex_formulas_80m/manifest.parquet
-input_pattern: /capstor/store/cscs/swissai/infra01/vision-datasets/raw/hf___OleehyO___latex-formulas-80M
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/stage2/hf___OleehyO___latex-formulas-80M/**/*.parquet"
+manifest_path: /capstor/store/cscs/swissai/infra01/vision-datasets/manifest/latex_formulas_80m/manifest.parquet
 image_column: image
 text_column: latex_formula
 multi_image: false
 
 # --- Overrides ----------------------------------------------------------------
-gpu_kmeans: false
-plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/latex_formulas_80m_v2.pt
+max_batch_tokens: 32_768
 checkpoint_interval_batches: 5_000
