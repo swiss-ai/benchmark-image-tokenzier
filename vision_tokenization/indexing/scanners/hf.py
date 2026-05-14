@@ -13,7 +13,13 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from vision_tokenization.indexing.scanners._workers.hf_arrow import scan_single_hf_arrow_shard
-from vision_tokenization.indexing.scanners._workers.hf_parquet import scan_single_hf_parquet_shard
+from vision_tokenization.indexing.scanners._workers.hf_common import (
+    build_hf_output_columns,
+    build_hf_output_table,
+)
+from vision_tokenization.indexing.scanners._workers.hf_parquet import (
+    scan_single_hf_parquet_shard,
+)
 from vision_tokenization.indexing.manifest import (
     HF_SCHEMA_PHYSICAL,
     HF_SCHEMA_PHYSICAL_MULTI_IMAGE,
@@ -124,8 +130,17 @@ def _scan_single_hf_shard(
     shard_path: str,
     image_column: str = "image",
     image_list_column: Optional[str] = None,
+    image_map_column: Optional[str] = None,
+    message_column: Optional[str] = None,
 ):
     if shard_path.endswith(".arrow"):
+        if image_map_column is not None:
+            return (
+                build_hf_output_table(build_hf_output_columns(True), True),
+                0,
+                0,
+                "image_map_column is only supported for parquet shards",
+            )
         return scan_single_hf_arrow_shard(
             shard_path,
             image_column=image_column,
@@ -136,6 +151,8 @@ def _scan_single_hf_shard(
             shard_path,
             image_column=image_column,
             image_list_column=image_list_column,
+            image_map_column=image_map_column,
+            message_column=message_column,
         )
     raise ValueError(f"Unsupported HF shard format: {shard_path}")
 
@@ -147,6 +164,8 @@ def _process_shard_result(
     total_source_rows: int,
     total_manifest_rows: int,
     total_failed_dims: int,
+    total_failed_messages: int,
+    total_failed_image_maps: int,
     skipped_shards: int,
     is_multi: bool,
     buffer: list[pa.Table],
@@ -154,7 +173,19 @@ def _process_shard_result(
     writer: pq.ParquetWriter,
     schema: pa.Schema,
 ):
-    table, source_rows, failed_dims, skip_reason = result
+    if len(result) == 4:
+        table, source_rows, failed_dims, skip_reason = result
+        failed_messages = 0
+        failed_image_maps = 0
+    else:
+        (
+            table,
+            source_rows,
+            failed_dims,
+            failed_messages,
+            failed_image_maps,
+            skip_reason,
+        ) = result
     if skip_reason is not None:
         skipped_shards += 1
         logger.warning("Skipping HF shard %s: %s", shard_path, skip_reason)
@@ -162,6 +193,8 @@ def _process_shard_result(
             total_source_rows,
             total_manifest_rows,
             total_failed_dims,
+            total_failed_messages,
+            total_failed_image_maps,
             skipped_shards,
             buffered_rows,
         )
@@ -175,6 +208,8 @@ def _process_shard_result(
     )
     total_source_rows += source_rows
     total_failed_dims += failed_dims
+    total_failed_messages += failed_messages
+    total_failed_image_maps += failed_image_maps
     total_manifest_rows += len(table)
 
     if len(table):
@@ -188,16 +223,19 @@ def _process_shard_result(
         total_source_rows,
         total_manifest_rows,
         total_failed_dims,
+        total_failed_messages,
+        total_failed_image_maps,
         skipped_shards,
         buffered_rows,
     )
-
 
 def scan_hf_dataset(
     input_pattern: Union[str, Path],
     output_manifest: Union[str, Path],
     image_column: str = "image",
     image_list_column: Optional[str] = None,
+    image_map_column: Optional[str] = None,
+    message_column: Optional[str] = None,
     num_workers: int = 8,
 ) -> str:
     """Scan HF Arrow/Parquet shards and write a Parquet manifest.
@@ -208,13 +246,20 @@ def scan_hf_dataset(
         output_manifest: Destination Parquet path.
         image_column: Column name containing a single image.
         image_list_column: Column name for multi-image ``List[Image]`` data.
+        image_map_column: Column name for image-map ``Map[ref, image_cell]`` data.
+        message_column: Column with JSON messages when image_map_column is set.
         num_workers: Number of worker processes to scan shards in parallel.
 
     Returns:
         The output manifest path as a string.
     """
     t0 = time.time()
-    is_multi = image_list_column is not None
+    if image_list_column is not None and image_map_column is not None:
+        raise ValueError("Set only one of image_list_column or image_map_column")
+    if image_map_column is not None and not message_column:
+        raise ValueError("image_map_column requires message_column")
+
+    is_multi = image_list_column is not None or image_map_column is not None
     schema = HF_SCHEMA_PHYSICAL_MULTI_IMAGE if is_multi else HF_SCHEMA_PHYSICAL
 
     shard_paths = _discover_shards(input_pattern)
@@ -232,6 +277,8 @@ def scan_hf_dataset(
     total_source_rows = 0
     total_manifest_rows = 0
     total_failed_dims = 0
+    total_failed_messages = 0
+    total_failed_image_maps = 0
     skipped_shards = 0
 
     writer = pq.ParquetWriter(output_manifest, schema, compression="zstd")
@@ -244,16 +291,21 @@ def scan_hf_dataset(
             shard_paths[idx],
             image_column,
             image_list_column,
+            image_map_column,
+            message_column,
         )
 
     def _emit(idx, result):
         nonlocal total_source_rows, total_manifest_rows, total_failed_dims
+        nonlocal total_failed_messages, total_failed_image_maps
         nonlocal skipped_shards, buffered_rows
         shard_path = shard_paths[idx]
         (
             total_source_rows,
             total_manifest_rows,
             total_failed_dims,
+            total_failed_messages,
+            total_failed_image_maps,
             skipped_shards,
             buffered_rows,
         ) = _process_shard_result(
@@ -262,6 +314,8 @@ def scan_hf_dataset(
             total_source_rows=total_source_rows,
             total_manifest_rows=total_manifest_rows,
             total_failed_dims=total_failed_dims,
+            total_failed_messages=total_failed_messages,
+            total_failed_image_maps=total_failed_image_maps,
             skipped_shards=skipped_shards,
             is_multi=is_multi,
             buffer=buffer,
@@ -299,6 +353,8 @@ def scan_hf_dataset(
         extra={
             "total_source_rows": total_source_rows,
             "failed_dims": total_failed_dims,
+            "failed_messages": total_failed_messages,
+            "failed_image_maps": total_failed_image_maps,
             "skipped_shards": skipped_shards,
         },
     )
@@ -307,6 +363,8 @@ def scan_hf_dataset(
         f"Manifest saved: {total_manifest_rows:,} rows from {total_source_rows:,} "
         f"source rows -> {output_manifest} ({elapsed:.1f}s with {num_workers} workers, "
         f"{total_failed_dims:,} failed dimension extractions, "
+        f"{total_failed_messages:,} failed message parses, "
+        f"{total_failed_image_maps:,} failed image-map parses, "
         f"{skipped_shards:,} skipped shards)"
     )
     return output_manifest

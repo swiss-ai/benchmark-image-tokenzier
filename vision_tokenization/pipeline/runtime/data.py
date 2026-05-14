@@ -41,6 +41,12 @@ from vision_tokenization.utils.interleave_documents import (
     extract_local_image_refs,
     parse_interleave_segments,
 )
+from vision_tokenization.utils.image_map_sft import (
+    NORMALIZED_MESSAGES_KEY,
+    image_map_lookup,
+    normalize_messages_and_refs,
+)
+from vision_tokenization.utils.image_map_parquet import read_image_map_row_group_rows
 
 logger = logging.getLogger(__name__)
 
@@ -575,6 +581,8 @@ class HFImageLoader:
         max_cached_chunks: int = 32,
         manifest_path: Optional[Union[str, Path]] = None,
         image_list_column: Optional[str] = None,
+        image_map_column: Optional[str] = None,
+        message_column: Optional[str] = None,
         parser: Optional[str] = None,
         parser_columns: Optional[List[str]] = None,
         parser_args: Optional[Dict[str, Any]] = None,
@@ -584,6 +592,8 @@ class HFImageLoader:
         self.image_column = image_column
         self.text_column = text_column
         self._image_list_column = image_list_column
+        self._image_map_column = image_map_column
+        self._message_column = message_column
         self._parser = parser
         self._parser_columns = parser_columns or []
         self._parser_args = dict(parser_args or {})
@@ -602,6 +612,11 @@ class HFImageLoader:
         self._manifest_row_in_chunk = None
         self._image_indices = None
 
+        if self._image_list_column and self._image_map_column:
+            raise ValueError("Set only one of image_list_column or image_map_column")
+        if self._image_map_column and not self._message_column:
+            raise ValueError("image_map_column requires message_column")
+
         if manifest_path is not None:
             manifest_schema = pq.read_schema(str(manifest_path))
             has_physical = all(name in manifest_schema.names for name in self._PHYSICAL_COLUMNS)
@@ -610,10 +625,10 @@ class HFImageLoader:
             else:
                 self._build_shard_index()
                 if "image_index" in manifest_schema.names:
-                    if not image_list_column:
+                    if not (image_list_column or image_map_column):
                         raise ValueError(
                             "Multi-image manifest (has image_index column) requires "
-                            "image_list_column to be set."
+                            "image_list_column or image_map_column to be set."
                         )
                     manifest = load_hf_manifest(
                         manifest_path,
@@ -625,7 +640,8 @@ class HFImageLoader:
                     logger.info(
                         f"HFImageLoader: multi-image mode enabled "
                         f"({len(self._sample_indices):,} manifest rows, "
-                        f"image_list_column={image_list_column!r})"
+                        f"image_list_column={image_list_column!r}, "
+                        f"image_map_column={image_map_column!r})"
                     )
         else:
             self._build_shard_index()
@@ -641,10 +657,10 @@ class HFImageLoader:
         columns = list(self._PHYSICAL_COLUMNS)
         has_image_index = "image_index" in schema.names
         if has_image_index:
-            if not self._image_list_column:
+            if not (self._image_list_column or self._image_map_column):
                 raise ValueError(
                     "Multi-image manifest (has image_index column) requires "
-                    "image_list_column to be set."
+                    "image_list_column or image_map_column to be set."
                 )
             columns.append("image_index")
             self._is_multi = True
@@ -661,7 +677,8 @@ class HFImageLoader:
             logger.info(
                 f"HFImageLoader: multi-image mode enabled "
                 f"({self._total_rows:,} manifest rows, "
-                f"image_list_column={self._image_list_column!r})"
+                f"image_list_column={self._image_list_column!r}, "
+                f"image_map_column={self._image_map_column!r})"
             )
         else:
             logger.info(
@@ -843,6 +860,26 @@ class HFImageLoader:
 
             self._parquet_file_cache[shard_path] = parquet_file
             return parquet_file
+
+    def _chunk_table_for_rows(
+        self,
+        shard: _HFShardInfo,
+        chunk_idx: int,
+        columns: List[str],
+        row_indices,
+    ) -> tuple[pa.Table, dict[int, int]]:
+        if self._image_map_column and shard.suffix == ".parquet":
+            parquet_file = self._get_parquet_file(shard.path)
+            return read_image_map_row_group_rows(
+                parquet_file,
+                chunk_idx,
+                columns,
+                row_indices,
+            )
+
+        self._ensure_chunks(shard, [chunk_idx], columns)
+        table = self._chunk_table(shard, chunk_idx, columns)
+        return table, {int(row_idx): int(row_idx) for row_idx in row_indices}
 
     def _get_cached_chunk(
         self,
@@ -1304,53 +1341,96 @@ class HFImageLoader:
         img_results: List[Optional[Image.Image]] = [None] * len(sample_indices)
         txt_results: List[Any] = [None] * len(sample_indices) if (self.text_column or self._parser) else []
 
-        columns = [self._image_list_column]
+        if self._image_map_column:
+            columns = [self._image_map_column, self._message_column]
+        else:
+            columns = [self._image_list_column]
         if self.text_column:
             columns.append(self.text_column)
         for col in self._parser_columns:
             if col not in columns:
                 columns.append(col)
 
-        # batch_pos → row_dict, populated during image loading for parser use.
-        # Multiple batch positions share the same parquet row, so row dicts
-        # are read once and reused via a per-chunk cache.
         parser_row_by_batch_pos: Dict[int, dict] = {}
-        _row_dict_cache: Dict[int, dict] = {}  # row_in_chunk -> row_dict, cleared per chunk
+        # Multiple batch positions can map to the same parquet row (multi-image
+        # docs); cache parser-row dicts per chunk to avoid re-reading columns.
+        _row_dict_cache: Dict[int, dict] = {}
 
         grouped_rows = self._iter_multi_grouped_rows(sample_indices)
 
         for shard_path, chunk_groups in grouped_rows:
             shard = self._get_shard_ref(shard_path)
             try:
-                self._ensure_chunks(shard, list(chunk_groups.keys()), columns)
                 for chunk_idx, row_map in chunk_groups.items():
-                    table = self._chunk_table(shard, chunk_idx, columns)
-                    image_column = table.column(self._image_list_column)
+                    table, row_positions = self._chunk_table_for_rows(
+                        shard,
+                        chunk_idx,
+                        columns,
+                        row_map.keys(),
+                    )
+                    image_column = table.column(self._image_map_column or self._image_list_column)
+                    message_column = (
+                        table.column(self._message_column)
+                        if self._image_map_column
+                        else None
+                    )
                     text_column = table.column(self.text_column) if self.text_column else None
 
-                    # Read parser columns once per parquet row in this chunk
                     if self._parser:
                         _row_dict_cache.clear()
+                        skip_cols = (
+                            {self._message_column} if self._image_map_column else set()
+                        )
                         for row_in_chunk in row_map:
                             if row_in_chunk not in _row_dict_cache:
+                                table_pos = row_positions.get(row_in_chunk)
+                                if table_pos is None:
+                                    continue
                                 rd = {}
                                 for col in self._parser_columns:
+                                    if col in skip_cols:
+                                        continue
                                     try:
-                                        rd[col] = table.column(col)[row_in_chunk].as_py()
+                                        rd[col] = table.column(col)[table_pos].as_py()
                                     except Exception:
                                         rd[col] = None
                                 _row_dict_cache[row_in_chunk] = rd
 
                     for row_in_chunk, positions in row_map.items():
                         try:
-                            img_list = image_column[row_in_chunk].as_py()
-                            text_val = text_column[row_in_chunk].as_py() if text_column is not None else None
+                            table_pos = row_positions.get(row_in_chunk)
+                            if table_pos is None:
+                                continue
+                            if self._image_map_column:
+                                raw_messages = message_column[table_pos].as_py()
+                                normalized_messages, image_refs = normalize_messages_and_refs(
+                                    raw_messages
+                                )
+                                images_by_ref = image_map_lookup(
+                                    image_column[table_pos].as_py()
+                                )
+                                doc_num_images = len(image_refs)
+                            else:
+                                img_list = image_column[table_pos].as_py()
+                                doc_num_images = len(img_list)
+                                image_refs = []
+                                images_by_ref = {}
+
+                            text_val = text_column[table_pos].as_py() if text_column is not None else None
                             if self._parser:
-                                _row_dict_cache[row_in_chunk][DOC_NUM_IMAGES_KEY] = len(img_list)
+                                _row_dict_cache[row_in_chunk][DOC_NUM_IMAGES_KEY] = doc_num_images
+                                if self._image_map_column:
+                                    _row_dict_cache[row_in_chunk][NORMALIZED_MESSAGES_KEY] = normalized_messages
 
                             for batch_pos, img_pos in positions:
                                 try:
-                                    img_results[batch_pos] = self._decode_image(img_list[img_pos])
+                                    if self._image_map_column:
+                                        img_ref = image_refs[img_pos]
+                                        img_results[batch_pos] = self._decode_image(
+                                            images_by_ref.get(img_ref)
+                                        )
+                                    else:
+                                        img_results[batch_pos] = self._decode_image(img_list[img_pos])
                                     if text_column is not None:
                                         txt_results[batch_pos] = text_val
                                     if self._parser:
@@ -1390,6 +1470,8 @@ class HFImageLoader:
         columns: List[str] = []
         if self._parser and self._parser_kind == "sft" and self._image_list_column:
             columns.append(self._image_list_column)
+        if self._parser and self._parser_kind == "sft" and self._image_map_column:
+            columns.append(self._message_column)
         if self.text_column:
             columns.append(self.text_column)
         for col in self._parser_columns:
@@ -1403,41 +1485,64 @@ class HFImageLoader:
         for shard_path, chunk_groups in grouped_rows:
             shard = self._get_shard_ref(shard_path)
             try:
-                self._ensure_chunks(shard, list(chunk_groups.keys()), columns)
                 for chunk_idx, row_map in chunk_groups.items():
-                    table = self._chunk_table(shard, chunk_idx, columns)
+                    table, row_positions = self._chunk_table_for_rows(
+                        shard,
+                        chunk_idx,
+                        columns,
+                        row_map.keys(),
+                    )
                     image_list_column = (
                         table.column(self._image_list_column)
                         if self._parser and self._parser_kind == "sft" and self._image_list_column
                         else None
                     )
-                    row_indices = list(row_map.keys())
-                    values = (
-                        self._load_text_values_for_rows(
-                            table,
-                            row_indices,
-                            shard_path=shard.path,
-                            chunk_idx=chunk_idx,
-                        )
-                        if self.text_column
-                        else [None] * len(row_indices)
+                    message_column = (
+                        table.column(self._message_column)
+                        if self._parser and self._parser_kind == "sft" and self._image_map_column
+                        else None
                     )
-                    for row_in_chunk, text_val in zip(row_indices, values):
+                    row_indices = list(row_map.keys())
+                    text_column = table.column(self.text_column) if self.text_column else None
+                    skip_cols = (
+                        {self._message_column}
+                        if self._parser and message_column is not None
+                        else set()
+                    )
+                    for row_in_chunk in row_indices:
+                        table_pos = row_positions.get(row_in_chunk)
+                        if table_pos is None:
+                            continue
+                        text_val = text_column[table_pos].as_py() if text_column is not None else None
+                        row_dict: dict[str, Any] | None = None
+                        if self._parser:
+                            row_dict = {}
+                            for col in self._parser_columns:
+                                if col in skip_cols:
+                                    continue
+                                try:
+                                    row_dict[col] = table.column(col)[table_pos].as_py()
+                                except Exception:
+                                    row_dict[col] = None
+                            if image_list_column is not None:
+                                try:
+                                    row_dict[DOC_NUM_IMAGES_KEY] = len(image_list_column[table_pos].as_py())
+                                except Exception:
+                                    row_dict[DOC_NUM_IMAGES_KEY] = None
+                            if message_column is not None:
+                                try:
+                                    normalized_messages, image_refs = normalize_messages_and_refs(
+                                        message_column[table_pos].as_py()
+                                    )
+                                    row_dict[DOC_NUM_IMAGES_KEY] = len(image_refs)
+                                    row_dict[NORMALIZED_MESSAGES_KEY] = normalized_messages
+                                except Exception:
+                                    row_dict[DOC_NUM_IMAGES_KEY] = None
+
                         for batch_pos, _img_pos in row_map[row_in_chunk]:
                             if self.text_column:
                                 txt_results[batch_pos] = text_val
-                            if self._parser:
-                                row_dict: dict[str, Any] = {}
-                                for col in self._parser_columns:
-                                    try:
-                                        row_dict[col] = table.column(col)[row_in_chunk].as_py()
-                                    except Exception:
-                                        row_dict[col] = None
-                                if image_list_column is not None:
-                                    try:
-                                        row_dict[DOC_NUM_IMAGES_KEY] = len(image_list_column[row_in_chunk].as_py())
-                                    except Exception:
-                                        row_dict[DOC_NUM_IMAGES_KEY] = None
+                            if row_dict is not None:
                                 parser_row_by_batch_pos[batch_pos] = row_dict
             except Exception:
                 logger.warning(f"Failed to read shard {shard.path}", exc_info=True)
@@ -1543,6 +1648,8 @@ def create_loader(cfg: Dict[str, Any]):
             max_cached_chunks=cfg.get("max_cached_chunks", 32),
             manifest_path=cfg.get("manifest_path"),
             image_list_column=cfg.get("image_list_column"),
+            image_map_column=cfg.get("image_map_column"),
+            message_column=cfg.get("message_column"),
             parser=parser if parser_kind else None,
             parser_columns=cfg.get("parser_columns") if parser_kind else None,
             parser_args=cfg.get("parser_args") if parser_kind else None,

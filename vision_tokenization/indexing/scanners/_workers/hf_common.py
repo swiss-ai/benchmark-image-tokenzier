@@ -8,6 +8,8 @@ import imagesize
 import pyarrow as pa
 import pyarrow.compute as pc
 
+from vision_tokenization.utils.image_map_sft import extract_image_refs, image_map_as_dict
+
 _HEADER_BYTES = 4096
 _HF_WORKER_SCHEMA = pa.schema(
     [
@@ -120,6 +122,92 @@ def _get_dims_from_scalars(header_scalar, bytes_scalar, path_scalar) -> Tuple[in
     return -1, -1
 
 
+def _binary_header_array(array):
+    if array is None:
+        return None
+    if pa.types.is_binary(array.type) or pa.types.is_large_binary(array.type):
+        return pc.binary_slice(array, 0, _HEADER_BYTES)
+    return None
+
+
+def _as_single_array(column):
+    if isinstance(column, pa.ChunkedArray):
+        return column.combine_chunks()
+    return column
+
+
+def _image_map_value_arrays(image_map_col):
+    image_map_col = _as_single_array(image_map_col)
+    if not pa.types.is_map(image_map_col.type):
+        return None
+
+    values = image_map_col.items
+    if pa.types.is_binary(values.type) or pa.types.is_large_binary(values.type):
+        bytes_arr = values
+        path_arr = None
+    elif pa.types.is_struct(values.type):
+        bytes_arr = (
+            values.field("bytes")
+            if values.type.get_field_index("bytes") >= 0
+            else None
+        )
+        path_arr = (
+            values.field("path")
+            if values.type.get_field_index("path") >= 0
+            else None
+        )
+    else:
+        return None
+
+    return (
+        image_map_col.offsets.to_numpy(zero_copy_only=False),
+        image_map_col.keys,
+        bytes_arr,
+        path_arr,
+    )
+
+
+def _scan_hf_image_map_batch_columns_python(
+    out: dict[str, array],
+    image_map_col,
+    message_col,
+    chunk_index: int,
+    source_rows: int,
+    failed_dims: int,
+    failed_messages: int,
+    failed_image_maps: int,
+    row_base: int = 0,
+) -> Tuple[dict[str, array], int, int, int, int]:
+    for row_idx in range(len(message_col)):
+        local_sample_index = source_rows
+        source_rows += 1
+        try:
+            row_refs = extract_image_refs(message_col[row_idx].as_py())
+        except (KeyError, TypeError, ValueError):
+            failed_messages += 1
+            continue
+
+        try:
+            images_by_ref = image_map_as_dict(image_map_col[row_idx].as_py())
+        except (KeyError, TypeError, ValueError):
+            failed_image_maps += 1
+            images_by_ref = {}
+
+        for image_index, image_ref in enumerate(row_refs):
+            width, height = get_image_dimensions(images_by_ref.get(image_ref))
+            if width < 0 or height < 0:
+                failed_dims += 1
+            out["sample_index"].append(local_sample_index)
+            out["width"].append(width)
+            out["height"].append(height)
+            out["group_id"].append(local_sample_index)
+            out["image_index"].append(image_index)
+            out["chunk_index"].append(chunk_index)
+            out["row_in_chunk"].append(row_base + row_idx)
+
+    return out, source_rows, failed_dims, failed_messages, failed_image_maps
+
+
 def _scan_single_image_chunk(
     out: dict[str, array],
     chunk,
@@ -132,7 +220,7 @@ def _scan_single_image_chunk(
     if pa.types.is_struct(chunk.type):
         bytes_arr = chunk.field("bytes")
         path_arr = chunk.field("path")
-        header_arr = pc.binary_slice(bytes_arr, 0, _HEADER_BYTES)
+        header_arr = _binary_header_array(bytes_arr)
 
         for local_idx in range(len(chunk)):
             width, height = _get_dims_from_scalars(
@@ -180,7 +268,7 @@ def _scan_multi_image_chunk(
         if pa.types.is_struct(values.type):
             bytes_arr = values.field("bytes")
             path_arr = values.field("path")
-            header_arr = pc.binary_slice(bytes_arr, 0, _HEADER_BYTES)
+            header_arr = _binary_header_array(bytes_arr)
 
             for local_row_idx in range(len(chunk)):
                 local_sample_index = source_rows
@@ -220,6 +308,98 @@ def _scan_multi_image_chunk(
             out["chunk_index"].append(chunk_index)
             out["row_in_chunk"].append(row_base + local_row_idx)
     return source_rows, failed_dims
+
+
+def scan_hf_image_map_batch_columns(
+    out: dict[str, array],
+    image_map_col,
+    message_col,
+    chunk_index: int,
+    source_rows: int,
+    failed_dims: int,
+    failed_messages: int,
+    failed_image_maps: int,
+    row_base: int = 0,
+) -> Tuple[dict[str, array], int, int, int, int]:
+    """Append manifest rows for image-map SFT shards.
+
+    The image order comes from message content refs, not from map iteration.
+    """
+    map_arrays = _image_map_value_arrays(image_map_col)
+    if map_arrays is None:
+        return _scan_hf_image_map_batch_columns_python(
+            out,
+            image_map_col,
+            message_col,
+            chunk_index,
+            source_rows,
+            failed_dims,
+            failed_messages,
+            failed_image_maps,
+            row_base=row_base,
+        )
+
+    offsets, keys, bytes_arr, path_arr = map_arrays
+    # Single-image map rows are cheaper through the python path — skip the
+    # Arrow header-slice setup cost (test pins this contract).
+    if len(offsets) > 1 and int((offsets[1:] - offsets[:-1]).max()) <= 1:
+        return _scan_hf_image_map_batch_columns_python(
+            out,
+            image_map_col,
+            message_col,
+            chunk_index,
+            source_rows,
+            failed_dims,
+            failed_messages,
+            failed_image_maps,
+            row_base=row_base,
+        )
+
+    header_arr = _binary_header_array(bytes_arr)
+    message_col = _as_single_array(message_col)
+    offset_base = int(offsets[0]) if len(offsets) else 0
+    # Materialize all map keys in one C-level pass; the inner loop indexes
+    # this Python list instead of doing per-image pa.Scalar→str conversion.
+    keys_py = keys.to_pylist() if len(keys) else []
+
+    for row_idx in range(len(message_col)):
+        local_sample_index = source_rows
+        source_rows += 1
+        try:
+            row_refs = extract_image_refs(message_col[row_idx].as_py())
+        except (KeyError, TypeError, ValueError):
+            failed_messages += 1
+            continue
+
+        start = int(offsets[row_idx]) - offset_base
+        end = int(offsets[row_idx + 1]) - offset_base
+        key_to_idx = None
+        for image_index, image_ref in enumerate(row_refs):
+            flat_idx = start + image_index
+            if flat_idx >= end or keys_py[flat_idx] != image_ref:
+                if key_to_idx is None:
+                    key_to_idx = {keys_py[idx]: idx for idx in range(start, end)}
+                flat_idx = key_to_idx.get(image_ref, -1)
+
+            if flat_idx < 0:
+                width, height = -1, -1
+            else:
+                width, height = _get_dims_from_scalars(
+                    header_arr[flat_idx] if header_arr is not None else None,
+                    bytes_arr[flat_idx] if bytes_arr is not None else None,
+                    path_arr[flat_idx] if path_arr is not None else None,
+                )
+            if width < 0 or height < 0:
+                failed_dims += 1
+            out["sample_index"].append(local_sample_index)
+            out["width"].append(width)
+            out["height"].append(height)
+            out["group_id"].append(local_sample_index)
+            out["image_index"].append(image_index)
+            out["chunk_index"].append(chunk_index)
+            out["row_in_chunk"].append(row_base + row_idx)
+
+    return out, source_rows, failed_dims, failed_messages, failed_image_maps
 
 
 def scan_hf_batch_columns(

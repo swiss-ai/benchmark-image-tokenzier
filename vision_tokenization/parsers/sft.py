@@ -9,6 +9,12 @@ from __future__ import annotations
 import json
 from typing import Any, Callable, Optional
 
+from vision_tokenization.utils.image_map_sft import (
+    NORMALIZED_MESSAGES_KEY,
+    normalize_messages,
+)
+from vision_tokenization.utils.json import json_loads
+
 IMAGE_MARKERS = ("<image>", "<|image|>")
 
 
@@ -27,6 +33,34 @@ def parse_messages(
         )
     return fn(row, num_images=num_images, parser_args=parser_args or {})
 
+def _extract_messages_value(
+    row: dict[str, Any],
+    parser_args: dict[str, Any],
+    *,
+    default_keys: tuple[str, ...],
+    parser_name: str,
+    allow_single_column: bool = False,
+) -> Any:
+    """Look up the messages column from a row, honoring parser_args overrides."""
+    column = parser_args.get("conversation_column")
+    if column is not None:
+        value = row.get(str(column))
+    else:
+        value = _first_present(row, *default_keys)
+        if value is None and allow_single_column and len(row) == 1:
+            value = next(iter(row.values()))
+    if value is None:
+        if column is not None:
+            raise ValueError(
+                f"{parser_name} parser requires column {column!r}"
+            )
+        raise ValueError(
+            f"{parser_name} parser requires one of: {', '.join(default_keys)}, "
+            "or parser_args.conversation_column"
+        )
+    return value
+
+
 def _parse_conversation(
     row: dict[str, Any],
     *,
@@ -34,26 +68,41 @@ def _parse_conversation(
     parser_args: Optional[dict[str, Any]] = None,
 ) -> list[dict[str, Any]]:
     parser_args = parser_args or {}
-    conversation_column = parser_args.get("conversation_column")
-    if conversation_column is not None:
-        messages = row.get(str(conversation_column))
-    else:
-        messages = _first_present(row, "messages", "conversations", "conversation")
-        if messages is None and len(row) == 1:
-            messages = next(iter(row.values()))
-    if messages is None:
-        raise ValueError(
-            "conversation parser requires one of: messages, conversations, conversation, "
-            "or parser_args.conversation_column"
-        )
+    messages = _extract_messages_value(
+        row,
+        parser_args,
+        default_keys=("messages", "conversations", "conversation"),
+        parser_name="conversation",
+        allow_single_column=True,
+    )
     if isinstance(messages, str):
         try:
-            messages = json.loads(messages)
+            messages = json_loads(messages)
         except json.JSONDecodeError as exc:
             raise ValueError("conversation field must be JSON-decodable when stored as str") from exc
     if not isinstance(messages, list) or not messages:
         raise ValueError("conversation parser expects a non-empty message list")
     return messages
+
+
+def _parse_image_map_conversation(
+    row: dict[str, Any],
+    *,
+    num_images: Optional[int] = None,
+    parser_args: Optional[dict[str, Any]] = None,
+) -> list[dict[str, Any]]:
+    parser_args = parser_args or {}
+    normalized_messages = row.get(NORMALIZED_MESSAGES_KEY)
+    if normalized_messages is not None:
+        return normalized_messages
+
+    messages = _extract_messages_value(
+        row,
+        parser_args,
+        default_keys=("messages",),
+        parser_name="image_map_conversation",
+    )
+    return normalize_messages(messages)
 
 
 def _parse_qa(
@@ -118,6 +167,7 @@ def _parse_molmo_multi_image_qa(
 
 _PARSERS: dict[str, Callable[..., list[dict[str, Any]]]] = {
     "conversation": _parse_conversation,
+    "image_map_conversation": _parse_image_map_conversation,
     "qa": _parse_qa,
     "molmo_multi_image_qa": _parse_molmo_multi_image_qa,
 }
@@ -148,4 +198,3 @@ def _ensure_image_placeholders(text: str, num_images: int) -> str:
 
     prefix = "\n".join("<image>" for _ in range(num_images))
     return f"{prefix}\n{text}" if text else prefix
-

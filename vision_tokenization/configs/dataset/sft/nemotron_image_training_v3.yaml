@@ -1,0 +1,60 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Nemotron-Image-Training-v3 — multi-image SFT, map-keyed image columns.
+# 76 subsets, 212 parquet shards on disk, ~7 TB raw (~6.9M docs / ~39.6B tok per
+# the upstream card). Image-grounded VQA with explicit <think> CoT supervision
+# inside assistant responses (preserved through merge via STRIP_THINKING=false).
+#
+# Row schema (consistent across subsets):
+#   id       : string
+#   messages : string         (JSON-encoded HF-style messages with parts list
+#                              referencing images by filename)
+#   images   : map<string, V> (filename → bytes or struct<bytes,path>)
+#
+# This is the canonical "Megatron Energon-style" parquet SFT shape — future
+# datasets shipped in the same convention route through this config's parser.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: nemotron_image_training_v3
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+# Shadow directory: 199 symlinks to original raw shards + 13 symlinks to repacked
+# versions (cc3m, ccpdf_zh_02/_08, flickr30k, etc.) that had pathological
+# single-row-group layouts >2 GB. Repack target row_group_size=2048 brings max
+# RG from 54 GB → 0.64 GB, fixing the host-RAM OOM on loader cold-start.
+input_pattern: "/capstor/scratch/cscs/xyixuan/nemotron_repacked_combined/*/*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/nemotron_image_training_v3_v2/manifest.parquet
+
+# Image column is a map<string, V> keyed by filename references in messages.
+# The loader uses message-order (not map iteration order) to assign image_index.
+image_map_column: images
+message_column: messages
+multi_image: true
+
+# Parser: read pre-normalized messages from row dict (loader caches via
+# NORMALIZED_MESSAGES_KEY) and return chat-template-ready role/content.
+parser: image_map_conversation
+parser_columns:
+  - messages
+
+# Synthetic-rendered visuals can be large (multi-page docs, charts, etc.).
+# Cooldown convention: disable the manifest-level cap; let the tokenizer's
+# 1400² smart-resize handle large images.
+max_pixels: "65536*65536"
+
+# Stage2/lct split routing — <think> CoT blocks make typical assistant
+# responses long (~1-2K text tokens) on top of N images, so the lct tail
+# captures docs that exceed the 8K stage2 cap.
+seqlen_threshold: 8192
+max_batch_tokens: 32_768
+
+# Row groups in this dataset are ~1 GB of compressed nested map<string,binary>;
+# decoded batches are ~4 GB each. The default queue_size=32 would put
+# 4×(32+8)×4 GB ≈ 640 GB in flight per node and OOM the first node during
+# rank-0's cold-start window. Cap at 8 → ~256 GB peak per node, 11 s of GPU-side
+# variance tolerance.
+prefetch:
+  num_workers: 8
+  queue_size: 8
