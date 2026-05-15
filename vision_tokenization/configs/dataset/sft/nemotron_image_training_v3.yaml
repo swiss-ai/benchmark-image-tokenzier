@@ -24,8 +24,8 @@ output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 # versions (cc3m, ccpdf_zh_02/_08, flickr30k, etc.) that had pathological
 # single-row-group layouts >2 GB. Repack target row_group_size=2048 brings max
 # RG from 54 GB → 0.64 GB, fixing the host-RAM OOM on loader cold-start.
-input_pattern: "/capstor/scratch/cscs/xyixuan/nemotron_repacked_combined/*/*.parquet"
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/nemotron_image_training_v3_v2/manifest.parquet
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/sft/nemotron_image_training_v3___combined/*/*.parquet"
+manifest_path: /capstor/store/cscs/swissai/infra01/vision-datasets/manifest/nemotron_image_training_v3/manifest.parquet
 
 # Image column is a map<string, V> keyed by filename references in messages.
 # The loader uses message-order (not map iteration order) to assign image_index.
