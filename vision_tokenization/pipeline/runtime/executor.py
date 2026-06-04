@@ -259,6 +259,7 @@ def run_executor(
     # ------------------------------------------------------------------
     multi_image = bool(cfg.get("multi_image", False))
     use_spill = multi_image or mode == "interleave"
+    emit_prov = bool(cfg.get("emit_provenance", False))
 
     if use_spill:
         from ..output.backend import SpillBackend
@@ -267,7 +268,7 @@ def run_executor(
     else:
         from ..output.backend import DirectBackend
         backend = DirectBackend(mode=mode, seqlen_threshold=cfg.get("seqlen_threshold"))
-        backend.open(output_dir, rank, resume_state=ckpt, tokenizer=tokenizer)
+        backend.open(output_dir, rank, resume_state=ckpt, tokenizer=tokenizer, emit_prov=emit_prov)
 
     data_loader = create_loader(cfg)
 
@@ -449,6 +450,11 @@ def run_executor(
                 else:
                     # Direct path: handler tokenizes + writes in one step
                     device = f"cuda:{cfg.get('local_rank', 0)}"
+                    # Source manifest row per surviving image (flat, parallel to
+                    # valid_images) for the provenance sidecar; None when disabled.
+                    valid_source_ids = (
+                        plan.components.source_ref[valid_comp_indices] if emit_prov else None
+                    )
                     write_timing = backend.write_batch(
                         images=valid_images,
                         resize_size=resize_size,
@@ -458,6 +464,7 @@ def run_executor(
                         stats=stats,
                         device=device,
                         timing_enabled=log_now,
+                        source_ids=valid_source_ids,
                     )
                     gpu_ms = write_timing.get("tokenize_gpu_ms", 0)
                     tokenize_wall_ms = write_timing.get("tokenize_wall_ms", 0)
@@ -564,6 +571,7 @@ def run_executor(
             vocab_size=len(tokenizer.text_tokenizer),
             max_sequence_tokens=cfg.get("max_sequence_tokens"),
             seqlen_threshold=cfg.get("seqlen_threshold"),
+            emit_prov=emit_prov,
         )
         stats.stage2_tokens = rebuild_stats.get("stage2_tokens", 0)
         stats.stage2_samples = rebuild_stats.get("stage2_sequences", 0)

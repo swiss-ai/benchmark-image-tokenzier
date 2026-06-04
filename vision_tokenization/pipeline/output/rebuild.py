@@ -43,16 +43,26 @@ logger = logging.getLogger(__name__)
 _PROVENANCE_KEY_SHIFT = 32  # compound key = (doc_id << 32) | component_index
 
 
-def finalize_builders(builders: dict, prefixes: dict) -> None:
-    """Finalize builders; drop empty shards so Megatron mmap won't crash."""
+def finalize_builders(builders: dict, prefixes: dict, src_bufs: Optional[dict] = None) -> None:
+    """Finalize builders; drop empty shards so Megatron mmap won't crash.
+
+    When *src_bufs* is provided (provenance enabled), write a parallel
+    ``.src.npy`` holding one int64 source row per written sequence, unless the
+    shard was empty and dropped.
+    """
+    from .provenance import save_source_ids, sidecar_path
+
     for key, builder in builders.items():
         bin_path = str(prefixes[key]) + ".bin"
         idx_path = str(prefixes[key]) + ".idx"
         builder.finalize(idx_path)
-        if os.path.exists(bin_path) and os.path.getsize(bin_path) == 0:
+        dropped = os.path.exists(bin_path) and os.path.getsize(bin_path) == 0
+        if dropped:
             os.unlink(bin_path)
             if os.path.exists(idx_path):
                 os.unlink(idx_path)
+        if src_bufs is not None and key in src_bufs and not dropped:
+            save_source_ids(sidecar_path(str(prefixes[key])), src_bufs[key])
 
 
 def _split_components_by_kind(
@@ -279,6 +289,8 @@ def _assemble_and_write(
     builders: dict,
     log_prefix: str = "",
     reject_doc_ids: Optional[set] = None,
+    doc_source_ids: Optional[np.ndarray] = None,
+    src_bufs: Optional[dict] = None,
 ) -> Dict:
     """Shared assembly loop: iterate documents, assemble, route to builders.
 
@@ -295,6 +307,10 @@ def _assemble_and_write(
         builders: Dict with keys 'main', 'stage2', 'lct' (some may be None).
         log_prefix: Prefix for log messages.
         reject_doc_ids: Optional set of document IDs to skip.
+        doc_source_ids: Optional per-document source rows aligned with
+            *doc_ids_to_process* (provenance). One id appended per written
+            sequence to the matching bucket in *src_bufs*.
+        src_bufs: Optional dict mirroring *builders* keys, collecting source rows.
 
     Returns:
         Stats dict.
@@ -358,26 +374,33 @@ def _assemble_and_write(
             n_rejected += 1
             continue
 
+        doc_src = int(doc_source_ids[doc_pos]) if doc_source_ids is not None else None
         for seq in sequences:
             seq_np = seq.numpy().astype(megatron_dtype)
             seq_len = len(seq)
 
             if builders.get("stage2") is not None:
                 if seq_len <= seqlen_threshold:
+                    bucket = "stage2"
                     builders["stage2"].add_item(seq_np)
                     builders["stage2"].end_document()
                     stage2_sequences += 1
                     stage2_tokens_out += seq_len
                 else:
+                    bucket = "lct"
                     builders["lct"].add_item(seq_np)
                     builders["lct"].end_document()
                     lct_sequences += 1
                     lct_tokens_out += seq_len
             else:
+                bucket = "main"
                 builders["main"].add_item(seq_np)
                 builders["main"].end_document()
                 total_sequences += 1
                 total_tokens_out += seq_len
+
+            if src_bufs is not None:
+                src_bufs[bucket].append(doc_src)
 
         n_processed += 1
         if log_prefix and n_processed % 100_000 == 0:
@@ -407,6 +430,7 @@ def rebuild_rank(
     max_sequence_tokens: Optional[int] = None,
     seqlen_threshold: Optional[int] = None,
     reject_doc_ids: Optional[set] = None,
+    emit_prov: bool = False,
 ) -> Dict:
     """Per-rank rebuild: read this rank's spill, assemble documents, write shards.
 
@@ -473,6 +497,14 @@ def rebuild_rank(
         prefixes["main"] = output_dir / shard_name
         builders["main"] = IndexedDatasetBuilder(str(prefixes["main"]) + ".bin", dtype=megatron_dtype)
 
+    src_bufs = None
+    doc_source_ids = None
+    if emit_prov:
+        from .provenance import doc_source_ids_for
+
+        src_bufs = {key: [] for key in builders}
+        doc_source_ids = doc_source_ids_for(plan, doc_ids_to_process)
+
     stats = _assemble_and_write(
         doc_ids_to_process=doc_ids_to_process,
         spill=spill,
@@ -486,9 +518,11 @@ def rebuild_rank(
         seqlen_threshold=seqlen_threshold,
         builders=builders,
         reject_doc_ids=reject_doc_ids,
+        doc_source_ids=doc_source_ids,
+        src_bufs=src_bufs,
     )
 
-    finalize_builders(builders, prefixes)
+    finalize_builders(builders, prefixes, src_bufs=src_bufs)
 
     if seqlen_threshold is not None:
         logger.info(
@@ -519,6 +553,7 @@ def rebuild_from_plan(
     seqlen_threshold: Optional[int] = None,
     output_name: str = "rebuilt",
     reject_doc_ids: Optional[set] = None,
+    emit_prov: bool = False,
 ) -> Dict:
     """Read all ranks' spill, validate against plan, assemble, write Megatron bin/idx.
 
@@ -623,6 +658,14 @@ def rebuild_from_plan(
     doc_ids_ordered = plan.documents.document_id[doc_order]
     expected_num_images_to_process = plan.documents.num_images[doc_order].astype(np.int64, copy=False)
 
+    src_bufs = None
+    doc_source_ids = None
+    if emit_prov:
+        from .provenance import doc_source_ids_for
+
+        src_bufs = {key: [] for key in builders}
+        doc_source_ids = doc_source_ids_for(plan, doc_ids_ordered)
+
     stats = _assemble_and_write(
         doc_ids_to_process=doc_ids_ordered,
         spill=spill,
@@ -637,9 +680,11 @@ def rebuild_from_plan(
         builders=builders,
         log_prefix="",
         reject_doc_ids=reject_doc_ids,
+        doc_source_ids=doc_source_ids,
+        src_bufs=src_bufs,
     )
 
-    finalize_builders(builders, prefixes)
+    finalize_builders(builders, prefixes, src_bufs=src_bufs)
 
     if seqlen_threshold is not None:
         logger.info(

@@ -35,6 +35,11 @@ merge_shards: false
 rebuild: true
 dry_run: false
 
+# Opt-in: write per-sequence source-manifest-row sidecars (rank_XXXX_chunk_YYYY.src.npy)
+# so tokenized output positions can be mapped back to source dataset rows. Default off →
+# byte-identical output and no extra files. Must be enabled from the start of a run.
+emit_provenance: false
+
 # --- Weights & Biases --------------------------------------------------------
 
 wandb:

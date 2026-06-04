@@ -59,6 +59,7 @@ class TokenizationHandler:
         texts: Optional[List[Any]] = None,
         group_slices: Optional[np.ndarray] = None,
         timing_enabled: bool = False,
+        source_ids: Optional[np.ndarray] = None,
     ) -> dict:
         """Tokenize a batch and write results to micro-shard.
 
@@ -73,6 +74,9 @@ class TokenizationHandler:
             timing_enabled: When true, populate wall-clock timings for the
                 tokenization and write stages. GPU tokenization time is
                 measured with CUDA events.
+            source_ids: Optional per-image source manifest rows (flat, parallel
+                to *images*).  When provided, filtered in lockstep and recorded
+                per written sequence for provenance.
 
         Returns:
             Timing dict with keys ``tokenize_wall_ms``, ``tokenize_gpu_ms``,
@@ -84,8 +88,8 @@ class TokenizationHandler:
             "write_ms": 0.0,
         }
 
-        valid_images, valid_texts, valid_slices = self._filter_none(
-            images, texts, group_slices, stats,
+        valid_images, valid_texts, valid_slices, valid_source_ids = self._filter_none(
+            images, texts, group_slices, stats, source_ids,
         )
 
         if not valid_images:
@@ -132,30 +136,46 @@ class TokenizationHandler:
                     timings["tokenize_gpu_ms"] = (time.perf_counter() - tokenize_start) * 1000
                 timings["tokenize_wall_ms"] = (time.perf_counter() - tokenize_start) * 1000
 
-        # Write results (skip None entries from multi-image skips)
+        # Write results (skip None entries from multi-image skips). The
+        # provenance-off path is kept identical to the original loop (no extra
+        # allocation); when on, valid_source_ids is 1:1 with token_sequences so a
+        # None sequence simply drops its source id alongside it.
         if timing_enabled:
             write_start = time.perf_counter()
-        for seq in token_sequences:
-            if seq is None:
-                stats.samples_skipped += 1
-                continue
-            self.writer.write_sequence(seq.cpu() if seq.is_cuda else seq, stats)
+        if valid_source_ids is None:
+            for seq in token_sequences:
+                if seq is None:
+                    stats.samples_skipped += 1
+                    continue
+                self.writer.write_sequence(seq.cpu() if seq.is_cuda else seq, stats)
+        else:
+            for seq, sid in zip(token_sequences, valid_source_ids):
+                if seq is None:
+                    stats.samples_skipped += 1
+                    continue
+                self.writer.write_sequence(seq.cpu() if seq.is_cuda else seq, stats, source_id=sid)
         if timing_enabled:
             timings["write_ms"] = (time.perf_counter() - write_start) * 1000
         return timings
 
     @staticmethod
-    def _filter_none(images, texts, group_slices, stats):
+    def _filter_none(images, texts, group_slices, stats, source_ids=None):
         """Filter out None images (and their paired texts / group entries).
 
+        *source_ids* (when provided) is a flat array parallel to *images*; it is
+        filtered in lockstep and reduced to one id per surviving group (the
+        group's first image — its lowest-component-index member).
+
         Returns:
-            (valid_images, valid_texts, valid_slices)
+            (valid_images, valid_texts, valid_slices, valid_source_ids)
+            where ``valid_source_ids`` is ``None`` when *source_ids* is None.
         """
         if group_slices is not None:
             # Multi-image: skip entire group if ANY image or text is None
             valid_flat_images = []
             valid_texts = []
             valid_slices = []
+            valid_source_ids = [] if source_ids is not None else None
 
             for g_idx, (start, end) in enumerate(group_slices):
                 start, end = int(start), int(end)
@@ -173,27 +193,43 @@ class TokenizationHandler:
                 valid_slices.append((new_start, len(valid_flat_images)))
                 if texts is not None:
                     valid_texts.append(text)
+                if valid_source_ids is not None:
+                    valid_source_ids.append(int(source_ids[start]))
 
             valid_slices_arr = np.array(valid_slices, dtype=np.int64) if valid_slices else None
             return (
                 valid_flat_images,
                 valid_texts if texts is not None else None,
                 valid_slices_arr,
+                valid_source_ids,
             )
 
         # Single-image path
         if texts is not None:
             valid_images = []
             valid_texts = []
+            valid_source_ids = [] if source_ids is not None else None
             for i, img in enumerate(images):
                 if img is not None and texts[i] is not None:
                     valid_images.append(img)
                     valid_texts.append(texts[i])
+                    if valid_source_ids is not None:
+                        valid_source_ids.append(int(source_ids[i]))
                 else:
                     stats.samples_skipped += 1
-            return valid_images, valid_texts, None
+            return valid_images, valid_texts, None, valid_source_ids
 
-        # Image-only (no text)
-        valid_images = [img for img in images if img is not None]
+        # Image-only (no text). Keep the original comprehension on the
+        # provenance-off path; only build the parallel id list when needed.
+        if source_ids is None:
+            valid_images = [img for img in images if img is not None]
+            stats.samples_skipped += len(images) - len(valid_images)
+            return valid_images, None, None, None
+        valid_images = []
+        valid_source_ids = []
+        for i, img in enumerate(images):
+            if img is not None:
+                valid_images.append(img)
+                valid_source_ids.append(int(source_ids[i]))
         stats.samples_skipped += len(images) - len(valid_images)
-        return valid_images, None, None
+        return valid_images, None, None, valid_source_ids

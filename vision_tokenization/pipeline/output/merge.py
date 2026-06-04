@@ -206,11 +206,17 @@ def rewrite_dataset(
     input_prefix: str,
     output_prefix: str,
     transform: Callable[[np.ndarray], Optional[np.ndarray]],
+    src_in: Optional[np.ndarray] = None,
+    src_out_path: Optional[str] = None,
 ) -> RewriteStats:
     """Read a merged dataset, apply *transform* per-sequence, write a new one.
 
     The output preserves the input's sequence order, dtype, and sequence modes
     (if present).  Sequences for which *transform* returns ``None`` are dropped.
+
+    When *src_in* (the input dataset's source-row array) and *src_out_path* are
+    given, a filtered ``.src.npy`` is written in lockstep with the kept
+    sequences so the rewritten dataset stays mappable to source rows.
 
     Raises ``FileExistsError`` if the output .bin or .idx already exists.
     """
@@ -234,10 +240,16 @@ def rewrite_dataset(
         bin_path, dtype=dataset.index.dtype, multimodal=multimodal,
     )
 
+    if src_in is not None and len(src_in) != len(dataset):
+        raise ValueError(
+            f"src_in length {len(src_in)} != {len(dataset)} input sequences"
+        )
+
     n = len(dataset)
     written = 0
     skipped = 0
     output_tokens = 0
+    out_src = [] if (src_in is not None and src_out_path is not None) else None
     log_interval = max(1, n // 10)
     for i in range(n):
         item = dataset[i]
@@ -253,6 +265,8 @@ def rewrite_dataset(
             builder.end_document()
             written += 1
             output_tokens += len(seq)
+            if out_src is not None:
+                out_src.append(int(src_in[i]))
         else:
             skipped += 1
 
@@ -263,6 +277,11 @@ def rewrite_dataset(
             )
 
     builder.finalize(idx_path)
+
+    if out_src is not None:
+        from .provenance import save_source_ids
+
+        save_source_ids(src_out_path, out_src)
 
     return RewriteStats(
         input_count=n,
@@ -308,10 +327,16 @@ def merge_shards(
     *,
     shuffle: bool = False,
     seed: int = 42,
+    emit_provenance: Optional[bool] = None,
 ) -> Optional[Path]:
     """Merge all rank shard pairs in *output_dir* into a single dataset.
 
     Returns the output prefix path, or None if no shards were found.
+
+    *emit_provenance* controls the ``.src.npy`` sidecar: ``None`` (auto) emits
+    ``merged.src.npy`` only when every shard has a sidecar; ``True`` requires
+    them (raises if missing); ``False`` disables. Concatenation uses the exact
+    same (post-shuffle) shard order as the ``.bin/.idx`` merge.
     """
     _ensure_megatron_importable()
     from megatron.core.datasets.indexed_dataset import (
@@ -353,6 +378,23 @@ def merge_shards(
 
     builder.finalize(get_idx_path(output_prefix))
 
+    # Provenance sidecar: concatenate per-shard .src.npy in the same shard
+    # order, then assert it matches the merged sequence count.
+    from .provenance import concat_shard_sidecars, read_seq_count, save_source_ids, sidecar_path
+
+    merged_src = concat_shard_sidecars(prefixes, require=emit_provenance)
+    if merged_src is not None:
+        # concat_shard_sidecars already asserts each shard's sidecar length
+        # against its idx; this final check guards the megatron add_index/merge
+        # itself (sum of shard seq-counts == merged seq-count).
+        seq_count = read_seq_count(output_prefix)
+        if len(merged_src) != seq_count:
+            raise ValueError(
+                f"merged.src.npy length {len(merged_src)} != {seq_count} merged sequences"
+            )
+        save_source_ids(sidecar_path(output_prefix), merged_src)
+        logger.info("Wrote provenance sidecar: %s (%d rows)", sidecar_path(output_prefix), len(merged_src))
+
     out_bin = Path(get_bin_path(output_prefix))
     out_tokens = out_bin.stat().st_size // 4
     logger.info(
@@ -371,6 +413,7 @@ def maybe_merge_shards(
     output_name: str = "merged",
     shuffle: bool = False,
     seed: int = 42,
+    emit_provenance: Optional[bool] = None,
 ) -> Optional[Path]:
     """Merge shards if all ranks are done. Returns None if not ready or merge disabled."""
     output_dir = Path(output_dir)
@@ -390,6 +433,7 @@ def maybe_merge_shards(
             output_name=output_name,
             shuffle=shuffle,
             seed=seed,
+            emit_provenance=emit_provenance,
         )
     except Exception:
         logger.warning("Failed to merge shards in %s", output_dir, exc_info=True)
@@ -407,6 +451,16 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--output-name", default="merged", help="Output prefix name")
     parser.add_argument("--shuffle", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--emit-provenance", action="store_true",
+        help="Require per-shard .src.npy sidecars and emit merged.src.npy "
+        "(default: auto — emit only when every shard has one)",
+    )
+    parser.add_argument(
+        "--manifest", default=None,
+        help="Manifest parquet used to build the plan; when given with "
+        "provenance, resolve merged.src.npy → merged.provenance.parquet",
+    )
     parser.add_argument(
         "--strip-thinking", action="store_true",
         help="After merging, produce a second no-CoT variant with "
@@ -454,11 +508,23 @@ def main(argv: Optional[list[str]] = None) -> int:
         output_name=args.output_name,
         shuffle=args.shuffle,
         seed=args.seed,
+        emit_provenance=True if args.emit_provenance else None,
     )
     if result is None:
         print("No shards found to merge.")
         return 1
     print(f"Merged to {result}.bin / {result}.idx")
+
+    # Resolve the merged sidecar to a typed provenance parquet when a manifest
+    # is supplied and merge produced a sidecar.
+    from .provenance import sidecar_path
+
+    merged_src_path = sidecar_path(str(result))
+    if args.manifest and Path(merged_src_path).exists():
+        from .provenance import write_provenance_parquet
+
+        out = write_provenance_parquet(str(result), args.manifest)
+        print(f"Provenance parquet: {out}")
 
     if args.strip_thinking:
         from functools import partial
@@ -473,7 +539,18 @@ def main(argv: Optional[list[str]] = None) -> int:
             "Rewriting %s → %s (stripping think_id=%d, end_think_id=%d)",
             result, no_cot_prefix, think_id, end_think_id,
         )
-        stats = rewrite_dataset(str(result), no_cot_prefix, transform)
+        # Carry provenance through the no-CoT rewrite in lockstep.
+        no_cot_src_in = None
+        no_cot_src_out = None
+        if Path(merged_src_path).exists():
+            from .provenance import load_source_ids
+
+            no_cot_src_in = load_source_ids(merged_src_path)
+            no_cot_src_out = sidecar_path(no_cot_prefix)
+        stats = rewrite_dataset(
+            str(result), no_cot_prefix, transform,
+            src_in=no_cot_src_in, src_out_path=no_cot_src_out,
+        )
         logger.info(
             "Rewrite complete: %d input → %d written (%d tokens), %d skipped",
             stats.input_count, stats.written_count, stats.output_tokens,

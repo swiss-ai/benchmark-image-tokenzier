@@ -35,7 +35,14 @@ class DirectBackend:
         self._handler = None
         self._chunk_id = 0
 
-    def open(self, output_dir: str, rank: int, resume_state: Optional[dict] = None, tokenizer=None) -> None:
+    def open(
+        self,
+        output_dir: str,
+        rank: int,
+        resume_state: Optional[dict] = None,
+        tokenizer=None,
+        emit_prov: bool = False,
+    ) -> None:
         from .direct.handler import TokenizationHandler
         from .direct.writer import MicroShardWriter, SplitMicroShardWriter
 
@@ -58,9 +65,10 @@ class DirectBackend:
                 resume_state.get("stage2_chunk_id", 0) + 1 if resume_state else 0,
                 resume_state.get("lct_chunk_id", 0) + 1 if resume_state else 0,
                 tokenizer,
+                emit_prov=emit_prov,
             )
         else:
-            self._handler.setup_writer(output_dir, rank, start_chunk, tokenizer)
+            self._handler.setup_writer(output_dir, rank, start_chunk, tokenizer, emit_prov=emit_prov)
 
     def write_batch(
         self,
@@ -72,11 +80,13 @@ class DirectBackend:
         stats: WorkerStats,
         device: str,
         timing_enabled: bool = False,
+        source_ids: Optional[np.ndarray] = None,
     ) -> dict:
         """Tokenize + write in one step. The handler owns the full pipeline."""
         return self._handler.process_batch(
             images, resize_size, tokenizer, stats, device,
             texts=texts, group_slices=group_slices, timing_enabled=timing_enabled,
+            source_ids=source_ids,
         )
 
     def checkpoint(self) -> Any:

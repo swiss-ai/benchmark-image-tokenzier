@@ -15,7 +15,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 
@@ -164,16 +164,40 @@ def finalize_shard_writer(
     tmp_idx: str,
     bin_path: str,
     idx_path: str,
+    src_buf: Optional[List[int]] = None,
+    src_path: Optional[str] = None,
 ) -> None:
     """Finalize index and atomically move temporary shard files in place.
 
     Calls ``fsync`` on both temp files before renaming to ensure data is
     durable on network filesystems (e.g. Lustre).
+
+    When *src_buf* is provided (provenance enabled), the caller also supplies
+    *src_path* (derived via ``provenance.sidecar_path`` so the suffix lives in
+    one place).  A parallel ``.src.npy`` sidecar holding one int64
+    source-manifest-row per written sequence shares the same tmp + fsync +
+    atomic-rename transaction, and is renamed **last** so a crash never leaves a
+    complete shard paired with a stale or half-written sidecar — merge treats a
+    missing sidecar as "regenerate", never as silent misalignment.
     """
     builder.finalize(tmp_idx)
+
+    tmp_paths = [tmp_bin, tmp_idx]
+    tmp_src = None
+    if src_buf is not None:
+        if src_path is None:
+            raise ValueError("src_path is required when src_buf is provided")
+        # Lazy import: provenance imports nothing from the pipeline, so this is
+        # cycle-free and keeps the .src.npy write in one place.
+        from ..output.provenance import save_source_ids
+
+        tmp_src = src_path + ".tmp"
+        save_source_ids(tmp_src, src_buf)
+        tmp_paths.append(tmp_src)
+
     # fsync via O_WRONLY to flush write-back cache (O_RDONLY works on Linux
     # but is technically non-portable; O_WRONLY is POSIX-correct).
-    for p in (tmp_bin, tmp_idx):
+    for p in tmp_paths:
         fd = os.open(p, os.O_WRONLY)
         try:
             os.fsync(fd)
@@ -181,6 +205,8 @@ def finalize_shard_writer(
             os.close(fd)
     os.replace(tmp_bin, bin_path)
     os.replace(tmp_idx, idx_path)
+    if tmp_src is not None:
+        os.replace(tmp_src, src_path)
 
 
 # ---------------------------------------------------------------------------
