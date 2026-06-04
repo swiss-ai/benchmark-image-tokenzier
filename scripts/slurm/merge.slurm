@@ -30,6 +30,11 @@
 # Optional env:
 #   STRIP_THINKING    "true" (default) to also produce merged_no_cot.bin/idx
 #   TOKENIZER_PATH    default apertus_emu3.5_instruct; only consulted with strip
+#   EMIT_PROVENANCE   "true" to require per-shard .src.npy sidecars and emit
+#                     merged.src.npy (set this when the tokenize job ran with
+#                     emit_provenance=true)
+#   MANIFEST          manifest parquet used to build the plan; with provenance,
+#                     resolves merged.src.npy -> merged.provenance.parquet
 #
 
 set -euo pipefail
@@ -38,6 +43,8 @@ set -euo pipefail
 : "${EXPECTED_RANKS:?EXPECTED_RANKS is required}"
 STRIP_THINKING="${STRIP_THINKING:-true}"
 TOKENIZER_PATH="${TOKENIZER_PATH:-/capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_instruct}"
+EMIT_PROVENANCE="${EMIT_PROVENANCE:-false}"
+MANIFEST="${MANIFEST:-}"
 
 echo "=========================================="
 echo "Cross-rank merge"
@@ -48,6 +55,8 @@ echo "OUTPUT_DIR:      ${OUTPUT_DIR}"
 echo "EXPECTED_RANKS:  ${EXPECTED_RANKS}"
 echo "STRIP_THINKING:  ${STRIP_THINKING}"
 echo "TOKENIZER_PATH:  ${TOKENIZER_PATH}"
+echo "EMIT_PROVENANCE: ${EMIT_PROVENANCE}"
+echo "MANIFEST:        ${MANIFEST:-<none>}"
 echo "=========================================="
 
 mkdir -p /iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs
@@ -55,6 +64,12 @@ mkdir -p /iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs
 EXTRA_FLAGS=()
 if [ "${STRIP_THINKING}" = "true" ]; then
     EXTRA_FLAGS+=(--strip-thinking --resolve-thinking-ids --tokenizer-path "${TOKENIZER_PATH}")
+fi
+if [ "${EMIT_PROVENANCE}" = "true" ]; then
+    EXTRA_FLAGS+=(--emit-provenance)
+fi
+if [ -n "${MANIFEST}" ]; then
+    EXTRA_FLAGS+=(--manifest "${MANIFEST}")
 fi
 
 srun -u --kill-on-bad-exit=1 bash -c "
@@ -75,5 +90,11 @@ echo "Outputs:"
 echo "  ${OUTPUT_DIR}/merged.bin / merged.idx"
 if [ "${STRIP_THINKING}" = "true" ]; then
     echo "  ${OUTPUT_DIR}/merged_no_cot.bin / merged_no_cot.idx"
+fi
+if [ "${EMIT_PROVENANCE}" = "true" ]; then
+    echo "  ${OUTPUT_DIR}/merged.src.npy"
+    if [ -n "${MANIFEST}" ]; then
+        echo "  ${OUTPUT_DIR}/merged.provenance.parquet"
+    fi
 fi
 echo "=========================================="
