@@ -400,25 +400,26 @@ def _assemble_and_write(
 
 def rebuild_rank(
     plan: TokenizationPlan,
-    output_dir: str | Path,
     rank: int,
+    spill_dir: str | Path,
     token_ids: StructureTokenIds,
     vocab_size: int,
+    *,
+    output_dir: Optional[str | Path] = None,
     max_sequence_tokens: Optional[int] = None,
     seqlen_threshold: Optional[int] = None,
     reject_doc_ids: Optional[set] = None,
 ) -> Dict:
-    """Per-rank rebuild: read this rank's spill, assemble documents, write shards.
-
-    Output naming matches the direct backend: ``rank_XXXX_chunk_0000.bin/.idx``
-    (and ``stage2/``, ``lct/`` subdirs when seqlen_threshold is set).
-
-    Called at the end of each rank's executor loop, before merge.
+    """Per-rank rebuild: read ``spill_dir/rank_NNNN/``, assemble documents,
+    write ``output_dir/rank_NNNN_chunk_0000.{bin,idx}`` (or ``stage2/``,
+    ``lct/`` subdirs when seqlen_threshold is set). ``output_dir`` defaults to
+    ``spill_dir``.
     """
     from vision_tokenization.formats.megatron import DType, IndexedDatasetBuilder
 
-    output_dir = Path(output_dir)
-    rank_dir = output_dir / f"rank_{rank:04d}"
+    spill_dir = Path(spill_dir)
+    output_dir = Path(output_dir) if output_dir is not None else spill_dir
+    rank_dir = spill_dir / f"rank_{rank:04d}"
     mode = plan.mode
 
     if not (rank_dir / "_SUCCESS").exists():

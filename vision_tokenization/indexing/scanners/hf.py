@@ -24,6 +24,7 @@ from vision_tokenization.indexing.manifest import (
     HF_SCHEMA_PHYSICAL,
     HF_SCHEMA_PHYSICAL_MULTI_IMAGE,
 )
+from vision_tokenization.utils.contamination import load_contamination_index
 
 from vision_tokenization.indexing.scanners._parallel import run_ordered_pool
 
@@ -132,11 +133,15 @@ def _scan_single_hf_shard(
     image_list_column: Optional[str] = None,
     image_map_column: Optional[str] = None,
     message_column: Optional[str] = None,
+    contaminated_rows: frozenset[int] = frozenset(),
 ):
     if shard_path.endswith(".arrow"):
         if image_map_column is not None:
             return (
                 build_hf_output_table(build_hf_output_columns(True), True),
+                0,
+                0,
+                0,
                 0,
                 0,
                 "image_map_column is only supported for parquet shards",
@@ -145,6 +150,7 @@ def _scan_single_hf_shard(
             shard_path,
             image_column=image_column,
             image_list_column=image_list_column,
+            contaminated_rows=contaminated_rows,
         )
     if shard_path.endswith(".parquet"):
         return scan_single_hf_parquet_shard(
@@ -153,6 +159,7 @@ def _scan_single_hf_shard(
             image_list_column=image_list_column,
             image_map_column=image_map_column,
             message_column=message_column,
+            contaminated_rows=contaminated_rows,
         )
     raise ValueError(f"Unsupported HF shard format: {shard_path}")
 
@@ -166,6 +173,7 @@ def _process_shard_result(
     total_failed_dims: int,
     total_failed_messages: int,
     total_failed_image_maps: int,
+    total_contaminated_skipped: int,
     skipped_shards: int,
     is_multi: bool,
     buffer: list[pa.Table],
@@ -173,19 +181,15 @@ def _process_shard_result(
     writer: pq.ParquetWriter,
     schema: pa.Schema,
 ):
-    if len(result) == 4:
-        table, source_rows, failed_dims, skip_reason = result
-        failed_messages = 0
-        failed_image_maps = 0
-    else:
-        (
-            table,
-            source_rows,
-            failed_dims,
-            failed_messages,
-            failed_image_maps,
-            skip_reason,
-        ) = result
+    (
+        table,
+        source_rows,
+        failed_dims,
+        failed_messages,
+        failed_image_maps,
+        contaminated_skipped,
+        skip_reason,
+    ) = result
     if skip_reason is not None:
         skipped_shards += 1
         logger.warning("Skipping HF shard %s: %s", shard_path, skip_reason)
@@ -195,6 +199,7 @@ def _process_shard_result(
             total_failed_dims,
             total_failed_messages,
             total_failed_image_maps,
+            total_contaminated_skipped,
             skipped_shards,
             buffered_rows,
         )
@@ -210,6 +215,7 @@ def _process_shard_result(
     total_failed_dims += failed_dims
     total_failed_messages += failed_messages
     total_failed_image_maps += failed_image_maps
+    total_contaminated_skipped += contaminated_skipped
     total_manifest_rows += len(table)
 
     if len(table):
@@ -225,6 +231,7 @@ def _process_shard_result(
         total_failed_dims,
         total_failed_messages,
         total_failed_image_maps,
+        total_contaminated_skipped,
         skipped_shards,
         buffered_rows,
     )
@@ -236,6 +243,8 @@ def scan_hf_dataset(
     image_list_column: Optional[str] = None,
     image_map_column: Optional[str] = None,
     message_column: Optional[str] = None,
+    contamination_ids_path: Optional[Union[str, Path]] = None,
+    contamination_format: str = "innovator_vl",
     num_workers: int = 8,
 ) -> str:
     """Scan HF Arrow/Parquet shards and write a Parquet manifest.
@@ -248,6 +257,8 @@ def scan_hf_dataset(
         image_list_column: Column name for multi-image ``List[Image]`` data.
         image_map_column: Column name for image-map ``Map[ref, image_cell]`` data.
         message_column: Column with JSON messages when image_map_column is set.
+        contamination_ids_path: Optional file of source-row ids to skip.
+        contamination_format: Format decoder for contamination_ids_path.
         num_workers: Number of worker processes to scan shards in parallel.
 
     Returns:
@@ -279,13 +290,32 @@ def scan_hf_dataset(
     total_failed_dims = 0
     total_failed_messages = 0
     total_failed_image_maps = 0
+    total_contaminated_skipped = 0
     skipped_shards = 0
+
+    contamination_index = None
+    if contamination_ids_path is not None:
+        contamination_index = load_contamination_index(
+            contamination_ids_path,
+            format=contamination_format,
+        )
+        logger.info(
+            "Loaded %d contamination ids across %d source shards from %s",
+            contamination_index.total_ids,
+            len(contamination_index.by_source),
+            contamination_index.path,
+        )
 
     writer = pq.ParquetWriter(output_manifest, schema, compression="zstd")
     buffer: list[pa.Table] = []
     buffered_rows = 0
 
     def _submit(pool, idx):
+        contaminated_rows = (
+            contamination_index.rows_for_path(shard_paths[idx])
+            if contamination_index is not None
+            else frozenset()
+        )
         return pool.submit(
             _scan_single_hf_shard,
             shard_paths[idx],
@@ -293,11 +323,13 @@ def scan_hf_dataset(
             image_list_column,
             image_map_column,
             message_column,
+            contaminated_rows,
         )
 
     def _emit(idx, result):
         nonlocal total_source_rows, total_manifest_rows, total_failed_dims
         nonlocal total_failed_messages, total_failed_image_maps
+        nonlocal total_contaminated_skipped
         nonlocal skipped_shards, buffered_rows
         shard_path = shard_paths[idx]
         (
@@ -306,6 +338,7 @@ def scan_hf_dataset(
             total_failed_dims,
             total_failed_messages,
             total_failed_image_maps,
+            total_contaminated_skipped,
             skipped_shards,
             buffered_rows,
         ) = _process_shard_result(
@@ -316,6 +349,7 @@ def scan_hf_dataset(
             total_failed_dims=total_failed_dims,
             total_failed_messages=total_failed_messages,
             total_failed_image_maps=total_failed_image_maps,
+            total_contaminated_skipped=total_contaminated_skipped,
             skipped_shards=skipped_shards,
             is_multi=is_multi,
             buffer=buffer,
@@ -344,19 +378,31 @@ def scan_hf_dataset(
     elapsed = time.time() - t0
 
     from ._metadata import write_scan_metadata
+    metadata_extra = {
+        "total_source_rows": total_source_rows,
+        "failed_dims": total_failed_dims,
+        "failed_messages": total_failed_messages,
+        "failed_image_maps": total_failed_image_maps,
+        "contaminated_skipped": total_contaminated_skipped,
+        "skipped_shards": skipped_shards,
+    }
+    if contamination_index is not None:
+        metadata_extra.update(
+            {
+                "contamination_ids_path": contamination_index.path,
+                "contamination_format": contamination_index.format,
+                "contamination_ids": contamination_index.total_ids,
+                "contamination_source_shards": len(contamination_index.by_source),
+            }
+        )
+
     write_scan_metadata(
         output_manifest,
         num_workers=num_workers,
         elapsed_seconds=elapsed,
         total_rows=total_manifest_rows,
         dataset_type="hf",
-        extra={
-            "total_source_rows": total_source_rows,
-            "failed_dims": total_failed_dims,
-            "failed_messages": total_failed_messages,
-            "failed_image_maps": total_failed_image_maps,
-            "skipped_shards": skipped_shards,
-        },
+        extra=metadata_extra,
     )
 
     logger.info(
@@ -365,6 +411,7 @@ def scan_hf_dataset(
         f"{total_failed_dims:,} failed dimension extractions, "
         f"{total_failed_messages:,} failed message parses, "
         f"{total_failed_image_maps:,} failed image-map parses, "
+        f"{total_contaminated_skipped:,} contaminated rows skipped, "
         f"{skipped_shards:,} skipped shards)"
     )
     return output_manifest

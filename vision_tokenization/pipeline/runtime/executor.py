@@ -558,8 +558,8 @@ def run_executor(
         )
         rebuild_stats = rebuild_rank(
             plan=plan,
-            output_dir=output_dir,
             rank=rank,
+            spill_dir=output_dir,
             token_ids=rebuild_token_ids,
             vocab_size=len(tokenizer.text_tokenizer),
             max_sequence_tokens=cfg.get("max_sequence_tokens"),

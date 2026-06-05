@@ -1,6 +1,6 @@
 """Single-shard HF Parquet scan helpers."""
 
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple
 
 import pyarrow as pa
 
@@ -19,10 +19,8 @@ def scan_single_hf_parquet_shard(
     image_list_column: Optional[str] = None,
     image_map_column: Optional[str] = None,
     message_column: Optional[str] = None,
-) -> Union[
-    Tuple[pa.Table, int, int, Optional[str]],
-    Tuple[pa.Table, int, int, int, int, Optional[str]],
-]:
+    contaminated_rows: frozenset[int] = frozenset(),
+) -> Tuple[pa.Table, int, int, int, int, int, Optional[str]]:
     """Scan one HF Parquet shard and return manifest columns."""
     is_map = image_map_column is not None
     is_multi = image_list_column is not None or is_map
@@ -34,11 +32,20 @@ def scan_single_hf_parquet_shard(
     failed_dims = 0
     failed_messages = 0
     failed_image_maps = 0
+    contaminated_skipped = 0
     source_rows = 0
     parquet_file = pq.ParquetFile(shard_path)
     if is_map:
         if message_column is None:
-            return build_hf_output_table(out, is_multi), 0, 0, "missing message_column"
+            return (
+                build_hf_output_table(out, is_multi),
+                0,
+                0,
+                0,
+                0,
+                0,
+                "missing message_column",
+            )
         missing = [
             col
             for col in (image_map_column, message_column)
@@ -47,6 +54,9 @@ def scan_single_hf_parquet_shard(
         if missing:
             return (
                 build_hf_output_table(out, is_multi),
+                0,
+                0,
+                0,
                 0,
                 0,
                 f"missing column(s) {missing!r}",
@@ -65,6 +75,7 @@ def scan_single_hf_parquet_shard(
                     failed_dims,
                     failed_messages,
                     failed_image_maps,
+                    batch_skipped,
                 ) = scan_hf_image_map_batch_columns(
                     out,
                     batch.column(image_map_column),
@@ -75,7 +86,9 @@ def scan_single_hf_parquet_shard(
                     failed_messages,
                     failed_image_maps,
                     row_base=row_base,
+                    contaminated_rows=contaminated_rows,
                 )
+                contaminated_skipped += batch_skipped
 
         return (
             build_hf_output_table(out, is_multi),
@@ -83,21 +96,40 @@ def scan_single_hf_parquet_shard(
             failed_dims,
             failed_messages,
             failed_image_maps,
+            contaminated_skipped,
             None,
         )
 
     if column not in parquet_file.schema_arrow.names:
-        return build_hf_output_table(out, is_multi), 0, 0, f"missing column {column!r}"
+        return (
+            build_hf_output_table(out, is_multi),
+            0,
+            0,
+            0,
+            0,
+            0,
+            f"missing column {column!r}",
+        )
 
     for row_group_idx in range(parquet_file.metadata.num_row_groups):
         batch = parquet_file.read_row_group(row_group_idx, columns=[column])
-        out, source_rows, failed_dims = scan_hf_batch_columns(
+        out, source_rows, failed_dims, batch_skipped = scan_hf_batch_columns(
             out,
             batch.column(column),
             row_group_idx,
             source_rows,
             failed_dims,
             is_multi=is_multi,
+            contaminated_rows=contaminated_rows,
         )
+        contaminated_skipped += batch_skipped
 
-    return build_hf_output_table(out, is_multi), source_rows, failed_dims, None
+    return (
+        build_hf_output_table(out, is_multi),
+        source_rows,
+        failed_dims,
+        0,
+        0,
+        contaminated_skipped,
+        None,
+    )

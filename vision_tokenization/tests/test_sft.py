@@ -579,8 +579,8 @@ def test_rebuild_rank_skips_incomplete_sft_spill_document(tmp_path):
 
     result = rebuild_rank(
         plan,
-        output_dir,
         rank=0,
+        spill_dir=output_dir,
         token_ids=token_ids,
         vocab_size=200000,
     )
@@ -672,8 +672,8 @@ def test_rebuild_rank_skips_sft_spill_document_missing_later_fragment_images(tmp
 
     result = rebuild_rank(
         plan,
-        output_dir,
         rank=0,
+        spill_dir=output_dir,
         token_ids=token_ids,
         vocab_size=200000,
     )

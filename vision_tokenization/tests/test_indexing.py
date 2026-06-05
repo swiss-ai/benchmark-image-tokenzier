@@ -28,12 +28,17 @@ from vision_tokenization.indexing.manifest import (
     save_wds_manifest,
 )
 from vision_tokenization.indexing.scanners.hf import scan_hf_dataset
+from vision_tokenization.indexing.scanners._workers.hf_common import (
+    build_hf_output_columns,
+    scan_hf_batch_columns,
+)
 from vision_tokenization.indexing.reader import TarRandomAccessReader
 from vision_tokenization.indexing.scanners.wds import scan_wds_dataset
 from vision_tokenization.pipeline.runtime.data import HFImageLoader, WDSImageLoader
 from vision_tokenization.pipeline.runtime.dry_run import dry_run_batch_plan
 from vision_tokenization.utils.partitioning import weighted_contiguous_split
 from vision_tokenization.utils.image_geometry import estimate_image_tokens, smart_resize_dims
+from vision_tokenization.utils.json import json_load
 
 
 # ---------------------------------------------------------------------------
@@ -451,6 +456,34 @@ class TestWDSScanner:
 # ======================================================================
 class TestHFScanner:
 
+    def test_hf_batch_scan_skips_contamination_lookup_when_empty(self):
+        class EmptyRows:
+            def __bool__(self):
+                return False
+
+            def __contains__(self, _item):
+                raise AssertionError("empty contamination index should not be checked")
+
+        out = build_hf_output_columns(is_multi=False)
+        image_col = pa.array(
+            [_hf_image_cell(10, 20), _hf_image_cell(30, 40)],
+            type=_HF_IMAGE_TYPE,
+        )
+
+        out, source_rows, failed_dims, contaminated_skipped = scan_hf_batch_columns(
+            out,
+            image_col,
+            chunk_index=0,
+            source_rows=0,
+            failed_dims=0,
+            is_multi=False,
+            contaminated_rows=EmptyRows(),
+        )
+
+        assert source_rows == 2
+        assert failed_dims == 0
+        assert contaminated_skipped == 0
+
     def test_scan_hf_arrow_single_image(self, tmp_path):
         rows_a = [(32, 48), (64, 96)]
         rows_b = [(20, 30)]
@@ -603,6 +636,90 @@ class TestHFScanner:
         assert table.column("height").to_pylist() == [21, 41, 61, 81, 101]
         assert table.column("chunk_index").to_pylist() == [0, 0, 0, 0, 0]
         assert table.column("row_in_chunk").to_pylist() == [0, 0, 1, 0, 0]
+
+    def test_scan_hf_parquet_skips_contaminated_source_rows(self, tmp_path):
+        rows = [
+            [(10, 20)],
+            [(30, 40), (31, 41)],
+            [(50, 60)],
+            [(70, 80), (71, 81)],
+            [(90, 100)],
+        ]
+        _write_hf_parquet_shard(
+            str(tmp_path / "SFT_000099.parquet"),
+            rows,
+            column_name="images",
+            multi_image=True,
+            row_group_size=2,
+        )
+        ids_path = tmp_path / "contaminated.txt"
+        ids_path.write_text("SFT_000099_000001,SFT_000099_000003\n")
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        scan_hf_dataset(
+            input_pattern=str(tmp_path / "SFT_*.parquet"),
+            output_manifest=manifest_path,
+            image_list_column="images",
+            contamination_ids_path=ids_path,
+            contamination_format="innovator_vl",
+            num_workers=1,
+        )
+
+        table = load_hf_manifest(manifest_path)
+        assert table.column("sample_index").to_pylist() == [0, 2, 4]
+        assert table.column("group_id").to_pylist() == [0, 2, 4]
+        assert table.column("chunk_index").to_pylist() == [0, 1, 2]
+        assert table.column("row_in_chunk").to_pylist() == [0, 0, 0]
+
+        meta = json_load(Path(manifest_path).with_name("manifest_meta.json"))
+        assert meta["contaminated_skipped"] == 2
+        assert meta["contamination_format"] == "innovator_vl"
+        assert meta["contamination_ids"] == 2
+
+    def test_decontaminate_manifest_filters_existing_hf_manifest(self, tmp_path):
+        from scripts.decontaminate_manifest import decontaminate_manifest
+
+        rows = [
+            [(10, 20)],
+            [(30, 40), (31, 41)],
+            [(50, 60)],
+            [(70, 80), (71, 81)],
+            [(90, 100)],
+        ]
+        _write_hf_parquet_shard(
+            str(tmp_path / "SFT_000100.parquet"),
+            rows,
+            column_name="images",
+            multi_image=True,
+            row_group_size=2,
+        )
+        ids_path = tmp_path / "contaminated.txt"
+        ids_path.write_text("SFT_000100_000001 SFT_000100_000003\n")
+
+        raw_manifest = tmp_path / "raw_manifest.parquet"
+        clean_manifest = tmp_path / "clean_manifest.parquet"
+        scan_hf_dataset(
+            input_pattern=str(tmp_path / "SFT_*.parquet"),
+            output_manifest=raw_manifest,
+            image_list_column="images",
+            num_workers=1,
+        )
+
+        summary = decontaminate_manifest(
+            raw_manifest,
+            clean_manifest,
+            ids_path,
+            contamination_format="innovator_vl",
+        )
+
+        table = load_hf_manifest(clean_manifest)
+        assert table.column("sample_index").to_pylist() == [0, 2, 4]
+        assert summary["rows_in"] == 7
+        assert summary["rows_out"] == 3
+        assert summary["manifest_rows_dropped"] == 4
+        assert summary["source_docs_dropped"] == 2
+        meta = json_load(clean_manifest.with_name("clean_manifest_decontamination_meta.json"))
+        assert meta["source_docs_dropped"] == 2
 
 
 # ======================================================================
