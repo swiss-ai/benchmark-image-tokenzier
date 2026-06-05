@@ -7,8 +7,11 @@ from typing import Tuple
 import imagesize
 import pyarrow as pa
 import pyarrow.compute as pc
+from PIL import Image
 
 _HEADER_BYTES = 4096
+_HEADER_BYTES_LARGE = 65536  # larger retry for JPEG/TIFF with long EXIF/IFD
+_MAX_DIMENSION = 500_000  # reject dims above this (corrupt header guard)
 _HF_WORKER_SCHEMA = pa.schema(
     [
         pa.field("sample_index", pa.int64()),
@@ -62,26 +65,51 @@ def build_hf_output_table(columns: dict[str, array], is_multi: bool) -> pa.Table
     return pa.table(arrays, schema=schema)
 
 
+def _valid_dims(w: int, h: int) -> bool:
+    return 0 < w <= _MAX_DIMENSION and 0 < h <= _MAX_DIMENSION
+
+
+def _dims_from_bytes(img_bytes) -> Tuple[int, int]:
+    """imagesize(4KB) -> imagesize(64KB) -> PIL, each step isolated.
+
+    A failure (exception OR sentinel) in one step falls through to the next, so
+    a truncated-header parse error never bypasses the full-decode fallback
+    (JPEGs with long EXIF push the SOF marker past the 4KB header).
+    """
+    try:
+        w, h = imagesize.get(BytesIO(img_bytes[:_HEADER_BYTES]))
+        if _valid_dims(w, h):
+            return w, h
+    except Exception:
+        pass
+    try:
+        w, h = imagesize.get(BytesIO(img_bytes[:_HEADER_BYTES_LARGE]))
+        if _valid_dims(w, h):
+            return w, h
+    except Exception:
+        pass
+    try:
+        with Image.open(BytesIO(img_bytes)) as img:
+            w, h = img.size
+        if _valid_dims(w, h):
+            return w, h
+    except Exception:
+        pass
+    return -1, -1
+
+
 def get_image_dimensions(img_data) -> Tuple[int, int]:
     """Get dimensions from a raw HF image cell without full decode."""
     try:
         if isinstance(img_data, dict):
             img_bytes = img_data.get("bytes")
             if img_bytes is not None:
-                header = img_bytes[:_HEADER_BYTES]
-                w, h = imagesize.get(BytesIO(header))
-                if w < 0 or h < 0:
-                    w, h = imagesize.get(BytesIO(img_bytes))
-                return w, h
+                return _dims_from_bytes(img_bytes)
             img_path = img_data.get("path")
             if img_path is not None:
                 return imagesize.get(img_path)
-        if isinstance(img_data, bytes):
-            header = img_data[:_HEADER_BYTES]
-            w, h = imagesize.get(BytesIO(header))
-            if w < 0 or h < 0:
-                w, h = imagesize.get(BytesIO(img_data))
-            return w, h
+        if isinstance(img_data, (bytes, bytearray)):
+            return _dims_from_bytes(img_data)
         if hasattr(img_data, "size"):
             return img_data.size
     except Exception:
@@ -100,21 +128,38 @@ def _iter_column_chunks(image_col):
 
 
 def _get_dims_from_scalars(header_scalar, bytes_scalar, path_scalar) -> Tuple[int, int]:
-    """Read dimensions from a 4KB header, with full-bytes fallback only if needed."""
+    """Read dimensions: 4KB-header fast path, then robust full-bytes/PIL fallback.
+
+    The header attempt is isolated so a truncated-header parse error (e.g. a
+    JPEG whose SOF marker sits past 4KB behind long EXIF) falls through to the
+    full-bytes ladder instead of being swallowed and returning ``(-1, -1)``.
+    """
+    # Fast path: 4KB header only (avoids materializing full bytes for most rows).
     try:
         header = header_scalar.as_py() if header_scalar is not None else None
         if header:
             w, h = imagesize.get(BytesIO(header))
-            if w >= 0 and h >= 0:
+            if _valid_dims(w, h):
                 return w, h
+    except Exception:
+        pass
 
+    # Fallback: full bytes via imagesize(64KB) -> PIL.
+    try:
         img_bytes = bytes_scalar.as_py() if bytes_scalar is not None else None
-        if img_bytes is not None:
-            return imagesize.get(BytesIO(img_bytes))
+    except Exception:
+        img_bytes = None
+    if img_bytes is not None:
+        w, h = _dims_from_bytes(img_bytes)
+        if _valid_dims(w, h):
+            return w, h
 
+    try:
         img_path = path_scalar.as_py() if path_scalar is not None else None
         if img_path is not None:
-            return imagesize.get(img_path)
+            w, h = imagesize.get(img_path)
+            if _valid_dims(w, h):
+                return w, h
     except Exception:
         pass
     return -1, -1

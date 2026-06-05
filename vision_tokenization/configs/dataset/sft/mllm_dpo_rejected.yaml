@@ -1,0 +1,29 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# mllm-dpo (prompt-in-pair) — REJECTED conversations. SFT, single image, HF parquet.
+# Sibling of mllm_dpo_accepted: SAME image, SAME manifest, SAME plan — only the
+# tokenized conversation column (`rejected`) and output_name differ. Tokenizing
+# both against the shared manifest keeps the two runs aligned for DPO pairing.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: mllm_dpo_rejected
+output_dir: /iopsstor/scratch/cscs/rkreft/mllm-dpo/tokenized   # shards -> .../tokenized/sft/mllm_dpo_rejected
+input_pattern: "/iopsstor/scratch/cscs/rkreft/mllm-dpo/mllm-dpo-prompt-in-pair.parquet"
+manifest_path: /iopsstor/scratch/cscs/rkreft/mllm-dpo/manifest/manifest.parquet
+image_column: image
+
+# `rejected` is canonical list[{role, content}] chat; the conversation parser
+# passes it through unchanged. conversation_column tells the parser which column
+# holds the messages (the column name is not auto-detected).
+parser: conversation
+parser_columns:
+  - rejected
+parser_args:
+  conversation_column: rejected
+
+conversation_policy:
+  add_image_placeholder: false   # <image> already present in the user turn
+  add_system_message: true       # mirrors llava_onevision_sft; identical for both variants
