@@ -5,7 +5,7 @@ Abstract base classes for vision v_tokenizers used in VLM benchmarking.
 This module provides the interface for vision v_tokenizers that prepare image tokens
 for VLM inference. It is separate from:
 - Tokenizer/base.py: For reconstruction benchmarking
-- vision_tokenization/vokenizers/base.py: For dataset tokenization
+- vision_tokenization/discrete/emu/: For dataset tokenization
 
 This focuses specifically on VLM inference needs: encoding images and formatting
 tokens for insertion into chat templates.

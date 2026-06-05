@@ -2,8 +2,7 @@
 
 Calls ``tokenizer.tokenize_batch()`` and writes results via
 ``MicroShardWriter``.  Works with any tokenizer that implements the
-``tokenize_batch(images, resize_size, text=, group_slices=)`` interface
-(see ``vokenizers.base.BaseTokenizer``).
+``tokenize_batch(images, resize_size, text=, group_slices=)`` interface.
 """
 
 import logging

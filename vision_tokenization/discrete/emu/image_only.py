@@ -15,10 +15,9 @@ from transformers import AutoTokenizer
 
 # Tokenizer imports require the repo root on PYTHONPATH (set by SLURM scripts)
 
-from ..base import BaseTokenizer
 
 
-class EMUImageOnlyTokenizer(BaseTokenizer):
+class EMUImageOnlyTokenizer:
     """
     EMU tokenizer for image-only sequences.
     Provides direct image tokenization with EMU special tokens.
