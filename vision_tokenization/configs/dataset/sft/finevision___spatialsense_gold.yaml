@@ -1,0 +1,58 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# SpatialSense — GOLD bbox + Qwen-distilled natural prose redistill.
+#
+# Source: princeton-vl/SpatialSense (Zenodo 8104370, CC-BY-2.0)
+#   https://zenodo.org/records/8104370
+# Yang, Russakovsky, Jia Deng (Princeton VL, ICCV 2019). Adversarially
+# crowdsourced + SECOND-PASS-VERIFIED spatial relation triples with
+# human-annotated bounding boxes for each (subject, predicate, object).
+#
+# License: CC-BY-2.0 (commercial use OK with attribution).
+#
+# Redistill pipeline (multimodal-data/.../redistill_spatialsense_gold.py):
+#   1. Original gold: 11,569 images / 17,498 (subject, predicate, object) triples
+#      with human-verified bboxes and Yes/No labels.
+#   2. Filter to TRAIN split (7,645 images).
+#   3. For each relation: native bbox [Y1,Y2,X1,X2] pixels → standard
+#      [X1,Y1,X2,Y2] normalized 0-1000.
+#   4. Qwen3.6-27B writes natural 1-sentence prose using the GOLD bboxes
+#      inline (NOT regenerated). Qwen does NOT decide Yes/No or detect bboxes
+#      — purely a phrasing model.
+#   5. Format: <answer>Yes/No</answer>. <description>The <object>X</object>
+#      <bbox>[...]</bbox> is RELATION the <object>Y</object><bbox>[...]</bbox>,
+#      [3D/scene context].</description>
+#   6. Multi-turn rows: one per image, all relations as turns.
+#
+# Expected output: ~7,500 rows / ~11,500 turns, all with gold bboxes.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: finevision___spatialsense_gold
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/sft/finevision/spatialsense_recap_gold/**/*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/spatialsense_gold/manifest.parquet
+
+image_list_column: images
+multi_image: true
+
+# Schema: texts = list[{user, assistant}] (same as our other FineVision parsers).
+parser: user_assistant_pairs
+parser_columns:
+  - texts
+
+conversation_policy:
+  add_image_placeholder: true
+  add_system_message: true
+
+# Flickr (88%) + NYU Depth V2 (12%) natural images — smart_resize covers all.
+max_pixels: "65536*65536"
+
+# Most rows are 1-4 turns × short bbox-grounded sentences → well under 8K.
+seqlen_threshold: 8_192
+max_sequence_tokens: 262_144
+max_batch_tokens: 32_768
+
+plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/finevision___spatialsense_gold.pt

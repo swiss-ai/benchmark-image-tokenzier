@@ -1,0 +1,62 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# FineVision / mmevol — Qwen3.6-27B hybrid judge + targeted regen.
+#
+# Source: HuggingFaceM4/FineVision::mmevol (Evol-Instruct multimodal data,
+# originally GPT-4V-distilled multi-turn reasoning with embedded bbox grounding
+# in 0-1 float coords).
+#
+# Hybrid pipeline (multimodal-data/.../redistill_mmevol_hybrid.py):
+#   IF row has 0-1 float bbox coords in original answer:
+#       → REGENERATE with Qwen3.6-27B (Strategy I + 2-turn format):
+#           Turn 1 = original Q + reasoning with <object>NAME</object><bbox>[X,Y,X,Y]</bbox>
+#                   in 0-1000 ints + final Answer
+#           Turn 2 = natural visual follow-up + grounded reasoning + answer
+#   ELSE (non-grounding row):
+#       → JUDGE turn-0 with Qwen scoring (factual, grounding, reasoning, format)
+#       → If all 3 content dims >= 3: KEEP all original turns (preserve native
+#         Evol-Instruct multi-turn paraphrase curriculum)
+#       → If any dim <= 2: DROP (no regen — trust the judge)
+#
+# Retention: 92,377 / 136,519 = 67.7%
+#   - kept original (multi-turn preserved): 76,750 (56.2%)
+#   - regen grounding (2-turn BLIP):        15,627 (11.4%)
+#   - dropped low quality:                  42,763 (31.3%)
+#   - nsfw filtered:                        1
+#
+# Turn distribution preserved across kept rows — mostly 4-5 turns each (the
+# Evol-Instruct curriculum of progressive paraphrasings + simplifications).
+# Regen rows are uniformly 2-turn (visual Q + natural follow-up).
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: finevision___mmevol_judged
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/sft/finevision/mmevol_judged/**/*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/mmevol_judged/manifest.parquet
+
+image_list_column: images
+multi_image: true
+
+# FineVision native: texts = list[{user, assistant}] turn pairs.
+parser: user_assistant_pairs
+parser_columns:
+  - texts
+
+conversation_policy:
+  add_image_placeholder: true
+  add_system_message: true
+
+# mmevol images are typically natural scenes (people, objects, sports);
+# smart_resize at 1400^2 covers all variants.
+max_pixels: "65536*65536"
+
+# Multi-turn (4-5 turns typical for kept rows) × paraphrased Q&A means rows
+# can exceed 8K easily. Split routes longer rows to lct.
+seqlen_threshold: 8_192
+max_sequence_tokens: 262_144
+max_batch_tokens: 32_768
+
+plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/finevision___mmevol_judged.pt

@@ -1,0 +1,52 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# FineVision / spatialsense — adversarially crowdsourced spatial-relation Yes/No.
+#
+# Source: Yang, Russakovsky, Jia Deng (Princeton VL, ICCV 2019)
+#   https://github.com/princeton-vl/SpatialSense
+# Original labels: 11K human Yes/No judgments on (subject, predicate, object)
+# triples over Flickr photographs, with annotators tasked adversarially to find
+# spatial relations that defeat 2D-position + language-prior shortcuts.
+#
+# License: BSD-2-Clause (annotations); Flickr URL inheritance for images
+# (standard for Flickr-sourced VL benchmarks).
+#
+# Pre-tokenize filter (floor): vis_dep_min >= 2 AND img_corr_min >= 2.
+#   Retention 9,431 / 10,440 = 90.3%.
+#
+# Shape: 1 image / row, 1-10 turns / row (mean ~2.5). FineVision distilled the
+# binary Yes/No labels into chatty answers with restated spatial relations
+# ("Looking at the image, I can see X is positioned on top of Y, with Y
+# providing support."). Templates repeat but the underlying labels are gold.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: finevision___spatialsense
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/sft/finevision/spatialsense/**/*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/spatialsense/manifest.parquet
+
+image_list_column: images
+multi_image: true
+
+# FineVision native: texts = list[{user, assistant}] turn pairs.
+parser: user_assistant_pairs
+parser_columns:
+  - texts
+
+conversation_policy:
+  add_image_placeholder: true
+  add_system_message: true
+
+# Flickr photos, full natural-image variety; smart_resize at 1400^2 covers all.
+max_pixels: "65536*65536"
+
+# Single-image × 1-10 short Y/N turns per row — most rows < 2K tokens. Almost
+# nothing should spill to lct, but keep threshold for safety.
+seqlen_threshold: 8_192
+max_sequence_tokens: 262_144
+max_batch_tokens: 32_768
+
+plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/finevision___spatialsense.pt

@@ -1,0 +1,48 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# google/MapTrace as SFT — image + navigation prompt → coordinate path.
+#
+# Schema (raw HF parquet):
+#   image_bytes  (binary)   — the map image
+#   input_text   (string)   — templated prompt with start/end coords in [0,1] image-norm
+#   label_text   (string)   — list-of-tuples coord path (the supervision target)
+#   map_description (string) — generic caption (UNUSED — wrong task framing)
+#
+# The HF scanner reads raw `binary` image columns natively (no struct wrapping
+# needed). The qa parser takes prompt+answer columns directly. So no reshape.
+#
+# Train splits = maptrace (3,146 shards) + floormaps (2,190 shards) = 5,336.
+# Eval split maptrace_20k (23 shards, used in the paper) is EXCLUDED via the
+# symlink-curated train_shards/ directory.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: google_maptrace
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/sft/google_maptrace/train_shards/*/*.parquet"
+manifest_path: /capstor/store/cscs/swissai/infra01/vision-datasets/processed/sft/google_maptrace/manifest.parquet
+
+image_column: image_bytes
+multi_image: false
+
+parser: qa
+parser_columns:
+  - input_text
+  - label_text
+parser_args:
+  prompt_column: input_text
+  answer_column: label_text
+
+# Keep all images; smart_resize at 1400² handles big ones.
+max_pixels: "65536*65536"
+
+# Stage 2 / lct split. The label_text (coord path) can be 2-5K tokens by itself
+# for long traces; combined with image tokens (~1K-7K), most seqs comfortably fit
+# under 8K. The very-long-trace tail goes to lct.
+seqlen_threshold: 8_192
+max_sequence_tokens: 262_144
+max_batch_tokens: 32_768
+
+plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/google_maptrace.pt

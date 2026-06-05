@@ -12,6 +12,16 @@ input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/sft/hf__
 manifest_path: /capstor/scratch/cscs/xyixuan/manifests/chartverse_1_8m/manifest.parquet
 image_list_column: images
 
+# Chart renders are high-DPI — median ≈ 2777×1580 (4.73M px) exceeds the
+# default 2048² cap, dropping ~73% of rows. Disable the manifest-level cap;
+# the tokenizer's 1400² smart-resize handles large images downstream.
+max_pixels: "65536*65536"
+
+# A single image at 1400² smart-resize already brings ~7700 image tokens; chart
+# CoT reasoning frequently adds another 1-3k text tokens. Most sequences exceed
+# 8 K, so route the long-context tail to lct/ same convention as nemotron_v3.
+seqlen_threshold: 8192
+
 parser: qa
 parser_columns:
   - question

@@ -1,0 +1,48 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# FineVision / memotion — Qwen3.6-27B English re-distill.
+#
+# Source: HuggingFaceM4/FineVision::memotion (SemEval-2020 Task 8 Memotion 7K,
+# CC-BY-4.0 annotations). 6,850 rows after the factual-floor filter.
+#
+# Re-distill pipeline (multimodal-data/.../redistill_memotion_qwen.py):
+#   - Replaces narrow sentiment-classification labels (humor/sarcasm/offensive/
+#     motivational scalars) with rich 2-turn English meme explanations.
+#   - Turn 1: comprehensive paragraph (visual + verbatim text OCR + cultural
+#     reference + humor mechanism) using one of 10 varied "explain this meme"
+#     question phrasings.
+#   - Turn 2: natural follow-up (usage context, era/origin, cultural reference,
+#     deeper second-layer reading, etc.) — angle varies per meme.
+#   - Safety gate: TIGHTENED beyond chinesememe — also filters ethnic/racial/
+#     religious/national stereotyping used as humor (English memes have far
+#     more punching-down content than Chinese internal-culture memes).
+#   - Output: 5,857 SAFE rows (85.5% of input) across 6 shards.
+#       NSFW filtered: 993 (14.5%) — mostly ethnic/cultural stereotype humor.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: finevision___memotion_recap_en
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/sft/finevision/memotion_recap_en/**/*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/memotion_recap_en/manifest.parquet
+
+image_list_column: images
+multi_image: true
+
+# FineVision native: texts = list[{user, assistant}] turn pairs.
+parser: user_assistant_pairs
+parser_columns:
+  - texts
+
+conversation_policy:
+  add_image_placeholder: true
+  add_system_message: true
+
+max_pixels: "65536*65536"
+seqlen_threshold: 8_192
+max_sequence_tokens: 262_144
+max_batch_tokens: 32_768
+
+plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/finevision___memotion_recap_en.pt

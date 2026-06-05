@@ -1,0 +1,34 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# SenseNova-SI-8M — multi-image spatial-intelligence SFT (Apache-2.0).
+#
+# 8,164,067 rows, image field is list[str] (1-5 images per record).
+# Master manifest is the upstream jsonl (no derivation needed). 52 image tars
+# under processed/sft/sensenova_si_8m/ — image refs like "images/059/X.jpg"
+# match tar member names directly, no prefix strip required.
+#
+# Train-only — confirmed no val/test/eval markers in path or fields.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/jsonl_tar@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: sensenova_si_8m
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: /capstor/store/cscs/swissai/infra01/vision-datasets/raw/sft/hf___sensenova___SenseNova-SI-8M/SenseNova-SI-8M.jsonl
+manifest_path: /capstor/store/cscs/swissai/infra01/vision-datasets/processed/sft/sensenova_si_8m/manifest.parquet
+
+image_field: image
+text_column: conversations
+
+tar_pattern: "*.tar"
+tar_scope: global
+tar_root: /capstor/store/cscs/swissai/infra01/vision-datasets/processed/sft/sensenova_si_8m
+
+multi_image: true
+
+seqlen_threshold: 8_192
+max_sequence_tokens: 262_144
+max_batch_tokens: 32_768
+
+plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/sensenova_si_8m.pt

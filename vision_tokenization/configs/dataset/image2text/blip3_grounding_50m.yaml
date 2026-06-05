@@ -1,5 +1,10 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# Salesforce/blip3-grounding-50m — image2text, WDS (image + JSON caption)
+# Salesforce/blip3-grounding-50m (recap variant) — image2text, WDS.
+#
+# Recap captions are LLM-regenerated with grounding markup baked in:
+#   <object>name</object><bbox>[x1,y1,x2,y2]</bbox>
+# This is the preferred variant for grounding supervision (vs the original
+# captions which lacked the object/bbox tags). 4,949 tar shards, ~2.4 TB total.
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
   - /dataset/_pipeline@_here_
@@ -7,10 +12,21 @@ defaults:
   - /dataset/_task/image2text@_here_
 
 output_name: blip3_grounding_50m
-output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/blip3_grounding_50m/tokenized
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/stage2/hf___Salesforce___blip3-grounding-50m___recap/*.tar"
 manifest_path: /capstor/scratch/cscs/xyixuan/manifests/blip3_grounding_50m/manifest.parquet
 text_column: caption
 multi_image: false
+
+# Keep all images regardless of resolution; tokenizer's smart_resize at 1400²
+# downscales anything bigger. Default _task/image2text caps at 2048² which
+# would drop ~2.1M (6%) of the recap rows for no good reason.
+max_pixels: "65536*65536"
+
+# Stage2 / lct split at 8K — same convention as egopat3dv2/swisstopo/pmc_oa
+# image2text configs. Without this, all output lands in a single unbucketed bin.
+seqlen_threshold: 8_192
+max_sequence_tokens: 262_144
 
 # --- Overrides ----------------------------------------------------------------
 gpu_kmeans: false

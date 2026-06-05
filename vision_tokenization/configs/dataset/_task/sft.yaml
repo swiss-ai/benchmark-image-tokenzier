@@ -1,6 +1,11 @@
 # SFT uses the instruct tokenizer so apply_chat_template is available.
+# The `_thinking_token_fixed` variant is an internal data-prep tokenizer (not
+# for inference release): it aliases the chat template's `<|inner_prefix|>` /
+# `<|inner_suffix|>` to the canonical `<think>` / `</think>` token IDs (32 / 33)
+# and strips `<answer>` / `</answer>` wrapper tags from generator outputs.
+# See `<tokenizer_dir>/NOTES.md` for the full rule list and rationale.
 
-tokenizer_path: /capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_wavtok_instruct
+tokenizer_path: /capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_wavtok_instruct_thinking_token_fixed
 
 text_column: null
 parser: null
