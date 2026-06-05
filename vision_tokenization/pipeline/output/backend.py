@@ -22,6 +22,17 @@ from ...discrete.sft_segments import build_segment_component_maps
 logger = logging.getLogger(__name__)
 
 
+def _write_rank_success_marker(output_dir: Path, rank: int) -> None:
+    """Mark this rank as cleanly finalized by touching ``rank_NNNN/_SUCCESS``.
+
+    Read by ``merge._all_ranks_done`` to gate the merge step. Both backends
+    write the same marker at the same path so the merge contract is uniform.
+    """
+    rank_dir = output_dir / f"rank_{rank:04d}"
+    rank_dir.mkdir(parents=True, exist_ok=True)
+    (rank_dir / "_SUCCESS").touch()
+
+
 class DirectBackend:
     """Assemble and write final bin/idx sequences immediately.
 
@@ -34,6 +45,8 @@ class DirectBackend:
         self._seqlen_threshold = seqlen_threshold
         self._handler = None
         self._chunk_id = 0
+        self._output_dir: Optional[Path] = None
+        self._rank: Optional[int] = None
 
     def open(self, output_dir: str, rank: int, resume_state: Optional[dict] = None, tokenizer=None) -> None:
         from .direct.handler import TokenizationHandler
@@ -46,6 +59,9 @@ class DirectBackend:
 
         needs_text = self._mode in ("sft", "image2text", "text2image")
         self._handler = TokenizationHandler(writer, needs_text)
+
+        self._output_dir = Path(output_dir)
+        self._rank = rank
 
         start_chunk = 0
         if resume_state:
@@ -87,6 +103,8 @@ class DirectBackend:
     def finalize(self) -> None:
         if self._handler:
             self._handler.finalize_writer()
+        if self._output_dir is not None and self._rank is not None:
+            _write_rank_success_marker(self._output_dir, self._rank)
 
 
 class SpillBackend:
@@ -95,12 +113,16 @@ class SpillBackend:
     def __init__(self):
         self._writer = None
         self._dropped_sft_docs: set[int] = set()
+        self._output_dir: Optional[Path] = None
+        self._rank: Optional[int] = None
 
     def open(self, output_dir: str, rank: int, resume_state: Optional[dict] = None) -> None:
         from .spill import ComponentSpillWriter, recover_worker_shards
 
         self._writer = ComponentSpillWriter(output_dir, rank, token_dtype=np.int32)
         self._dropped_sft_docs.clear()
+        self._output_dir = Path(output_dir)
+        self._rank = rank
         start_shard = 0
         if resume_state:
             rank_dir = Path(output_dir) / f"rank_{rank:04d}"
@@ -231,6 +253,8 @@ class SpillBackend:
     def finalize(self) -> None:
         if self._writer:
             self._writer.finalize()
+        if self._output_dir is not None and self._rank is not None:
+            _write_rank_success_marker(self._output_dir, self._rank)
 
     def _mark_sft_doc_dropped(
         self,

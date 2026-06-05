@@ -294,10 +294,20 @@ def _find_shard_pairs(
 
 
 def _all_ranks_done(output_dir: Path, expected_ranks: int) -> bool:
-    """Check if all ranks have written their checkpoint files."""
+    """Verify every expected rank has reached its terminal _SUCCESS marker.
+
+    ``rank_NNNN/_SUCCESS`` is written LAST by each rank, after all shards
+    have been atomically renamed from ``.tmp`` and stats are flushed. It is
+    the Spark/Hadoop convention for a clean-finalize signal.
+
+    The previous implementation checked for ``rank_NNNN_checkpoint.pt``,
+    which is a periodic resume marker written every 2500 batches — it
+    exists long before a rank is done, so the check could pass on
+    in-progress jobs and silently produce a truncated merge.
+    """
     for rank in range(expected_ranks):
-        ckpt = output_dir / f"rank_{rank:04d}_checkpoint.pt"
-        if not ckpt.exists():
+        success = output_dir / f"rank_{rank:04d}" / "_SUCCESS"
+        if not success.exists():
             return False
     return True
 
@@ -446,7 +456,14 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     output_dir = Path(args.output_dir)
     if args.expected_ranks is not None and not _all_ranks_done(output_dir, args.expected_ranks):
-        print(f"Not all {args.expected_ranks} ranks have finished yet.")
+        missing = [
+            r for r in range(args.expected_ranks)
+            if not (output_dir / f"rank_{r:04d}" / "_SUCCESS").exists()
+        ]
+        print(
+            f"Not all {args.expected_ranks} ranks have finished yet: "
+            f"missing _SUCCESS for ranks {missing}"
+        )
         return 1
 
     result = merge_shards(

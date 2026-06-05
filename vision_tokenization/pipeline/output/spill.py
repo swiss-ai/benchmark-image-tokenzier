@@ -6,9 +6,10 @@ Writes per-rank output as keyed component payloads:
         components.NNNNNN.parquet   — (document_id, component_index, kind,
                                        token_offset, token_length, token_hash)
         tokens.NNNNNN.bin           — concatenated raw token bytes
-        progress.NNNNNN.json        — checkpoint sidecar
         worker_stats.json           — aggregate stats
-        _SUCCESS                    — written after clean finalization
+        _SUCCESS                    — written by the backend layer after
+                                       clean finalization (see ``backend.py``
+                                       ``_write_rank_success_marker``)
 
 No documents.parquet — ``TokenizationPlan`` is the document truth.
 The rebuild joins spilled tokens back to the plan by
@@ -27,7 +28,7 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from vision_tokenization.utils.json import json_dump, json_load
+from vision_tokenization.utils.json import json_dump
 
 logger = logging.getLogger(__name__)
 
@@ -97,42 +98,6 @@ def recover_worker_shards(worker_dir: Path) -> int:
     return next_id
 
 
-def write_shard_progress(
-    worker_dir: Path,
-    shard_id: int,
-    *,
-    next_batch_index: int,
-    stats: dict,
-) -> None:
-    """Atomically record progress for one flushed spill shard."""
-    progress_path = worker_dir / f"progress.{shard_id:06d}.json"
-    tmp_path = progress_path.with_suffix(".json.tmp")
-    json_dump({
-        "shard_id": int(shard_id),
-        "next_batch_index": int(next_batch_index),
-        "stats": dict(stats),
-    }, tmp_path)
-    os.replace(tmp_path, progress_path)
-
-
-def recover_shard_progress(worker_dir: Path, num_shards: int) -> dict:
-    """Recover latest contiguous progress state."""
-    latest = None
-    next_id = 0
-    for sid in range(num_shards):
-        path = worker_dir / f"progress.{sid:06d}.json"
-        if not path.exists():
-            break
-        latest = json_load(path)
-        next_id = sid + 1
-
-    return {
-        "next_shard_id": next_id,
-        "next_batch_index": 0 if latest is None else int(latest["next_batch_index"]),
-        "stats": {} if latest is None else dict(latest.get("stats", {})),
-    }
-
-
 # ---------------------------------------------------------------------------
 # ComponentSpillWriter
 # ---------------------------------------------------------------------------
@@ -156,7 +121,7 @@ class ComponentSpillWriter:
         )
 
         writer.checkpoint()   # flush shard, start new one
-        writer.finalize()     # flush + write stats + _SUCCESS
+        writer.finalize()     # flush + write stats (backend writes _SUCCESS)
     """
 
     def __init__(
@@ -234,7 +199,12 @@ class ComponentSpillWriter:
         return done
 
     def finalize(self) -> None:
-        """Flush last shard, write stats, mark success."""
+        """Flush last shard and write worker stats.
+
+        Does NOT write the ``_SUCCESS`` marker — that is owned by the backend
+        layer (see ``SpillBackend.finalize`` / ``DirectBackend.finalize``) so
+        both backends produce the same terminal marker contract.
+        """
         if self._comp_rows:
             self._flush_shard()
         elif self._token_file is not None:
@@ -251,8 +221,6 @@ class ComponentSpillWriter:
             "total_tokens": self._total_tokens,
             "token_dtype": str(self._token_dtype),
         }, self._base_dir / "worker_stats.json")
-
-        (self._base_dir / "_SUCCESS").touch()
 
         logger.info(
             f"[rank {self._rank}] Spill finalized: {self._components_written:,} components, "
