@@ -165,9 +165,49 @@ def _parse_molmo_multi_image_qa(
     return messages
 
 
+def _parse_user_assistant_pairs(
+    row: dict[str, Any],
+    *,
+    num_images: Optional[int] = None,
+    parser_args: Optional[dict[str, Any]] = None,
+) -> list[dict[str, Any]]:
+    """Input shape: list[{user, assistant}] turn pairs (one per turn).
+
+    Flattens into the canonical [{role, content}, ...] message list. Adds
+    `<image>` placeholders on the first user turn if absent and num_images > 0.
+
+    Used by any dataset that stores conversations as packed turn pairs rather
+    than alternating role messages — FineVision (`texts`), some image-QA dumps,
+    etc.
+    """
+    parser_args = parser_args or {}
+    turns = _extract_messages_value(
+        row,
+        parser_args,
+        default_keys=("texts",),
+        parser_name="user_assistant_pairs",
+    )
+    if not isinstance(turns, list) or not turns:
+        raise ValueError("user_assistant_pairs parser expects a non-empty list of {user, assistant} pairs")
+    messages: list[dict[str, Any]] = []
+    for idx, turn in enumerate(turns):
+        if not isinstance(turn, dict):
+            raise ValueError(f"user_assistant_pairs turn {idx} is not a dict: {type(turn).__name__}")
+        user = turn.get("user")
+        assistant = turn.get("assistant")
+        if user is None or assistant is None:
+            raise ValueError(f"user_assistant_pairs turn {idx} missing user or assistant key")
+        if idx == 0:
+            user = _ensure_image_placeholders(str(user), num_images or 0)
+        messages.append({"role": "user", "content": str(user)})
+        messages.append({"role": "assistant", "content": str(assistant)})
+    return messages
+
+
 _PARSERS: dict[str, Callable[..., list[dict[str, Any]]]] = {
     "conversation": _parse_conversation,
     "image_map_conversation": _parse_image_map_conversation,
+    "user_assistant_pairs": _parse_user_assistant_pairs,
     "qa": _parse_qa,
     "molmo_multi_image_qa": _parse_molmo_multi_image_qa,
 }

@@ -744,7 +744,14 @@ def test_hf_image_map_scan_uses_arrow_map_arrays_without_python_map_materializat
     monkeypatch.setattr(hf_common, "image_map_as_dict", _fail_image_map_as_dict)
 
     out = build_hf_output_columns(is_multi=True)
-    out, source_rows, failed_dims, failed_messages, failed_image_maps = (
+    (
+        out,
+        source_rows,
+        failed_dims,
+        failed_messages,
+        failed_image_maps,
+        contaminated_skipped,
+    ) = (
         scan_hf_image_map_batch_columns(
             out,
             batch.column("images"),
@@ -762,6 +769,7 @@ def test_hf_image_map_scan_uses_arrow_map_arrays_without_python_map_materializat
     assert failed_dims == 0
     assert failed_messages == 0
     assert failed_image_maps == 0
+    assert contaminated_skipped == 0
     assert table.column("width").to_pylist() == [17, 31]
     assert table.column("height").to_pylist() == [23, 37]
     assert table.column("image_index").to_pylist() == [0, 1]
@@ -778,7 +786,14 @@ def test_hf_image_map_scan_keeps_single_image_rows_on_python_path(tmp_path, monk
     monkeypatch.setattr(hf_common, "_binary_header_array", _fail_binary_header_array)
 
     out = build_hf_output_columns(is_multi=True)
-    out, source_rows, failed_dims, failed_messages, failed_image_maps = (
+    (
+        out,
+        source_rows,
+        failed_dims,
+        failed_messages,
+        failed_image_maps,
+        contaminated_skipped,
+    ) = (
         scan_hf_image_map_batch_columns(
             out,
             batch.column("images"),
@@ -796,6 +811,7 @@ def test_hf_image_map_scan_keeps_single_image_rows_on_python_path(tmp_path, monk
     assert failed_dims == 0
     assert failed_messages == 0
     assert failed_image_maps == 0
+    assert contaminated_skipped == 0
     assert table.column("width").to_pylist() == [17, 31]
 
 
@@ -809,12 +825,18 @@ def test_hf_image_map_scan_streams_batches_without_read_row_group(tmp_path, monk
 
     monkeypatch.setattr(pq.ParquetFile, "read_row_group", _fail_read_row_group)
 
-    table, source_rows, failed_dims, failed_messages, failed_image_maps, skip_reason = (
-        scan_single_hf_parquet_shard(
-            shard_path,
-            image_map_column="images",
-            message_column="messages",
-        )
+    (
+        table,
+        source_rows,
+        failed_dims,
+        failed_messages,
+        failed_image_maps,
+        contaminated_skipped,
+        skip_reason,
+    ) = scan_single_hf_parquet_shard(
+        shard_path,
+        image_map_column="images",
+        message_column="messages",
     )
 
     assert skip_reason is None
@@ -822,7 +844,72 @@ def test_hf_image_map_scan_streams_batches_without_read_row_group(tmp_path, monk
     assert failed_dims == 0
     assert failed_messages == 0
     assert failed_image_maps == 0
+    assert contaminated_skipped == 0
     assert table.column("row_in_chunk").to_pylist() == [0, 1]
+
+
+def test_hf_image_map_scan_skips_contamination_lookup_when_empty(tmp_path):
+    class EmptyRows:
+        def __bool__(self):
+            return False
+
+        def __contains__(self, _item):
+            raise AssertionError("empty contamination index should not be checked")
+
+    shard_path = str(tmp_path / "image_map.parquet")
+    _write_two_row_image_map_sft_parquet_shard(shard_path)
+    batch = pq.read_table(shard_path, columns=["images", "messages"])
+
+    out = build_hf_output_columns(is_multi=True)
+    (
+        out,
+        source_rows,
+        failed_dims,
+        failed_messages,
+        failed_image_maps,
+        contaminated_skipped,
+    ) = scan_hf_image_map_batch_columns(
+        out,
+        batch.column("images"),
+        batch.column("messages"),
+        chunk_index=0,
+        source_rows=0,
+        failed_dims=0,
+        failed_messages=0,
+        failed_image_maps=0,
+        contaminated_rows=EmptyRows(),
+    )
+
+    assert source_rows == 2
+    assert failed_dims == 0
+    assert failed_messages == 0
+    assert failed_image_maps == 0
+    assert contaminated_skipped == 0
+
+
+def test_hf_image_map_scan_skips_contaminated_source_rows(tmp_path):
+    shard_path = tmp_path / "SFT_000101.parquet"
+    _write_two_row_image_map_sft_parquet_shard(str(shard_path))
+    ids_path = tmp_path / "contaminated.txt"
+    ids_path.write_text("SFT_000101_000000\n")
+
+    manifest_path = tmp_path / "image_map_manifest.parquet"
+    scan_hf_dataset(
+        input_pattern=str(shard_path),
+        output_manifest=str(manifest_path),
+        image_map_column="images",
+        message_column="messages",
+        contamination_ids_path=ids_path,
+        contamination_format="innovator_vl",
+        num_workers=1,
+    )
+
+    manifest = pq.read_table(manifest_path)
+    assert manifest.column("sample_index").to_pylist() == [1]
+    meta_path = manifest_path.with_name(manifest_path.stem + "_meta.json")
+    meta = json.loads(meta_path.read_text())
+    assert meta["contaminated_skipped"] == 1
+    assert meta["failed_messages"] == 0
 
 
 def test_hf_image_map_loader_streams_rows_without_read_row_group(tmp_path, monkeypatch):
