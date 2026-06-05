@@ -30,7 +30,7 @@
 
 **Tokenizers**
 - EMU family (`Emu3`, `Emu3.5`) under `discrete/emu/`
-- Pluggable via `discrete.base.BaseTokenizer`
+- Pluggable by implementing `tokenize_batch(...)`
 
 </td>
 <td>
@@ -106,7 +106,7 @@ rewritten to `dataset=X/Y` before Hydra parses it (see
 **From the login node (the normal path) — submit a Slurm wrapper:**
 
 ```bash
-sbatch scripts/slurm/docci.slurm
+sbatch scripts/slurm/tokenize/image2text/docci.slurm
 ```
 
 Every dataset has a wrapper under `scripts/slurm/<dataset>.slurm` that
@@ -131,14 +131,15 @@ dependency so it still runs when tokenization exits on a benign signal
 are incomplete:
 
 ```bash
-JOBID=$(sbatch --parsable scripts/slurm/docci.slurm)
-OUTPUT_DIR=/.../tokenized/image2text/docci EXPECTED_RANKS=4 \
-    sbatch --dependency=afterany:$JOBID scripts/slurm/merge.slurm
+JOBID=$(sbatch --parsable scripts/slurm/tokenize/image2text/docci.slurm)
+SRC=/.../tokenized/image2text/docci RANKS=4 \
+    sbatch --dependency=afterany:$JOBID scripts/slurm/ops/merge.slurm
 ```
 
-`merge.slurm` defaults to `STRIP_THINKING=true`, which additionally
-emits `merged_no_cot.{bin,idx}` with `<think>…</think>` spans removed
-(SFT only — a no-op for non-conversational modes).
+`merge.slurm` preserves CoT by default; pass `STRIP_THINKING=true` to
+additionally emit `OUT_no_cot.{bin,idx}` with `<think>…</think>` spans
+removed (SFT only — a no-op for non-conversational modes). Pass `DEST=`
+to place the merged `OUT.{bin,idx}` under a canonical dataset dir.
 
 ---
 
@@ -249,8 +250,8 @@ failures:
 ## 4. Architecture
 
 The code is organised so each layer is replaceable. New formats need a
-scanner; new tokenizer families need a `BaseTokenizer` subclass; the
-runtime and writer don't care which.
+scanner; new tokenizer families need a class with `tokenize_batch(...)`;
+the runtime and writer don't care which.
 
 ### 4.1 Manifest
 
@@ -303,8 +304,8 @@ tokenizer = create_tokenizer(
 
 Internally the factory dispatches `image_only` → `EMUImageOnlyTokenizer`,
 `{image2text, text2image}` → `EMUImageTextPairTokenizer`, `sft` →
-`EMUSftTokenizer`, `interleave` → `EMUInterleaveTokenizer`. The base
-contract lives in `discrete/base.py`.
+`EMUSftTokenizer`, `interleave` → `EMUInterleaveTokenizer`. The runtime
+contract is the `tokenize_batch(...)` method.
 
 The runtime never touches a tokenizer-specific class. It calls the
 `TokenizationHandler` in `pipeline/output/direct/handler.py`, which:
@@ -581,7 +582,7 @@ trigger it:
 - **Inline** — set `merge_shards=true` in config; the last rank to
   finish performs the merge before returning. Good for small/fast
   datasets.
-- **Standalone** — `scripts/slurm/merge.slurm` with an `afterany`
+- **Standalone** — `scripts/slurm/ops/merge.slurm` with an `afterany`
   dependency, as shown in §2. Recommended for large datasets where
   the merge needs its own time budget and shouldn't block GPU nodes.
 

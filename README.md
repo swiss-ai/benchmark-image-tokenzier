@@ -45,50 +45,16 @@ adapt paths and the Slurm preamble for any other site.
 
 ## Quickstart — tokenize one dataset
 
-Submit `sbatch` from a **CSCS login node**. The repository checkout only
-needs to live on shared storage visible from both login and compute
-nodes; it does not need to be cloned specifically on the login node.
-The login node only submits jobs. Heavy work — Python, GPU execution,
-and manifest access — happens on compute nodes inside the container
-declared by each Slurm script
-(`#SBATCH --environment=scripts/envs/nemo_25_11.toml`).
+Submit `sbatch` from a **CSCS login node**; heavy work (Python, GPU, manifest
+access) runs on compute nodes inside the container each Slurm script declares.
+Each `scripts/slurm/<dataset>.slurm` runs the distributed tokenizer, and
+`scripts/slurm/ops/merge.slurm` combines the per-rank shards into a Megatron-LM
+`.bin`/`.idx` pair. This repo **consumes** manifests built upstream in the
+`multimodal-data` repo — it doesn't build them.
 
-**One-time setup** (if you do not already have a shared checkout):
-
-```bash
-git clone --recurse-submodules <repo-url> benchmark-image-tokenzier
-cd benchmark-image-tokenzier
-```
-
-**Prerequisite** — the manifest Parquet for your dataset must already
-exist at the path declared in
-`vision_tokenization/configs/dataset/<mode>/<name>.yaml`. Manifest
-creation lives upstream in the `multimodal-data` repo; this repo
-**consumes** manifests, it doesn't build them.
-
-**Submit the tokenization job, then chain the merge:**
-
-```bash
-# Submit. Each scripts/slurm/<dataset>.slurm srun's
-#   `python -m vision_tokenization.tokenize mode=<mode> dataset=<name> num_gpus=$NUM_GPUS`
-# inside the container.
-JOBID=$(sbatch --parsable scripts/slurm/docci.slurm)
-
-# Chain a CPU-only merge job with `afterany` so it still runs if the
-# tokenizer exited on a benign signal (e.g. SIGTERM at time limit).
-OUTPUT_DIR=/.../tokenized/image2text/docci EXPECTED_RANKS=4 \
-    sbatch --dependency=afterany:$JOBID scripts/slurm/merge.slurm
-```
-
-What you get: `merged.bin` + `merged.idx` ready to be loaded by
-Megatron-LM. Everything is deterministic and resumable; re-submitting
-the same job with `resume=true` (already on in `docci.slurm`) continues
-from the last completed batch index.
-
-For a new dataset, copy the closest sibling Slurm wrapper under
-[`scripts/slurm/`](scripts/slurm/) (44 to choose from), edit the dataset
-name, and submit. For what each step *does*, see
-[`vision_tokenization/README.md`](vision_tokenization/README.md).
+The full step-by-step Quickstart — job submission, the `afterany` merge chain,
+resume semantics, and adding a new dataset — is the **single source of truth**
+in [`vision_tokenization/README.md`](vision_tokenization/README.md) §2.
 
 ---
 
@@ -159,7 +125,7 @@ toolchain (see [Developer formatting](#developer-formatting) below).
 ├── benchmarks/             # Reconstruction sweeps, metrics, notebooks (own README)
 ├── scripts/
 │   ├── envs/               # Container TOMLs for Slurm
-│   └── slurm/              # Per-dataset Slurm wrappers + merge.slurm
+│   └── slurm/              # tokenize/{image2text,interleave,sft}/, ops/, serve/
 ├── docs/                   # Static viewer for qualitative VLM results
 ├── conftest.py
 ├── pyproject.toml          # Black config (not a package definition)
