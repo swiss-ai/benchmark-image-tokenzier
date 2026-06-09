@@ -17,17 +17,14 @@ _SENTINEL = None
 class PrefetchResult:
     """Result from the prefetch thread for one batch.
 
-    Without a ``prepare`` hook, ``images``/``texts`` are exactly what the
-    loader returned (``List[Optional[PIL.Image]]``, ``Optional[List]``).
-    With a hook, they are whatever the hook returned — e.g. the executor's
-    hook puts a ``PreparedBatch`` in ``images`` (filtered + CPU-preprocessed,
-    ready for one H2D copy) and ``None`` in ``texts``.
+    ``payload`` is the loader's ``(images, texts)`` tuple, or — when a
+    ``prepare`` hook is installed — whatever the hook returned (the executor's
+    hook returns a ``PreparedBatch``).
     """
 
     batch_index: int
     assignment: object
-    images: object
-    texts: object
+    payload: object
     timing: dict  # {"load_ms": float}
     error: Optional[Exception] = None
 
@@ -44,7 +41,7 @@ class BatchPrefetcher:
     """
 
     def __init__(self, data_loader, prepare=None, queue_size=2, num_workers=1):
-        """*prepare* is an optional ``(images, texts, assignment) -> (images, texts)``
+        """*prepare* is an optional ``(images, texts, assignment) -> payload``
         hook run in the worker thread after loading — e.g. CPU-side image
         preprocessing, so it overlaps with GPU work instead of serializing
         on the consumer thread."""
@@ -61,23 +58,23 @@ class BatchPrefetcher:
             images, texts = self._loader.load_batch(
                 ba.sample_indices, group_slices=ba.group_slices,
             )
-            if self._prepare is not None:
-                images, texts = self._prepare(images, texts, ba)
+            payload = (
+                self._prepare(images, texts, ba) if self._prepare is not None
+                else (images, texts)
+            )
             load_ms = (time.perf_counter() - t0) * 1000
 
             return PrefetchResult(
                 batch_index=batch_index,
                 assignment=ba,
-                images=images,
-                texts=texts,
+                payload=payload,
                 timing={"load_ms": load_ms},
             )
         except Exception as exc:
             return PrefetchResult(
                 batch_index=batch_index,
                 assignment=ba,
-                images=None,
-                texts=None,
+                payload=None,
                 timing={},
                 error=exc,
             )

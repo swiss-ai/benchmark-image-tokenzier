@@ -89,9 +89,9 @@ def _is_cuda_oom(err: BaseException) -> bool:
 
 
 def _build_run_name(cfg: Dict[str, Any], mode: str, world_size: int) -> str:
-    output_name = cfg.get("output_name", "unknown")
-    mbt = cfg.get("max_batch_tokens", "")
-    bs = cfg.get("batch_size", "")
+    output_name = cfg["output_name"]
+    mbt = cfg["max_batch_tokens"]
+    bs = cfg["batch_size"]
     return f"{output_name}_{mode}_g{world_size}_mbt{mbt}_bs{bs}"
 
 
@@ -241,7 +241,7 @@ def run_executor(
     # ------------------------------------------------------------------
     # 3. Resume from checkpoint
     # ------------------------------------------------------------------
-    resume = cfg.get("resume", False)
+    resume = cfg["resume"]
     start_batch_index = 0
     cumulative_stats = WorkerStats()
     ckpt = None
@@ -269,7 +269,7 @@ def run_executor(
     # ------------------------------------------------------------------
     from vision_tokenization.discrete.emu import create_tokenizer
 
-    device = f"cuda:{cfg.get('local_rank', 0)}"
+    device = f"cuda:{cfg['local_rank']}"
     tokenizer = create_tokenizer(
         mode=mode,
         text_tokenizer_path=cfg["tokenizer_path"],
@@ -299,19 +299,19 @@ def run_executor(
 
     # W&B logger (rank 0 only)
     wandb_logger = None
-    wandb_cfg = cfg.get("wandb", {})
-    if wandb_cfg.get("enabled", False) and rank == 0:
+    wandb_cfg = cfg["wandb"]
+    if wandb_cfg["enabled"] and rank == 0:
         wandb_resume_state = load_wandb_resume_state(resume, ckpt)
         wandb_logger = SimpleWandbLogger(
-            project=wandb_cfg.get("project", "vision-tokenization"),
-            entity=wandb_cfg.get("entity"),
-            name=wandb_cfg.get("name") or _build_run_name(cfg, mode, world_size),
-            tags=wandb_cfg.get("tags", []),
+            project=wandb_cfg["project"],
+            entity=wandb_cfg["entity"],
+            name=wandb_cfg["name"] or _build_run_name(cfg, mode, world_size),
+            tags=wandb_cfg["tags"],
             config={
                 "rank": rank, "world_size": world_size, "mode": mode,
                 **{k: v for k, v in cfg.items() if isinstance(v, (int, float, str, bool))},
             },
-            log_interval_seconds=wandb_cfg.get("log_interval_seconds", 10.0),
+            log_interval_seconds=wandb_cfg["log_interval_seconds"],
             run_id=wandb_resume_state["run_id"] if wandb_resume_state else None,
             start_step=wandb_resume_state["step"] if wandb_resume_state else 0,
         )
@@ -322,7 +322,7 @@ def run_executor(
     # The prefetcher expects objects with .sample_indices and .resize_height/width.
     # We adapt ImageBatch to work with the existing prefetcher by mapping
     # component_indices → manifest_rows.
-    from dataclasses import dataclass, field as dc_field
+    from dataclasses import field as dc_field
 
     @dataclass
     class _PrefetchBatch:
@@ -388,10 +388,7 @@ def run_executor(
             valid_images = preprocess_cpu(
                 valid_images, (ba.resize_height, ba.resize_width)
             )
-        return (
-            PreparedBatch(valid_images, valid_texts, comp_indices, group_slices, skipped),
-            None,
-        )
+        return PreparedBatch(valid_images, valid_texts, comp_indices, group_slices, skipped)
 
     prefetch_cfg = cfg["prefetch"]
     prefetcher = BatchPrefetcher(
@@ -453,15 +450,15 @@ def run_executor(
             try:
                 resize_size = (pb.resize_height, pb.resize_width)
                 # Filtering + CPU preprocessing already happened in the
-                # prefetch workers (the `prepare` hook below).
-                prepared: PreparedBatch = result.images
+                # prefetch workers (the `_prepare_batch` hook).
+                prepared: PreparedBatch = result.payload
                 stats.samples_skipped += prepared.skipped
                 valid_images = prepared.images
                 valid_texts = prepared.texts
                 valid_comp_indices = prepared.comp_indices
                 valid_group_slices = prepared.group_slices
 
-                if valid_images is None or len(valid_images) == 0:
+                if len(valid_images) == 0:
                     consecutive_errors = 0
                     batch_count += 1
                     continue
@@ -494,7 +491,6 @@ def run_executor(
                     )
                 else:
                     # Direct path: handler tokenizes + writes in one step
-                    device = f"cuda:{cfg.get('local_rank', 0)}"
                     write_timing = backend.write_batch(
                         images=valid_images,
                         resize_size=resize_size,
@@ -586,7 +582,7 @@ def run_executor(
     # Per-rank rebuild: assemble documents from this rank's spill into
     # rank_XXXX_chunk_0000.bin/.idx so merge_shards works identically
     # for both spill and direct backend paths.
-    if use_spill and _loop_error is None and cfg.get("rebuild", True):
+    if use_spill and _loop_error is None and cfg["rebuild"]:
         from ..output.rebuild import rebuild_rank
         from ...common.assembly import StructureTokenIds
 

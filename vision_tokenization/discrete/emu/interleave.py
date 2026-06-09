@@ -57,7 +57,7 @@ class EMUInterleaveTokenizer(ThreadPoolExecutorOwner, EMUImageOnlyTokenizer):
 
         image_future = (
             self.executor.submit(self.tokenize_images, images, resize_size)
-            if images else None
+            if len(images) > 0 else None  # len(): images may be a preprocessed Tensor
         )
         text_future = self.executor.submit(self._tokenize_flat_texts_cpu, flat_texts)
 

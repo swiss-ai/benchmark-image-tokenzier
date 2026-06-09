@@ -85,9 +85,7 @@ class TokenizationHandler:
 
         # Input is already filtered by the executor's prefetch prepare hook —
         # None entries never reach this layer.
-        valid_images, valid_texts, valid_slices = images, texts, group_slices
-
-        if valid_images is None or len(valid_images) == 0:
+        if len(images) == 0:
             return timings
 
         if timing_enabled:
@@ -112,10 +110,10 @@ class TokenizationHandler:
         try:
             # Call tokenizer — tokenizer-agnostic interface
             token_sequences = tokenizer.tokenize_batch(
-                valid_images,
+                images,
                 resize_size,
-                text=valid_texts if self.needs_text else None,
-                group_slices=valid_slices,
+                text=texts if self.needs_text else None,
+                group_slices=group_slices,
             )
         finally:
             if timing_enabled:

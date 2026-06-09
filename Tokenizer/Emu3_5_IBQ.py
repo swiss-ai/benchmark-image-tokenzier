@@ -220,17 +220,20 @@ class Emu3_5_IBQ(Tokenizer):
         pinned uint8 ``[B, H, W, C]`` tensor ready for one async H2D copy.
         """
         height, width = resize_size
-        arrays = []
-        for image in images:
+        # Write each image straight into the (pinned) batch buffer — avoids
+        # a per-image copy plus a pageable full-batch temporary.
+        pixels = torch.empty(
+            (len(images), height, width, 3), dtype=torch.uint8,
+            pin_memory=self.device.type == "cuda",
+        )
+        out = pixels.numpy()
+        for i, image in enumerate(images):
             if image.mode != "RGB":
                 image = image.convert("RGB")
             iw, ih = image.size
             if iw != width or ih != height:
                 image = image.resize((width, height), Image.BICUBIC)
-            arrays.append(np.array(image, dtype=np.uint8, copy=True))
-        pixels = torch.from_numpy(np.stack(arrays))
-        if self.device.type == "cuda":
-            pixels = pixels.pin_memory()
+            out[i] = np.asarray(image, dtype=np.uint8)
         return pixels
 
     def to_device(self, pixels: torch.Tensor) -> torch.Tensor:
@@ -241,25 +244,30 @@ class Emu3_5_IBQ(Tokenizer):
         bit-identical — verified at 0/1,048,576 mismatches on real data.
         """
         pixels = pixels.to(self.device, non_blocking=True)
-        x = pixels.permute(0, 3, 1, 2).to(self.dtype)
+        # Make NCHW contiguous while still uint8 (2 B/px traffic, not 8 B/px).
+        x = pixels.permute(0, 3, 1, 2).contiguous().to(self.dtype)
         x.div_(127.5).sub_(1.0)
-        return x.contiguous()
+        return x
 
-    def preprocess_batch(self, images: List[Image.Image], resize_size: Tuple[int, int]) -> torch.Tensor:
+    def preprocess_batch(self, images, resize_size: Tuple[int, int]) -> torch.Tensor:
         """
-        Preprocess batch of PIL images to tensor format with specific resize dimensions.
+        Preprocess batch of images to tensor format with specific resize dimensions.
 
-        Composition of ``preprocess_cpu`` + ``to_device`` — the two phases are
-        exposed separately so the pipeline can run the CPU phase in prefetch
-        workers; inference consumers keep calling this single entry point.
+        Composition of ``preprocess_cpu`` + ``to_device``. The CPU phase may
+        run elsewhere (the pipeline runs it in prefetch workers), in which
+        case *images* arrives as the uint8 ``[B, H, W, C]`` tensor and only
+        the device phase remains — this entry point owns both forms.
 
         Args:
-            images: List of PIL Images
+            images: List of PIL Images, or a CPU uint8 ``[B, H, W, C]`` tensor
+                already produced by ``preprocess_cpu``
             resize_size: Target (height, width) for resizing all images
 
         Returns:
             Batched tensor of shape [B, C, H, W]
         """
+        if isinstance(images, torch.Tensor):
+            return self.to_device(images)
         return self.to_device(self.preprocess_cpu(images, resize_size))
 
     def postprocess(self, tensor: torch.Tensor) -> Image.Image:

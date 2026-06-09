@@ -8,21 +8,6 @@ all tokenizer implementations or their optional dependencies. Call
 from typing import Any
 
 
-def _pin_tf32() -> None:
-    """Pin TF32 on so token output doesn't depend on the container's default.
-
-    The NGC images enable TF32; stock PyTorch leaves matmul TF32 off. Measured
-    on GH200 (profile/precision_parity.py, 2026-06-09): TF32 vs strict FP32 is
-    3.6-4.3x encode throughput AND ~0.5% of output tokens differ — so an
-    unpinned default silently controls both speed and token reproducibility.
-    All shipped datasets were tokenized under TF32.
-    """
-    import torch
-
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.backends.cudnn.allow_tf32 = True
-
-
 def create_tokenizer(
     mode: str,
     text_tokenizer_path: str,
@@ -32,8 +17,11 @@ def create_tokenizer(
     max_pixels: int,
     **kwargs: Any,
 ):
-    """Create the concrete EMU tokenizer for the requested tokenization mode."""
-    _pin_tf32()
+    """Create the concrete EMU tokenizer for the requested tokenization mode.
+
+    TF32 pinning lives in the vision-wrapper constructors (Emu3_5_IBQ,
+    Emu3VisionTokenizer) — the layer every consumer shares.
+    """
     if mode == "image_only":
         from .image_only import EMUImageOnlyTokenizer
 

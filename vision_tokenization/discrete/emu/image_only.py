@@ -402,13 +402,6 @@ class EMUImageOnlyTokenizer:
         """
         assert self.image_tokenizer is not None, "Image tokenizer required for processing images"
 
-        preprocessed = isinstance(images, torch.Tensor)
-
-        def _chunk_to_device(chunk):
-            if preprocessed:
-                return self.image_tokenizer.to_device(chunk)
-            return self.image_tokenizer.preprocess_batch(chunk, resize_size)
-
         # Compute images per chunk from pixel budget and resize dimensions.
         chunk_size = len(images)
         if self.max_encode_pixels is not None and resize_size is not None:
@@ -418,14 +411,16 @@ class EMUImageOnlyTokenizer:
 
         if chunk_size >= len(images):
             # Fast path: single chunk — preprocess + encode all at once.
-            img_tensors = _chunk_to_device(images)
+            img_tensors = self.image_tokenizer.preprocess_batch(images, resize_size)
             indices, _ = self.image_tokenizer.encode(img_tensors)
             del img_tensors
         else:
             # Chunk before preprocess to bound peak GPU pixel memory.
             all_indices = []
             for i in range(0, len(images), chunk_size):
-                img_tensors = _chunk_to_device(images[i : i + chunk_size])
+                img_tensors = self.image_tokenizer.preprocess_batch(
+                    images[i : i + chunk_size], resize_size,
+                )
                 idx, _ = self.image_tokenizer.encode(img_tensors)
                 all_indices.append(idx)
                 del img_tensors

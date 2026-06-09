@@ -89,7 +89,7 @@ class EMUSftTokenizer(ThreadPoolExecutorOwner, EMUImageOnlyTokenizer):
 
         image_future = (
             self.executor.submit(self.tokenize_images, images, resize_size)
-            if images else None
+            if len(images) > 0 else None  # len(): images may be a preprocessed Tensor
         )
         text_future = self.executor.submit(
             self._render_and_tokenize_groups, text, group_slices,

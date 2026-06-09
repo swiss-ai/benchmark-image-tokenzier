@@ -5,20 +5,16 @@ CPU-only — guards the contract that lets prefetch workers run the CPU phase
 while inference consumers keep calling preprocess_batch.
 """
 
-import sys
 import types
-from pathlib import Path
 
 import numpy as np
 import pytest
 import torch
 from PIL import Image
 
-_REPO = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(_REPO / "Tokenizer" / "submodules" / "Emu3.5" / "src"))
-pytest.importorskip("vision_tokenizer")
-
-from Tokenizer.Emu3_5_IBQ import Emu3_5_IBQ  # noqa: E402
+# The wrapper module owns the Emu3.5 submodule sys.path bootstrap; skip when
+# the submodule isn't checked out.
+Emu3_5_IBQ = pytest.importorskip("Tokenizer.Emu3_5_IBQ").Emu3_5_IBQ
 
 
 def _legacy_preprocess(images, resize_size, device, dtype):
@@ -44,8 +40,8 @@ def _dummy_wrapper():
     d = types.SimpleNamespace()
     d.device = torch.device("cpu")
     d.dtype = torch.float32
-    d.preprocess_cpu = Emu3_5_IBQ.preprocess_cpu.__get__(d)
-    d.to_device = Emu3_5_IBQ.to_device.__get__(d)
+    for name in ("preprocess_cpu", "to_device", "preprocess_batch"):
+        setattr(d, name, getattr(Emu3_5_IBQ, name).__get__(d))
     return d
 
 
@@ -68,10 +64,10 @@ def test_two_phase_matches_legacy_bitwise():
 
     expected = _legacy_preprocess(images, size, dummy.device, dummy.dtype)
 
-    pixels = Emu3_5_IBQ.preprocess_cpu(dummy, images, size)
+    pixels = dummy.preprocess_cpu(images, size)
     assert pixels.dtype == torch.uint8
     assert pixels.shape == (3, 32, 32, 3)  # [B, H, W, C]
-    actual = Emu3_5_IBQ.to_device(dummy, pixels)
+    actual = dummy.to_device(pixels)
 
     assert actual.dtype == expected.dtype
     assert actual.shape == expected.shape
@@ -84,6 +80,6 @@ def test_preprocess_batch_is_the_composition():
     dummy = _dummy_wrapper()
     size = (48, 64)
 
-    composed = Emu3_5_IBQ.preprocess_batch(dummy, images, size)
+    composed = dummy.preprocess_batch(images, size)
     expected = _legacy_preprocess(images, size, dummy.device, dummy.dtype)
     assert torch.equal(composed, expected)
