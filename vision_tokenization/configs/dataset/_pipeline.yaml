@@ -11,9 +11,11 @@ plan_path: null
 batch_size: 128
 max_batch_tokens: 32_768
 spatial_factor: 16
+window_size: 2000
 
 prefetch:
   num_workers: 8
+  queue_size: 32
 
 checkpoint_interval_batches: 2_500
 max_consecutive_errors: 50

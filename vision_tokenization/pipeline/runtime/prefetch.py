@@ -15,13 +15,20 @@ _SENTINEL = None
 
 @dataclass
 class PrefetchResult:
-    """Result from the prefetch thread for one batch."""
+    """Result from the prefetch thread for one batch.
+
+    Without a ``prepare`` hook, ``images``/``texts`` are exactly what the
+    loader returned (``List[Optional[PIL.Image]]``, ``Optional[List]``).
+    With a hook, they are whatever the hook returned — e.g. the executor's
+    hook puts a ``PreparedBatch`` in ``images`` (filtered + CPU-preprocessed,
+    ready for one H2D copy) and ``None`` in ``texts``.
+    """
 
     batch_index: int
     assignment: object
-    images: object  # List[Optional[PIL.Image]]
-    texts: object  # Optional[List]
-    timing: dict  # {"load_s": float}
+    images: object
+    texts: object
+    timing: dict  # {"load_ms": float}
     error: Optional[Exception] = None
 
 
@@ -36,8 +43,13 @@ class BatchPrefetcher:
     batches are kept in memory at any time.
     """
 
-    def __init__(self, data_loader, augmenter=None, queue_size=2, num_workers=1):
+    def __init__(self, data_loader, prepare=None, queue_size=2, num_workers=1):
+        """*prepare* is an optional ``(images, texts, assignment) -> (images, texts)``
+        hook run in the worker thread after loading — e.g. CPU-side image
+        preprocessing, so it overlaps with GPU work instead of serializing
+        on the consumer thread."""
         self._loader = data_loader
+        self._prepare = prepare
         self._queue: Queue = Queue(maxsize=queue_size)
         self._thread: Optional[threading.Thread] = None
         self._num_workers = max(1, num_workers)
@@ -49,6 +61,8 @@ class BatchPrefetcher:
             images, texts = self._loader.load_batch(
                 ba.sample_indices, group_slices=ba.group_slices,
             )
+            if self._prepare is not None:
+                images, texts = self._prepare(images, texts, ba)
             load_ms = (time.perf_counter() - t0) * 1000
 
             return PrefetchResult(

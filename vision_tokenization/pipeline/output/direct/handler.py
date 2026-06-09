@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class TokenizationHandler:
     """Tokenizer-agnostic handler for the distributed tokenization pipeline.
 
-    Owns: filter None images, call ``tokenizer.tokenize_batch()``,
+    Owns: call ``tokenizer.tokenize_batch()`` on pre-filtered input,
     write sequences, track stats.  Does NOT know about EMU tokens,
     encapsulation, or conversation policy.
     """
@@ -83,11 +83,11 @@ class TokenizationHandler:
             "write_ms": 0.0,
         }
 
-        valid_images, valid_texts, valid_slices = self._filter_none(
-            images, texts, group_slices, stats,
-        )
+        # Input is already filtered by the executor's prefetch prepare hook —
+        # None entries never reach this layer.
+        valid_images, valid_texts, valid_slices = images, texts, group_slices
 
-        if not valid_images:
+        if valid_images is None or len(valid_images) == 0:
             return timings
 
         if timing_enabled:
@@ -143,56 +143,3 @@ class TokenizationHandler:
             timings["write_ms"] = (time.perf_counter() - write_start) * 1000
         return timings
 
-    @staticmethod
-    def _filter_none(images, texts, group_slices, stats):
-        """Filter out None images (and their paired texts / group entries).
-
-        Returns:
-            (valid_images, valid_texts, valid_slices)
-        """
-        if group_slices is not None:
-            # Multi-image: skip entire group if ANY image or text is None
-            valid_flat_images = []
-            valid_texts = []
-            valid_slices = []
-
-            for g_idx, (start, end) in enumerate(group_slices):
-                start, end = int(start), int(end)
-                group_images = images[start:end]
-                text = texts[g_idx] if texts is not None else None
-
-                if (texts is not None and text is None) or any(
-                    img is None for img in group_images
-                ):
-                    stats.samples_skipped += 1
-                    continue
-
-                new_start = len(valid_flat_images)
-                valid_flat_images.extend(group_images)
-                valid_slices.append((new_start, len(valid_flat_images)))
-                if texts is not None:
-                    valid_texts.append(text)
-
-            valid_slices_arr = np.array(valid_slices, dtype=np.int64) if valid_slices else None
-            return (
-                valid_flat_images,
-                valid_texts if texts is not None else None,
-                valid_slices_arr,
-            )
-
-        # Single-image path
-        if texts is not None:
-            valid_images = []
-            valid_texts = []
-            for i, img in enumerate(images):
-                if img is not None and texts[i] is not None:
-                    valid_images.append(img)
-                    valid_texts.append(texts[i])
-                else:
-                    stats.samples_skipped += 1
-            return valid_images, valid_texts, None
-
-        # Image-only (no text)
-        valid_images = [img for img in images if img is not None]
-        stats.samples_skipped += len(images) - len(valid_images)
-        return valid_images, None, None

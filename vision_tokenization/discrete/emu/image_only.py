@@ -388,19 +388,28 @@ class EMUImageOnlyTokenizer:
         return text
 
     @torch.inference_mode()
-    def tokenize_images(self, images: List, resize_size: Tuple[int, int]) -> torch.Tensor:
+    def tokenize_images(self, images, resize_size: Tuple[int, int]) -> torch.Tensor:
         """
         Batched tokenization of images.
         As a batch is resized to have similar shape, output num tokens is equal.
 
         Args:
-            images: List [PIL Image]
+            images: List [PIL Image], or a CPU uint8 ``[B, H, W, C]`` tensor
+                already preprocessed by ``preprocess_cpu`` in the prefetch
+                workers (the resize to *resize_size* has then already happened).
             resize_size: Target size for resizing images
 
         Returns:
             Batch of encoded images: B x num_img_tokens (on CPU)
         """
         assert self.image_tokenizer is not None, "Image tokenizer required for processing images"
+
+        preprocessed = isinstance(images, torch.Tensor)
+
+        def _chunk_to_device(chunk):
+            if preprocessed:
+                return self.image_tokenizer.to_device(chunk)
+            return self.image_tokenizer.preprocess_batch(chunk, resize_size)
 
         # Compute images per chunk from pixel budget and resize dimensions.
         chunk_size = len(images)
@@ -411,16 +420,14 @@ class EMUImageOnlyTokenizer:
 
         if chunk_size >= len(images):
             # Fast path: single chunk — preprocess + encode all at once.
-            img_tensors = self.image_tokenizer.preprocess_batch(images, resize_size)
+            img_tensors = _chunk_to_device(images)
             indices, _ = self.image_tokenizer.encode(img_tensors)
             del img_tensors
         else:
             # Chunk before preprocess to bound peak GPU pixel memory.
             all_indices = []
             for i in range(0, len(images), chunk_size):
-                img_tensors = self.image_tokenizer.preprocess_batch(
-                    images[i : i + chunk_size], resize_size,
-                )
+                img_tensors = _chunk_to_device(images[i : i + chunk_size])
                 idx, _ = self.image_tokenizer.encode(img_tensors)
                 all_indices.append(idx)
                 del img_tensors
