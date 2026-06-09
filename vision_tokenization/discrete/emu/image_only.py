@@ -5,10 +5,8 @@ Supports both Emu3 and Emu3.5 vision tokenizers.
 """
 
 from vision_tokenization.utils.json import json_load
-import os
-import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import torch
 from transformers import AutoTokenizer

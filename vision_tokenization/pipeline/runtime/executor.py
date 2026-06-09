@@ -28,7 +28,7 @@ from ...indexing.planning.tokenization_plan import (
 )
 from .checkpoint import WorkerStats, load_checkpoint, save_checkpoint
 from .data import create_loader
-from .prefetch import BatchPrefetcher, PrefetchResult
+from .prefetch import BatchPrefetcher
 from .wandb_logger import SimpleWandbLogger
 
 logger = logging.getLogger(__name__)
