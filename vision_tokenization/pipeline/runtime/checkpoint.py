@@ -175,25 +175,33 @@ def _checkpoint_path(output_dir: str, rank: int) -> Path:
     return Path(output_dir) / f"rank_{rank:04d}_checkpoint.pt"
 
 
+CHECKPOINT_VERSION = 2
+
+
 def save_checkpoint(
     output_dir: str,
     rank: int,
     batch_index: int,
-    chunk_id: int,
+    writer_state: Dict[str, Any],
+    plan_fingerprint: Optional[Dict[str, Any]],
     stats: Dict[str, Any],
     world_size: int = 1,
     extra: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Atomically save checkpoint via ``.tmp`` + ``os.replace()``.
 
-    *extra* is an optional dict merged into the payload (e.g.
-    ``stage2_chunk_id`` / ``lct_chunk_id`` for split-mode writing).
+    The checkpoint must capture every cursor needed to resume:
+    *writer_state* is an opaque dict owned by the writer (round-tripped,
+    never interpreted here), *plan_fingerprint* identifies the plan the
+    batch_index was counted against (resume refuses on mismatch).
     """
     ckpt_path = _checkpoint_path(output_dir, rank)
     tmp_path = str(ckpt_path) + ".tmp"
     payload = {
+        "version": CHECKPOINT_VERSION,
         "batch_index": batch_index,
-        "chunk_id": chunk_id,
+        "writer": dict(writer_state),
+        "plan": plan_fingerprint,
         "stats": stats,
         "world_size": world_size,
     }
@@ -201,13 +209,35 @@ def save_checkpoint(
         payload.update(extra)
     torch.save(payload, tmp_path)
     os.replace(tmp_path, str(ckpt_path))
-    logger.debug(f"[rank {rank}] Saved checkpoint batch_index={batch_index}, chunk_id={chunk_id}")
+    logger.debug(f"[rank {rank}] Saved checkpoint batch_index={batch_index}, writer={writer_state}")
 
 
 def load_checkpoint(output_dir: str, rank: int) -> Optional[Dict[str, Any]]:
-    """Load checkpoint if it exists, else return None."""
+    """Load checkpoint if it exists, translating legacy formats.
+
+    - v2: returned as-is.
+    - legacy non-split (``chunk_id``: int): translated to writer state.
+    - legacy split (tuple chunk_id): REFUSED — the stage2/lct cursors were
+      never persisted, so resume would overwrite finalized chunks.
+    """
     ckpt_path = _checkpoint_path(output_dir, rank)
     if not ckpt_path.exists():
         return None
     logger.info(f"[rank {rank}] Loading checkpoint from {ckpt_path}")
-    return torch.load(str(ckpt_path), map_location="cpu", weights_only=False)
+    ckpt = torch.load(str(ckpt_path), map_location="cpu", weights_only=False)
+    if ckpt.get("version", 1) >= CHECKPOINT_VERSION:
+        return ckpt
+
+    chunk_id = ckpt.get("chunk_id", 0)
+    if not isinstance(chunk_id, int):
+        raise RuntimeError(
+            f"[rank {rank}] Checkpoint at {ckpt_path} predates the resume fix "
+            f"and was written by the split-mode writer (chunk_id={chunk_id!r}); "
+            f"its stage2/lct cursors were never persisted, so resuming would "
+            f"overwrite finalized chunks. Restart this dataset from scratch."
+        )
+    ckpt["version"] = 1
+    ckpt["writer"] = {"chunk_id": chunk_id}
+    ckpt.setdefault("plan", None)  # legacy: no fingerprint — accept with a warning
+    logger.warning(f"[rank {rank}] Translated legacy checkpoint (chunk_id={chunk_id})")
+    return ckpt

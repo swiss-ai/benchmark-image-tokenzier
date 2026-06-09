@@ -5,10 +5,9 @@ tokenization, without going through spill/rebuild.
 """
 
 from .handler import TokenizationHandler
-from .writer import MicroShardWriter, SplitMicroShardWriter
+from .writer import MicroShardWriter
 
 __all__ = [
     "MicroShardWriter",
-    "SplitMicroShardWriter",
     "TokenizationHandler",
 ]

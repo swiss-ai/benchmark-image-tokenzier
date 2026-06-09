@@ -40,41 +40,28 @@ class DirectBackend:
     No intermediate spill, no offline rebuild.
     """
 
-    def __init__(self, mode: str, seqlen_threshold: Optional[int] = None):
+    def __init__(self, mode: str):
         self._mode = mode
-        self._seqlen_threshold = seqlen_threshold
         self._handler = None
         self._output_dir: Optional[Path] = None
         self._rank: Optional[int] = None
 
-    def open(self, output_dir: str, rank: int, resume_state: Optional[dict] = None, tokenizer=None) -> None:
+    def open(self, output_dir: str, rank: int, writer_state: Optional[dict] = None, tokenizer=None) -> None:
+        """*writer_state* is the opaque dict this backend returned from
+        ``checkpoint()`` — round-tripped through the checkpoint, interpreted
+        only by the writer that produced it."""
         from .direct.handler import TokenizationHandler
-        from .direct.writer import MicroShardWriter, SplitMicroShardWriter
+        from .direct.writer import MicroShardWriter
 
-        if self._seqlen_threshold is not None:
-            writer = SplitMicroShardWriter(seqlen_threshold=self._seqlen_threshold)
-        else:
-            writer = MicroShardWriter()
-
+        writer = MicroShardWriter()
         needs_text = self._mode in ("sft", "image2text", "text2image")
         self._handler = TokenizationHandler(writer, needs_text)
 
         self._output_dir = Path(output_dir)
         self._rank = rank
 
-        start_chunk = 0
-        if resume_state:
-            start_chunk = resume_state.get("chunk_id", 0) + 1
-
-        if self._seqlen_threshold is not None:
-            self._handler.setup_writer(
-                output_dir, rank,
-                resume_state.get("stage2_chunk_id", 0) + 1 if resume_state else 0,
-                resume_state.get("lct_chunk_id", 0) + 1 if resume_state else 0,
-                tokenizer,
-            )
-        else:
-            self._handler.setup_writer(output_dir, rank, start_chunk, tokenizer)
+        start_chunk = MicroShardWriter.resume_chunk(writer_state) if writer_state else 0
+        self._handler.setup_writer(output_dir, rank, start_chunk, tokenizer)
 
     def write_batch(
         self,
@@ -93,9 +80,9 @@ class DirectBackend:
             texts=texts, group_slices=group_slices, timing_enabled=timing_enabled,
         )
 
-    def checkpoint(self) -> Any:
-        done = self._handler.checkpoint_writer()
-        return {"chunk_id": done}
+    def checkpoint(self) -> dict:
+        """Roll the chunk; return the writer's opaque resume state."""
+        return self._handler.checkpoint_writer()
 
     def finalize(self) -> None:
         if self._handler:
@@ -113,7 +100,9 @@ class SpillBackend:
         self._output_dir: Optional[Path] = None
         self._rank: Optional[int] = None
 
-    def open(self, output_dir: str, rank: int, resume_state: Optional[dict] = None) -> None:
+    def open(self, output_dir: str, rank: int, writer_state: Optional[dict] = None) -> None:
+        """Spill resume is filesystem-truth: *writer_state* marks that a
+        resume was requested; the shard cursor is recovered from disk."""
         from .spill import ComponentSpillWriter, recover_worker_shards
 
         self._writer = ComponentSpillWriter(output_dir, rank, token_dtype=np.int32)
@@ -121,7 +110,7 @@ class SpillBackend:
         self._output_dir = Path(output_dir)
         self._rank = rank
         start_shard = 0
-        if resume_state:
+        if writer_state is not None:
             rank_dir = Path(output_dir) / f"rank_{rank:04d}"
             start_shard = recover_worker_shards(rank_dir)
         self._writer.open(start_shard_id=start_shard)
@@ -240,9 +229,10 @@ class SpillBackend:
         stats.text_tokens += len(text_np)
         stats.tokens_generated += len(text_np)
 
-    def checkpoint(self) -> Any:
-        done = self._writer.checkpoint()
-        return {"shard_id": done}
+    def checkpoint(self) -> dict:
+        """Flush the shard; resume state is recovered from disk, not stored."""
+        self._writer.checkpoint()
+        return {}
 
     def finalize(self) -> None:
         if self._writer:

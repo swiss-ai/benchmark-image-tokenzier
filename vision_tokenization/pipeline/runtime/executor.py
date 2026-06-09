@@ -234,9 +234,29 @@ def run_executor(
         f"[rank {rank}/{world_size}] Assigned {len(my_batches)} image batches"
     )
 
+    # The plan identity every checkpoint is counted against. Resume refuses
+    # on mismatch: batch_index against a different plan = silent corruption.
+    plan_fingerprint = {
+        "manifest_fingerprint": plan.metadata.manifest_fingerprint,
+        "total_batches": int(plan.total_batches),
+        "total_tokens": int(
+            np.asarray(plan.execution.image_batches.batch_token_counts, dtype=np.int64).sum()
+        ),
+    }
+
     if not my_batches:
-        logger.warning(f"[rank {rank}] No batches assigned — exiting early")
-        return {"rank": rank, "samples_processed": 0, "tokens_generated": 0}
+        # Still satisfy the completion contracts so merge gating and stats
+        # aggregation don't hang on small datasets (world_size > batches).
+        from ..output.backend import _write_rank_success_marker
+        from vision_tokenization.utils.json import json_dump
+
+        logger.warning(f"[rank {rank}] No batches assigned — finalizing empty rank")
+        result = WorkerStats().finalize()
+        result["rank"] = rank
+        result["output_dir"] = output_dir
+        json_dump(result, Path(output_dir) / f"rank_{rank:04d}_stats.json")
+        _write_rank_success_marker(Path(output_dir), rank)
+        return result
 
     # ------------------------------------------------------------------
     # 3. Resume from checkpoint
@@ -255,6 +275,13 @@ def run_executor(
                     f"[rank {rank}] Checkpoint world_size ({ckpt_ws}) != current ({world_size}). Ignoring."
                 )
                 ckpt = None
+        if ckpt is not None and ckpt.get("plan") is not None and ckpt["plan"] != plan_fingerprint:
+            raise RuntimeError(
+                f"[rank {rank}] Plan no longer matches this checkpoint "
+                f"(checkpoint {ckpt['plan']} vs current {plan_fingerprint}). "
+                f"The planner, config, or manifest changed mid-run — finish with "
+                f"the original code/config or restart this dataset."
+            )
         if ckpt is not None:
             start_batch_index = ckpt["batch_index"] + 1
             prev = ckpt.get("stats", {})
@@ -286,14 +313,15 @@ def run_executor(
     multi_image = bool(cfg.get("multi_image", False))
     use_spill = multi_image or mode == "interleave"
 
+    writer_state = ckpt.get("writer") if ckpt else None
     if use_spill:
         from ..output.backend import SpillBackend
         backend = SpillBackend()
-        backend.open(output_dir, rank, resume_state=ckpt)
+        backend.open(output_dir, rank, writer_state=writer_state)
     else:
         from ..output.backend import DirectBackend
-        backend = DirectBackend(mode=mode, seqlen_threshold=cfg.get("seqlen_threshold"))
-        backend.open(output_dir, rank, resume_state=ckpt, tokenizer=tokenizer)
+        backend = DirectBackend(mode=mode)
+        backend.open(output_dir, rank, writer_state=writer_state, tokenizer=tokenizer)
 
     data_loader = create_loader(cfg)
 
@@ -366,6 +394,7 @@ def run_executor(
     # 7. Main loop
     # ------------------------------------------------------------------
     checkpoint_interval = cfg["checkpoint_interval_batches"]
+    last_writer_state = writer_state
     stats = cumulative_stats
     batch_count = 0
     last_batch_index = start_batch_index - 1
@@ -553,11 +582,12 @@ def run_executor(
 
             # Periodic checkpoint
             if batch_count % checkpoint_interval == 0:
-                ckpt_meta = backend.checkpoint()
+                last_writer_state = backend.checkpoint()
                 save_checkpoint(
                     output_dir, rank,
                     batch_index=result.batch_index,
-                    chunk_id=ckpt_meta.get("chunk_id", ckpt_meta.get("shard_id", 0)),
+                    writer_state=last_writer_state,
+                    plan_fingerprint=plan_fingerprint,
                     stats=stats.to_dict(),
                     world_size=world_size,
                     extra={"wandb": wandb_logger.state_dict()} if wandb_logger else None,
@@ -615,7 +645,8 @@ def run_executor(
     save_checkpoint(
         output_dir, rank,
         batch_index=last_batch_index,
-        chunk_id=0,
+        writer_state=last_writer_state if last_writer_state is not None else {"chunk_id": -1},
+        plan_fingerprint=plan_fingerprint,
         stats=stats.to_dict(),
         world_size=world_size,
         extra={"wandb": wandb_logger.state_dict()} if wandb_logger else None,
