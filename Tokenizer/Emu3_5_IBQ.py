@@ -49,6 +49,15 @@ class Emu3_5_IBQ(Tokenizer):
             metadata_only: If True, only load metadata (codebook_size, name) without model weights
             verbose: If True, print detailed information during processing (default: False)
         """
+        # Token output depends on TF32 (~0.5% of codes flip vs strict FP32 —
+        # measured in vision_tokenization/profile/precision_parity.py). Pin it
+        # HERE, at the layer every consumer shares (tokenize pipeline,
+        # qualitative benchmark, demo notebooks, audit tools), so training-time
+        # and inference-time tokenization stay the same function regardless of
+        # the host environment's defaults. All shipped corpora used TF32.
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+
         self.model_path = model_path
         self.name = "Emu3_5_IBQ"
         self.min_pixels = min_pixels
