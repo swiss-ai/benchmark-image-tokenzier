@@ -576,6 +576,8 @@ def test_rebuild_rank_skips_incomplete_sft_spill_document(tmp_path):
         tokens=np.array([210, 211], dtype=np.int32),
     )
     writer.finalize()
+    # _SUCCESS is owned by the backend layer; rebuild refuses rank dirs without it.
+    (output_dir / "rank_0000" / "_SUCCESS").touch()
 
     result = rebuild_rank(
         plan,
@@ -669,6 +671,8 @@ def test_rebuild_rank_skips_sft_spill_document_missing_later_fragment_images(tmp
         tokens=np.array([105], dtype=np.int32),
     )
     writer.finalize()
+    # _SUCCESS is owned by the backend layer; rebuild refuses rank dirs without it.
+    (output_dir / "rank_0000" / "_SUCCESS").touch()
 
     result = rebuild_rank(
         plan,

@@ -1,15 +1,10 @@
 """Offline rebuild: join spilled tokens to TokenizationPlan, validate, assemble.
 
-Reads keyed component payloads from all ranks' spill shards, validates
-every planned component exists exactly once (dedup on key+hash collision),
-and assembles final sequences in document output order.
-
-Usage::
-
-    python -m vision_tokenization.pipeline.output.rebuild \\
-        --plan /path/to/plan.pt \\
-        --spill-dir /path/to/output \\
-        --vocab-size 200000
+``rebuild_rank`` (called by the executor after spill finalization) reads one
+rank's keyed component payloads, joins them back to the plan by
+``(document_id, component_index)`` — duplicate keys resolve first-wins via
+provenance assignment — and assembles final sequences in document output
+order.
 """
 
 from __future__ import annotations
@@ -24,7 +19,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import torch
 
-from .spill import COMPONENTS_SCHEMA, ComponentSpillReader
+from .spill import ComponentSpillReader
 from ...common.assembly import (
     StructureTokenIds,
     assemble_image2text,
@@ -504,162 +499,4 @@ def rebuild_rank(
         )
 
     stats["rank"] = rank
-    return stats
-
-
-# ---------------------------------------------------------------------------
-# Global rebuild (standalone, reads all ranks)
-# ---------------------------------------------------------------------------
-
-def rebuild_from_plan(
-    plan: TokenizationPlan,
-    spill_dir: str | Path,
-    token_ids: StructureTokenIds,
-    vocab_size: int,
-    max_sequence_tokens: Optional[int] = None,
-    seqlen_threshold: Optional[int] = None,
-    output_name: str = "rebuilt",
-    reject_doc_ids: Optional[set] = None,
-) -> Dict:
-    """Read all ranks' spill, validate against plan, assemble, write Megatron bin/idx.
-
-    Args:
-        plan: TokenizationPlan (source of truth).
-        spill_dir: Directory containing rank_XXXX/ spill subdirs.
-        token_ids: Special token IDs for assembly.
-        vocab_size: Vocab size for optimal dtype selection.
-        max_sequence_tokens: Max tokens per sequence (interleave splitting).
-        seqlen_threshold: Route sequences by length (includes BOS/EOS).
-            Matches SplitMicroShardWriter: <= threshold → stage2/,
-            > threshold → lct/.
-        output_name: Output prefix name.
-
-    Returns:
-        Dict with output path and rebuild statistics.
-    """
-    from vision_tokenization.formats.megatron import DType, IndexedDatasetBuilder
-
-    spill_dir = Path(spill_dir)
-    mode = plan.mode
-
-    logger.info(f"Reading spill shards from {spill_dir}")
-    spill_table = ComponentSpillReader.read_all_ranks(spill_dir)
-    logger.info(f"Read {len(spill_table):,} spill components from all ranks")
-
-    spill = _extract_sorted_spill(spill_table)
-
-    spill_key = spill["doc_ids"].astype(np.int64) * (1 << _PROVENANCE_KEY_SHIFT) + spill["comp_idx"].astype(np.int64)
-    n_spill = spill["n"]
-
-    # Multi-rank provenance: need rank_dir_idx + shard_id per row
-    rank_dirs = sorted(p for p in spill_dir.glob("rank_*") if p.is_dir())
-    token_mmaps: Dict[Tuple[int, int], np.ndarray] = {}
-    prov_rank_idx = np.full(n_spill, -1, dtype=np.int32)
-    prov_shard_id = np.full(n_spill, -1, dtype=np.int32)
-    prov_offset = np.zeros(n_spill, dtype=np.int64)
-    prov_length = np.zeros(n_spill, dtype=np.int64)
-    rank_dir_list: List[Path] = []
-
-    for rd in rank_dirs:
-        if not (rd / "_SUCCESS").exists():
-            continue
-        rank_dir_list.append(rd)
-        rd_idx = len(rank_dir_list) - 1
-        for tf in rd.glob("tokens.*.bin"):
-            sid = int(tf.stem.split(".")[-1])
-            if tf.stat().st_size > 0:
-                token_mmaps[(rd_idx, sid)] = np.memmap(str(tf), dtype=np.uint8, mode="r")
-
-        for sf in sorted(rd.glob("components.*.parquet")):
-            sid = int(sf.stem.split(".")[-1])
-            ct = pq.read_table(sf)
-            ct_doc = ct.column("document_id").to_numpy()
-            ct_comp = ct.column("component_index").to_numpy()
-            ct_off = ct.column("token_offset").to_numpy()
-            ct_len = ct.column("token_length").to_numpy()
-            ct_key = ct_doc.astype(np.int64) * (1 << _PROVENANCE_KEY_SHIFT) + ct_comp.astype(np.int64)
-            positions = np.searchsorted(spill_key, ct_key)
-            valid = (positions < n_spill) & (spill_key[np.minimum(positions, n_spill - 1)] == ct_key)
-            valid_idx = np.where(valid)[0]
-            valid_pos = positions[valid_idx]
-            unset = prov_rank_idx[valid_pos] < 0
-            assign = valid_idx[unset]
-            assign_pos = valid_pos[unset]
-            prov_rank_idx[assign_pos] = rd_idx
-            prov_shard_id[assign_pos] = sid
-            prov_offset[assign_pos] = ct_off[assign]
-            prov_length[assign_pos] = ct_len[assign]
-
-    _dtype = np.dtype(np.int32)
-    _itemsize = _dtype.itemsize
-
-    def _load_tokens(row_idx: int) -> np.ndarray:
-        ri = int(prov_rank_idx[row_idx])
-        si = int(prov_shard_id[row_idx])
-        off = int(prov_offset[row_idx])
-        length = int(prov_length[row_idx])
-        buf = token_mmaps.get((ri, si))
-        if buf is not None:
-            return np.frombuffer(buf[off:off + length * _itemsize], dtype=_dtype).copy()
-        return ComponentSpillReader.load_tokens(rank_dir_list[ri], si, off, length, token_dtype=_dtype)
-
-    megatron_dtype = DType.optimal_dtype(vocab_size)
-    output_prefix = spill_dir / output_name
-    output_prefix.parent.mkdir(parents=True, exist_ok=True)
-
-    builders: dict = {}
-    prefixes: dict = {}
-    if seqlen_threshold is not None:
-        for bucket in ("stage2", "lct"):
-            p = spill_dir / bucket / output_name
-            p.parent.mkdir(parents=True, exist_ok=True)
-            prefixes[bucket] = p
-            builders[bucket] = IndexedDatasetBuilder(str(p) + ".bin", dtype=megatron_dtype)
-    else:
-        prefixes["main"] = output_prefix
-        builders["main"] = IndexedDatasetBuilder(str(output_prefix) + ".bin", dtype=megatron_dtype)
-
-    # Process all documents in plan output order
-    doc_order = np.argsort(plan.documents.output_order)
-    doc_ids_ordered = plan.documents.document_id[doc_order]
-    expected_num_images_to_process = plan.documents.num_images[doc_order].astype(np.int64, copy=False)
-
-    stats = _assemble_and_write(
-        doc_ids_to_process=doc_ids_ordered,
-        spill=spill,
-        load_tokens=_load_tokens,
-        prov_check_field=prov_rank_idx,
-        mode=mode,
-        token_ids=token_ids,
-        max_sequence_tokens=max_sequence_tokens,
-        expected_num_images_to_process=expected_num_images_to_process,
-        megatron_dtype=megatron_dtype,
-        seqlen_threshold=seqlen_threshold,
-        builders=builders,
-        log_prefix="",
-        reject_doc_ids=reject_doc_ids,
-    )
-
-    finalize_builders(builders, prefixes)
-
-    if seqlen_threshold is not None:
-        logger.info(
-            f"Stage2 (<={seqlen_threshold} tokens): {stats['stage2_sequences']:,} sequences, "
-            f"{stats['stage2_tokens']:,} tokens"
-        )
-        logger.info(
-            f"LCT (>{seqlen_threshold} tokens): {stats['lct_sequences']:,} sequences, "
-            f"{stats['lct_tokens']:,} tokens"
-        )
-    else:
-        logger.info(
-            f"Rebuild complete: {stats['sequences']:,} sequences, "
-            f"{stats['tokens']:,} tokens -> {output_prefix}"
-        )
-
-    stats["output_prefix"] = str(output_prefix)
-    stats["total_documents"] = plan.total_documents
-    stats["seqlen_threshold"] = seqlen_threshold
-    stats["stage2_prefix"] = str(prefixes.get("stage2")) if "stage2" in prefixes else None
-    stats["lct_prefix"] = str(prefixes.get("lct")) if "lct" in prefixes else None
     return stats

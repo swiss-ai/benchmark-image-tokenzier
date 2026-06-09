@@ -1,17 +1,17 @@
 #!/bin/bash
 #SBATCH --account=infra01
 #SBATCH --job-name=qual-bench
-#SBATCH --environment=sgl_pdm_env
+#SBATCH --environment=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/scripts/envs/nemo_25_11.toml
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --partition=normal
-#SBATCH --reservation=PA-2338-RL
+#SBATCH --reservation=SD-69241-apertus-1-5-0
 #SBATCH --ntasks-per-node=1
 #SBATCH --time=1:30:00
 #SBATCH --output=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/qualitative_bench%j.out
 #SBATCH --error=/iopsstor/scratch/cscs/%u/benchmark-image-tokenizer/vision_tokenization/logs/qualitative_bench%j.err
 
-PROJECT_ROOT="/iopsstor/scratch/cscs/${USER}/benchmark-image-tokenizer"
+PROJECT_ROOT="/iopsstor/scratch/cscs/${USER}/apertus/benchmark-image-tokenzier"
 
 # Default values
 DEFAULT_MODEL_PATH="/iopsstor/scratch/cscs/rkreft/Megatron-LM/logs/Meg-Runs/image-extension/llama3-3b-SFT-15n-8192sl-240gbsz-1.0i-0.0t-stage2-base-ST-MASKED-USR-MASKED-NOTIMG-FIXES-RPAD/HF"
@@ -162,7 +162,7 @@ if [ -z "$EXPERIMENT_NAME" ]; then
     usage
 fi
 
-cd /iopsstor/scratch/cscs/$USER/benchmark-image-tokenizer/vision_tokenization/qualitative_benchmark || exit
+cd /iopsstor/scratch/cscs/$USER/apertus/benchmark-image-tokenzier/vision_tokenization/qualitative_benchmark || exit
 export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH}"
 
 echo "=================================================================================="
@@ -209,7 +209,7 @@ echo "==========================================================================
 pip install -U "transformers>=4.56,<5.0.0" #"vllm>=0.14.0" "numpy<2"
 pip install lpips scikit-image
 
-python vlm_benchmark.py --tokenizer_path "$TOKENIZER_PATH" \
+python vlm_benchmark.py --cache-image-tokens --tokenizer_path "$TOKENIZER_PATH" \
                         --model_path "$MODEL_PATH" \
                         --experiment_name "$EXPERIMENT_NAME" \
                         $([ -n "$CHAT_FORMAT" ] && echo "--chat-format $CHAT_FORMAT") \

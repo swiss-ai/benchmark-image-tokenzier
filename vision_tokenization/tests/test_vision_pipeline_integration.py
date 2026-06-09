@@ -44,7 +44,7 @@ from PIL import Image
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from Tokenizer.Emu3VisionTokenizer import Emu3VisionTokenizer
-from vision_tokenization.utils.indexed_dataset_megatron import VisionTokenIndexedDatasetBuilder
+from vision_tokenization.formats.megatron import VisionTokenIndexedDatasetBuilder
 
 from .test_utils import calculate_expected_pointers, read_index_file, read_index_header
 
@@ -306,7 +306,7 @@ def test_compare_with_reference():
         prefix = os.path.join(temp_dir, "reference")
 
         # Create using our builder
-        from vision_tokenization.utils.indexed_dataset_megatron import IndexedDatasetBuilder
+        from vision_tokenization.formats.megatron import IndexedDatasetBuilder
 
         builder = IndexedDatasetBuilder(f"{prefix}.bin", dtype=np.int32)
         builder.add_document(reference_tokens.tolist(), lengths=[5])

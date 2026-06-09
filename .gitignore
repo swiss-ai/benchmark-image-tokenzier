@@ -96,3 +96,4 @@ scratch/
 # Isolated metric venvs
 vision_tokenization/qualitative_benchmark/metrics/.polos_env/
 outputs/
+.tmp/

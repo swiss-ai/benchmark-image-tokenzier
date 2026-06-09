@@ -516,10 +516,6 @@ def test_hf_loader_fragmented_multi_image_sft_parser_uses_full_document_image_co
             np.array([0, 1], dtype=np.int64),
             group_slices=np.array([[0, 2]], dtype=np.int64),
         )
-        text_only = loader.load_text_batch(
-            np.array([0, 1], dtype=np.int64),
-            group_slices=np.array([[0, 2]], dtype=np.int64),
-        )
     finally:
         loader.close()
 
@@ -529,7 +525,6 @@ def test_hf_loader_fragmented_multi_image_sft_parser_uses_full_document_image_co
         {"role": "assistant", "content": "The first is darkest."},
     ]
     assert texts == [expected_messages]
-    assert text_only == [expected_messages]
 
 
 def test_create_loader_enables_sft_parser_for_hf_dataset(tmp_path):
@@ -612,10 +607,6 @@ def test_hf_loader_image_map_sft_uses_message_order(tmp_path):
             np.array([0, 1], dtype=np.int64),
             group_slices=np.array([[0, 2]], dtype=np.int64),
         )
-        text_only = loader.load_text_batch(
-            np.array([0, 1], dtype=np.int64),
-            group_slices=np.array([[0, 2]], dtype=np.int64),
-        )
     finally:
         loader.close()
 
@@ -637,7 +628,6 @@ def test_hf_loader_image_map_sft_uses_message_order(tmp_path):
         },
     ]
     assert texts == [expected_messages]
-    assert text_only == [expected_messages]
 
 
 def test_create_loader_enables_image_map_sft_loader(tmp_path):

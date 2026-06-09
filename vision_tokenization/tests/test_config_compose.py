@@ -80,7 +80,9 @@ def test_sft_datasets_keep_instruct_tokenizer_override():
     for dataset in ("sft/path_vqa", "sft/tcm_shizhen_vision"):
         cfg = _compose_dataset_cfg(dataset, "sft")
         _assert_resolves(cfg)
-        assert str(cfg.dataset.tokenizer_path).endswith("apertus_emu3.5_wavtok_instruct")
+        assert str(cfg.dataset.tokenizer_path).endswith(
+            "apertus_emu3.5_wavtok_instruct_thinking_token_fixed"
+        )
 
 
 def test_non_sft_dataset_does_not_define_dataset_tokenizer_override():

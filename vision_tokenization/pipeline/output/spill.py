@@ -4,7 +4,7 @@ Writes per-rank output as keyed component payloads:
 
     rank_XXXX/
         components.NNNNNN.parquet   — (document_id, component_index, kind,
-                                       token_offset, token_length, token_hash)
+                                       token_offset, token_length)
         tokens.NNNNNN.bin           — concatenated raw token bytes
         worker_stats.json           — aggregate stats
         _SUCCESS                    — written by the backend layer after
@@ -18,7 +18,6 @@ The rebuild joins spilled tokens back to the plan by
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import os
 from pathlib import Path
@@ -43,15 +42,9 @@ COMPONENTS_SCHEMA = pa.schema([
     pa.field("kind", pa.int8()),
     pa.field("token_offset", pa.int64()),
     pa.field("token_length", pa.int64()),
-    pa.field("token_hash", pa.string()),
     pa.field("resize_height", pa.int32()),
     pa.field("resize_width", pa.int32()),
 ])
-
-
-def _token_hash(tokens: np.ndarray) -> str:
-    """Fast 8-byte hash of a token array for dedup validation."""
-    return hashlib.blake2b(tokens.tobytes(), digest_size=8).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -84,12 +77,11 @@ def recover_worker_shards(worker_dir: Path) -> int:
         next_id += 1
 
     # Clean dangling shards
-    all_ids = comp_ids | token_ids | _collect_shard_ids(worker_dir, "progress", "json")
+    all_ids = comp_ids | token_ids
     for sid in sorted(all_ids - set(range(next_id))):
         for path in (
             worker_dir / f"components.{sid:06d}.parquet",
             worker_dir / f"tokens.{sid:06d}.bin",
-            worker_dir / f"progress.{sid:06d}.json",
         ):
             if path.exists():
                 path.unlink()
@@ -151,10 +143,6 @@ class ComponentSpillWriter:
     def shard_id(self) -> int:
         return self._shard_id
 
-    @property
-    def has_pending(self) -> bool:
-        return bool(self._comp_rows)
-
     def _open_shard(self) -> None:
         prefix = f"{self._shard_id:06d}"
         self._token_file = open(self._base_dir / f"tokens.{prefix}.bin", "wb")
@@ -181,7 +169,6 @@ class ComponentSpillWriter:
             "kind": int(kind),
             "token_offset": self._token_offset,
             "token_length": len(tokens),
-            "token_hash": _token_hash(tokens),
             "resize_height": int(resize_height),
             "resize_width": int(resize_width),
         })
@@ -260,32 +247,19 @@ class ComponentSpillWriter:
 class ComponentSpillReader:
     """Read spilled component payloads from all ranks."""
 
+    # Read only schema columns so shards written before a schema change
+    # (e.g. ones still carrying the retired token_hash column) concat cleanly.
+    _COLUMNS = [field.name for field in COMPONENTS_SCHEMA]
+
     @staticmethod
     def read_rank(rank_dir: Path) -> pa.Table:
         """Read all component parquets from one rank directory."""
         files = sorted(rank_dir.glob("components.*.parquet"))
         if not files:
             return pa.table([], schema=COMPONENTS_SCHEMA)
-        return pa.concat_tables([pq.read_table(f) for f in files])
-
-    @staticmethod
-    def read_all_ranks(output_dir: Path) -> pa.Table:
-        """Read components from all rank directories."""
-        output_dir = Path(output_dir)
-        rank_dirs = sorted(p for p in output_dir.glob("rank_*") if p.is_dir())
-        if not rank_dirs:
-            raise FileNotFoundError(f"No rank directories found in {output_dir}")
-
-        tables = []
-        for rd in rank_dirs:
-            if not (rd / "_SUCCESS").exists():
-                logger.warning(f"Skipping rank {rd.name}: no _SUCCESS marker")
-                continue
-            tables.append(ComponentSpillReader.read_rank(rd))
-
-        if not tables:
-            raise FileNotFoundError(f"No complete rank directories in {output_dir}")
-        return pa.concat_tables(tables)
+        return pa.concat_tables(
+            [pq.read_table(f, columns=ComponentSpillReader._COLUMNS) for f in files]
+        )
 
     @staticmethod
     def load_tokens(

@@ -132,14 +132,12 @@ def test_jsonl_tar_loader_sft_loads_grouped_and_flat_texts(tmp_path):
         np.array([0, 1], dtype=np.int64),
         group_slices=np.array([[0, 2]], dtype=np.int64),
     )
-    flat_texts = loader.load_text_batch(np.array([0, 1], dtype=np.int64), group_slices=None)
     loader.close()
 
     assert len(images) == 2
     assert all(img is not None for img in images)
     assert len(texts) == 1
     assert texts[0] == conversations
-    assert flat_texts == [conversations, conversations]
 
 
 def test_create_loader_rejects_parser_backed_jsonl_tar(tmp_path):

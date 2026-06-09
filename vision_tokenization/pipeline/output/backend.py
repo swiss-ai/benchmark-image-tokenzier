@@ -44,7 +44,6 @@ class DirectBackend:
         self._mode = mode
         self._seqlen_threshold = seqlen_threshold
         self._handler = None
-        self._chunk_id = 0
         self._output_dir: Optional[Path] = None
         self._rank: Optional[int] = None
 
@@ -66,7 +65,6 @@ class DirectBackend:
         start_chunk = 0
         if resume_state:
             start_chunk = resume_state.get("chunk_id", 0) + 1
-        self._chunk_id = start_chunk
 
         if self._seqlen_threshold is not None:
             self._handler.setup_writer(
@@ -97,7 +95,6 @@ class DirectBackend:
 
     def checkpoint(self) -> Any:
         done = self._handler.checkpoint_writer()
-        self._chunk_id = done + 1 if isinstance(done, int) else self._chunk_id + 1
         return {"chunk_id": done}
 
     def finalize(self) -> None:
@@ -204,27 +201,24 @@ class SpillBackend:
         # Spill one text component per document for non-interleave modes.
         if texts is None:
             return
-        if group_slices is not None:
-            for g_idx, (start, end) in enumerate(group_slices):
-                start, end = int(start), int(end)
-                if start >= end:
-                    continue
-                text = texts[g_idx] if g_idx < len(texts) else None
-                if text is None:
-                    continue
-                doc_comp_indices = component_indices[start:end]
-                # Spill doc-level text only once, from the batch containing image_index=0.
-                if not np.any(plan.components.image_index[doc_comp_indices] == 0):
-                    continue
-                doc_id = int(plan.components.document_id[int(doc_comp_indices[0])])
-                self._spill_doc_text(text, doc_id, plan, tokenizer, stats)
-        else:
-            for i, comp_idx in enumerate(component_indices):
-                text = texts[i] if i < len(texts) else None
-                if text is None:
-                    continue
-                doc_id = int(plan.components.document_id[int(comp_idx)])
-                self._spill_doc_text(text, doc_id, plan, tokenizer, stats)
+        if group_slices is None:
+            # Spill mode implies multi_image, and the executor always builds
+            # group_slices for multi_image runs — flat text spill would silently
+            # produce docs with missing text at rebuild.
+            raise ValueError("Unsegmented spill with texts requires group_slices")
+        for g_idx, (start, end) in enumerate(group_slices):
+            start, end = int(start), int(end)
+            if start >= end:
+                continue
+            text = texts[g_idx] if g_idx < len(texts) else None
+            if text is None:
+                continue
+            doc_comp_indices = component_indices[start:end]
+            # Spill doc-level text only once, from the batch containing image_index=0.
+            if not np.any(plan.components.image_index[doc_comp_indices] == 0):
+                continue
+            doc_id = int(plan.components.document_id[int(doc_comp_indices[0])])
+            self._spill_doc_text(text, doc_id, plan, tokenizer, stats)
 
     def _spill_doc_text(
         self,

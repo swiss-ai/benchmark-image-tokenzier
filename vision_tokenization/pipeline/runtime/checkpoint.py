@@ -32,24 +32,7 @@ __all__ = [
     "finalize_shard_writer",
     "save_checkpoint",
     "load_checkpoint",
-    "is_cuda_oom",
 ]
-
-
-# ---------------------------------------------------------------------------
-# CUDA OOM detection
-# ---------------------------------------------------------------------------
-
-
-def is_cuda_oom(exc: BaseException) -> bool:
-    """Return True if *exc* indicates a CUDA out-of-memory error."""
-    cuda_oom_type = getattr(torch.cuda, "OutOfMemoryError", None)
-    if cuda_oom_type is not None and isinstance(exc, cuda_oom_type):
-        return True
-    if isinstance(exc, RuntimeError):
-        msg = str(exc).lower()
-        return "cuda out of memory" in msg or "out of memory" in msg
-    return False
 
 
 # ---------------------------------------------------------------------------
