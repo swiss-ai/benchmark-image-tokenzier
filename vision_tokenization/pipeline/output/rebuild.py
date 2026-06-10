@@ -203,7 +203,6 @@ def _build_provenance_single_rank(rank_dir: Path, spill_key: np.ndarray, n_spill
 
     Returns (prov_shard_id, prov_offset, prov_length, token_mmaps).
     """
-    token_dtype = np.int32
     prov_shard_id = np.full(n_spill, -1, dtype=np.int32)
     prov_offset = np.zeros(n_spill, dtype=np.int64)
     prov_length = np.zeros(n_spill, dtype=np.int64)

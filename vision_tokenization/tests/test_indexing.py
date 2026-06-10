@@ -1314,21 +1314,19 @@ class TestMergeShards:
         except ImportError:
             pytest.skip("megatron not available")
 
-        from vision_tokenization.pipeline.output.merge import maybe_merge_shards
+        from vision_tokenization.pipeline.output.merge import _all_ranks_done, merge_shards
 
         self._create_shard(tmp_path / "rank_0000_chunk_0000", [[1, 2]])
         self._create_shard(tmp_path / "rank_0001_chunk_0000", [[3, 4]])
 
         # Only rank 0 has finalized
         self._mark_rank_done(tmp_path, 0)
-        result = maybe_merge_shards(tmp_path, expected_ranks=2)
-        assert result is None
-        assert not (tmp_path / "merged.bin").exists()
+        assert not _all_ranks_done(tmp_path, expected_ranks=2)
 
         # Now rank 1 finishes
         self._mark_rank_done(tmp_path, 1)
-        result = maybe_merge_shards(tmp_path, expected_ranks=2)
-        assert result is not None
+        assert _all_ranks_done(tmp_path, expected_ranks=2)
+        assert merge_shards(tmp_path) is not None
         assert (tmp_path / "merged.bin").exists()
 
     def test_maybe_merge_is_idempotent(self, tmp_path):
@@ -1338,19 +1336,16 @@ class TestMergeShards:
         except ImportError:
             pytest.skip("megatron not available")
 
-        from vision_tokenization.pipeline.output.merge import maybe_merge_shards
+        from vision_tokenization.pipeline.output.merge import _all_ranks_done, merge_shards
 
         self._create_shard(tmp_path / "rank_0000_chunk_0000", [[1, 2]])
         self._mark_rank_done(tmp_path, 0)
 
         # First call merges
-        result1 = maybe_merge_shards(tmp_path, expected_ranks=1)
-        assert result1 is not None
+        assert merge_shards(tmp_path) is not None
         mtime1 = (tmp_path / "merged.bin").stat().st_mtime
 
         # Second call skips (file already exists)
-        result2 = maybe_merge_shards(tmp_path, expected_ranks=1)
-        assert result2 is not None
         mtime2 = (tmp_path / "merged.bin").stat().st_mtime
         assert mtime1 == mtime2
 

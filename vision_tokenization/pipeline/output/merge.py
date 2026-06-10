@@ -1,15 +1,11 @@
 """Merge per-rank tokenized shards into a single dataset.
 
-Follows the same "last rank out" pattern as ``stats_reducer``: each rank
-calls ``maybe_merge_shards`` after finishing tokenization. The call checks
-whether all expected ranks have completed (checkpoint files exist). The
-first rank to observe a complete set performs the merge; others return
-immediately.
+Run standalone after all ranks finish::
 
-Can also be run standalone::
+    python -m vision_tokenization.pipeline.output.merge /path/to/output_dir \
+        [--bands 8192,16384,...] [--dry-run]
 
-    python -m vision_tokenization.pipeline.output.merge \
-        /path/to/output_dir --expected-ranks 80
+Gating on rank _SUCCESS markers is on by default.
 """
 
 from __future__ import annotations
@@ -417,38 +413,6 @@ def merge_shards(
 
     logger.info("Merge complete: %s (%d shards)", output_prefix, len(prefixes))
     return Path(output_prefix)
-
-
-def maybe_merge_shards(
-    output_dir: Path | str,
-    *,
-    expected_ranks: int,
-    output_name: str = "merged",
-    shuffle: bool = False,
-    seed: int = 42,
-) -> Optional[Path]:
-    """Merge shards if all ranks are done. Returns None if not ready or merge disabled."""
-    output_dir = Path(output_dir)
-
-    # Check if already merged
-    merged_bin = output_dir / f"{output_name}.bin"
-    if merged_bin.exists():
-        logger.debug("Merged file already exists: %s", merged_bin)
-        return Path(output_dir / output_name)
-
-    if not _all_ranks_done(output_dir, expected_ranks):
-        return None
-
-    try:
-        return merge_shards(
-            output_dir,
-            output_name=output_name,
-            shuffle=shuffle,
-            seed=seed,
-        )
-    except Exception:
-        logger.warning("Failed to merge shards in %s", output_dir, exc_info=True)
-        return None
 
 
 def main(argv: Optional[list[str]] = None) -> int:
