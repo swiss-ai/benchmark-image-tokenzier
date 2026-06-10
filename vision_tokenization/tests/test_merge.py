@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import os
 import numpy as np
 import pytest
 
@@ -338,3 +339,32 @@ class TestCLI:
 
         no_cot_seqs = _read_all_sequences(str(tmp_path / "merged_no_cot"))
         np.testing.assert_array_equal(no_cot_seqs[0], [1, 2])
+
+
+class TestBandViews:
+    """Band .idx views must load through Megatron's NATIVE reader and return
+    exactly the sequences whose lengths fall in the band."""
+
+    def test_band_view_readback_native(self, tmp_path):
+        try:
+            from megatron.core.datasets.indexed_dataset import IndexedDataset
+        except ImportError:
+            pytest.skip("megatron not available")
+        from vision_tokenization.pipeline.output.merge import split_bands
+
+        seqs = [[1] * 5, [2] * 10, [3] * 3, [4] * 20, [5] * 10]
+        prefix = _build_test_shards(tmp_path, seqs)
+        # bands: <=8 and >8 (toy edges)
+        out = split_bands(prefix, edges=[8])
+        assert set(out) == {"0k", "gt0k"}
+
+        # Native reader needs a .bin matching each view's prefix — hardlink it.
+        for name, (n, tok, idx_path) in out.items():
+            view_prefix = idx_path[:-4]
+            os.link(prefix + ".bin", view_prefix + ".bin")
+            ds = IndexedDataset(view_prefix)
+            assert len(ds) == n
+            got = sorted(ds[i].tolist() for i in range(len(ds)))
+            want = sorted(s for s in seqs if (len(s) <= 8) == (name == "0k"))
+            assert got == want
+            assert sum(len(ds[i]) for i in range(len(ds))) == tok
