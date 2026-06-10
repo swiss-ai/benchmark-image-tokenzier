@@ -85,19 +85,11 @@ def test_v2_checkpoint_roundtrip(tmp_path):
     assert ckpt["batch_index"] == 42
 
 
-def test_legacy_int_checkpoint_translated(tmp_path):
+def test_pre_v2_checkpoint_refused(tmp_path):
+    """Single-version protocol: anything pre-v2 means re-tokenize, loudly."""
     torch.save({"batch_index": 9, "chunk_id": 4, "stats": {}, "world_size": 1},
                tmp_path / "rank_0000_checkpoint.pt")
-    ckpt = load_checkpoint(str(tmp_path), 0)
-    assert ckpt["writer"] == {"chunk_id": 4}
-    assert ckpt["plan"] is None             # legacy → fingerprint check skipped
-    assert MicroShardWriter.resume_chunk(ckpt["writer"]) == 5
-
-
-def test_legacy_split_checkpoint_refused(tmp_path):
-    torch.save({"batch_index": 9, "chunk_id": (3, 1), "stats": {}, "world_size": 1},
-               tmp_path / "rank_0000_checkpoint.pt")
-    with pytest.raises(RuntimeError, match="split-mode"):
+    with pytest.raises(RuntimeError, match="Re-tokenize"):
         load_checkpoint(str(tmp_path), 0)
 
 
@@ -109,8 +101,6 @@ def test_fingerprint_mismatch_refuses(tmp_path):
     verify_plan_fingerprint(ckpt, fp, rank=0)            # match: accepted
     with pytest.raises(RuntimeError, match="no longer matches"):
         verify_plan_fingerprint(ckpt, {**fp, "total_batches": 8}, rank=0)
-    ckpt["plan"] = None                                  # legacy: always accepted
-    verify_plan_fingerprint(ckpt, fp, rank=0)
 
 
 class TestWorldSizeGuard:

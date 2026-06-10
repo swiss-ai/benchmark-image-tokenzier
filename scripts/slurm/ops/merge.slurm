@@ -49,7 +49,6 @@ echo "=== merge $SRC -> $OUT  (ranks=${RANKS:-auto}, strip=$STRIP_THINKING, dest
 [ -d "$SRC" ] || { echo "missing SRC: $SRC"; exit 1; }
 
 FLAGS=(--output-name "$OUT")
-[ -n "${RANKS:-}" ] && FLAGS+=(--expected-ranks "$RANKS")
 [ "$STRIP_THINKING" = "true" ] && FLAGS+=(--strip-thinking --no-cot-output-name "${OUT}_no_cot")
 
 srun -u python -m vision_tokenization.pipeline.output.merge "$SRC" "${FLAGS[@]}"

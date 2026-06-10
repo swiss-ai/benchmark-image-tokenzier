@@ -206,32 +206,22 @@ def save_checkpoint(
 
 
 def load_checkpoint(output_dir: str, rank: int) -> Optional[Dict[str, Any]]:
-    """Load checkpoint if it exists, translating legacy formats.
+    """Load this rank's checkpoint if it exists. v2 only.
 
-    - v2: returned as-is.
-    - legacy non-split (``chunk_id``: int): translated to writer state.
-    - legacy split (tuple chunk_id): REFUSED — the stage2/lct cursors were
-      never persisted, so resume would overwrite finalized chunks.
+    Pre-v2 checkpoints (before writer-owned cursor state and plan
+    fingerprints) are refused: re-tokenize the dataset with current code.
     """
     ckpt_path = _checkpoint_path(output_dir, rank)
     if not ckpt_path.exists():
         return None
     logger.info(f"[rank {rank}] Loading checkpoint from {ckpt_path}")
     ckpt = torch.load(str(ckpt_path), map_location="cpu", weights_only=False)
-    if ckpt.get("version", 1) >= CHECKPOINT_VERSION:
-        return ckpt
-
-    chunk_id = ckpt["chunk_id"]
-    if not isinstance(chunk_id, int):
+    if ckpt.get("version", 1) < CHECKPOINT_VERSION:
         raise RuntimeError(
-            f"[rank {rank}] Checkpoint at {ckpt_path} predates the resume fix "
-            f"and was written by the split-mode writer (chunk_id={chunk_id!r}); "
-            f"its stage2/lct cursors were never persisted, so resuming would "
-            f"overwrite finalized chunks. Restart this dataset from scratch."
+            f"[rank {rank}] Checkpoint at {ckpt_path} predates the v2 resume "
+            f"protocol and cannot be resumed safely. Re-tokenize this dataset "
+            f"from scratch (resume=false, fresh output_dir)."
         )
-    ckpt["writer"] = {"chunk_id": chunk_id}
-    ckpt["plan"] = None  # v1 never carried a fingerprint — accept with a warning
-    logger.warning(f"[rank {rank}] Translated legacy checkpoint (chunk_id={chunk_id})")
     return ckpt
 
 
@@ -322,11 +312,8 @@ def verify_run_world_size(output_dir: str, world_size: int, rank: int) -> None:
 
 
 def verify_plan_fingerprint(ckpt: Dict[str, Any], current: Dict[str, Any], rank: int) -> None:
-    """Refuse resume when the plan no longer matches the checkpoint.
-
-    Legacy checkpoints (plan=None) are accepted — they predate fingerprints.
-    """
-    if ckpt.get("plan") is not None and ckpt["plan"] != current:
+    """Refuse resume when the plan no longer matches the checkpoint."""
+    if ckpt.get("plan") != current:
         raise RuntimeError(
             f"[rank {rank}] Plan no longer matches this checkpoint "
             f"(checkpoint {ckpt['plan']} vs current {current}). The planner, "

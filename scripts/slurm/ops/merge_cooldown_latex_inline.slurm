@@ -29,7 +29,7 @@ NRANKS=$(ls "$SRC"/rank_*_chunk_*.bin 2>/dev/null | sed 's|.*/rank_||; s|_chunk.
 echo "merging $OUT — $NRANKS ranks at $SRC"
 
 python -m vision_tokenization.pipeline.output.merge \
-    "$SRC" --expected-ranks "$NRANKS" --output-name "$OUT"
+    "$SRC" --output-name "$OUT"
 
 mv "$SRC/$OUT.bin" "$DEST/$OUT.bin"
 mv "$SRC/$OUT.idx" "$DEST/$OUT.idx"

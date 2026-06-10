@@ -1303,28 +1303,6 @@ class TestMergeShards:
         rank_dir.mkdir(parents=True, exist_ok=True)
         (rank_dir / "_SUCCESS").touch()
 
-    def test_maybe_merge_waits_for_all_ranks(self, tmp_path):
-        """Legacy gate (_all_ranks_done) requires every rank's _SUCCESS marker."""
-        try:
-            from megatron.core.datasets.indexed_dataset import IndexedDataset
-        except ImportError:
-            pytest.skip("megatron not available")
-
-        from vision_tokenization.pipeline.output.merge import _all_ranks_done, merge_shards
-
-        self._create_shard(tmp_path / "rank_0000_chunk_0000", [[1, 2]])
-        self._create_shard(tmp_path / "rank_0001_chunk_0000", [[3, 4]])
-
-        # Only rank 0 has finalized
-        self._mark_rank_done(tmp_path, 0)
-        assert not _all_ranks_done(tmp_path, expected_ranks=2)
-
-        # Now rank 1 finishes
-        self._mark_rank_done(tmp_path, 1)
-        assert _all_ranks_done(tmp_path, expected_ranks=2)
-        assert merge_shards(tmp_path) is not None
-        assert (tmp_path / "merged.bin").exists()
-
     def test_maybe_merge_is_idempotent(self, tmp_path):
         """Re-merging skips the concat when the merged file already exists."""
         try:

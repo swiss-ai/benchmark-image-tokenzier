@@ -489,10 +489,7 @@ class TestManifestGate:
         write_rank_manifest(str(tmp_path), 1, 2, None, "empty", files=[])  # empty, not missing
         assert main([str(tmp_path)]) == 0
 
-    def test_no_manifests_requires_explicit_legacy_gate(self, tmp_path):
+    def test_no_manifests_refused(self, tmp_path):
         from vision_tokenization.pipeline.output.merge import main
         self._shards(tmp_path, 0, 1, [[1] * 4], publish=False)
-        assert main([str(tmp_path)]) == 1                 # refuse: no manifests, no flag
-        (tmp_path / "rank_0000").mkdir()
-        (tmp_path / "rank_0000" / "_SUCCESS").touch()
-        assert main([str(tmp_path), "--expected-ranks", "1"]) == 0   # explicit legacy opt-in
+        assert main([str(tmp_path)]) == 1                 # pre-manifest dir: re-tokenize

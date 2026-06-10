@@ -86,7 +86,7 @@ for entry in "${DATASETS[@]}"; do
     # Run the merge — writes <SRC>/<OUT>.{bin,idx}
     python -m vision_tokenization.pipeline.output.merge \
         "$SRC" \
-        --expected-ranks "$NRANKS" \
+        \
         --output-name "$OUT"
 
     # Move outputs into the target dir

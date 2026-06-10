@@ -5,8 +5,9 @@ Run standalone after all ranks finish::
     python -m vision_tokenization.pipeline.output.merge /path/to/output_dir \
         [--bands 8192,16384,...] [--dry-run]
 
-Gating verifies rank completion manifests (rank_NNNN_DONE.json) by default;
-pre-manifest run dirs gate via explicit --expected-ranks.
+Gating verifies rank completion manifests (rank_NNNN_DONE.json): a dataset
+merges iff every rank's claim verifies against disk. Pre-manifest run dirs
+are not mergeable — re-tokenize with current code.
 """
 
 from __future__ import annotations
@@ -326,22 +327,6 @@ def verify_manifests(output_dir: Path, manifests: list) -> tuple:
     return problems, totals
 
 
-def _all_ranks_done(output_dir: Path, expected_ranks: int) -> bool:
-    """LEGACY gating for pre-manifest run dirs: per-rank _SUCCESS markers.
-
-    Reached only via explicit ``--expected-ranks``. New runs publish
-    completion manifests, which ``verify_manifests`` checks instead.
-    """
-    for rank in range(expected_ranks):
-        success = output_dir / f"rank_{rank:04d}" / "_SUCCESS"
-        if not success.exists():
-            return False
-    return True
-
-
-DEFAULT_BANDS = [8192, 16384, 32768, 65536, 131072, 262144]
-
-
 def _band_name(edges, i):
     return f"{edges[i]//1024}k" if i < len(edges) else f"gt{edges[-1]//1024}k"
 
@@ -471,10 +456,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     """CLI entry point."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output_dir", help="Directory containing rank shard files")
-    parser.add_argument(
-        "--expected-ranks", type=int, default=None,
-        help="Wait for this many rank checkpoints before merging",
-    )
     parser.add_argument("--output-name", default="merged", help="Output prefix name")
     parser.add_argument("--shuffle", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
@@ -533,22 +514,10 @@ def main(argv: Optional[list[str]] = None) -> int:
             f"manifest gate: {totals['ranks']} ranks verified — {totals['files']} shards, "
             f"{totals['sequences']:,} sequences, {totals['tokens']:,} tokens"
         )
-    elif args.expected_ranks is not None:
-        # Legacy marker gating for pre-manifest run dirs (explicit opt-in).
-        if not _all_ranks_done(output_dir, args.expected_ranks):
-            missing = [
-                r for r in range(args.expected_ranks)
-                if not (output_dir / f"rank_{r:04d}" / "_SUCCESS").exists()
-            ]
-            print(
-                f"Not all {args.expected_ranks} ranks have finished yet: "
-                f"missing _SUCCESS for ranks {missing}"
-            )
-            return 1
     else:
         print(
-            "No completion manifests found (pre-manifest run?). For legacy runs, "
-            "gate explicitly with --expected-ranks N."
+            "No completion manifests found — this directory predates the manifest "
+            "protocol (or the run never finished). Re-tokenize with current code."
         )
         return 1
 
