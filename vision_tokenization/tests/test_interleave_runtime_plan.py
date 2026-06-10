@@ -22,7 +22,6 @@ from vision_tokenization.pipeline.runtime.checkpoint import WorkerStats
 from vision_tokenization.common.assembly import StructureTokenIds
 from vision_tokenization.pipeline.output.rebuild import rebuild_rank
 from vision_tokenization.pipeline.output.spill import (
-    ComponentSpillReader,
     ComponentSpillWriter,
 )
 

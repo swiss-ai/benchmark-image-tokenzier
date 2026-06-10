@@ -4,10 +4,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Optional, Sequence
+from typing import Optional
 
-import numpy as np
-import torch
 
 from ._mixins import ThreadPoolExecutorOwner
 from .image_only import EMUImageOnlyTokenizer

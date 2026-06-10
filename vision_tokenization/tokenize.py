@@ -24,7 +24,6 @@ import logging
 import sys
 
 import hydra
-from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 
 logger = logging.getLogger(__name__)

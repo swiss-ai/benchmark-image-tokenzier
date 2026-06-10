@@ -23,7 +23,6 @@ Run with:
 
 import os
 import shutil
-import struct
 import sys
 import tempfile
 

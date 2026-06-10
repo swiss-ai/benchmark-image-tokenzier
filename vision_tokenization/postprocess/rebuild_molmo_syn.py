@@ -23,7 +23,7 @@ import argparse
 import logging
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
 from tqdm import tqdm
 

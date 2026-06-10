@@ -5,7 +5,6 @@ This helps determine the correct offset for multimodal tokenization.
 """
 
 import json
-import os
 import sys
 
 from transformers import AutoTokenizer

@@ -4,7 +4,6 @@ Image completion benchmark for evaluating partial image generation.
 Tests VLM ability to complete images given a partial context (top portion).
 """
 
-from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional, Tuple
 

@@ -5,7 +5,6 @@ writer-owned cursor state, the v2 checkpoint schema, legacy translation,
 split-checkpoint refusal, and the plan fingerprint guard.
 """
 
-import numpy as np
 import pytest
 import torch
 

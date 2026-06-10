@@ -129,7 +129,7 @@ def demonstrate_idx_structure():
     import os
     import tempfile
 
-    from vision_tokenization.formats.megatron import DType, IndexedDatasetBuilder
+    from vision_tokenization.formats.megatron import IndexedDatasetBuilder
 
     # Create a temporary sample dataset
     temp_dir = tempfile.mkdtemp()

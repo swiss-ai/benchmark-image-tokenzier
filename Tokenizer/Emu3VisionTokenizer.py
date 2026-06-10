@@ -5,7 +5,7 @@ from typing import Any, List, Tuple
 import matplotlib.pyplot as plt
 import torch
 from PIL import Image
-from transformers import AutoImageProcessor, AutoModel
+from transformers import AutoModel
 
 from Tokenizer.base import Tokenizer
 from Tokenizer.Emu3.emu3.tokenizer.image_processing_emu3visionvq import Emu3VisionVQImageProcessor

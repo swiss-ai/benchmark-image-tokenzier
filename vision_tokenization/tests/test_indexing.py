@@ -2,9 +2,7 @@
 
 import io
 import logging
-import os
 import tarfile
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,12 +16,10 @@ from PIL import Image
 
 from vision_tokenization.indexing.scanners._workers.wds import scan_single_tar
 from vision_tokenization.indexing.planning.tokenization_plan import (
-    TokenizationPlan,
     build_tokenization_plan,
 )
 from vision_tokenization.indexing.manifest import (
     load_hf_manifest,
-    load_resolution_arrays,
     load_wds_manifest,
     save_wds_manifest,
 )
@@ -1336,7 +1332,7 @@ class TestMergeShards:
         except ImportError:
             pytest.skip("megatron not available")
 
-        from vision_tokenization.pipeline.output.merge import _all_ranks_done, merge_shards
+        from vision_tokenization.pipeline.output.merge import merge_shards
 
         self._create_shard(tmp_path / "rank_0000_chunk_0000", [[1, 2]])
         self._mark_rank_done(tmp_path, 0)

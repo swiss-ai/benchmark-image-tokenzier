@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 
 from vision_tokenization.pipeline.output.merge import (
-    RewriteStats,
     _ensure_megatron_importable,
     merge_shards,
     rewrite_dataset,

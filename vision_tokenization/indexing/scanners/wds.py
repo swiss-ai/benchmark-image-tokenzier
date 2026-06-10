@@ -13,7 +13,6 @@ import pyarrow.parquet as pq
 
 from vision_tokenization.indexing.scanners._workers.wds import (
     DEFAULT_IMAGE_EXTENSIONS,
-    DEFAULT_TEXT_EXTENSIONS,
     scan_single_tar,
 )
 from vision_tokenization.indexing.manifest import (

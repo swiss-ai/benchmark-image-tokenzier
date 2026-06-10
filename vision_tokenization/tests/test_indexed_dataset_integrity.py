@@ -24,20 +24,17 @@ Run with:
 
 import os
 import shutil
-import struct
 import sys
 import tempfile
-from pathlib import Path
 
 import numpy as np
-import torch
 
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from vision_tokenization.formats.megatron import IndexedDatasetBuilder, VisionTokenIndexedDatasetBuilder
 
-from .test_utils import calculate_expected_pointers, compare_token_sequences, read_index_file
+from .test_utils import compare_token_sequences, read_index_file
 
 
 class TestDatasetVerification:

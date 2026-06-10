@@ -30,10 +30,8 @@ Run with:
 import json
 import os
 import shutil
-import struct
 import sys
 import tempfile
-from pathlib import Path
 
 import numpy as np
 import torch
@@ -46,7 +44,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from Tokenizer.Emu3VisionTokenizer import Emu3VisionTokenizer
 from vision_tokenization.formats.megatron import VisionTokenIndexedDatasetBuilder
 
-from .test_utils import calculate_expected_pointers, read_index_file, read_index_header
+from .test_utils import calculate_expected_pointers, read_index_file
 
 
 class TestVisionTokenizationPipeline:

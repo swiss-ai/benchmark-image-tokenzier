@@ -1209,13 +1209,10 @@ class TestCreateTokenizerFactory:
     """Test that create_tokenizer accepts interleave mode."""
 
     def test_interleave_mode_recognized(self):
-        from vision_tokenization.discrete.emu import create_tokenizer
-        from vision_tokenization.discrete.emu.interleave import EMUInterleaveTokenizer
 
         # We can't actually instantiate without the model weights,
         # but we can verify the mode is in the map and wouldn't raise
         # ValueError for unrecognized mode.
-        from vision_tokenization.discrete.emu import __init__ as emu_init
 
         # Just check the tokenizers dict has interleave
         tokenizers = {
