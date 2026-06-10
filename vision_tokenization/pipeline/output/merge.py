@@ -326,6 +326,18 @@ def _band_name(edges, i):
     return f"{edges[i]//1024}k" if i < len(edges) else f"gt{edges[-1]//1024}k"
 
 
+def _validate_edges(edges) -> list:
+    """np.searchsorted needs ascending edges; KiB-floored names must be unique
+    or one band's view file silently overwrites another's."""
+    edges = [int(e) for e in edges]
+    if any(b <= a for a, b in zip(edges, edges[1:])) or edges[0] <= 0:
+        raise ValueError(f"band edges must be positive and strictly ascending, got {edges}")
+    names = [_band_name(edges, i) for i in range(len(edges))]
+    if len(set(names)) != len(names):
+        raise ValueError(f"band edges collide on names {names} — keep edges >= 1 KiB apart")
+    return edges
+
+
 def _band_of(lengths, edges):
     return np.searchsorted(edges, lengths.astype(np.int64), side="left")
 
@@ -334,6 +346,7 @@ def band_table(pairs, edges):
     """Per-band (sequences, tokens) from .idx headers only — no .bin reads."""
     from vision_tokenization.formats.megatron import read_idx
 
+    edges = _validate_edges(edges)
     counts = np.zeros(len(edges) + 1, dtype=np.int64)
     tokens = np.zeros(len(edges) + 1, dtype=np.int64)
     for bin_path, _ in pairs:
@@ -348,6 +361,7 @@ def split_bands(merged_prefix: str, edges) -> dict:
     """Write per-band .idx views over the merged .bin (idx-only; bytes shared)."""
     from vision_tokenization.formats.megatron import read_idx, write_idx_view
 
+    edges = _validate_edges(edges)
     header, lens, ptrs, _ = read_idx(merged_prefix)
     bands = _band_of(lens, edges)
     out = {}
@@ -358,6 +372,11 @@ def split_bands(merged_prefix: str, edges) -> dict:
         name = _band_name(edges, i)
         path = f"{merged_prefix}_{name}.idx"
         write_idx_view(path, header, lens[sel], ptrs[sel])
+        # Megatron derives <prefix>.bin from the idx prefix: alias the shared
+        # bin per view (hardlink: same inode, zero bytes).
+        alias = Path(f"{merged_prefix}_{name}.bin")
+        alias.unlink(missing_ok=True)
+        os.link(merged_prefix + ".bin", alias)
         out[name] = (len(sel), int(lens[sel].astype(np.int64).sum()), path)
     return out
 
@@ -402,30 +421,29 @@ def merge_shards(
         return None
 
     if Path(output_prefix + ".bin").exists():
-        logger.info("Merged file already exists: %s.bin — skipping", output_prefix)
-        return Path(output_prefix)
+        logger.info("Merged file already exists: %s.bin — skipping to band views", output_prefix)
+    else:
+        import random
+        prefixes = [bp.rsplit(".bin", 1)[0] for bp, _ in pairs]
+        if shuffle:
+            random.seed(seed)
+            random.shuffle(prefixes)
 
-    import random
-    prefixes = [bp.rsplit(".bin", 1)[0] for bp, _ in pairs]
-    if shuffle:
-        random.seed(seed)
-        random.shuffle(prefixes)
-
-    logger.info("Merging %d shard pairs into %s", len(prefixes), output_prefix)
-    builder = None
-    for prefix in prefixes:
-        if builder is None:
-            dataset = IndexedDataset(prefix)
-            builder = IndexedDatasetBuilder(get_bin_path(output_prefix), dtype=dataset.index.dtype)
-            del dataset
-        builder.add_index(prefix)
-    builder.finalize(get_idx_path(output_prefix))
+        logger.info("Merging %d shard pairs into %s", len(prefixes), output_prefix)
+        builder = None
+        for prefix in prefixes:
+            if builder is None:
+                dataset = IndexedDataset(prefix)
+                builder = IndexedDatasetBuilder(get_bin_path(output_prefix), dtype=dataset.index.dtype)
+                del dataset
+            builder.add_index(prefix)
+        builder.finalize(get_idx_path(output_prefix))
 
     if bands:
         for name, (n, tok, path) in split_bands(output_prefix, bands).items():
             logger.info("band %s: %s seqs, %s tokens -> %s", name, f"{n:,}", f"{tok:,}", path)
 
-    logger.info("Merge complete: %s (%d shards)", output_prefix, len(prefixes))
+    logger.info("Merge complete: %s (%d shards)", output_prefix, len(pairs))
     return Path(output_prefix)
 
 
@@ -440,7 +458,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--output-name", default="merged", help="Output prefix name")
     parser.add_argument("--shuffle", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--bands", type=lambda v: [int(x) for x in v.split(",")],
+    parser.add_argument("--bands", type=lambda v: _validate_edges(v.split(",")),
                         default=None, help="Band edges, e.g. 8192,16384,32768")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print gating + per-band table; write nothing")

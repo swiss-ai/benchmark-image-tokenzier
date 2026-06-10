@@ -358,13 +358,54 @@ class TestBandViews:
         out = split_bands(prefix, edges=[8])
         assert set(out) == {"0k", "gt0k"}
 
-        # Native reader needs a .bin matching each view's prefix — hardlink it.
+        # split_bands creates each view's .bin alias (hardlink) itself.
         for name, (n, tok, idx_path) in out.items():
             view_prefix = idx_path[:-4]
-            os.link(prefix + ".bin", view_prefix + ".bin")
+            assert os.path.samefile(view_prefix + ".bin", prefix + ".bin")
             ds = IndexedDataset(view_prefix)
             assert len(ds) == n
             got = sorted(ds[i].tolist() for i in range(len(ds)))
             want = sorted(s for s in seqs if (len(s) <= 8) == (name == "0k"))
             assert got == want
             assert sum(len(ds[i]) for i in range(len(ds))) == tok
+
+
+class TestBandSafety:
+    """The three band-surface contracts: retro-banding works on an existing
+    merge, bad edges are refused loudly, and re-banding is idempotent."""
+
+    def test_bands_apply_to_already_merged_dataset(self, tmp_path):
+        from vision_tokenization.pipeline.output.merge import merge_shards
+
+        seqs = [[1] * 5, [2] * 12, [3] * 3]
+        _build_test_shards(tmp_path, seqs)
+        first = merge_shards(tmp_path, shuffle=False)          # plain merge, no bands
+        assert first is not None and not list(tmp_path.glob("merged_*k.idx"))
+        again = merge_shards(tmp_path, shuffle=False, bands=[8])  # retro-band
+        assert again == first
+        assert (tmp_path / "merged_0k.idx").exists()
+        assert (tmp_path / "merged_0k.bin").exists()           # alias created too
+
+    def test_unsorted_edges_refused(self):
+        from vision_tokenization.pipeline.output.merge import _validate_edges
+        with pytest.raises(ValueError, match="ascending"):
+            _validate_edges([16384, 8192])
+        with pytest.raises(ValueError, match="ascending"):
+            _validate_edges([0, 8192])
+
+    def test_name_colliding_edges_refused(self):
+        from vision_tokenization.pipeline.output.merge import _validate_edges
+        with pytest.raises(ValueError, match="collide"):
+            _validate_edges([8192, 8704])  # both floor to "8k"
+        assert _validate_edges(["8192", "16384"]) == [8192, 16384]  # CLI strings ok
+
+    def test_rebanding_is_idempotent(self, tmp_path):
+        from vision_tokenization.pipeline.output.merge import merge_shards, split_bands
+
+        seqs = [[1] * 5, [2] * 12]
+        _build_test_shards(tmp_path, seqs)
+        merge_shards(tmp_path, shuffle=False, bands=[8])
+        prefix = str(tmp_path / "merged")
+        out1 = split_bands(prefix, [8])
+        out2 = split_bands(prefix, [8])                        # re-run: alias refreshed, same result
+        assert out1 == out2
