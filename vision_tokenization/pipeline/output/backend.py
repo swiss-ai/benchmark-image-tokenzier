@@ -54,6 +54,7 @@ class DirectBackend:
         from .direct.writer import MicroShardWriter
 
         writer = MicroShardWriter()
+        self._writer = writer
         needs_text = self._mode in ("sft", "image2text", "text2image")
         self._handler = TokenizationHandler(writer, needs_text)
 
@@ -62,6 +63,12 @@ class DirectBackend:
 
         start_chunk = MicroShardWriter.resume_chunk(writer_state) if writer_state else 0
         self._handler.setup_writer(output_dir, rank, start_chunk, tokenizer)
+        if writer_state:
+            writer.restore(writer_state)
+
+    def completed_files(self) -> list:
+        """Finalized-shard records for the rank completion manifest."""
+        return list(self._writer.finalized_files)
 
     def write_batch(
         self,

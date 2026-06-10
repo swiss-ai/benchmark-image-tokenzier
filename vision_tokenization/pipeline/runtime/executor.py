@@ -32,6 +32,7 @@ from .checkpoint import (
     save_checkpoint,
     verify_plan_fingerprint,
     verify_run_world_size,
+    write_rank_manifest,
 )
 from .data import create_loader
 from .prefetch import BatchPrefetcher
@@ -256,6 +257,8 @@ def run_executor(
         result["output_dir"] = output_dir
         json_dump(result, Path(output_dir) / f"rank_{rank:04d}_stats.json")
         write_rank_success_marker(Path(output_dir), rank)
+        write_rank_manifest(output_dir, rank, world_size, plan.fingerprint(),
+                            backend="empty", files=[])
         maybe_write_stats_summary(output_dir, expected_ranks=world_size)
         return result
 
@@ -631,6 +634,20 @@ def run_executor(
         logger.info(
             f"[rank {rank}] Spill rebuild: {rebuild_stats.get('sequences', 0):,} sequences"
         )
+
+    # Completion manifest — the rank's verifiable claim of what it shipped,
+    # written only when every final artifact is atomically in place. The
+    # merge gate verifies this claim against disk; no manifest, no merge.
+    if _loop_error is None:
+        if use_spill:
+            manifest_files = rebuild_stats["files"] if cfg["rebuild"] else None
+        else:
+            manifest_files = backend.completed_files()
+        if manifest_files is not None:
+            write_rank_manifest(
+                output_dir, rank, world_size, plan_fingerprint,
+                backend="spill" if use_spill else "direct", files=manifest_files,
+            )
 
     save_checkpoint(
         output_dir, rank,

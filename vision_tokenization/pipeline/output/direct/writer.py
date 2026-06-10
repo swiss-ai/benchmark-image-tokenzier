@@ -37,6 +37,11 @@ class MicroShardWriter:
         self._vocab_size = None
         self._vision_token_offset = None
         self.chunk_samples = 0
+        self.chunk_tokens = 0
+        # Finalized-chunk records {name, bytes, sequences, tokens}: the
+        # writer's own truth of what it shipped, persisted in writer_state
+        # across resumes and published in the rank completion manifest.
+        self.finalized_files = []
 
     def setup_writer(self, output_dir: str, rank: int, chunk_id: int, tokenizer) -> None:
         """Open an IndexedDatasetBuilder for the current micro-shard."""
@@ -52,16 +57,30 @@ class MicroShardWriter:
             open_chunk_writer(self._output_dir, self._rank, self._chunk_id, self._vocab_size)
         )
         self.chunk_samples = 0
+        self.chunk_tokens = 0
+
+    def restore(self, writer_state: dict) -> None:
+        """Restore writer-owned state (finalized-file records) on resume."""
+        self.finalized_files = list(writer_state.get("files", []))
+
+    def _record_finalized_chunk(self) -> None:
+        self.finalized_files.append({
+            "name": os.path.basename(self._bin_path),
+            "bytes": os.path.getsize(self._bin_path),
+            "sequences": self.chunk_samples,
+            "tokens": self.chunk_tokens,
+        })
 
     def checkpoint_writer(self) -> dict:
         """Finalize current chunk, open next. Returns the writer's resume state."""
         finalize_shard_writer(
             self._builder, self._tmp_bin, self._tmp_idx, self._bin_path, self._idx_path
         )
+        self._record_finalized_chunk()
         done_chunk = self._chunk_id
         self._chunk_id += 1
         self._open_writer()
-        return {"chunk_id": done_chunk}
+        return {"chunk_id": done_chunk, "files": self.finalized_files}
 
     @staticmethod
     def resume_chunk(writer_state: dict) -> int:
@@ -79,6 +98,7 @@ class MicroShardWriter:
             finalize_shard_writer(
                 self._builder, self._tmp_bin, self._tmp_idx, self._bin_path, self._idx_path
             )
+            self._record_finalized_chunk()
         else:
             for p in (self._tmp_bin, self._tmp_idx):
                 if p and os.path.exists(p):
@@ -89,6 +109,7 @@ class MicroShardWriter:
         self._builder.add_item(seq_cpu)
         self._builder.end_document()
         n_tokens = seq_cpu.numel()
+        self.chunk_tokens += n_tokens
         stats.samples_processed += 1
         stats.tokens_generated += n_tokens
         if self._vision_token_offset is not None:

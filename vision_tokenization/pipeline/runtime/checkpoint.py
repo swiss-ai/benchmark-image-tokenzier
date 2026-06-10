@@ -10,6 +10,7 @@ Adapted from audio_tokenization/pipelines/lhotse/checkpoint.py.
 - **WorkerStats**: Inline dataclass tracking vision-specific metrics.
 """
 
+import json
 import logging
 import os
 import re
@@ -34,6 +35,8 @@ __all__ = [
     "save_checkpoint",
     "load_checkpoint",
     "verify_run_world_size",
+    "write_rank_manifest",
+    "load_rank_manifests",
 ]
 
 
@@ -230,6 +233,55 @@ def load_checkpoint(output_dir: str, rank: int) -> Optional[Dict[str, Any]]:
     ckpt["plan"] = None  # v1 never carried a fingerprint — accept with a warning
     logger.warning(f"[rank {rank}] Translated legacy checkpoint (chunk_id={chunk_id})")
     return ckpt
+
+
+MANIFEST_VERSION = 1
+
+
+def _manifest_path(output_dir: str, rank: int) -> Path:
+    return Path(output_dir) / f"rank_{rank:04d}_DONE.json"
+
+
+def write_rank_manifest(
+    output_dir: str,
+    rank: int,
+    world_size: int,
+    plan_fingerprint: Optional[Dict[str, Any]],
+    backend: str,
+    files: list,
+) -> None:
+    """Publish this rank's completion claim — the LAST act of a successful run.
+
+    *files* is the writer's own record of every final shard it shipped
+    ({name, bytes, sequences, tokens}); the merge gate verifies the claim
+    against disk instead of inferring completeness from markers and globs.
+    """
+    payload = {
+        "version": MANIFEST_VERSION,
+        "rank": rank,
+        "world_size": world_size,
+        "plan": plan_fingerprint,
+        "backend": backend,
+        "files": files,
+        "sequences": sum(f["sequences"] for f in files),
+        "tokens": sum(f["tokens"] for f in files),
+    }
+    path = _manifest_path(output_dir, rank)
+    tmp = str(path) + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(payload, f, indent=1)
+    os.replace(tmp, path)
+    logger.info(f"[rank {rank}] Completion manifest: {len(files)} shards, "
+                f"{payload['sequences']:,} seqs, {payload['tokens']:,} tokens")
+
+
+def load_rank_manifests(output_dir) -> list:
+    """All rank completion manifests in *output_dir*, sorted by rank."""
+    out = []
+    for p in sorted(Path(output_dir).glob("rank_*_DONE.json")):
+        with open(p) as f:
+            out.append(json.load(f))
+    return sorted(out, key=lambda m: m["rank"])
 
 
 def verify_run_world_size(output_dir: str, world_size: int, rank: int) -> None:

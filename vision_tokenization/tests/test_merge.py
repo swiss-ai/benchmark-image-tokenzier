@@ -130,10 +130,21 @@ def _build_test_shards(tmp_path, sequences, dtype=np.int32):
         builder.add_item(np.array(seq, dtype=dtype))
         builder.end_document()
     builder.finalize(prefix + ".idx")
-    # Default gating requires the rank completion marker
-    (tmp_path / "rank_0000").mkdir(exist_ok=True)
-    (tmp_path / "rank_0000" / "_SUCCESS").touch()
+    _publish_manifest(tmp_path, 0, 1, [prefix + ".bin"], sequences)
     return prefix
+
+
+def _publish_manifest(tmp_path, rank, world_size, bin_paths, sequences, plan=None):
+    """Write the rank completion manifest the merge gate verifies."""
+    from vision_tokenization.pipeline.runtime.checkpoint import write_rank_manifest
+
+    files = [{
+        "name": os.path.basename(bp),
+        "bytes": os.path.getsize(bp),
+        "sequences": len(sequences),
+        "tokens": sum(len(q) for q in sequences),
+    } for bp in bin_paths]
+    write_rank_manifest(str(tmp_path), rank, world_size, plan, "direct", files)
 
 def _build_test_shards_multimodal(tmp_path, sequences, modes, dtype=np.int32):
     """Build a single rank shard with sequence modes."""
@@ -409,3 +420,79 @@ class TestBandSafety:
         out1 = split_bands(prefix, [8])
         out2 = split_bands(prefix, [8])                        # re-run: alias refreshed, same result
         assert out1 == out2
+
+
+class TestManifestGate:
+    """The gate verifies completion claims instead of inferring from markers:
+    a dataset merges iff its manifests verify against disk."""
+
+    def _shards(self, tmp_path, rank, world_size, seqs, publish=True):
+        from vision_tokenization.formats.megatron import IndexedDatasetBuilder
+        prefix = str(tmp_path / f"rank_{rank:04d}_chunk_0000")
+        b = IndexedDatasetBuilder(prefix + ".bin", dtype=np.int32)
+        for q in seqs:
+            b.add_item(np.array(q, dtype=np.int32))
+            b.end_document()
+        b.finalize(prefix + ".idx")
+        if publish:
+            _publish_manifest(tmp_path, rank, world_size, [prefix + ".bin"], seqs)
+        return prefix
+
+    def test_happy_path_verifies_and_merges(self, tmp_path):
+        from vision_tokenization.pipeline.output.merge import main
+        for r in range(2):
+            self._shards(tmp_path, r, 2, [[r + 1] * 4])
+        assert main([str(tmp_path)]) == 0
+        assert (tmp_path / "merged.bin").exists()
+
+    def test_missing_rank_manifest_refused(self, tmp_path):
+        from vision_tokenization.pipeline.output.merge import main
+        self._shards(tmp_path, 0, 2, [[1] * 4])           # rank 1 crashed: no manifest
+        self._shards(tmp_path, 1, 2, [[2] * 4], publish=False)
+        assert main([str(tmp_path)]) == 1
+        assert not (tmp_path / "merged.bin").exists()
+
+    def test_unclaimed_stale_shard_refused(self, tmp_path):
+        from vision_tokenization.pipeline.output.merge import main
+        self._shards(tmp_path, 0, 1, [[1] * 4])
+        # stale leftover from an earlier run: on disk, claimed by nobody
+        self._shards(tmp_path, 5, 1, [[9] * 4], publish=False)
+        assert main([str(tmp_path)]) == 1
+
+    def test_size_mismatch_refused(self, tmp_path):
+        from vision_tokenization.pipeline.output.merge import main
+        prefix = self._shards(tmp_path, 0, 1, [[1] * 4])
+        with open(prefix + ".bin", "ab") as f:           # corrupt after manifest
+            f.write(b"\x00" * 8)
+        assert main([str(tmp_path)]) == 1
+
+    def test_world_size_disagreement_refused(self, tmp_path):
+        from vision_tokenization.pipeline.output.merge import main
+        self._shards(tmp_path, 0, 1, [[1] * 4])
+        self._shards(tmp_path, 1, 2, [[2] * 4])          # mixed-generation manifests
+        assert main([str(tmp_path)]) == 1
+
+    def test_plan_disagreement_refused(self, tmp_path):
+        from vision_tokenization.pipeline.output.merge import verify_manifests
+        from vision_tokenization.pipeline.runtime.checkpoint import load_rank_manifests
+        p0 = self._shards(tmp_path, 0, 2, [[1] * 4], publish=False)
+        p1 = self._shards(tmp_path, 1, 2, [[2] * 4], publish=False)
+        _publish_manifest(tmp_path, 0, 2, [p0 + ".bin"], [[1] * 4], plan={"total_batches": 7})
+        _publish_manifest(tmp_path, 1, 2, [p1 + ".bin"], [[2] * 4], plan={"total_batches": 8})
+        problems, _ = verify_manifests(tmp_path, load_rank_manifests(tmp_path))
+        assert any("plan fingerprints" in p for p in problems)
+
+    def test_empty_rank_distinguished_from_missing(self, tmp_path):
+        from vision_tokenization.pipeline.output.merge import main
+        from vision_tokenization.pipeline.runtime.checkpoint import write_rank_manifest
+        self._shards(tmp_path, 0, 2, [[1] * 4])
+        write_rank_manifest(str(tmp_path), 1, 2, None, "empty", files=[])  # empty, not missing
+        assert main([str(tmp_path)]) == 0
+
+    def test_no_manifests_requires_explicit_legacy_gate(self, tmp_path):
+        from vision_tokenization.pipeline.output.merge import main
+        self._shards(tmp_path, 0, 1, [[1] * 4], publish=False)
+        assert main([str(tmp_path)]) == 1                 # refuse: no manifests, no flag
+        (tmp_path / "rank_0000").mkdir()
+        (tmp_path / "rank_0000" / "_SUCCESS").touch()
+        assert main([str(tmp_path), "--expected-ranks", "1"]) == 0   # explicit legacy opt-in

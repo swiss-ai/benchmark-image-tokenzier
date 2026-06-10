@@ -144,11 +144,3 @@ class TestWorldSizeGuard:
         (tmp_path / "rank_0005_chunk_0000.bin").touch()  # no checkpoint at all
         with pytest.raises(RuntimeError, match="num_gpus=6"):
             verify_run_world_size(str(tmp_path), world_size=4, rank=0)
-
-    def test_merge_gate_refuses_stale_ranks(self, tmp_path):
-        from vision_tokenization.pipeline.output.merge import _stale_ranks
-        for r in range(4):  # new 4-rank generation
-            save_checkpoint(str(tmp_path), r, batch_index=1, writer_state={"chunk_id": 0},
-                            plan_fingerprint=None, stats={}, world_size=4)
-        assert _stale_ranks(tmp_path, set(range(8))) == [4, 5, 6, 7]
-        assert _stale_ranks(tmp_path, set(range(4))) == []

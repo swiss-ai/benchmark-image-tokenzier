@@ -383,10 +383,12 @@ def rebuild_rank(
 ) -> Dict:
     """Per-rank rebuild: read ``spill_dir/rank_NNNN/``, assemble documents,
     write one flat ``output_dir/rank_NNNN_chunk_0000.{bin,idx}`` stream —
-    length banding happens at merge time. ``output_dir`` defaults to
-    ``spill_dir``.
+    atomically (tmp + fsync + rename), banding at merge time. ``output_dir``
+    defaults to ``spill_dir``. Returns stats incl. ``files``: the shard
+    records this rank ships, for the completion manifest.
     """
-    from vision_tokenization.formats.megatron import DType, IndexedDatasetBuilder
+    from vision_tokenization.formats.megatron import DType
+    from ..runtime.checkpoint import finalize_shard_writer, open_chunk_writer
 
     spill_dir = Path(spill_dir)
     output_dir = Path(output_dir) if output_dir is not None else spill_dir
@@ -395,12 +397,12 @@ def rebuild_rank(
 
     if not (rank_dir / "_SUCCESS").exists():
         logger.warning(f"[rank {rank}] Skipping rebuild: no _SUCCESS in {rank_dir}")
-        return {"rank": rank, "sequences": 0, "tokens": 0}
+        return {"rank": rank, "sequences": 0, "tokens": 0, "files": []}
 
     spill_table = ComponentSpillReader.read_rank(rank_dir)
     if len(spill_table) == 0:
         logger.info(f"[rank {rank}] No components to rebuild")
-        return {"rank": rank, "sequences": 0, "tokens": 0}
+        return {"rank": rank, "sequences": 0, "tokens": 0, "files": []}
 
     logger.info(f"[rank {rank}] Rebuilding {len(spill_table):,} spilled components")
 
@@ -430,13 +432,10 @@ def rebuild_rank(
         dtype=np.int64,
     )
 
+    builder, tmp_bin, tmp_idx, bin_path, idx_path = open_chunk_writer(
+        str(output_dir), rank, 0, vocab_size,
+    )
     megatron_dtype = DType.optimal_dtype(vocab_size)
-    shard_name = f"rank_{rank:04d}_chunk_0000"
-
-    builders: dict = {}
-    prefixes: dict = {}
-    prefixes["main"] = output_dir / shard_name
-    builders["main"] = IndexedDatasetBuilder(str(prefixes["main"]) + ".bin", dtype=megatron_dtype)
 
     stats = _assemble_and_write(
         doc_ids_to_process=doc_ids_to_process,
@@ -448,11 +447,25 @@ def rebuild_rank(
         max_sequence_tokens=max_sequence_tokens,
         expected_num_images_to_process=expected_num_images_to_process,
         megatron_dtype=megatron_dtype,
-        builders=builders,
+        builders={"main": builder},
         reject_doc_ids=reject_doc_ids,
     )
 
-    finalize_builders(builders, prefixes)
+    stats["files"] = []
+    if stats["sequences"] > 0:
+        finalize_shard_writer(builder, tmp_bin, tmp_idx, bin_path, idx_path)
+        stats["files"].append({
+            "name": os.path.basename(bin_path),
+            "bytes": os.path.getsize(bin_path),
+            "sequences": stats["sequences"],
+            "tokens": stats["tokens"],
+        })
+    else:
+        # No sequences survived: leave nothing behind (empty shards crash
+        # Megatron mmap), not even the tmp files.
+        builder.finalize(tmp_idx)
+        os.unlink(tmp_bin)
+        os.unlink(tmp_idx)
 
     logger.info(
         f"[rank {rank}] Rebuild: {stats['sequences']:,} seqs, "

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import json
 import os
 import sys
 from dataclasses import dataclass
@@ -278,26 +279,50 @@ def _find_shard_pairs(directory: Path) -> list[tuple[str, str]]:
     return pairs
 
 
-def _stale_ranks(output_dir: Path, ranks: set) -> list:
-    """Ranks left over from an earlier run with a larger world size.
+def verify_manifests(output_dir: Path, manifests: list) -> tuple:
+    """Verify rank completion claims against disk. Returns (problems, totals).
 
-    Every checkpoint records its run's world_size; a consistent value with
-    rank artifacts at or above it means a smaller rerun left stale shards
-    behind. Inconsistent values mean the directory mixes generations.
+    A dataset merges iff: manifests form ranks 0..N-1 with unanimous
+    world_size and plan fingerprint, and the union of claimed shard files
+    matches the rank shards on disk exactly — both directions, with sizes.
     """
-    import torch
-
-    sizes = set()
-    for cp in sorted(output_dir.glob("rank_*_checkpoint.pt")):
-        ws = torch.load(str(cp), map_location="cpu", weights_only=False).get("world_size")
-        if ws is not None:
-            sizes.add(int(ws))
+    problems = []
+    sizes = {m["world_size"] for m in manifests}
     if len(sizes) > 1:
-        return sorted(ranks)  # mixed generations: refuse everything, loudly
-    if not sizes:
-        return []
+        problems.append(f"manifests disagree on world_size {sorted(sizes)} — mixed runs")
+        return problems, None
     world_size = sizes.pop()
-    return sorted(r for r in ranks if r >= world_size)
+    ranks = [m["rank"] for m in manifests]
+    missing = sorted(set(range(world_size)) - set(ranks))
+    if missing:
+        problems.append(f"no completion manifest for ranks {missing} — run incomplete or crashed")
+    extra = sorted(set(ranks) - set(range(world_size)))
+    if extra:
+        problems.append(f"manifests for ranks {extra} exceed world_size={world_size} — stale leftovers")
+    plans = {json.dumps(m.get("plan"), sort_keys=True) for m in manifests}
+    if len(plans) > 1:
+        problems.append("manifests carry different plan fingerprints — mixed runs in one directory")
+
+    claimed = {f["name"]: f["bytes"] for m in manifests for f in m["files"]}
+    on_disk = {p.name: p.stat().st_size for p in output_dir.glob("rank_*_chunk_*.bin")}
+    for name, nbytes in sorted(claimed.items()):
+        if name not in on_disk:
+            problems.append(f"claimed shard missing on disk: {name}")
+        elif on_disk[name] != nbytes:
+            problems.append(f"size mismatch for {name}: manifest {nbytes:,} B, disk {on_disk[name]:,} B")
+        elif not (output_dir / name).with_suffix(".idx").exists():
+            problems.append(f"claimed shard has no .idx: {name}")
+    stale = sorted(set(on_disk) - set(claimed))
+    if stale:
+        problems.append(f"shards on disk not claimed by any manifest (stale leftovers?): {stale}")
+
+    totals = {
+        "ranks": world_size,
+        "files": len(claimed),
+        "sequences": sum(m["sequences"] for m in manifests),
+        "tokens": sum(m["tokens"] for m in manifests),
+    }
+    return problems, totals
 
 
 def _all_ranks_done(output_dir: Path, expected_ranks: int) -> bool:
@@ -500,27 +525,35 @@ def main(argv: Optional[list[str]] = None) -> int:
         )
 
     output_dir = Path(args.output_dir)
-    if args.expected_ranks is None:
-        participants = {f.name.split("_")[1] for f in output_dir.glob("rank_*")}
-        stale = _stale_ranks(output_dir, {int(r) for r in participants})
-        if stale:
+    from ..runtime.checkpoint import load_rank_manifests
+    manifests = load_rank_manifests(output_dir)
+    if manifests:
+        problems, totals = verify_manifests(output_dir, manifests)
+        if problems:
+            print("REFUSING to merge — completion manifests do not verify:")
+            for prob in problems:
+                print(f"  - {prob}")
+            return 1
+        print(
+            f"manifest gate: {totals['ranks']} ranks verified — {totals['files']} shards, "
+            f"{totals['sequences']:,} sequences, {totals['tokens']:,} tokens"
+        )
+    elif args.expected_ranks is not None:
+        # Legacy marker gating for pre-manifest run dirs (explicit opt-in).
+        if not _all_ranks_done(output_dir, args.expected_ranks):
+            missing = [
+                r for r in range(args.expected_ranks)
+                if not (output_dir / f"rank_{r:04d}" / "_SUCCESS").exists()
+            ]
             print(
-                f"REFUSING to merge: ranks {stale} predate this directory's recorded "
-                f"world size — leftovers from an earlier, larger run. Merging would "
-                f"duplicate documents. Remove the stale rank files or re-tokenize "
-                f"into a fresh output_dir."
+                f"Not all {args.expected_ranks} ranks have finished yet: "
+                f"missing _SUCCESS for ranks {missing}"
             )
             return 1
-        args.expected_ranks = len(participants)
-        print(f"gating on {args.expected_ranks} participating ranks")
-    if not _all_ranks_done(output_dir, args.expected_ranks):
-        missing = [
-            r for r in range(args.expected_ranks)
-            if not (output_dir / f"rank_{r:04d}" / "_SUCCESS").exists()
-        ]
+    else:
         print(
-            f"Not all {args.expected_ranks} ranks have finished yet: "
-            f"missing _SUCCESS for ranks {missing}"
+            "No completion manifests found (pre-manifest run?). For legacy runs, "
+            "gate explicitly with --expected-ranks N."
         )
         return 1
 
