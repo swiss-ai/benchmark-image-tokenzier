@@ -12,6 +12,7 @@ Adapted from audio_tokenization/pipelines/lhotse/checkpoint.py.
 
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -32,6 +33,7 @@ __all__ = [
     "finalize_shard_writer",
     "save_checkpoint",
     "load_checkpoint",
+    "verify_run_world_size",
 ]
 
 
@@ -51,10 +53,6 @@ class WorkerStats:
     errors: int = 0
     samples_skipped: int = 0
     cuda_oom_errors: int = 0
-    stage2_tokens: int = 0
-    stage2_samples: int = 0
-    lct_tokens: int = 0
-    lct_samples: int = 0
     elapsed_offset: float = 0.0
     start_time: float = field(default_factory=time.time)
     elapsed_time: float = 0.0
@@ -76,10 +74,6 @@ class WorkerStats:
             "errors": self.errors,
             "samples_skipped": self.samples_skipped,
             "cuda_oom_errors": self.cuda_oom_errors,
-            "stage2_tokens": self.stage2_tokens,
-            "stage2_samples": self.stage2_samples,
-            "lct_tokens": self.lct_tokens,
-            "lct_samples": self.lct_samples,
             "elapsed_time": elapsed,
             "throughput": throughput,
             "image_tokens_per_second": image_tokens_per_second,
@@ -95,10 +89,6 @@ class WorkerStats:
         self.errors = data.get("errors", 0)
         self.samples_skipped = data.get("samples_skipped", 0)
         self.cuda_oom_errors = data.get("cuda_oom_errors", 0)
-        self.stage2_tokens = data.get("stage2_tokens", 0)
-        self.stage2_samples = data.get("stage2_samples", 0)
-        self.lct_tokens = data.get("lct_tokens", 0)
-        self.lct_samples = data.get("lct_samples", 0)
         self.elapsed_time = float(data.get("elapsed_time", 0.0) or 0.0)
         self.elapsed_offset = self.elapsed_time
         self.throughput = float(data.get("throughput", 0.0) or 0.0)
@@ -240,6 +230,43 @@ def load_checkpoint(output_dir: str, rank: int) -> Optional[Dict[str, Any]]:
     ckpt["plan"] = None  # v1 never carried a fingerprint — accept with a warning
     logger.warning(f"[rank {rank}] Translated legacy checkpoint (chunk_id={chunk_id})")
     return ckpt
+
+
+def verify_run_world_size(output_dir: str, world_size: int, rank: int) -> None:
+    """Fail fast when ``output_dir`` belongs to a run with a different world size.
+
+    A world-size change re-splits the plan across ranks, so each rank's
+    shards and checkpoints describe different batch slices — reprocessing
+    into the same directory would merge two generations (duplicated or
+    dropped documents). The directory records its own world size; refuse
+    with the exact resubmit size.
+    """
+    recorded = set()
+    for cp in sorted(Path(output_dir).glob("rank_*_checkpoint.pt")):
+        ws = torch.load(str(cp), map_location="cpu", weights_only=False).get("world_size")
+        if ws is not None:
+            recorded.add(int(ws))
+    stale = sorted({
+        int(m.group(1))
+        for f in Path(output_dir).glob("rank_*")
+        if (m := re.match(r"rank_(\d{4})(?:[_.]|$)", f.name)) and int(m.group(1)) >= world_size
+    })
+    foreign = sorted(recorded - {world_size})
+    if not stale and not foreign:
+        return
+    if len(foreign) > 1:
+        raise RuntimeError(
+            f"[rank {rank}] {output_dir} mixes artifacts from runs with world sizes "
+            f"{foreign} — clean the directory and re-tokenize."
+        )
+    original = foreign[0] if foreign else stale[-1] + 1
+    raise RuntimeError(
+        f"[rank {rank}] {output_dir} was written by a {original}-rank run, but this job "
+        f"has world_size={world_size}"
+        + (f" (found artifacts for ranks {stale})" if stale else "")
+        + f". Merging the two generations would duplicate documents. "
+        f"Resubmit with num_gpus={original}, or use a fresh output_dir."
+    )
 
 
 def verify_plan_fingerprint(ckpt: Dict[str, Any], current: Dict[str, Any], rank: int) -> None:

@@ -278,6 +278,28 @@ def _find_shard_pairs(directory: Path) -> list[tuple[str, str]]:
     return pairs
 
 
+def _stale_ranks(output_dir: Path, ranks: set) -> list:
+    """Ranks left over from an earlier run with a larger world size.
+
+    Every checkpoint records its run's world_size; a consistent value with
+    rank artifacts at or above it means a smaller rerun left stale shards
+    behind. Inconsistent values mean the directory mixes generations.
+    """
+    import torch
+
+    sizes = set()
+    for cp in sorted(output_dir.glob("rank_*_checkpoint.pt")):
+        ws = torch.load(str(cp), map_location="cpu", weights_only=False).get("world_size")
+        if ws is not None:
+            sizes.add(int(ws))
+    if len(sizes) > 1:
+        return sorted(ranks)  # mixed generations: refuse everything, loudly
+    if not sizes:
+        return []
+    world_size = sizes.pop()
+    return sorted(r for r in ranks if r >= world_size)
+
+
 def _all_ranks_done(output_dir: Path, expected_ranks: int) -> bool:
     """Verify every expected rank has reached its terminal _SUCCESS marker.
 
@@ -462,6 +484,15 @@ def main(argv: Optional[list[str]] = None) -> int:
     output_dir = Path(args.output_dir)
     if args.expected_ranks is None:
         participants = {f.name.split("_")[1] for f in output_dir.glob("rank_*")}
+        stale = _stale_ranks(output_dir, {int(r) for r in participants})
+        if stale:
+            print(
+                f"REFUSING to merge: ranks {stale} predate this directory's recorded "
+                f"world size — leftovers from an earlier, larger run. Merging would "
+                f"duplicate documents. Remove the stale rank files or re-tokenize "
+                f"into a fresh output_dir."
+            )
+            return 1
         args.expected_ranks = len(participants)
         print(f"gating on {args.expected_ranks} participating ranks")
     if not _all_ranks_done(output_dir, args.expected_ranks):

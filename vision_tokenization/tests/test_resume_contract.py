@@ -111,3 +111,44 @@ def test_fingerprint_mismatch_refuses(tmp_path):
         verify_plan_fingerprint(ckpt, {**fp, "total_batches": 8}, rank=0)
     ckpt["plan"] = None                                  # legacy: always accepted
     verify_plan_fingerprint(ckpt, fp, rank=0)
+
+
+class TestWorldSizeGuard:
+    """One output_dir = one run configuration: a world-size change re-splits
+    the plan, so resuming into the same directory must fail fast with the
+    exact resubmit size."""
+
+    def test_clean_and_matching_dirs_pass(self, tmp_path):
+        from vision_tokenization.pipeline.runtime.checkpoint import verify_run_world_size
+        verify_run_world_size(str(tmp_path), world_size=4, rank=0)  # empty: ok
+        save_checkpoint(str(tmp_path), 0, batch_index=1, writer_state={"chunk_id": 0},
+                        plan_fingerprint=None, stats={}, world_size=4)
+        verify_run_world_size(str(tmp_path), world_size=4, rank=0)  # same size: ok
+
+    def test_larger_to_smaller_refused_with_resubmit_size(self, tmp_path):
+        from vision_tokenization.pipeline.runtime.checkpoint import verify_run_world_size
+        save_checkpoint(str(tmp_path), 7, batch_index=3, writer_state={"chunk_id": 0},
+                        plan_fingerprint=None, stats={}, world_size=8)
+        with pytest.raises(RuntimeError, match="num_gpus=8"):
+            verify_run_world_size(str(tmp_path), world_size=4, rank=0)
+
+    def test_smaller_to_larger_refused_with_resubmit_size(self, tmp_path):
+        from vision_tokenization.pipeline.runtime.checkpoint import verify_run_world_size
+        save_checkpoint(str(tmp_path), 0, batch_index=1, writer_state={"chunk_id": 0},
+                        plan_fingerprint=None, stats={}, world_size=4)
+        with pytest.raises(RuntimeError, match="num_gpus=4"):
+            verify_run_world_size(str(tmp_path), world_size=8, rank=0)
+
+    def test_shard_only_stale_rank_refused(self, tmp_path):
+        from vision_tokenization.pipeline.runtime.checkpoint import verify_run_world_size
+        (tmp_path / "rank_0005_chunk_0000.bin").touch()  # no checkpoint at all
+        with pytest.raises(RuntimeError, match="num_gpus=6"):
+            verify_run_world_size(str(tmp_path), world_size=4, rank=0)
+
+    def test_merge_gate_refuses_stale_ranks(self, tmp_path):
+        from vision_tokenization.pipeline.output.merge import _stale_ranks
+        for r in range(4):  # new 4-rank generation
+            save_checkpoint(str(tmp_path), r, batch_index=1, writer_state={"chunk_id": 0},
+                            plan_fingerprint=None, stats={}, world_size=4)
+        assert _stale_ranks(tmp_path, set(range(8))) == [4, 5, 6, 7]
+        assert _stale_ranks(tmp_path, set(range(4))) == []

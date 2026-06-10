@@ -31,6 +31,7 @@ from .checkpoint import (
     load_checkpoint,
     save_checkpoint,
     verify_plan_fingerprint,
+    verify_run_world_size,
 )
 from .data import create_loader
 from .prefetch import BatchPrefetcher
@@ -225,6 +226,9 @@ def run_executor(
     output_dir = cfg["output_dir"]
     mode = cfg["mode"]
     Path(output_dir).mkdir(parents=True, exist_ok=True)
+    # Fail in seconds — before the plan load — if this directory belongs to a
+    # run with a different world size (resuming would duplicate documents).
+    verify_run_world_size(output_dir, world_size, rank)
 
     # ------------------------------------------------------------------
     # 1. Load / build TokenizationPlan and split for this rank
@@ -267,14 +271,8 @@ def run_executor(
     ckpt = None
 
     if resume:
+        # World-size identity is enforced by verify_run_world_size above.
         ckpt = load_checkpoint(output_dir, rank)
-        if ckpt is not None:
-            ckpt_ws = ckpt.get("world_size")
-            if ckpt_ws is not None and ckpt_ws != world_size:
-                logger.warning(
-                    f"[rank {rank}] Checkpoint world_size ({ckpt_ws}) != current ({world_size}). Ignoring."
-                )
-                ckpt = None
         if ckpt is not None:
             verify_plan_fingerprint(ckpt, plan_fingerprint, rank)
             start_batch_index = ckpt["batch_index"] + 1
@@ -629,12 +627,10 @@ def run_executor(
             token_ids=rebuild_token_ids,
             vocab_size=len(tokenizer.text_tokenizer),
             max_sequence_tokens=cfg.get("max_sequence_tokens"),
-            seqlen_threshold=cfg.get("seqlen_threshold"),
         )
-        stats.stage2_tokens = rebuild_stats.get("stage2_tokens", 0)
-        stats.stage2_samples = rebuild_stats.get("stage2_sequences", 0)
-        stats.lct_tokens = rebuild_stats.get("lct_tokens", 0)
-        stats.lct_samples = rebuild_stats.get("lct_sequences", 0)
+        logger.info(
+            f"[rank {rank}] Spill rebuild: {rebuild_stats.get('sequences', 0):,} sequences"
+        )
 
     save_checkpoint(
         output_dir, rank,
