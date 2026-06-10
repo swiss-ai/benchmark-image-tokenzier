@@ -22,7 +22,7 @@ from ...discrete.sft_segments import build_segment_component_maps
 logger = logging.getLogger(__name__)
 
 
-def _write_rank_success_marker(output_dir: Path, rank: int) -> None:
+def write_rank_success_marker(output_dir: Path, rank: int) -> None:
     """Mark this rank as cleanly finalized by touching ``rank_NNNN/_SUCCESS``.
 
     Read by ``merge._all_ranks_done`` to gate the merge step. Both backends
@@ -88,7 +88,7 @@ class DirectBackend:
         if self._handler:
             self._handler.finalize_writer()
         if self._output_dir is not None and self._rank is not None:
-            _write_rank_success_marker(self._output_dir, self._rank)
+            write_rank_success_marker(self._output_dir, self._rank)
 
 
 class SpillBackend:
@@ -238,7 +238,7 @@ class SpillBackend:
         if self._writer:
             self._writer.finalize()
         if self._output_dir is not None and self._rank is not None:
-            _write_rank_success_marker(self._output_dir, self._rank)
+            write_rank_success_marker(self._output_dir, self._rank)
 
     def _mark_sft_doc_dropped(
         self,

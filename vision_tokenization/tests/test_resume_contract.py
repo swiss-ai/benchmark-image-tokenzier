@@ -10,8 +10,10 @@ import pytest
 import torch
 
 from vision_tokenization.pipeline.runtime.checkpoint import (
+    WorkerStats,
     load_checkpoint,
     save_checkpoint,
+    verify_plan_fingerprint,
 )
 from vision_tokenization.pipeline.output.direct.writer import MicroShardWriter
 
@@ -22,7 +24,6 @@ class _FakeTok:
 
 
 def _write(writer, seqs):
-    from vision_tokenization.pipeline.runtime.checkpoint import WorkerStats
     for s in seqs:
         writer.write_sequence(torch.tensor(s, dtype=torch.int32), WorkerStats())
 
@@ -101,11 +102,13 @@ def test_legacy_split_checkpoint_refused(tmp_path):
         load_checkpoint(str(tmp_path), 0)
 
 
-def test_fingerprint_mismatch_detected(tmp_path):
+def test_fingerprint_mismatch_refuses(tmp_path):
+    fp = {"manifest_fingerprint": "abc", "total_batches": 7, "total_tokens": 99}
     save_checkpoint(str(tmp_path), 0, batch_index=1, writer_state={"chunk_id": 0},
-                    plan_fingerprint={"manifest_fingerprint": "abc", "total_batches": 7,
-                                      "total_tokens": 99},
-                    stats={}, world_size=1)
+                    plan_fingerprint=fp, stats={}, world_size=1)
     ckpt = load_checkpoint(str(tmp_path), 0)
-    current = {"manifest_fingerprint": "abc", "total_batches": 8, "total_tokens": 99}
-    assert ckpt["plan"] != current          # the executor refuses on this inequality
+    verify_plan_fingerprint(ckpt, fp, rank=0)            # match: accepted
+    with pytest.raises(RuntimeError, match="no longer matches"):
+        verify_plan_fingerprint(ckpt, {**fp, "total_batches": 8}, rank=0)
+    ckpt["plan"] = None                                  # legacy: always accepted
+    verify_plan_fingerprint(ckpt, fp, rank=0)

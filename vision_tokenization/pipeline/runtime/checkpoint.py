@@ -228,7 +228,7 @@ def load_checkpoint(output_dir: str, rank: int) -> Optional[Dict[str, Any]]:
     if ckpt.get("version", 1) >= CHECKPOINT_VERSION:
         return ckpt
 
-    chunk_id = ckpt.get("chunk_id", 0)
+    chunk_id = ckpt["chunk_id"]
     if not isinstance(chunk_id, int):
         raise RuntimeError(
             f"[rank {rank}] Checkpoint at {ckpt_path} predates the resume fix "
@@ -236,8 +236,21 @@ def load_checkpoint(output_dir: str, rank: int) -> Optional[Dict[str, Any]]:
             f"its stage2/lct cursors were never persisted, so resuming would "
             f"overwrite finalized chunks. Restart this dataset from scratch."
         )
-    ckpt["version"] = 1
     ckpt["writer"] = {"chunk_id": chunk_id}
-    ckpt.setdefault("plan", None)  # legacy: no fingerprint — accept with a warning
+    ckpt["plan"] = None  # v1 never carried a fingerprint — accept with a warning
     logger.warning(f"[rank {rank}] Translated legacy checkpoint (chunk_id={chunk_id})")
     return ckpt
+
+
+def verify_plan_fingerprint(ckpt: Dict[str, Any], current: Dict[str, Any], rank: int) -> None:
+    """Refuse resume when the plan no longer matches the checkpoint.
+
+    Legacy checkpoints (plan=None) are accepted — they predate fingerprints.
+    """
+    if ckpt.get("plan") is not None and ckpt["plan"] != current:
+        raise RuntimeError(
+            f"[rank {rank}] Plan no longer matches this checkpoint "
+            f"(checkpoint {ckpt['plan']} vs current {current}). The planner, "
+            f"config, or manifest changed mid-run — finish with the original "
+            f"code/config or restart this dataset."
+        )

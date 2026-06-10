@@ -130,8 +130,10 @@ def _build_test_shards(tmp_path, sequences, dtype=np.int32):
         builder.add_item(np.array(seq, dtype=dtype))
         builder.end_document()
     builder.finalize(prefix + ".idx")
+    # Default gating requires the rank completion marker
+    (tmp_path / "rank_0000").mkdir(exist_ok=True)
+    (tmp_path / "rank_0000" / "_SUCCESS").touch()
     return prefix
-
 
 def _build_test_shards_multimodal(tmp_path, sequences, modes, dtype=np.int32):
     """Build a single rank shard with sequence modes."""

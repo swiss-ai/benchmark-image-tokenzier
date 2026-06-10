@@ -147,6 +147,36 @@ class DType(Enum):
             return np.int32
 
 
+def read_idx(prefix: str):
+    """Read an MMIDIDX .idx: (header_bytes, seq_lengths, seq_pointers, doc_count).
+
+    header_bytes = magic+version+dtype (18 bytes) — reusable verbatim by
+    ``write_idx_view``.
+    """
+    import struct
+
+    with open(prefix + ".idx", "rb") as fh:
+        header = fh.read(18)
+        n, n_doc = struct.unpack("<QQ", fh.read(16))
+        lengths = np.frombuffer(fh.read(n * 4), dtype=np.int32)
+        pointers = np.frombuffer(fh.read(n * 8), dtype=np.int64)
+    return header, lengths, pointers, n_doc
+
+
+def write_idx_view(path: str, header: bytes, lengths, pointers) -> None:
+    """Write an .idx selecting a subset of an existing .bin (pointers reused
+    verbatim — the .bin is shared; one document per sequence)."""
+    import struct
+
+    n = len(lengths)
+    with open(path, "wb") as fh:
+        fh.write(header)
+        fh.write(struct.pack("<QQ", n, n + 1))
+        fh.write(np.ascontiguousarray(lengths, dtype=np.int32).tobytes())
+        fh.write(np.ascontiguousarray(pointers, dtype=np.int64).tobytes())
+        fh.write(np.arange(n + 1, dtype=np.int64).tobytes())
+
+
 class IndexedDatasetBuilder:
     """Builder class for the IndexedDataset class
 

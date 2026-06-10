@@ -210,6 +210,17 @@ class TokenizationPlan:
     def mode(self) -> str:
         return self.metadata.mode
 
+    def fingerprint(self) -> dict:
+        """Cheap identity for resume safety: a checkpoint's batch_index is only
+        valid against the exact plan it was counted on."""
+        return {
+            "manifest_fingerprint": self.metadata.manifest_fingerprint,
+            "total_batches": int(self.total_batches),
+            "total_tokens": int(
+                np.asarray(self.execution.image_batches.batch_token_counts, dtype=np.int64).sum()
+            ),
+        }
+
     def split_image_batches_for_workers(
         self, num_workers: int,
     ) -> List[List[ImageBatch]]:

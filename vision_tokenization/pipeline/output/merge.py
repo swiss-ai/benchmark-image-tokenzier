@@ -304,21 +304,19 @@ def _band_name(edges, i):
     return f"{edges[i]//1024}k" if i < len(edges) else f"gt{edges[-1]//1024}k"
 
 
-def _read_idx_lengths(prefix: str):
-    import struct
-    with open(prefix + ".idx", "rb") as fh:
-        fh.seek(18)
-        n, _ = struct.unpack("<QQ", fh.read(16))
-        return np.frombuffer(fh.read(n * 4), dtype=np.int32).astype(np.int64)
+def _band_of(lengths, edges):
+    return np.searchsorted(edges, lengths.astype(np.int64), side="left")
 
 
 def band_table(pairs, edges):
     """Per-band (sequences, tokens) from .idx headers only — no .bin reads."""
+    from vision_tokenization.formats.megatron import read_idx
+
     counts = np.zeros(len(edges) + 1, dtype=np.int64)
     tokens = np.zeros(len(edges) + 1, dtype=np.int64)
     for bin_path, _ in pairs:
-        lens = _read_idx_lengths(bin_path[:-4])
-        b = np.searchsorted(edges, lens, side="left")
+        _, lens, _, _ = read_idx(bin_path[:-4])
+        b = _band_of(lens, edges)
         counts += np.bincount(b, minlength=len(edges) + 1)
         tokens += np.bincount(b, weights=lens, minlength=len(edges) + 1).astype(np.int64)
     return counts, tokens
@@ -326,27 +324,19 @@ def band_table(pairs, edges):
 
 def split_bands(merged_prefix: str, edges) -> dict:
     """Write per-band .idx views over the merged .bin (idx-only; bytes shared)."""
-    import struct
-    idx_path = merged_prefix + ".idx"
-    with open(idx_path, "rb") as fh:
-        header = fh.read(18)
-        n, n_doc = struct.unpack("<QQ", fh.read(16))
-        lens = np.frombuffer(fh.read(n * 4), dtype=np.int32)
-        ptrs = np.frombuffer(fh.read(n * 8), dtype=np.int64)
-    bands = np.searchsorted(edges, lens.astype(np.int64), side="left")
+    from vision_tokenization.formats.megatron import read_idx, write_idx_view
+
+    header, lens, ptrs, _ = read_idx(merged_prefix)
+    bands = _band_of(lens, edges)
     out = {}
     for i in range(len(edges) + 1):
         sel = np.where(bands == i)[0]
         if len(sel) == 0:
             continue
-        path = f"{merged_prefix}_{_band_name(edges, i)}.idx"
-        with open(path, "wb") as fh:
-            fh.write(header)
-            fh.write(struct.pack("<QQ", len(sel), len(sel) + 1))
-            fh.write(lens[sel].tobytes())
-            fh.write(ptrs[sel].tobytes())
-            fh.write(np.arange(len(sel) + 1, dtype=np.int64).tobytes())
-        out[_band_name(edges, i)] = (len(sel), int(lens[sel].astype(np.int64).sum()), path)
+        name = _band_name(edges, i)
+        path = f"{merged_prefix}_{name}.idx"
+        write_idx_view(path, header, lens[sel], ptrs[sel])
+        out[name] = (len(sel), int(lens[sel].astype(np.int64).sum()), path)
     return out
 
 
@@ -371,24 +361,27 @@ def merge_shards(
     )
 
     output_dir = Path(output_dir)
+    output_prefix = str(output_dir / output_name)
     pairs = _find_shard_pairs(output_dir)
     if not pairs:
         logger.warning("No shard pairs found in %s", output_dir)
         return None
 
-    edges = bands or []
-    total_bytes = sum(Path(b).stat().st_size for b, _ in pairs)
-    if dry_run or edges:
-        counts, tokens = band_table(pairs, edges or DEFAULT_BANDS)
-        ed = edges or DEFAULT_BANDS
-        print(f"shards: {len(pairs)} pairs, {total_bytes/2**30:.1f} GB -> {output_dir / output_name}.bin")
-        print(f"{'band':>8} {'seqs':>12} {'tokens':>18}")
-        for i in range(len(ed) + 1):
-            if counts[i]:
-                print(f"{_band_name(ed, i):>8} {counts[i]:>12,} {tokens[i]:>18,}")
-        print(f"{'TOTAL':>8} {counts.sum():>12,} {tokens.sum():>18,}")
     if dry_run:
+        edges = bands or DEFAULT_BANDS
+        counts, tokens = band_table(pairs, edges)
+        total_bytes = sum(Path(b).stat().st_size for b, _ in pairs)
+        print(f"shards: {len(pairs)} pairs, {total_bytes/2**30:.1f} GB -> {output_prefix}.bin")
+        print(f"{'band':>8} {'seqs':>12} {'tokens':>18}")
+        for i in range(len(edges) + 1):
+            if counts[i]:
+                print(f"{_band_name(edges, i):>8} {counts[i]:>12,} {tokens[i]:>18,}")
+        print(f"{'TOTAL':>8} {counts.sum():>12,} {tokens.sum():>18,}")
         return None
+
+    if Path(output_prefix + ".bin").exists():
+        logger.info("Merged file already exists: %s.bin — skipping", output_prefix)
+        return Path(output_prefix)
 
     import random
     prefixes = [bp.rsplit(".bin", 1)[0] for bp, _ in pairs]
@@ -396,7 +389,6 @@ def merge_shards(
         random.seed(seed)
         random.shuffle(prefixes)
 
-    output_prefix = str(output_dir / output_name)
     logger.info("Merging %d shard pairs into %s", len(prefixes), output_prefix)
     builder = None
     for prefix in prefixes:
@@ -407,8 +399,8 @@ def merge_shards(
         builder.add_index(prefix)
     builder.finalize(get_idx_path(output_prefix))
 
-    if edges:
-        for name, (n, tok, path) in split_bands(output_prefix, edges).items():
+    if bands:
+        for name, (n, tok, path) in split_bands(output_prefix, bands).items():
             logger.info("band %s: %s seqs, %s tokens -> %s", name, f"{n:,}", f"{tok:,}", path)
 
     logger.info("Merge complete: %s (%d shards)", output_prefix, len(prefixes))
@@ -469,8 +461,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     output_dir = Path(args.output_dir)
     if args.expected_ranks is None:
-        args.expected_ranks = len([p for p in output_dir.glob("rank_*") if p.is_dir()])
-        print(f"gating on {args.expected_ranks} rank dirs found")
+        participants = {f.name.split("_")[1] for f in output_dir.glob("rank_*")}
+        args.expected_ranks = len(participants)
+        print(f"gating on {args.expected_ranks} participating ranks")
     if not _all_ranks_done(output_dir, args.expected_ranks):
         missing = [
             r for r in range(args.expected_ranks)

@@ -1346,6 +1346,7 @@ class TestMergeShards:
         mtime1 = (tmp_path / "merged.bin").stat().st_mtime
 
         # Second call skips (file already exists)
+        assert merge_shards(tmp_path) is not None
         mtime2 = (tmp_path / "merged.bin").stat().st_mtime
         assert mtime1 == mtime2
 

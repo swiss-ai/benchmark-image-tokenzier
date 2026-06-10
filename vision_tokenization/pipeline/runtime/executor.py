@@ -26,7 +26,12 @@ from ...indexing.planning.tokenization_plan import (
     TokenizationPlan,
     build_tokenization_plan,
 )
-from .checkpoint import WorkerStats, load_checkpoint, save_checkpoint
+from .checkpoint import (
+    WorkerStats,
+    load_checkpoint,
+    save_checkpoint,
+    verify_plan_fingerprint,
+)
 from .data import create_loader
 from .prefetch import BatchPrefetcher
 from .wandb_logger import SimpleWandbLogger
@@ -234,20 +239,11 @@ def run_executor(
         f"[rank {rank}/{world_size}] Assigned {len(my_batches)} image batches"
     )
 
-    # The plan identity every checkpoint is counted against. Resume refuses
-    # on mismatch: batch_index against a different plan = silent corruption.
-    plan_fingerprint = {
-        "manifest_fingerprint": plan.metadata.manifest_fingerprint,
-        "total_batches": int(plan.total_batches),
-        "total_tokens": int(
-            np.asarray(plan.execution.image_batches.batch_token_counts, dtype=np.int64).sum()
-        ),
-    }
-
     if not my_batches:
         # Still satisfy the completion contracts so merge gating and stats
         # aggregation don't hang on small datasets (world_size > batches).
-        from ..output.backend import _write_rank_success_marker
+        from ..output.backend import write_rank_success_marker
+        from ..output.stats_reducer import maybe_write_stats_summary
         from vision_tokenization.utils.json import json_dump
 
         logger.warning(f"[rank {rank}] No batches assigned — finalizing empty rank")
@@ -255,8 +251,12 @@ def run_executor(
         result["rank"] = rank
         result["output_dir"] = output_dir
         json_dump(result, Path(output_dir) / f"rank_{rank:04d}_stats.json")
-        _write_rank_success_marker(Path(output_dir), rank)
+        write_rank_success_marker(Path(output_dir), rank)
+        maybe_write_stats_summary(output_dir, expected_ranks=world_size)
         return result
+
+    # A checkpoint's batch_index is only valid against this exact plan.
+    plan_fingerprint = plan.fingerprint()
 
     # ------------------------------------------------------------------
     # 3. Resume from checkpoint
@@ -275,14 +275,8 @@ def run_executor(
                     f"[rank {rank}] Checkpoint world_size ({ckpt_ws}) != current ({world_size}). Ignoring."
                 )
                 ckpt = None
-        if ckpt is not None and ckpt.get("plan") is not None and ckpt["plan"] != plan_fingerprint:
-            raise RuntimeError(
-                f"[rank {rank}] Plan no longer matches this checkpoint "
-                f"(checkpoint {ckpt['plan']} vs current {plan_fingerprint}). "
-                f"The planner, config, or manifest changed mid-run — finish with "
-                f"the original code/config or restart this dataset."
-            )
         if ckpt is not None:
+            verify_plan_fingerprint(ckpt, plan_fingerprint, rank)
             start_batch_index = ckpt["batch_index"] + 1
             prev = ckpt.get("stats", {})
             cumulative_stats.load_from_dict(prev)
@@ -394,7 +388,7 @@ def run_executor(
     # 7. Main loop
     # ------------------------------------------------------------------
     checkpoint_interval = cfg["checkpoint_interval_batches"]
-    last_writer_state = writer_state
+    last_writer_state = writer_state or {}
     stats = cumulative_stats
     batch_count = 0
     last_batch_index = start_batch_index - 1
@@ -645,7 +639,7 @@ def run_executor(
     save_checkpoint(
         output_dir, rank,
         batch_index=last_batch_index,
-        writer_state=last_writer_state if last_writer_state is not None else {"chunk_id": -1},
+        writer_state=last_writer_state,
         plan_fingerprint=plan_fingerprint,
         stats=stats.to_dict(),
         world_size=world_size,
