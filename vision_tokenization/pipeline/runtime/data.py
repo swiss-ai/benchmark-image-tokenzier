@@ -1379,26 +1379,10 @@ class HFImageLoader:
 
 # ---------------------------------------------------------------------------
 
-_LEGACY_INTERLEAVE_DATASET_TYPES = {
-    "hf_interleave": ("hf", "interleave"),
-    "jsonl_tar_interleave": ("jsonl_tar", "interleave"),
-}
-
-
 def _normalize_loader_storage_and_mode(cfg: Dict[str, Any]) -> Tuple[str, Optional[str]]:
-    """Keep legacy alias types working while configs move to storage-only dataset_type."""
+    """Resolve (storage dataset_type, mode) from config."""
     dataset_type = cfg.get("dataset_type", "hf")
     mode = cfg.get("mode")
-
-    alias_target = _LEGACY_INTERLEAVE_DATASET_TYPES.get(dataset_type)
-    if alias_target is not None:
-        normalized_type, alias_mode = alias_target
-        if mode is not None and mode != alias_mode:
-            raise ValueError(
-                f"dataset_type={dataset_type!r} is incompatible with mode={mode!r}; "
-                f"use dataset_type={normalized_type!r} mode={alias_mode!r} instead"
-            )
-        return normalized_type, alias_mode
 
     if mode is None:
         if dataset_type == "wds" and cfg.get("parser"):

@@ -5,7 +5,8 @@ Run standalone after all ranks finish::
     python -m vision_tokenization.pipeline.output.merge /path/to/output_dir \
         [--bands 8192,16384,...] [--dry-run]
 
-Gating on rank _SUCCESS markers is on by default.
+Gating verifies rank completion manifests (rank_NNNN_DONE.json) by default;
+pre-manifest run dirs gate via explicit --expected-ranks.
 """
 
 from __future__ import annotations
@@ -326,16 +327,10 @@ def verify_manifests(output_dir: Path, manifests: list) -> tuple:
 
 
 def _all_ranks_done(output_dir: Path, expected_ranks: int) -> bool:
-    """Verify every expected rank has reached its terminal _SUCCESS marker.
+    """LEGACY gating for pre-manifest run dirs: per-rank _SUCCESS markers.
 
-    ``rank_NNNN/_SUCCESS`` is written LAST by each rank, after all shards
-    have been atomically renamed from ``.tmp`` and stats are flushed. It is
-    the Spark/Hadoop convention for a clean-finalize signal.
-
-    The previous implementation checked for ``rank_NNNN_checkpoint.pt``,
-    which is a periodic resume marker written every 2500 batches — it
-    exists long before a rank is done, so the check could pass on
-    in-progress jobs and silently produce a truncated merge.
+    Reached only via explicit ``--expected-ranks``. New runs publish
+    completion manifests, which ``verify_manifests`` checks instead.
     """
     for rank in range(expected_ranks):
         success = output_dir / f"rank_{rank:04d}" / "_SUCCESS"

@@ -23,7 +23,10 @@ logger = logging.getLogger(__name__)
 
 
 def write_rank_success_marker(output_dir: Path, rank: int) -> None:
-    """Mark this rank as cleanly finalized by touching ``rank_NNNN/_SUCCESS``.
+    """Mark this rank's SPILL as complete by touching ``rank_NNNN/_SUCCESS``.
+
+    Spill-only: ``rebuild_rank`` refuses rank dirs without it. Rank-level
+    completion is asserted by the completion manifest, not this marker.
 
     Read by ``merge._all_ranks_done`` to gate the merge step. Both backends
     write the same marker at the same path so the merge contract is uniform.
@@ -92,10 +95,10 @@ class DirectBackend:
         return self._handler.checkpoint_writer()
 
     def finalize(self) -> None:
+        # No marker: rank completion is asserted by the manifest the
+        # executor publishes after finalize succeeds.
         if self._handler:
             self._handler.finalize_writer()
-        if self._output_dir is not None and self._rank is not None:
-            write_rank_success_marker(self._output_dir, self._rank)
 
 
 class SpillBackend:

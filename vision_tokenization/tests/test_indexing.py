@@ -1304,7 +1304,7 @@ class TestMergeShards:
         (rank_dir / "_SUCCESS").touch()
 
     def test_maybe_merge_waits_for_all_ranks(self, tmp_path):
-        """maybe_merge_shards returns None until every rank has a _SUCCESS marker."""
+        """Legacy gate (_all_ranks_done) requires every rank's _SUCCESS marker."""
         try:
             from megatron.core.datasets.indexed_dataset import IndexedDataset
         except ImportError:
@@ -1326,7 +1326,7 @@ class TestMergeShards:
         assert (tmp_path / "merged.bin").exists()
 
     def test_maybe_merge_is_idempotent(self, tmp_path):
-        """Calling maybe_merge_shards again skips if merged file exists."""
+        """Re-merging skips the concat when the merged file already exists."""
         try:
             from megatron.core.datasets.indexed_dataset import IndexedDataset
         except ImportError:

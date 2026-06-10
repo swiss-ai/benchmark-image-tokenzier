@@ -247,7 +247,6 @@ def run_executor(
     if not my_batches:
         # Still satisfy the completion contracts so merge gating and stats
         # aggregation don't hang on small datasets (world_size > batches).
-        from ..output.backend import write_rank_success_marker
         from ..output.stats_reducer import maybe_write_stats_summary
         from vision_tokenization.utils.json import json_dump
 
@@ -256,7 +255,6 @@ def run_executor(
         result["rank"] = rank
         result["output_dir"] = output_dir
         json_dump(result, Path(output_dir) / f"rank_{rank:04d}_stats.json")
-        write_rank_success_marker(Path(output_dir), rank)
         write_rank_manifest(output_dir, rank, world_size, plan.fingerprint(),
                             backend="empty", files=[])
         maybe_write_stats_summary(output_dir, expected_ranks=world_size)
