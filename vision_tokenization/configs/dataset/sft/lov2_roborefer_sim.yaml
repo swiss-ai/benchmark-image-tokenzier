@@ -21,7 +21,6 @@ tar_pattern: "*.tar"
 tar_scope: global
 tar_root: /capstor/store/cscs/swissai/infra01/vision-datasets/processed/sft/hf___mvp-lab___LLaVA-OneVision-2-Data___roborefer_sim
 multi_image: true
-seqlen_threshold: 8_192
 
 conversation_policy:
   add_system_message: true

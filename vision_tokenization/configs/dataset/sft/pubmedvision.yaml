@@ -23,7 +23,6 @@ tar_scope: global
 tar_root: /capstor/store/cscs/swissai/infra01/vision-datasets/processed/sft/pubmedvision/tars
 image_path_prefix_strip: null
 multi_image: true
-seqlen_threshold: 16_384   # 16k (not 8k): PubMedVision is multi-image (up to 29), 8k would drop many multi-image rows
 
 # Tokenize WITH the Omni default block (no override) → 80/20-strip later at placement,
 # same flexible pattern as gmai_vl_permissive. (N <image> placeholders already in the jsonl,

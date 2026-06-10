@@ -19,4 +19,3 @@ parser: medpix
 document_field: txt
 plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/medpix.pt
 max_sequence_tokens: 262_144
-seqlen_threshold: 8_192

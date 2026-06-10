@@ -24,4 +24,3 @@ max_pixels: "65536*65536"
 max_batch_tokens: 32_768
 
 # Split sequences >= 8192 tokens into the lct/ tail (image tokens dominate).
-seqlen_threshold: 8192

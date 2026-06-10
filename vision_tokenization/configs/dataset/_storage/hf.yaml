@@ -11,4 +11,3 @@ max_cached_chunks: 128
 window_size: 2000
 prefetch:
   queue_size: 32
-seqlen_threshold: null

@@ -26,7 +26,6 @@ tar_root: /capstor/store/cscs/swissai/infra01/vision-datasets/processed/sft/gmai
 # tar member names == the jsonl "image" field verbatim (images/...), so no prefix strip.
 image_path_prefix_strip: null
 multi_image: false
-seqlen_threshold: 8_192
 
 # System prompt: tokenize WITH the Apertus 1.5 Omni default block (no override here),
 # matching the innovator/nemotron pattern — the 80/20 strip is applied later at the

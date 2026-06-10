@@ -36,5 +36,4 @@ max_pixels: "65536*65536"
 
 # Median doc is ~2 images + 1 long-form answer; most fit in stage2/, but
 # split anyway so the long tail (rare 5-image, multi-QA docs) routes to lct/.
-seqlen_threshold: 8192
 max_batch_tokens: 32_768

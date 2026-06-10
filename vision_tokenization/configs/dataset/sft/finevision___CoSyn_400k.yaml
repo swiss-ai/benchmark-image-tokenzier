@@ -50,7 +50,6 @@ max_pixels: "65536*65536"
 
 # CoSyn rows can be very text-heavy (long Q&A chains about one chart).
 # Most fit in stage2 but doc/table sub-types with 10+ turns may overflow.
-seqlen_threshold: 8_192
 max_sequence_tokens: 262_144
 max_batch_tokens: 32_768
 

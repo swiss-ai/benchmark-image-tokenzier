@@ -269,7 +269,6 @@ def _assemble_and_write(
     max_sequence_tokens: Optional[int],
     expected_num_images_to_process: Optional[np.ndarray],
     megatron_dtype,
-    seqlen_threshold: Optional[int],
     builders: dict,
     log_prefix: str = "",
     reject_doc_ids: Optional[set] = None,
@@ -285,8 +284,7 @@ def _assemble_and_write(
         token_ids: Special token IDs.
         max_sequence_tokens: Max tokens per sequence.
         megatron_dtype: Numpy dtype for output.
-        seqlen_threshold: Route threshold (includes BOS/EOS).
-        builders: Dict with keys 'main', 'stage2', 'lct' (some may be None).
+        builders: Dict with key 'main'.
         log_prefix: Prefix for log messages.
         reject_doc_ids: Optional set of document IDs to skip.
 
@@ -303,10 +301,6 @@ def _assemble_and_write(
 
     total_sequences = 0
     total_tokens_out = 0
-    stage2_sequences = 0
-    stage2_tokens_out = 0
-    lct_sequences = 0
-    lct_tokens_out = 0
 
     n_processed = 0
     n_rejected = 0
@@ -356,22 +350,10 @@ def _assemble_and_write(
             seq_np = seq.numpy().astype(megatron_dtype)
             seq_len = len(seq)
 
-            if builders.get("stage2") is not None:
-                if seq_len <= seqlen_threshold:
-                    builders["stage2"].add_item(seq_np)
-                    builders["stage2"].end_document()
-                    stage2_sequences += 1
-                    stage2_tokens_out += seq_len
-                else:
-                    builders["lct"].add_item(seq_np)
-                    builders["lct"].end_document()
-                    lct_sequences += 1
-                    lct_tokens_out += seq_len
-            else:
-                builders["main"].add_item(seq_np)
-                builders["main"].end_document()
-                total_sequences += 1
-                total_tokens_out += seq_len
+            builders["main"].add_item(seq_np)
+            builders["main"].end_document()
+            total_sequences += 1
+            total_tokens_out += seq_len
 
         n_processed += 1
         if log_prefix and n_processed % 100_000 == 0:
@@ -380,10 +362,6 @@ def _assemble_and_write(
     return {
         "sequences": total_sequences,
         "tokens": total_tokens_out,
-        "stage2_sequences": stage2_sequences,
-        "stage2_tokens": stage2_tokens_out,
-        "lct_sequences": lct_sequences,
-        "lct_tokens": lct_tokens_out,
         "rejected_documents": n_rejected,
     }
 
@@ -401,12 +379,11 @@ def rebuild_rank(
     *,
     output_dir: Optional[str | Path] = None,
     max_sequence_tokens: Optional[int] = None,
-    seqlen_threshold: Optional[int] = None,
     reject_doc_ids: Optional[set] = None,
 ) -> Dict:
     """Per-rank rebuild: read ``spill_dir/rank_NNNN/``, assemble documents,
-    write ``output_dir/rank_NNNN_chunk_0000.{bin,idx}`` (or ``stage2/``,
-    ``lct/`` subdirs when seqlen_threshold is set). ``output_dir`` defaults to
+    write one flat ``output_dir/rank_NNNN_chunk_0000.{bin,idx}`` stream —
+    length banding happens at merge time. ``output_dir`` defaults to
     ``spill_dir``.
     """
     from vision_tokenization.formats.megatron import DType, IndexedDatasetBuilder
@@ -458,15 +435,8 @@ def rebuild_rank(
 
     builders: dict = {}
     prefixes: dict = {}
-    if seqlen_threshold is not None:
-        for bucket in ("stage2", "lct"):
-            d = output_dir / bucket
-            d.mkdir(parents=True, exist_ok=True)
-            prefixes[bucket] = d / shard_name
-            builders[bucket] = IndexedDatasetBuilder(str(prefixes[bucket]) + ".bin", dtype=megatron_dtype)
-    else:
-        prefixes["main"] = output_dir / shard_name
-        builders["main"] = IndexedDatasetBuilder(str(prefixes["main"]) + ".bin", dtype=megatron_dtype)
+    prefixes["main"] = output_dir / shard_name
+    builders["main"] = IndexedDatasetBuilder(str(prefixes["main"]) + ".bin", dtype=megatron_dtype)
 
     stats = _assemble_and_write(
         doc_ids_to_process=doc_ids_to_process,
@@ -478,24 +448,16 @@ def rebuild_rank(
         max_sequence_tokens=max_sequence_tokens,
         expected_num_images_to_process=expected_num_images_to_process,
         megatron_dtype=megatron_dtype,
-        seqlen_threshold=seqlen_threshold,
         builders=builders,
         reject_doc_ids=reject_doc_ids,
     )
 
     finalize_builders(builders, prefixes)
 
-    if seqlen_threshold is not None:
-        logger.info(
-            f"[rank {rank}] Rebuild: stage2={stats['stage2_sequences']:,} seqs "
-            f"({stats['stage2_tokens']:,} tokens), lct={stats['lct_sequences']:,} seqs "
-            f"({stats['lct_tokens']:,} tokens)"
-        )
-    else:
-        logger.info(
-            f"[rank {rank}] Rebuild: {stats['sequences']:,} seqs, "
-            f"{stats['tokens']:,} tokens"
-        )
+    logger.info(
+        f"[rank {rank}] Rebuild: {stats['sequences']:,} seqs, "
+        f"{stats['tokens']:,} tokens"
+    )
 
     stats["rank"] = rank
     return stats

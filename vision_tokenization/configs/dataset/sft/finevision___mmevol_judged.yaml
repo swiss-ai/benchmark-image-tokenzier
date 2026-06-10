@@ -55,7 +55,6 @@ max_pixels: "65536*65536"
 
 # Multi-turn (4-5 turns typical for kept rows) × paraphrased Q&A means rows
 # can exceed 8K easily. Split routes longer rows to lct.
-seqlen_threshold: 8_192
 max_sequence_tokens: 262_144
 max_batch_tokens: 32_768
 

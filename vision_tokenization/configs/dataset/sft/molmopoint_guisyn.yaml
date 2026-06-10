@@ -14,7 +14,6 @@
 #
 # Per-row density: desktop ~54 annotations / web ~50 / mobile ~25. Some very
 # dense IDE screens have 200-700 annotations -> overflow to lct bucket via
-# seqlen_threshold below.
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
   - /dataset/_pipeline@_here_
@@ -45,7 +44,6 @@ max_pixels: "65536*65536"
 
 # Dense screens with >200 annotations + 1400^2 image will overflow 8K; route
 # to lct. Most desktop / all web / all mobile fit in stage2.
-seqlen_threshold: 8_192
 max_sequence_tokens: 262_144
 max_batch_tokens: 32_768
 

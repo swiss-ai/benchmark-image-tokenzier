@@ -29,9 +29,7 @@ parser_columns:
 # ("the third image"). Smart-resize at the tokenizer caps at 1400².
 max_pixels: "65536*65536"
 
-# Per-doc p50 ≈ 23K vis_tok at 1400² resize; ~88% of docs land in lct/.
-# SFT docs can't be safely split mid-conversation (images pinned to turn 0),
-# so seqlen_threshold ROUTES (never fragments) and max_sequence_tokens stays
-# unset.
-seqlen_threshold: 8192
+# Per-doc p50 ≈ 23K vis_tok at 1400² resize — mostly long-context.
+# SFT docs can't be safely split mid-conversation (images pinned to turn 0);
+# length banding happens at merge time (merge --bands).
 max_batch_tokens: 32_768

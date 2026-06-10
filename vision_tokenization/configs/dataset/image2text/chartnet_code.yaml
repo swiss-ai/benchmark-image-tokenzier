@@ -29,4 +29,3 @@ max_batch_tokens: 32_768
 # Code is longer than summary on average (max ~2,600 chars vs summary's
 # ~1,900) so more rows here will spill into the lct/ tail than in
 # chartnet_summary.yaml. Threshold kept at 8192 for layout consistency.
-seqlen_threshold: 8192

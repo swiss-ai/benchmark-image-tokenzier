@@ -53,7 +53,6 @@ max_pixels: "65536*65536"
 
 # Two-turn assistant outputs are ~250-400 text tokens + ~1100 image tokens =
 # ~1500-2000 tokens per sample — well under 8K stage2 cap.
-seqlen_threshold: 8_192
 max_sequence_tokens: 262_144
 max_batch_tokens: 32_768
 

@@ -32,4 +32,3 @@ max_pixels: "65536*65536"
 
 # CoT + image tokens commonly exceed 8K; route the long-context tail to lct/.
 # (Same convention as nemotron_image_training_v3.)
-seqlen_threshold: 8192

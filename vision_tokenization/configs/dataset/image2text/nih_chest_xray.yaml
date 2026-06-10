@@ -13,7 +13,6 @@ manifest_path: /capstor/scratch/cscs/xyixuan/manifests/nih_chest_xray/manifest.p
 text_column: txt
 
 # Stage2/lct split + safety cap (matches innovator/nemotron convention)
-seqlen_threshold: 8_192
 max_sequence_tokens: 262_144
 
 plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/nih_chest_xray.pt

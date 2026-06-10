@@ -11,4 +11,3 @@ max_open_files: 64
 window_size: 5000
 prefetch:
   queue_size: 64
-seqlen_threshold: null

@@ -21,5 +21,4 @@ parser_columns:
   - metadata
 
 max_sequence_tokens: 262_144
-seqlen_threshold: 8192
 rebuild: false

@@ -31,4 +31,3 @@ max_batch_tokens: 32_768
 # hq50k, smithsonian, owid_grapher_charts. For swisstopo the lct/ tail will
 # be tiny — 1024² tiles produce ~4096 image tokens + ~150–500 text tokens,
 # so almost everything lands in stage2/.
-seqlen_threshold: 8192

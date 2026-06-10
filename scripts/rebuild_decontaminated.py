@@ -167,7 +167,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--max-batch-tokens", type=int, default=32768)
     parser.add_argument("--max-sequence-tokens", type=int, default=None)
-    parser.add_argument("--seqlen-threshold", type=int, default=None)
     parser.add_argument("--spatial-factor", type=int, default=16)
     parser.add_argument("--tokenizer-min-pixels", type=int, default=16384)
     parser.add_argument("--tokenizer-max-pixels", type=int, default=1960000)
@@ -279,7 +278,6 @@ def main(argv: Optional[list[str]] = None) -> int:
         vocab_size=vocab_size,
         output_dir=args.output_dir,
         max_sequence_tokens=args.max_sequence_tokens,
-        seqlen_threshold=args.seqlen_threshold,
         reject_doc_ids=reject_doc_ids,
     )
     logger.info("Rebuild stats for rank %04d: %s", args.rank, stats)

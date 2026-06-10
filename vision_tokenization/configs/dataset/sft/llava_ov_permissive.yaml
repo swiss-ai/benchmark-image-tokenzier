@@ -43,7 +43,6 @@ max_pixels: "65536*65536"
 
 # Stage 2 / lct split at 8K; multi-image Docmatix and OmniDocBench rows are the
 # main lct contributors.
-seqlen_threshold: 8192
 max_sequence_tokens: 262_144
 max_batch_tokens: 32_768
 

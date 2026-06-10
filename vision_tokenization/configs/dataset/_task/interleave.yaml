@@ -7,4 +7,3 @@ document_format: null
 document_field: null
 local_image_prefixes: null
 max_sequence_tokens: 262_144
-seqlen_threshold: 8192

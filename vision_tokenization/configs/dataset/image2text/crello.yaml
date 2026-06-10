@@ -49,6 +49,4 @@ text_column: grounded_text
 max_batch_tokens: 32_768
 
 # Captions are ~1.7 K chars (~600 text tokens) + image tokens (~4-6 K) =
-# ~6-7 K total per row.  Below 8192, so single-bucket image2text is fine —
-# no stage2/lct split needed.  (If you later want long-context training to
-# pull these in too, set seqlen_threshold: 8192.)
+# ~6-7 K total per row — everything lands in the 8k band at merge time.

@@ -45,7 +45,6 @@ max_batch_tokens: 32_768
 
 # Standard interleave layout: split sequences ≥ 8192 tokens into lct/.
 # Matches mit_10m_recap, art_museums_recap, owid_articles, medpix.
-seqlen_threshold: 8192
 max_sequence_tokens: 262_144
 
 # Override pipeline defaults defensively — same protection as smithsonian

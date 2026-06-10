@@ -25,7 +25,6 @@ max_pixels: "65536*65536"
 
 # Stage2 / lct split at 8K — same convention as egopat3dv2/swisstopo/pmc_oa
 # image2text configs. Without this, all output lands in a single unbucketed bin.
-seqlen_threshold: 8_192
 max_sequence_tokens: 262_144
 
 # --- Overrides ----------------------------------------------------------------

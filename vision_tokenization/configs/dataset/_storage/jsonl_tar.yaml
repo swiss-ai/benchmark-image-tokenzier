@@ -15,4 +15,3 @@ image_path_prefix_strip: null
 window_size: 2000
 prefetch:
   queue_size: 32
-seqlen_threshold: null

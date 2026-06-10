@@ -47,7 +47,6 @@ max_pixels: "65536*65536"
 # Stage2/lct split routing — <think> CoT blocks make typical assistant
 # responses long (~1-2K text tokens) on top of N images, so the lct tail
 # captures docs that exceed the 8K stage2 cap.
-seqlen_threshold: 8192
 max_batch_tokens: 32_768
 
 # Row groups in this dataset are ~1 GB of compressed nested map<string,binary>;

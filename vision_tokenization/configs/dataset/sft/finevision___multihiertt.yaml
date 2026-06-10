@@ -43,7 +43,6 @@ max_pixels: "65536*65536"
 
 # Multi-image (3-5 / row) × single dense turn means total tokens per row can
 # exceed 8K. Split routes long rows to lct stream.
-seqlen_threshold: 8_192
 max_sequence_tokens: 262_144
 max_batch_tokens: 32_768
 

@@ -20,7 +20,6 @@ max_pixels: "65536*65536"
 # A single image at 1400² smart-resize already brings ~7700 image tokens; chart
 # CoT reasoning frequently adds another 1-3k text tokens. Most sequences exceed
 # 8 K, so route the long-context tail to lct/ same convention as nemotron_v3.
-seqlen_threshold: 8192
 
 parser: qa
 parser_columns:

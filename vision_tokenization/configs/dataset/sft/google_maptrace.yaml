@@ -41,7 +41,6 @@ max_pixels: "65536*65536"
 # Stage 2 / lct split. The label_text (coord path) can be 2-5K tokens by itself
 # for long traces; combined with image tokens (~1K-7K), most seqs comfortably fit
 # under 8K. The very-long-trace tail goes to lct.
-seqlen_threshold: 8_192
 max_sequence_tokens: 262_144
 max_batch_tokens: 32_768
 

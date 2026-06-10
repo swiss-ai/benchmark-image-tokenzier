@@ -35,4 +35,3 @@ max_batch_tokens: 32_768
 # Cooldown convention: split sequences ≥ 8192 tokens into the lct/ tail.
 # Summary length p50 ~1,800 chars (~450 tokens); image tokens dominate at
 # ~4-6K post-downscale, so most rows land in stage2/.
-seqlen_threshold: 8192

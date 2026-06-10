@@ -16,7 +16,6 @@ multi_image: false
 image_field_pattern: img
 
 # Stage2/lct split + safety cap (matches innovator/nemotron convention)
-seqlen_threshold: 8_192
 max_sequence_tokens: 262_144
 
 plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/ignf_flair_hub.pt

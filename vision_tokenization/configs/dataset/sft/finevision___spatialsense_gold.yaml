@@ -51,7 +51,6 @@ conversation_policy:
 max_pixels: "65536*65536"
 
 # Most rows are 1-4 turns × short bbox-grounded sentences → well under 8K.
-seqlen_threshold: 8_192
 max_sequence_tokens: 262_144
 max_batch_tokens: 32_768
 
