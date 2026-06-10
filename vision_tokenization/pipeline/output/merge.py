@@ -272,24 +272,13 @@ def rewrite_dataset(
     )
 
 
-def _find_shard_pairs(
-    directory: Path,
-    *,
-    subdirs: Optional[List[str]] = None,
-) -> list[tuple[str, str]]:
-    """Find all matching .bin/.idx pairs in *directory* (and optional subdirs)."""
-    search_dirs = [directory]
-    if subdirs:
-        search_dirs.extend(directory / s for s in subdirs if (directory / s).is_dir())
-
+def _find_shard_pairs(directory: Path) -> list[tuple[str, str]]:
+    """All rank chunk .bin/.idx pairs in *directory* (flat — one stream per rank)."""
     pairs = []
-    seen = set()
-    for search_dir in search_dirs:
-        for f in sorted(search_dir.glob("rank_*_chunk_*.bin")):
-            idx = f.with_suffix(".idx")
-            if idx.exists() and f.stat().st_size > 0 and f.stem not in seen:
-                seen.add(f.stem)
-                pairs.append((str(f), str(idx)))
+    for f in sorted(directory.glob("rank_*_chunk_*.bin")):
+        idx = f.with_suffix(".idx")
+        if idx.exists() and f.stat().st_size > 0:
+            pairs.append((str(f), str(idx)))
     return pairs
 
 
@@ -312,65 +301,121 @@ def _all_ranks_done(output_dir: Path, expected_ranks: int) -> bool:
     return True
 
 
+DEFAULT_BANDS = [8192, 16384, 32768, 65536, 131072, 262144]
+
+
+def _band_name(edges, i):
+    return f"{edges[i]//1024}k" if i < len(edges) else f"gt{edges[-1]//1024}k"
+
+
+def _read_idx_lengths(prefix: str):
+    import struct
+    with open(prefix + ".idx", "rb") as fh:
+        fh.seek(18)
+        n, _ = struct.unpack("<QQ", fh.read(16))
+        return np.frombuffer(fh.read(n * 4), dtype=np.int32).astype(np.int64)
+
+
+def band_table(pairs, edges):
+    """Per-band (sequences, tokens) from .idx headers only — no .bin reads."""
+    counts = np.zeros(len(edges) + 1, dtype=np.int64)
+    tokens = np.zeros(len(edges) + 1, dtype=np.int64)
+    for bin_path, _ in pairs:
+        lens = _read_idx_lengths(bin_path[:-4])
+        b = np.searchsorted(edges, lens, side="left")
+        counts += np.bincount(b, minlength=len(edges) + 1)
+        tokens += np.bincount(b, weights=lens, minlength=len(edges) + 1).astype(np.int64)
+    return counts, tokens
+
+
+def split_bands(merged_prefix: str, edges) -> dict:
+    """Write per-band .idx views over the merged .bin (idx-only; bytes shared)."""
+    import struct
+    idx_path = merged_prefix + ".idx"
+    with open(idx_path, "rb") as fh:
+        header = fh.read(18)
+        n, n_doc = struct.unpack("<QQ", fh.read(16))
+        lens = np.frombuffer(fh.read(n * 4), dtype=np.int32)
+        ptrs = np.frombuffer(fh.read(n * 8), dtype=np.int64)
+    bands = np.searchsorted(edges, lens.astype(np.int64), side="left")
+    out = {}
+    for i in range(len(edges) + 1):
+        sel = np.where(bands == i)[0]
+        if len(sel) == 0:
+            continue
+        path = f"{merged_prefix}_{_band_name(edges, i)}.idx"
+        with open(path, "wb") as fh:
+            fh.write(header)
+            fh.write(struct.pack("<QQ", len(sel), len(sel) + 1))
+            fh.write(lens[sel].tobytes())
+            fh.write(ptrs[sel].tobytes())
+            fh.write(np.arange(len(sel) + 1, dtype=np.int64).tobytes())
+        out[_band_name(edges, i)] = (len(sel), int(lens[sel].astype(np.int64).sum()), path)
+    return out
+
+
 def merge_shards(
     output_dir: Path,
     output_name: str = "merged",
     *,
     shuffle: bool = False,
     seed: int = 42,
+    bands: Optional[List[int]] = None,
+    dry_run: bool = False,
 ) -> Optional[Path]:
-    """Merge all rank shard pairs in *output_dir* into a single dataset.
+    """Concatenate all rank shard pairs; optionally split per-band idx views.
 
-    Returns the output prefix path, or None if no shards were found.
+    ``dry_run`` prints the gating + band table from .idx headers and writes nothing.
     """
     _ensure_megatron_importable()
+    import shutil
+    shutil.COPY_BUFSIZE = 64 << 20  # 64 KiB default cripples multi-100GB merges
     from megatron.core.datasets.indexed_dataset import (
-        IndexedDataset,
-        IndexedDatasetBuilder,
-        get_bin_path,
-        get_idx_path,
+        IndexedDataset, IndexedDatasetBuilder, get_bin_path, get_idx_path,
     )
 
     output_dir = Path(output_dir)
-
-    # Collect shard pairs from main dir and split subdirs
-    pairs = _find_shard_pairs(output_dir, subdirs=["stage2", "lct"])
+    pairs = _find_shard_pairs(output_dir)
     if not pairs:
         logger.warning("No shard pairs found in %s", output_dir)
         return None
 
-    # Sort for deterministic order
-    import random
+    edges = bands or []
+    total_bytes = sum(Path(b).stat().st_size for b, _ in pairs)
+    if dry_run or edges:
+        counts, tokens = band_table(pairs, edges or DEFAULT_BANDS)
+        ed = edges or DEFAULT_BANDS
+        print(f"shards: {len(pairs)} pairs, {total_bytes/2**30:.1f} GB -> {output_dir / output_name}.bin")
+        print(f"{'band':>8} {'seqs':>12} {'tokens':>18}")
+        for i in range(len(ed) + 1):
+            if counts[i]:
+                print(f"{_band_name(ed, i):>8} {counts[i]:>12,} {tokens[i]:>18,}")
+        print(f"{'TOTAL':>8} {counts.sum():>12,} {tokens.sum():>18,}")
+    if dry_run:
+        return None
 
-    prefixes = [bin_path.rsplit(".bin", 1)[0] for bin_path, _ in pairs]
+    import random
+    prefixes = [bp.rsplit(".bin", 1)[0] for bp, _ in pairs]
     if shuffle:
         random.seed(seed)
         random.shuffle(prefixes)
 
     output_prefix = str(output_dir / output_name)
-
     logger.info("Merging %d shard pairs into %s", len(prefixes), output_prefix)
-
     builder = None
     for prefix in prefixes:
         if builder is None:
             dataset = IndexedDataset(prefix)
-            builder = IndexedDatasetBuilder(
-                get_bin_path(output_prefix), dtype=dataset.index.dtype,
-            )
+            builder = IndexedDatasetBuilder(get_bin_path(output_prefix), dtype=dataset.index.dtype)
             del dataset
         builder.add_index(prefix)
-
     builder.finalize(get_idx_path(output_prefix))
 
-    out_bin = Path(get_bin_path(output_prefix))
-    out_tokens = out_bin.stat().st_size // 4
-    logger.info(
-        "Merge complete: %s (%d shards, %s tokens)",
-        output_prefix,
-        len(prefixes),
-        f"{out_tokens:,}",
-    )
+    if edges:
+        for name, (n, tok, path) in split_bands(output_prefix, edges).items():
+            logger.info("band %s: %s seqs, %s tokens -> %s", name, f"{n:,}", f"{tok:,}", path)
+
+    logger.info("Merge complete: %s (%d shards)", output_prefix, len(prefixes))
     return Path(output_prefix)
 
 
@@ -417,6 +462,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--output-name", default="merged", help="Output prefix name")
     parser.add_argument("--shuffle", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--bands", type=lambda v: [int(x) for x in v.split(",")],
+                        default=None, help="Band edges, e.g. 8192,16384,32768")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Print gating + per-band table; write nothing")
     parser.add_argument(
         "--strip-thinking", action="store_true",
         help="After merging, produce a second no-CoT variant with "
@@ -455,7 +504,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         )
 
     output_dir = Path(args.output_dir)
-    if args.expected_ranks is not None and not _all_ranks_done(output_dir, args.expected_ranks):
+    if args.expected_ranks is None:
+        args.expected_ranks = len([p for p in output_dir.glob("rank_*") if p.is_dir()])
+        print(f"gating on {args.expected_ranks} rank dirs found")
+    if not _all_ranks_done(output_dir, args.expected_ranks):
         missing = [
             r for r in range(args.expected_ranks)
             if not (output_dir / f"rank_{r:04d}" / "_SUCCESS").exists()
@@ -471,7 +523,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         output_name=args.output_name,
         shuffle=args.shuffle,
         seed=args.seed,
+        bands=args.bands,
+        dry_run=args.dry_run,
     )
+    if args.dry_run:
+        return 0
     if result is None:
         print("No shards found to merge.")
         return 1
