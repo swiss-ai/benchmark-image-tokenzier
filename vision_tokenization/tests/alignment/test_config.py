@@ -31,7 +31,7 @@ def test_alignment_smoke_config_composes_and_resolves():
     OmegaConf.to_container(cfg, resolve=True)
 
     assert cfg.dataset.task == "preference"
-    # The unified executor's batch knob: exact-dim GPU batches of 32.
+    # The unified executor's batch-size cap (max_batch_tokens also applies).
     assert cfg.dataset.batch_size == 32
     assert cfg.dataset.val_rows == 256
     # The recorded resize band is the tokenizer's (config.yaml); the task

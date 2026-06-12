@@ -878,19 +878,20 @@ def build_plan_posttraining(
     manifest_path: Union[str, Path],
     *,
     batch_size: int = 128,
+    max_batch_tokens: int = 32768,
     spatial_factor: int = 16,
     resize_min_pixels: int = 16384,
     resize_max_pixels: int = 1960000,
+    window_size: int = 2000,
 ) -> TokenizationPlan:
     """Build plan for posttraining mode from the scan artifact (``scan.parquet``).
 
     One single-image document per unique media; ``source_ref`` is the scan row
-    (== media inventory index). Batches group by EXACT smart-resize dims —
-    ``media_id -> block`` must be a pure function of (bytes, resize band), so
-    no spillover cluster-mean dims; stragglers form short batches that keep
-    their exact dims. No pixel filter: the scan already gated corrupt and
-    sub-factor images, and every surviving row must reach the media store
-    (view rows reference them all).
+    (== media inventory index). Batch composition is the shared planner path:
+    same-dims runs at exact dims, stragglers cluster-packed (user decision
+    2026-06-12; within-store purity comes from dedup + plan determinism).
+    No pixel filter: the scan already gated corrupt and sub-factor images, and
+    every surviving row must reach the media store (view rows reference them all).
     """
     manifest_path = str(manifest_path)
     scan = pq.read_table(manifest_path, columns=["height", "width"])
@@ -915,38 +916,23 @@ def build_plan_posttraining(
         ),
     )
 
-    final_h, final_w = smart_resize_dims_batch(
-        heights, widths,
-        min_pixels=resize_min_pixels, max_pixels=resize_max_pixels,
-        factor=spatial_factor,
+    # Each image is its own document; scan row order is the manifest order.
+    image_batches, split_batch_offsets = _plan_image_batches(
+        doc_ids, doc_ids, widths, heights, doc_ids,
+        batch_size=batch_size, max_batch_tokens=max_batch_tokens,
+        spatial_factor=spatial_factor, resize_min_pixels=resize_min_pixels,
+        resize_max_pixels=resize_max_pixels, window_size=window_size,
     )
-
-    # Group by exact dims; sorted keys + ascending members -> deterministic order.
-    groups: dict[tuple[int, int], list[int]] = {}
-    for i, (h, w) in enumerate(zip(final_h, final_w)):
-        groups.setdefault((int(h), int(w)), []).append(i)
-
-    batches: List[ImageBatch] = []
-    for rh, rw in sorted(groups):
-        members = np.asarray(groups[(rh, rw)], dtype=np.int64)
-        per_tok = estimate_image_tokens(rh, rw, spatial_factor=spatial_factor)
-        for s in range(0, len(members), batch_size):
-            chunk = members[s:s + batch_size]
-            batches.append(ImageBatch(
-                component_indices=chunk,
-                resize_height=rh, resize_width=rw,
-                batch_token_count=per_tok * len(chunk),
-            ))
-
-    plan.execution.image_batches = ImageBatchTable.from_batches(batches)
-    # One image per document: every batch boundary is a safe split point.
-    plan.execution.split_batch_offsets = np.arange(len(batches), dtype=np.int64)
+    plan.execution.image_batches = ImageBatchTable.from_batches(image_batches)
+    plan.execution.split_batch_offsets = split_batch_offsets
 
     plan.metadata = PlanMetadata(
         manifest_path=manifest_path,
         manifest_fingerprint=_manifest_fingerprint(manifest_path),
         mode="posttraining",
+        window_size=window_size,
         batch_size=batch_size,
+        max_batch_tokens=max_batch_tokens,
         resize_min_pixels=resize_min_pixels,
         resize_max_pixels=resize_max_pixels,
         spatial_factor=spatial_factor,
@@ -954,7 +940,7 @@ def build_plan_posttraining(
 
     logger.info(
         f"posttraining plan: {plan.total_documents:,} unique media, "
-        f"{plan.total_batches:,} exact-dim batches"
+        f"{plan.total_batches:,} image batches"
     )
     return plan
 
@@ -1026,14 +1012,16 @@ def build_tokenization_plan(
             **common,
         )
     elif mode == "posttraining":
-        # Exact-dims contract: no pixel filter, no token-budget repacking —
-        # the scan is the only gate and dims must stay exact.
+        # No pixel filter kwargs: the scan is the only gate (every scanned
+        # row must encode); batching itself is the shared planner path.
         return build_plan_posttraining(
             manifest_path,
             batch_size=batch_size,
+            max_batch_tokens=max_batch_tokens,
             spatial_factor=spatial_factor,
             resize_min_pixels=resize_min_pixels,
             resize_max_pixels=resize_max_pixels,
+            window_size=window_size,
         )
     else:
         raise ValueError(f"Unknown mode: {mode}")

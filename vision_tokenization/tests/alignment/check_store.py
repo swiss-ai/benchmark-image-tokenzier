@@ -1,6 +1,6 @@
 """Gate 2: structural integrity of an alignment media store.
 
-Verifies the exact-dims contract (spec invariant 3). For each sampled block:
+Verifies the per-store block contract (spec invariant 3). For each sampled block:
 ``<|img_start|>`` H*W ``<|img_token_start|>`` vision/EOL... ``<|img_end_of_frame|>``
 ``<|img_end|>`` — the EOL count equals ``resize_h // 16``, the vision-token count
 equals ``(resize_h // 16) * (resize_w // 16)``, and the only legal place for text
