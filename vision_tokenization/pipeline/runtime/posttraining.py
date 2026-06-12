@@ -79,17 +79,11 @@ def _token_layout(tokenizer_config: dict) -> dict:
             **ids, "vision_lo": vision_lo, "vision_hi": vision_hi}
 
 
-def run_posttraining(cfg: dict) -> dict:
-    if cfg["resume"]:
-        raise ValueError(
-            "posttraining is seal-at-end (media store + views + manifest); "
-            "resume is unsupported — re-run from scratch"
-        )
-    t_start = time.perf_counter()
-
-    # ------------------------------------------------------------------
-    # Scan stage (CPU): this mode's manifest scan
-    # ------------------------------------------------------------------
+def run_scan_stage(cfg: dict) -> tuple:
+    """Scan stage (rank 0, CPU): ingest the input parquet, persist
+    ``scan.parquet``, and inject ``manifest_path`` + ``media_inventory``
+    into *cfg*. The single scan writer — the GPU run and the CPU dry run
+    both go through here. Returns ``(IngestResult, scan_size_bytes)``."""
     out = Path(cfg["output_dir"])
     res = ingest_parquet(Path(cfg["input_parquet"]), task=cfg["task"])
     if res.n_skipped_media:
@@ -104,6 +98,22 @@ def run_posttraining(cfg: dict) -> dict:
     # ORDER CONTRACT: must equal scan.parquet row order — the plan's source_ref
     # and MediaStoreBackend both index this list by position.
     cfg["media_inventory"] = res.unique_media
+    return res, scan_size
+
+
+def run_posttraining(cfg: dict) -> dict:
+    if cfg["resume"]:
+        raise ValueError(
+            "posttraining is seal-at-end (media store + views + manifest); "
+            "resume is unsupported — re-run from scratch"
+        )
+    t_start = time.perf_counter()
+
+    # ------------------------------------------------------------------
+    # Scan stage (CPU): this mode's manifest scan
+    # ------------------------------------------------------------------
+    out = Path(cfg["output_dir"])
+    res, scan_size = run_scan_stage(cfg)
 
     result = run_executor(cfg["rank"], cfg["world_size"], cfg)
 
@@ -131,11 +141,13 @@ def run_posttraining(cfg: dict) -> dict:
         pq.write_table(pa.Table.from_pylist(part), p)
         view_files[f"views/{name}.parquet"] = p.stat().st_size
 
-    # Operational droppings (checkpoint/stats/DONE) leave the published root;
-    # the manifest's files map never includes them.
+    # Operational droppings (checkpoint/stats/DONE, a prior pre-flight's
+    # dry_run_stats.json) leave the published root; the manifest's files map
+    # never includes them.
     ops = out / "_pipeline"
     ops.mkdir(exist_ok=True)
-    for p in [*out.glob("rank_*"), out / "stats_summary.json"]:
+    for p in [*out.glob("rank_*"), out / "stats_summary.json",
+              out / "dry_run_stats.json"]:
         if p.exists():
             p.rename(ops / p.name)
 

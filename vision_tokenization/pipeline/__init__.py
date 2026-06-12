@@ -59,15 +59,9 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
     local_rank = int(os.environ.get("LOCAL_RANK", os.environ.get("SLURM_LOCALID", 0)))
 
     if cfg["mode"] == "posttraining":
-        # One single-image document per unique media — grouping knobs and the
-        # plan-only dry run (the plan needs the scan stage's scan.parquet) don't apply.
+        # One single-image document per unique media — grouping knobs don't apply.
         if cfg.get("multi_image", False):
             raise ValueError("multi_image is meaningless for posttraining")
-        if cfg.get("dry_run", False):
-            raise ValueError(
-                "dry_run is unsupported for posttraining: the plan is built from "
-                "scan.parquet, which only the scan stage produces"
-            )
 
     # Handle dry-run mode early (no GPU, no world-size check needed)
     if cfg.get("dry_run", False):
@@ -75,6 +69,16 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
         cfg["world_size"] = 1
         cfg["local_rank"] = 0
         cfg["output_dir"] = str(Path(cfg["output_dir"]) / _build_output_subdir(cfg))
+
+        if cfg["mode"] == "posttraining":
+            # The plan is built from scan.parquet, which only the scan stage
+            # produces — so the dry run runs the real scan stage (ingest IS
+            # the scan; CPU-only), then reports plan-derived token counts.
+            # The persisted scan.parquet is byte-identical to the GPU job's
+            # (deterministic ingest), making this a true pre-flight.
+            from .runtime.posttraining import run_scan_stage
+
+            run_scan_stage(cfg)
 
         from .runtime.dry_run import export_dry_run
 
