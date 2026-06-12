@@ -1,9 +1,9 @@
 """Alignment-mode parquet ingest: hash+dedup images, scan geometry, draft views.
 
 The input marker is the dataset-level ``<image>``; the canonical on-disk marker
-is the tokenizer special ``<|image|>`` (id 131079) so the consumer can count it
-in token space. Per-field marker counts must equal per-field ref counts (spec
-contract).
+is the tokenizer special ``<|image|>`` — the manifest's ``token_layout`` records
+its id so the consumer can count it in token space. Per-field marker counts
+must equal per-field ref counts (spec contract).
 
 Ingest IS the scan stage (pipeline contract: every mode persists geometry
 before planning): the one pass that reads each image's bytes for sha256 also

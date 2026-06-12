@@ -3,6 +3,7 @@ import pytest
 from vision_tokenization.discrete.emu.image_only import (
     STRUCTURE_TOKENS,
     resolve_token_ids,
+    resolve_token_ids_from_config,
     vision_band,
 )
 
@@ -37,3 +38,23 @@ def test_vision_band_inclusive_range():
 def test_vision_band_requires_vision_modality():
     with pytest.raises(ValueError, match="vision modality"):
         vision_band({"omnimodal_config": {"modalities": []}})
+
+
+def test_vision_band_missing_vocab_size_fails_loud():
+    cfg = {"omnimodal_config": {"modalities": [{"name": "vision", "offset": 7}]}}
+    with pytest.raises(ValueError, match="vocab_size"):
+        vision_band(cfg)
+
+
+def test_resolve_token_ids_from_config_uses_added_tokens_decoder():
+    cfg = {"added_tokens_decoder": {"0": {"content": "<unk>"},
+                                    "131073": {"content": "<|img_start|>"}},
+           "unk_token": "<unk>"}
+    assert resolve_token_ids_from_config(
+        cfg, {"img_start": "<|img_start|>"}) == {"img_start": 131073}
+
+
+def test_resolve_token_ids_from_config_refuses_missing_token():
+    cfg = {"added_tokens_decoder": {"0": {"content": "<unk>"}}, "unk_token": "<unk>"}
+    with pytest.raises(ValueError, match="UNK"):
+        resolve_token_ids_from_config(cfg, {"img_start": "<|img_start|>"})

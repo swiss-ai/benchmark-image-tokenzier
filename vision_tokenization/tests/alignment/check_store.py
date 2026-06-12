@@ -7,7 +7,7 @@ equals ``(resize_h // 16) * (resize_w // 16)``, and the only legal place for tex
 ids is the dims header (before ``<|img_token_start|>``). The dims come from
 ``media.parquet``, so the cross-check is what makes Gate 2 protect invariant 3.
 Token ids come from the manifest's ``token_layout`` (derived at build time);
-the checker carries no literals.
+the checker carries no token-id literals.
 
 Usage: ``python vision_tokenization/tests/alignment/check_store.py <root> [--n 64]``
 Exits non-zero on any violation.

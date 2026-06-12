@@ -9,8 +9,9 @@ owns only the stages unique to the mode:
       ``scan.parquet`` — the geometry artifact, and this mode's manifest;
   executor: plan builder (``build_plan_posttraining``), parquet-bytes loader
       (``AlignmentMediaLoader``), and ``MediaStoreBackend`` plug in via cfg;
-  publish (rank 0): ``views/{train,validation}.parquet``, then
-      ``manifest.json`` LAST (the commit record).
+  publish (rank 0): completeness gate (every scanned media in the sealed
+      store), ``views/{train,validation}.parquet``, then ``manifest.json``
+      LAST (the commit record).
 
 The mode is task-neutral; ``cfg["task"]`` selects the row adapter + view
 schema inside ``ingest_parquet`` (ROW_ADAPTERS) and the output namespace
@@ -31,6 +32,7 @@ import pyarrow.parquet as pq
 from vision_tokenization.indexing.alignment.ingest import (
     MARKER,
     SPATIAL_FACTOR,
+    _refs_of,
     ingest_parquet,
     write_scan_parquet,
 )
@@ -42,29 +44,39 @@ from .executor import run_executor
 logger = logging.getLogger(__name__)
 
 
-def _token_layout(tokenizer_path: str) -> tuple[dict, dict]:
-    """Manifest ``token_layout`` (plus the loaded tokenizer_config).
+class EncodeIncompleteError(RuntimeError):
+    """Publish-gate contract: every scanned media must be in the sealed store."""
 
-    Every id is derived from the tokenizer snapshot — consumers read ids from
-    the manifest, never from literals.
+
+def check_encode_complete(unique_media: list, length_of: dict) -> None:
+    """Raise :class:`EncodeIncompleteError` unless every scanned unique media
+    has a block in the sealed store index (decode-failed media show up here)."""
+    missing = [m.media_id for m in unique_media if m.media_id not in length_of]
+    if missing:
+        raise EncodeIncompleteError(
+            f"encode incomplete: {len(missing)} of {len(unique_media)} scanned "
+            f"media missing from store (first ids: {missing[:5]})"
+        )
+
+
+def _token_layout(tokenizer_config: dict) -> dict:
+    """Manifest ``token_layout``, derived from tokenizer_config.json alone.
+
+    Every id comes from the snapshot's ``added_tokens_decoder`` /
+    ``omnimodal_config`` — consumers read ids from the manifest, never from
+    literals, and publish never loads the tokenizer.
     """
-    from transformers import AutoTokenizer
-
     from vision_tokenization.discrete.emu.image_only import (
         STRUCTURE_TOKENS,
-        resolve_token_ids,
+        resolve_token_ids_from_config,
         vision_band,
     )
 
-    text_tokenizer = AutoTokenizer.from_pretrained(
-        tokenizer_path, trust_remote_code=True, use_fast=True)
-    ids = resolve_token_ids(
-        text_tokenizer, {"image_marker": MARKER, **STRUCTURE_TOKENS})
-    tokenizer_config = json_load(Path(tokenizer_path) / "tokenizer_config.json")
+    ids = resolve_token_ids_from_config(
+        tokenizer_config, {"image_marker": MARKER, **STRUCTURE_TOKENS})
     vision_lo, vision_hi = vision_band(tokenizer_config)
-    layout = {"image_marker": MARKER, "image_marker_id": ids.pop("image_marker"),
-              **ids, "vision_lo": vision_lo, "vision_hi": vision_hi}
-    return layout, tokenizer_config
+    return {"image_marker": MARKER, "image_marker_id": ids.pop("image_marker"),
+            **ids, "vision_lo": vision_lo, "vision_hi": vision_hi}
 
 
 def run_posttraining(cfg: dict) -> dict:
@@ -94,14 +106,16 @@ def run_posttraining(cfg: dict) -> dict:
     result = run_executor(cfg["rank"], cfg["world_size"], cfg)
 
     # ------------------------------------------------------------------
-    # Publish stage: views with exact media token stats, manifest LAST
+    # Publish stage: completeness gate, views with exact media token stats,
+    # manifest LAST
     # ------------------------------------------------------------------
     length_of = {r["media_id"]: r["length_elems"]
                  for f in sorted((out / "media").glob("media.*.parquet"))
                  for r in pq.read_table(f).to_pylist()}
+    check_encode_complete(res.unique_media, length_of)
     rows = res.view_rows
     for row in rows:
-        row["media_tokens_total"] = sum(length_of[m] for m in row["prompt_media_refs"])
+        row["media_tokens_total"] = sum(length_of[m] for m in _refs_of(row))
         row["text_chars"] = (sum(len(m["content"]) for m in row["prompt"])
                              + len(row["chosen"]) + len(row["rejected"]))
 
@@ -115,7 +129,16 @@ def run_posttraining(cfg: dict) -> dict:
         pq.write_table(pa.Table.from_pylist(part), p)
         view_files[f"views/{name}.parquet"] = p.stat().st_size
 
-    token_layout, tokenizer_config = _token_layout(cfg["tokenizer_path"])
+    # Operational droppings (checkpoint/stats/DONE) leave the published root;
+    # the manifest's files map never includes them.
+    ops = out / "_pipeline"
+    ops.mkdir(exist_ok=True)
+    for p in [*out.glob("rank_*"), out / "stats_summary.json"]:
+        if p.exists():
+            p.rename(ops / p.name)
+
+    tokenizer_config = json_load(Path(cfg["tokenizer_path"]) / "tokenizer_config.json")
+    token_layout = _token_layout(tokenizer_config)
     tok_sha = hashlib.sha256(
         (Path(cfg["tokenizer_path"]) / "tokenizer.json").read_bytes()).hexdigest()
     media_files = {f"media/{p.name}": p.stat().st_size

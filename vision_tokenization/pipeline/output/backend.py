@@ -592,6 +592,7 @@ class MediaStoreBackend:
     def completed_files(self) -> list:
         """Sealed-triple records for the rank completion manifest.
 
+        Valid only after ``finalize()`` (seal populates ``_sealed_files``).
         Counts live on the tokens shard; the parquet/raw files ride along at 0
         so the manifest sums stay (n media blocks, n token elements).
         """

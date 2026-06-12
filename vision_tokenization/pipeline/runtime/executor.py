@@ -304,7 +304,9 @@ def run_executor(
     # 5. Setup output backend, data loader, prefetcher, W&B
     # ------------------------------------------------------------------
     multi_image = bool(cfg.get("multi_image", False))
-    use_spill = multi_image or mode == "interleave"
+    # posttraining always selects MediaStoreBackend below; use_spill must agree
+    # (run_distributed_pipeline rejects the multi_image+posttraining combo).
+    use_spill = (multi_image or mode == "interleave") and mode != "posttraining"
     # Spill and media-store backends share a calling convention: the executor
     # GPU-encodes, the backend writes keyed payloads.
     executor_encodes = use_spill or mode == "posttraining"

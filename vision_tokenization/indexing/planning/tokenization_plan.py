@@ -920,18 +920,20 @@ def build_plan_posttraining(
         min_pixels=resize_min_pixels, max_pixels=resize_max_pixels,
         factor=spatial_factor,
     )
-    keys = final_h.astype(np.int64) * 100_000 + final_w.astype(np.int64)
+
+    # Group by exact dims; sorted keys + ascending members -> deterministic order.
+    groups: dict[tuple[int, int], list[int]] = {}
+    for i, (h, w) in enumerate(zip(final_h, final_w)):
+        groups.setdefault((int(h), int(w)), []).append(i)
 
     batches: List[ImageBatch] = []
-    # Sorted unique keys + ascending members -> deterministic batch order.
-    for k in np.unique(keys):
-        members = np.where(keys == k)[0]
-        rh, rw = int(k) // 100_000, int(k) % 100_000
+    for rh, rw in sorted(groups):
+        members = np.asarray(groups[(rh, rw)], dtype=np.int64)
         per_tok = estimate_image_tokens(rh, rw, spatial_factor=spatial_factor)
         for s in range(0, len(members), batch_size):
             chunk = members[s:s + batch_size]
             batches.append(ImageBatch(
-                component_indices=chunk.astype(np.int64),
+                component_indices=chunk,
                 resize_height=rh, resize_width=rw,
                 batch_token_count=per_tok * len(chunk),
             ))

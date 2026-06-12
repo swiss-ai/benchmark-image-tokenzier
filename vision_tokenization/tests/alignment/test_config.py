@@ -34,8 +34,10 @@ def test_alignment_smoke_config_composes_and_resolves():
     # The unified executor's batch knob: exact-dim GPU batches of 32.
     assert cfg.dataset.batch_size == 32
     assert cfg.dataset.val_rows == 256
-    assert cfg.dataset.min_pixels == "128*128"
-    assert cfg.dataset.max_pixels == "1400*1400"
+    # The recorded resize band is the tokenizer's (config.yaml); the task
+    # fragment carries no dataset pixel filter (build_plan ignores it).
+    assert cfg.tokenizer.min_pixels == "128*128"
+    assert cfg.tokenizer.max_pixels == "1400*1400"
     assert str(cfg.dataset.tokenizer_path).endswith(
         "apertus_emu3.5_wavtok_instruct_thinking_token_fixed"
     )

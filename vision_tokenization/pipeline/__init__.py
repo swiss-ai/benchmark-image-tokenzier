@@ -58,6 +58,17 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
     world_size = int(os.environ.get("WORLD_SIZE", os.environ.get("SLURM_NTASKS", 1)))
     local_rank = int(os.environ.get("LOCAL_RANK", os.environ.get("SLURM_LOCALID", 0)))
 
+    if cfg["mode"] == "posttraining":
+        # One single-image document per unique media — grouping knobs and the
+        # plan-only dry run (the plan needs the scan stage's scan.parquet) don't apply.
+        if cfg.get("multi_image", False):
+            raise ValueError("multi_image is meaningless for posttraining")
+        if cfg.get("dry_run", False):
+            raise ValueError(
+                "dry_run is unsupported for posttraining: the plan is built from "
+                "scan.parquet, which only the scan stage produces"
+            )
+
     # Handle dry-run mode early (no GPU, no world-size check needed)
     if cfg.get("dry_run", False):
         cfg["rank"] = 0

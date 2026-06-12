@@ -9,7 +9,8 @@ Loader classes:
 - ``AlignmentMediaLoader``: Decodes posttraining unique-media bytes from the
   scan stage's in-memory inventory.
 
-Both support loading associated text for SFT / image-text-pair modes.
+All but ``AlignmentMediaLoader`` support loading associated text for
+SFT / image-text-pair modes.
 
 ``ImageAugmenter``: Optional CPU-only PIL transforms applied after load, before tokenization.
 """

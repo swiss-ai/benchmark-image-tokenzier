@@ -5,11 +5,9 @@
 task: preference
 
 tokenizer_path: /capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_wavtok_instruct_thinking_token_fixed
-# Resize band ALIGNED WITH PRETRAIN/SFT (user decision 2026-06-11): post-training
-# never silently changes the vision front-end. 1400^2 -> <=~7.7k tokens/image;
-# multimodal DPO runs use max_total_sequence_length 16384. Recorded in manifest.json.
-min_pixels: "128*128"
-max_pixels: "1400*1400"
+# No dataset min/max_pixels here: build_plan_posttraining ignores the pixel
+# filter (the scan is the only gate); the recorded resize band is the
+# tokenizer's (config.yaml tokenizer.min_pixels/max_pixels).
 # Exact-dim GPU batches (the unified executor's batch_size); the tokenizer's
 # max_encode_pixels chunks within a batch to bound peak GPU memory.
 batch_size: 32

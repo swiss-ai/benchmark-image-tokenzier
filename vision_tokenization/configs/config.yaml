@@ -24,6 +24,9 @@ mode: ???                          # required: image_only | sft | image2text | t
 
 tokenizer:
   path: /capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_wavtok
+  # Resize band ALIGNED ACROSS PRETRAIN/SFT/POSTTRAINING (user decision
+  # 2026-06-11): post-training never silently changes the vision front-end.
+  # 1400^2 -> <=~7.7k tokens/image; recorded in posttraining's manifest.json.
   min_pixels: "128*128"
   max_pixels: "1400*1400"
   max_encode_pixels: 8_000_000
