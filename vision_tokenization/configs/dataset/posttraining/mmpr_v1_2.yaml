@@ -1,7 +1,7 @@
 # MMPR-v1.2 (OpenGVLab, ~800k preference pairs after converter filters) ->
 # views+media alignment stores, one store per converted shard.
 #
-# Source shards (scripts/convert_mmpr_v1_2.py, hash-of-first-image sharding so
+# Source shards (multimodal-data/01-dataset-download/image/mmpr/convert_mmpr_v1_2.py, hash-of-first-image sharding so
 # image reuse colocates within a store):
 #   /capstor/store/cscs/swissai/infra01/vision-datasets/alignment-processed/mmpr-v1.2/part_{00..07}.parquet
 #
