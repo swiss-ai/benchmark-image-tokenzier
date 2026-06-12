@@ -305,9 +305,16 @@ def run_executor(
     # ------------------------------------------------------------------
     multi_image = bool(cfg.get("multi_image", False))
     use_spill = multi_image or mode == "interleave"
+    # Spill and media-store backends share a calling convention: the executor
+    # GPU-encodes, the backend writes keyed payloads.
+    executor_encodes = use_spill or mode == "posttraining"
 
     writer_state = ckpt.get("writer") if ckpt else None
-    if use_spill:
+    if mode == "posttraining":
+        from ..output.backend import MediaStoreBackend
+        backend = MediaStoreBackend(cfg["media_inventory"])
+        backend.open(output_dir, rank, writer_state=writer_state)
+    elif use_spill:
         from ..output.backend import SpillBackend
         backend = SpillBackend()
         backend.open(output_dir, rank, writer_state=writer_state)
@@ -485,10 +492,10 @@ def run_executor(
                     batch_count += 1
                     continue
 
-                if use_spill:
-                    # Spill path: GPU encode images, then spill components
-                    # Spill mode tokenizes images eagerly in the executor, so
-                    # tokenize wall time is exactly this encode section.
+                if executor_encodes:
+                    # GPU encode here, then hand components to the backend
+                    # (spill or media store) — tokenize wall time is exactly
+                    # this encode section.
                     t0 = time.perf_counter() if log_now else None
                     token_sequences = tokenizer.tokenize_images(
                         valid_images, resize_size,
@@ -644,7 +651,7 @@ def run_executor(
         if manifest_files is not None:
             write_rank_manifest(
                 output_dir, rank, world_size, plan_fingerprint,
-                backend="spill" if use_spill else "direct", files=manifest_files,
+                backend=backend.name, files=manifest_files,
             )
 
     save_checkpoint(

@@ -1,11 +1,13 @@
 """Image loading (random-access) and optional augmentation for the distributed pipeline.
 
-Two loader classes:
+Loader classes:
 - ``WDSImageLoader``: Random-access via TarRandomAccessReader (byte offsets from manifest).
 - ``HFImageLoader``: Reads from HF Arrow/Parquet shard files, preferring
   physical manifest coordinates when available.
 - ``JSONLTarLoader``: Reads images from a JSONL+tar manifest, with document
   text loaded from JSONL by byte offsets.
+- ``AlignmentMediaLoader``: Decodes posttraining unique-media bytes from the
+  scan stage's in-memory inventory.
 
 Both support loading associated text for SFT / image-text-pair modes.
 
@@ -1378,6 +1380,44 @@ class HFImageLoader:
 
 
 # ---------------------------------------------------------------------------
+# Alignment media loader (posttraining)
+# ---------------------------------------------------------------------------
+
+
+class AlignmentMediaLoader:
+    """Decode posttraining unique-media bytes into PIL images.
+
+    The scan stage hands the executor its in-memory inventory via
+    ``cfg["media_inventory"]`` (scan.parquet row order); plan ``source_ref``
+    values index it. Decode runs in prefetch workers, overlapping GPU encode.
+    """
+
+    def __init__(self, media_inventory: List[Any]):
+        self._inventory = media_inventory
+
+    def load_batch(
+        self,
+        sample_indices: np.ndarray,
+        group_slices: Optional[np.ndarray] = None,
+    ) -> Tuple[List[Optional[Image.Image]], Optional[List[Any]]]:
+        images: List[Optional[Image.Image]] = []
+        for i in sample_indices:
+            media = self._inventory[int(i)]
+            try:
+                img = Image.open(BytesIO(media.raw))
+                img.load()
+                images.append(img)
+            except Exception:
+                # The scan only decoded the header; body-corrupt media fails
+                # here and surfaces at publish (views must resolve every ref).
+                logger.warning(
+                    f"Failed to decode media {media.media_id[:12]}", exc_info=True
+                )
+                images.append(None)
+        return images, None
+
+
+# ---------------------------------------------------------------------------
 
 def _normalize_loader_storage_and_mode(cfg: Dict[str, Any]) -> Tuple[str, Optional[str]]:
     """Resolve (storage dataset_type, mode) from config."""
@@ -1394,7 +1434,11 @@ def _normalize_loader_storage_and_mode(cfg: Dict[str, Any]) -> Tuple[str, Option
 
 
 def create_loader(cfg: Dict[str, Any]):
-    """Factory to create the appropriate loader based on dataset_type."""
+    """Factory to create the appropriate loader based on mode/dataset_type."""
+    # Posttraining loads from the scan stage's inventory, not a storage backend.
+    if cfg.get("mode") == "posttraining":
+        return AlignmentMediaLoader(cfg["media_inventory"])
+
     dataset_type, mode = _normalize_loader_storage_and_mode(cfg)
     text_column = cfg.get("text_column")
     parser = cfg.get("parser")

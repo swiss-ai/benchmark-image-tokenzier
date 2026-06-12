@@ -2,13 +2,15 @@
 
 - ``DirectBackend``: assembles and writes final bin/idx immediately.
 - ``SpillBackend``: writes keyed component payloads for offline rebuild.
+- ``MediaStoreBackend``: content-addressed media store (posttraining mode).
 
-The executor instantiates one based on ``use_spill = multi_image or mode == "interleave"``.
+The executor instantiates one based on mode/multi_image.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -42,6 +44,8 @@ class DirectBackend:
     Each batch produces complete sequences: BOS + image_struct + text + EOS.
     No intermediate spill, no offline rebuild.
     """
+
+    name = "direct"
 
     def __init__(self, mode: str):
         self._mode = mode
@@ -104,6 +108,8 @@ class DirectBackend:
 class SpillBackend:
     """Write keyed component payloads for offline rebuild."""
 
+    name = "spill"
+
     def __init__(self):
         self._writer = None
         self._dropped_sft_docs: set[int] = set()
@@ -138,7 +144,6 @@ class SpillBackend:
         stats: WorkerStats,
     ) -> dict:
         """Spill one batch's components to disk for offline rebuild."""
-        import time
         t0 = time.perf_counter()
         kwargs = dict(
             image_tokens=image_tokens,
@@ -517,3 +522,86 @@ class SpillBackend:
                 stats.samples_processed += 1
                 stats.image_tokens += len(tokens_np)
                 stats.tokens_generated += len(tokens_np)
+
+
+class MediaStoreBackend:
+    """Content-addressed media store for posttraining mode.
+
+    One sealed ``<|img_start|>..<|img_end|>`` block per unique media, written
+    via ``MediaStoreWriter`` (the storage layer). Shares the spill calling
+    convention: the executor GPU-encodes, this backend writes keyed payloads.
+    """
+
+    name = "media_store"
+
+    def __init__(self, media_inventory: List[Any]):
+        # Scan-row-ordered UniqueMedia list; plan source_ref values index it.
+        self._inventory = media_inventory
+        self._writer = None
+        self._sealed_files: Dict[str, int] = {}
+        self._n_media = 0
+        self._n_tokens = 0
+
+    def open(self, output_dir: str, rank: int, writer_state: Optional[dict] = None) -> None:
+        from .media_store import MediaStoreWriter
+
+        # Seal-at-end store: there is no mid-run cursor to restore from.
+        if writer_state:
+            raise ValueError("media store is seal-at-end; resume is unsupported")
+        self._writer = MediaStoreWriter(Path(output_dir) / "media", shard_id=rank)
+
+    def write_batch(
+        self,
+        image_tokens: List[torch.Tensor],
+        texts: Optional[List[Any]],
+        component_indices: np.ndarray,
+        group_slices: Optional[np.ndarray],
+        resize_height: int,
+        resize_width: int,
+        plan: Any,
+        tokenizer: Any,
+        stats: WorkerStats,
+    ) -> dict:
+        """Strip the outer BOS/EOS and store each media's encapsulated block."""
+        t0 = time.perf_counter()
+        for seq, comp_idx in zip(image_tokens, component_indices):
+            media = self._inventory[int(plan.components.source_ref[int(comp_idx)])]
+            row = seq.cpu() if seq.is_cuda else seq
+            if int(row[0]) != tokenizer.bos_id or int(row[-1]) != tokenizer.eos_id:
+                raise ValueError(
+                    f"media {media.media_id[:12]}: encode did not return a "
+                    f"BOS..EOS-wrapped block"
+                )
+            block = row[1:-1].numpy()
+            self._writer.add(
+                media.media_id, tokens=block, raw=media.raw,
+                resize_h=resize_height, resize_w=resize_width,
+                kind="image", source=media.source, raw_ext=media.raw_ext,
+            )
+            stats.samples_processed += 1
+            stats.image_tokens += len(block)
+            stats.tokens_generated += len(block)
+            self._n_media += 1
+            self._n_tokens += len(block)
+        return {"write_ms": (time.perf_counter() - t0) * 1000}
+
+    def checkpoint(self) -> dict:
+        """No resumable cursor: the store seals at finalize (resume rejected at open)."""
+        return {}
+
+    def completed_files(self) -> list:
+        """Sealed-triple records for the rank completion manifest.
+
+        Counts live on the tokens shard; the parquet/raw files ride along at 0
+        so the manifest sums stay (n media blocks, n token elements).
+        """
+        return [
+            {"name": f"media/{name}", "bytes": size,
+             "sequences": self._n_media if name.startswith("tokens.") else 0,
+             "tokens": self._n_tokens if name.startswith("tokens.") else 0}
+            for name, size in sorted(self._sealed_files.items())
+        ]
+
+    def finalize(self) -> None:
+        if self._writer:
+            self._sealed_files = self._writer.seal()

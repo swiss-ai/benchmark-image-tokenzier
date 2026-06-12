@@ -10,11 +10,12 @@ before planning): the one pass that reads each image's bytes for sha256 also
 decodes width/height. Corrupt/undecodable and sub-``SPATIAL_FACTOR`` images are
 skipped here — with every view row referencing them — and the surviving
 geometry is persisted as ``scan.parquet`` (``write_scan_parquet``) before any
-GPU work. The planner consumes dims from the scan; the runner never decodes.
+GPU work. The plan builder (``build_plan_posttraining``) consumes dims from
+the scan; only the executor's loader re-opens bytes, to feed the GPU encoder.
 
 ``ROW_ADAPTERS`` keys the per-task row parser + view schema (``task:`` in the
 dataset yaml): ``preference`` today, ``rl_prompt`` reserved for P4. The media
-store, planner, runner, and Gate 2 never branch on task.
+store, plan builder, executor, and Gate 2 never branch on task.
 """
 
 from __future__ import annotations
@@ -148,9 +149,9 @@ def _parse_preference_row(row: dict, seen: dict) -> dict:
 ROW_ADAPTERS = {"preference": _parse_preference_row}
 
 # The output namespace comes from the TASK, not the mode (user directive):
-# preference data lands under alignment/, RL data under rl/. Consumed by
+# preference data lands under preference/, RL data under rl/. Consumed by
 # run_distributed_pipeline when namespacing the dataset root.
-TASK_OUTPUT_DIRS = {"preference": "alignment", "rl_prompt": "rl"}
+TASK_OUTPUT_DIRS = {"preference": "preference", "rl_prompt": "rl"}
 
 
 def ingest_parquet(path: Path, task: str) -> IngestResult:

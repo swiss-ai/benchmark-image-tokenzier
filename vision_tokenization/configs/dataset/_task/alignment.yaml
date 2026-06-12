@@ -10,5 +10,7 @@ tokenizer_path: /capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.
 # multimodal DPO runs use max_total_sequence_length 16384. Recorded in manifest.json.
 min_pixels: "128*128"
 max_pixels: "1400*1400"
-encode_batch_size: 32
+# Exact-dim GPU batches (the unified executor's batch_size); the tokenizer's
+# max_encode_pixels chunks within a batch to bound peak GPU memory.
+batch_size: 32
 val_rows: 256

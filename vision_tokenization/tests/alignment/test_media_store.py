@@ -1,6 +1,9 @@
+from types import SimpleNamespace
+
 import numpy as np
 import pyarrow.parquet as pq
 import pytest
+import torch
 
 from vision_tokenization.pipeline.output.media_store import (
     MediaStoreReader,
@@ -63,3 +66,55 @@ def test_reader_refuses_unknown_dtype(tmp_path):
     w.seal()
     with pytest.raises(ValueError, match="token_dtype"):
         MediaStoreReader([tmp_path / "media"], token_dtype="<i8")
+
+
+def _backend_fixtures():
+    from vision_tokenization.pipeline.runtime.checkpoint import WorkerStats
+
+    inventory = [
+        SimpleNamespace(media_id="a" * 64, raw=b"\xff\xd8raw1", source="s/0", raw_ext="jpg"),
+        SimpleNamespace(media_id="b" * 64, raw=b"\xff\xd8raw22", source="s/1", raw_ext="png"),
+    ]
+    plan = SimpleNamespace(components=SimpleNamespace(source_ref=np.array([0, 1])))
+    tokenizer = SimpleNamespace(bos_id=1, eos_id=2)
+    return inventory, plan, tokenizer, WorkerStats()
+
+
+def test_media_store_backend_strips_wrapper_and_seals(tmp_path):
+    from vision_tokenization.pipeline.output.backend import MediaStoreBackend
+
+    inventory, plan, tokenizer, stats = _backend_fixtures()
+    blocks = [_block(10, 8), _block(7, 9)]
+    rows = [torch.tensor(np.concatenate([[1], blk, [2]]), dtype=torch.long)
+            for blk in blocks]
+
+    backend = MediaStoreBackend(inventory)
+    backend.open(str(tmp_path), rank=0)
+    backend.write_batch(
+        image_tokens=rows, texts=None, component_indices=np.array([0, 1]),
+        group_slices=None, resize_height=160, resize_width=160,
+        plan=plan, tokenizer=tokenizer, stats=stats)
+    backend.finalize()
+
+    r = MediaStoreReader([tmp_path / "media"], token_dtype="<i4")
+    np.testing.assert_array_equal(r.tokens("a" * 64), blocks[0])  # BOS/EOS stripped
+    np.testing.assert_array_equal(r.tokens("b" * 64), blocks[1])
+    assert r.raw("b" * 64) == b"\xff\xd8raw22"
+    assert stats.samples_processed == 2 and stats.tokens_generated == 17
+    files = backend.completed_files()
+    assert sum(f["sequences"] for f in files) == 2
+    assert sum(f["tokens"] for f in files) == 17
+
+
+def test_media_store_backend_refuses_unwrapped_block(tmp_path):
+    from vision_tokenization.pipeline.output.backend import MediaStoreBackend
+
+    inventory, plan, tokenizer, stats = _backend_fixtures()
+    backend = MediaStoreBackend(inventory)
+    backend.open(str(tmp_path), rank=0)
+    with pytest.raises(ValueError, match="BOS..EOS"):
+        backend.write_batch(
+            image_tokens=[torch.tensor(_block(8, 10), dtype=torch.long)],
+            texts=None, component_indices=np.array([0]), group_slices=None,
+            resize_height=160, resize_width=160,
+            plan=plan, tokenizer=tokenizer, stats=stats)

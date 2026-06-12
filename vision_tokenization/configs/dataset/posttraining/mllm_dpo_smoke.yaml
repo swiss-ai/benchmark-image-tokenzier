@@ -1,12 +1,11 @@
-# 16-row producer smoke (Part A6). input_parquet / output_dir are supplied on
-# the CLI; task-keyed root: <output_dir>/alignment/mllm_dpo_smoke (task:
-# preference). The _pipeline fragment satisfies tokenize.py's unconditional
-# dataset.min_pixels/max_pixels reads; its manifest/plan keys are never read
-# once the posttraining branch short-circuits in pipeline/__init__.py.
+# 16-row producer smoke (Part A6). input_parquet is supplied on the CLI;
+# task-keyed root: <output_dir>/preference/mllm_dpo_smoke (task: preference).
+# manifest_path stays ??? in yaml: the scan stage injects scan.parquet at
+# runtime before the executor builds the plan.
 defaults:
   - /dataset/_pipeline@_here_
   - /dataset/_task/alignment@_here_
 
 output_name: mllm_dpo_smoke
-output_dir: ???
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 input_parquet: ???

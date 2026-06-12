@@ -874,6 +874,89 @@ def build_plan_interleave(
     return plan
 
 
+def build_plan_posttraining(
+    manifest_path: Union[str, Path],
+    *,
+    batch_size: int = 128,
+    spatial_factor: int = 16,
+    resize_min_pixels: int = 16384,
+    resize_max_pixels: int = 1960000,
+) -> TokenizationPlan:
+    """Build plan for posttraining mode from the scan artifact (``scan.parquet``).
+
+    One single-image document per unique media; ``source_ref`` is the scan row
+    (== media inventory index). Batches group by EXACT smart-resize dims —
+    ``media_id -> block`` must be a pure function of (bytes, resize band), so
+    no spillover cluster-mean dims; stragglers form short batches that keep
+    their exact dims. No pixel filter: the scan already gated corrupt and
+    sub-factor images, and every surviving row must reach the media store
+    (view rows reference them all).
+    """
+    manifest_path = str(manifest_path)
+    scan = pq.read_table(manifest_path, columns=["height", "width"])
+    heights = scan.column("height").to_numpy().astype(np.int64)
+    widths = scan.column("width").to_numpy().astype(np.int64)
+    N = len(heights)
+
+    doc_ids = np.arange(N, dtype=np.int64)
+    plan = TokenizationPlan(
+        documents=DocumentIndex(
+            document_id=doc_ids,
+            output_order=doc_ids.copy(),
+            num_images=np.ones(N, dtype=np.int16),
+        ),
+        components=ComponentIndex(
+            document_id=doc_ids.copy(),
+            component_index=np.zeros(N, dtype=np.int16),
+            kind=np.full(N, IMAGE, dtype=np.int8),
+            source_kind=np.full(N, SOURCE_MANIFEST_ROW, dtype=np.int8),
+            source_ref=doc_ids.copy(),
+            image_index=np.zeros(N, dtype=np.int16),
+        ),
+    )
+
+    final_h, final_w = smart_resize_dims_batch(
+        heights, widths,
+        min_pixels=resize_min_pixels, max_pixels=resize_max_pixels,
+        factor=spatial_factor,
+    )
+    keys = final_h.astype(np.int64) * 100_000 + final_w.astype(np.int64)
+
+    batches: List[ImageBatch] = []
+    # Sorted unique keys + ascending members -> deterministic batch order.
+    for k in np.unique(keys):
+        members = np.where(keys == k)[0]
+        rh, rw = int(k) // 100_000, int(k) % 100_000
+        per_tok = estimate_image_tokens(rh, rw, spatial_factor=spatial_factor)
+        for s in range(0, len(members), batch_size):
+            chunk = members[s:s + batch_size]
+            batches.append(ImageBatch(
+                component_indices=chunk.astype(np.int64),
+                resize_height=rh, resize_width=rw,
+                batch_token_count=per_tok * len(chunk),
+            ))
+
+    plan.execution.image_batches = ImageBatchTable.from_batches(batches)
+    # One image per document: every batch boundary is a safe split point.
+    plan.execution.split_batch_offsets = np.arange(len(batches), dtype=np.int64)
+
+    plan.metadata = PlanMetadata(
+        manifest_path=manifest_path,
+        manifest_fingerprint=_manifest_fingerprint(manifest_path),
+        mode="posttraining",
+        batch_size=batch_size,
+        resize_min_pixels=resize_min_pixels,
+        resize_max_pixels=resize_max_pixels,
+        spatial_factor=spatial_factor,
+    )
+
+    logger.info(
+        f"posttraining plan: {plan.total_documents:,} unique media, "
+        f"{plan.total_batches:,} exact-dim batches"
+    )
+    return plan
+
+
 # ---------------------------------------------------------------------------
 # Top-level builder
 # ---------------------------------------------------------------------------
@@ -898,8 +981,8 @@ def build_tokenization_plan(
     """Build a TokenizationPlan for the given mode.
 
     Args:
-        manifest_path: Path to manifest parquet.
-        mode: One of image_only, image2text, text2image, sft, interleave.
+        manifest_path: Path to manifest parquet (``scan.parquet`` for posttraining).
+        mode: One of image_only, image2text, text2image, sft, interleave, posttraining.
         text_column: Text column/field name for text loading.
         parser: Optional dataset parser name used at text load time.
         min_pixels, max_pixels: Pixel count filter bounds.
@@ -939,6 +1022,16 @@ def build_tokenization_plan(
             text_column=text_column,
             parser=parser,
             **common,
+        )
+    elif mode == "posttraining":
+        # Exact-dims contract: no pixel filter, no token-budget repacking —
+        # the scan is the only gate and dims must stay exact.
+        return build_plan_posttraining(
+            manifest_path,
+            batch_size=batch_size,
+            spatial_factor=spatial_factor,
+            resize_min_pixels=resize_min_pixels,
+            resize_max_pixels=resize_max_pixels,
         )
     else:
         raise ValueError(f"Unknown mode: {mode}")

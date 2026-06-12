@@ -1,9 +1,9 @@
 # mllm-dpo (5,182 preference pairs) -> views+media alignment store (Part C1).
-# Task-keyed output root: <output_dir>/alignment/mllm_dpo (task: preference).
+# Task-keyed output root: <output_dir>/preference/mllm_dpo (task: preference).
 defaults:
   - /dataset/_pipeline@_here_
   - /dataset/_task/alignment@_here_
 
 output_name: mllm_dpo
-output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/alignment-tokenized/mllm_dpo_views_media
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 input_parquet: /capstor/store/cscs/swissai/infra01/vision-datasets/alignment-processed/mllm-dpo.parquet

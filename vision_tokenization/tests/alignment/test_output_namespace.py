@@ -3,9 +3,9 @@ import pytest
 from vision_tokenization.pipeline import _build_output_subdir
 
 
-def test_preference_task_namespaces_under_alignment():
+def test_preference_task_namespaces_under_preference():
     cfg = {"mode": "posttraining", "task": "preference", "output_name": "mllm_dpo_smoke"}
-    assert _build_output_subdir(cfg) == "alignment/mllm_dpo_smoke"
+    assert _build_output_subdir(cfg) == "preference/mllm_dpo_smoke"
 
 
 def test_rl_prompt_task_namespaces_under_rl():
