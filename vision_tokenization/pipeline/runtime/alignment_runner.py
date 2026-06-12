@@ -1,13 +1,18 @@
 """``alignment`` mode: freeze media for preference/RL datasets (views+media spec).
 
-Single-rank. Writes ``<root>/media/`` (sealed triple via ``MediaStoreWriter``),
+Single-rank. Writes ``<root>/scan.parquet`` (the geometry record, before any
+GPU work), ``<root>/media/`` (sealed triple via ``MediaStoreWriter``),
 ``<root>/views/{train,validation}.parquet``, then ``manifest.json`` LAST (the
-commit record), where ``<root> = cfg["output_dir"]`` (already namespaced to
-``.../alignment/<output_name>`` by ``run_distributed_pipeline``).
+commit record), where ``<root> = cfg["output_dir"]`` (already task-keyed to
+``.../{alignment|rl}/<output_name>`` by ``run_distributed_pipeline``).
 
 The mode is task-neutral; ``cfg["task"]`` (``preference`` today) selects the row
 adapter + view schema inside ``ingest_parquet`` via ``ROW_ADAPTERS``. The runner,
 planner, media store, and manifest never branch on task.
+
+Geometry comes from the scan (pipeline contract: scan before plan): ingest
+decodes width/height once per unique media and skips corrupt/sub-16px images;
+this runner only opens images to feed the GPU encoder.
 """
 
 from __future__ import annotations
@@ -23,16 +28,19 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from PIL import Image
 
-from vision_tokenization.indexing.alignment.ingest import ingest_parquet
+from vision_tokenization.indexing.alignment.ingest import (
+    SPATIAL_FACTOR,
+    ingest_parquet,
+    write_scan_parquet,
+)
 from vision_tokenization.indexing.alignment.planning import plan_exact_dim_batches
 from vision_tokenization.pipeline.output.media_store import (
     MediaStoreWriter,
     atomic_write_json,
 )
-from vision_tokenization.utils.image_geometry import smart_resize_dims
+from vision_tokenization.utils.image_geometry import smart_resize_dims_batch
 
 logger = logging.getLogger(__name__)
-SPATIAL_FACTOR = 16
 
 
 def run_alignment_mode(cfg: dict) -> dict:
@@ -40,6 +48,11 @@ def run_alignment_mode(cfg: dict) -> dict:
 
     out = Path(cfg["output_dir"])
     res = ingest_parquet(Path(cfg["input_parquet"]), task=cfg["task"])
+    if res.n_skipped_media:
+        logger.warning("scan skipped %d corrupt/sub-%dpx images (and their pairs)",
+                       res.n_skipped_media, SPATIAL_FACTOR)
+    out.mkdir(parents=True, exist_ok=True)
+    scan_size = write_scan_parquet(out / "scan.parquet", res.unique_media)
 
     tokenizer = create_tokenizer(
         mode="alignment",
@@ -51,21 +64,14 @@ def run_alignment_mode(cfg: dict) -> dict:
         **(cfg.get("tokenizer_kwargs", {})),
     )
 
-    # Exact smart-resize dims per unique image; skip-and-count degenerate images.
-    dims, skipped = [], set()
-    for i, um in enumerate(res.unique_media):
-        with Image.open(io.BytesIO(um.raw)) as im:
-            w, h = im.size
-        if h < SPATIAL_FACTOR or w < SPATIAL_FACTOR:
-            skipped.add(um.media_id)
-            continue
-        rh, rw = smart_resize_dims(
-            h, w, min_pixels=cfg["tokenizer_min_pixels"],
-            max_pixels=cfg["tokenizer_max_pixels"], factor=SPATIAL_FACTOR)
-        dims.append((i, rh, rw))
-    if skipped:
-        logger.warning("skipping %d sub-%dpx images (and their pairs)",
-                       len(skipped), SPATIAL_FACTOR)
+    # Exact smart-resize dims from the scan geometry (runner never decodes).
+    resize_h, resize_w = smart_resize_dims_batch(
+        np.array([um.height for um in res.unique_media], dtype=np.int64),
+        np.array([um.width for um in res.unique_media], dtype=np.int64),
+        min_pixels=cfg["tokenizer_min_pixels"],
+        max_pixels=cfg["tokenizer_max_pixels"], factor=SPATIAL_FACTOR)
+    dims = list(zip(range(len(res.unique_media)),
+                    resize_h.tolist(), resize_w.tolist()))
 
     writer = MediaStoreWriter(out / "media")
     for batch in plan_exact_dim_batches(dims, batch_size=cfg["encode_batch_size"]):
@@ -84,17 +90,14 @@ def run_alignment_mode(cfg: dict) -> dict:
                        kind="image", source=um.source, raw_ext=um.raw_ext)
     media_files = writer.seal()
 
-    # Views: drop rows referencing skipped media; exact media token stats.
+    # Views: exact media token stats (skipped-media rows already dropped at scan).
     length_of = {r["media_id"]: r["length_elems"] for r in
                  pq.read_table(out / "media" / "media.000000.parquet").to_pylist()}
-    rows = []
-    for row in res.view_rows:
-        if any(m in skipped for m in row["prompt_media_refs"]):
-            continue
+    rows = res.view_rows
+    for row in rows:
         row["media_tokens_total"] = sum(length_of[m] for m in row["prompt_media_refs"])
         row["text_chars"] = (sum(len(m["content"]) for m in row["prompt"])
                              + len(row["chosen"]) + len(row["rejected"]))
-        rows.append(row)
 
     rng = random.Random(42)
     rng.shuffle(rows)
@@ -118,21 +121,22 @@ def run_alignment_mode(cfg: dict) -> dict:
         "expected_min_model_vocab": 266440,
         "media_roots": ["media/"],
         "store_raw": True,
-        "files": {**{f"media/{k}": v for k, v in media_files.items()}, **view_files},
+        "files": {"scan.parquet": scan_size,
+                  **{f"media/{k}": v for k, v in media_files.items()}, **view_files},
         "source_input": str(cfg["input_parquet"]),
         "n_pairs": len(rows),
         "n_unique_media": len(dims),
-        "n_skipped_media": len(skipped),
+        "n_skipped_media": res.n_skipped_media,
     })
 
     logger.info(
         "alignment mode done: %d pairs, %d unique media (%d skipped) -> %s",
-        len(rows), len(dims), len(skipped), out)
+        len(rows), len(dims), res.n_skipped_media, out)
     return {
         "output_dir": str(out),
         "samples_processed": len(rows),
         "tokens_generated": sum(length_of.values()),
         "n_pairs": len(rows),
         "n_unique_media": len(dims),
-        "n_skipped_media": len(skipped),
+        "n_skipped_media": res.n_skipped_media,
     }
