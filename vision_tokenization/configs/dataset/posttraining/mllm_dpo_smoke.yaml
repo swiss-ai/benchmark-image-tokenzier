@@ -2,7 +2,7 @@
 # the CLI; task-keyed root: <output_dir>/alignment/mllm_dpo_smoke (task:
 # preference). The _pipeline fragment satisfies tokenize.py's unconditional
 # dataset.min_pixels/max_pixels reads; its manifest/plan keys are never read
-# once the alignment branch short-circuits in pipeline/__init__.py.
+# once the posttraining branch short-circuits in pipeline/__init__.py.
 defaults:
   - /dataset/_pipeline@_here_
   - /dataset/_task/alignment@_here_

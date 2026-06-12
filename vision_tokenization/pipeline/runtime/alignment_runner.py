@@ -1,4 +1,7 @@
-"""``alignment`` mode: freeze media for preference/RL datasets (views+media spec).
+"""Posttraining mode: freeze media for preference/RL datasets (views+media spec).
+
+The mode's CLI name is ``posttraining``; module/package names keep the internal
+``alignment`` naming (matching the capstor dataset layout).
 
 Single-rank. Writes ``<root>/scan.parquet`` (the geometry record, before any
 GPU work), ``<root>/media/`` (sealed triple via ``MediaStoreWriter``),
@@ -55,7 +58,7 @@ def run_alignment_mode(cfg: dict) -> dict:
     scan_size = write_scan_parquet(out / "scan.parquet", res.unique_media)
 
     tokenizer = create_tokenizer(
-        mode="alignment",
+        mode="posttraining",
         text_tokenizer_path=cfg["tokenizer_path"],
         device=f"cuda:{cfg['local_rank']}",
         min_pixels=cfg["tokenizer_min_pixels"],
@@ -130,7 +133,7 @@ def run_alignment_mode(cfg: dict) -> dict:
     })
 
     logger.info(
-        "alignment mode done: %d pairs, %d unique media (%d skipped) -> %s",
+        "posttraining mode done: %d pairs, %d unique media (%d skipped) -> %s",
         len(rows), len(dims), res.n_skipped_media, out)
     return {
         "output_dir": str(out),

@@ -8,7 +8,7 @@ _CONFIG_DIR = Path(__file__).resolve().parents[2] / "configs"
 
 
 def _compose_alignment_cfg(dataset: str, extra_overrides: list[str] | None = None):
-    overrides = [f"dataset={dataset}", "mode=alignment", "num_gpus=1"]
+    overrides = [f"dataset={dataset}", "mode=posttraining", "num_gpus=1"]
     if extra_overrides:
         overrides.extend(extra_overrides)
     GlobalHydra.instance().clear()
@@ -20,14 +20,14 @@ def _compose_alignment_cfg(dataset: str, extra_overrides: list[str] | None = Non
 
 def test_alignment_smoke_config_composes_and_resolves():
     cfg = _compose_alignment_cfg(
-        "alignment/mllm_dpo_smoke",
+        "posttraining/mllm_dpo_smoke",
         extra_overrides=[
             "dataset.output_dir=/tmp/out",
             "dataset.input_parquet=/tmp/in.parquet",
         ],
     )
     # manifest_path/plan keys from the _pipeline fragment stay ??? by design
-    # (never read once the alignment branch short-circuits), so resolve without
+    # (never read once the posttraining branch short-circuits), so resolve without
     # throwing on those unused mandatory values.
     OmegaConf.to_container(cfg, resolve=True)
 
@@ -44,9 +44,9 @@ def test_alignment_smoke_config_composes_and_resolves():
 
 
 def test_alignment_real_config_carries_capstor_paths():
-    cfg = _compose_alignment_cfg("alignment/mllm_dpo")
+    cfg = _compose_alignment_cfg("posttraining/mllm_dpo")
     # manifest_path/plan keys from the _pipeline fragment stay ??? by design
-    # (never read once the alignment branch short-circuits), so resolve without
+    # (never read once the posttraining branch short-circuits), so resolve without
     # throwing on those unused mandatory values.
     OmegaConf.to_container(cfg, resolve=True)
 

@@ -28,7 +28,7 @@ from omegaconf import DictConfig, OmegaConf
 
 logger = logging.getLogger(__name__)
 
-_VALID_MODES = {"image_only", "sft", "image2text", "text2image", "interleave", "alignment"}
+_VALID_MODES = {"image_only", "sft", "image2text", "text2image", "interleave", "posttraining"}
 
 
 def _preprocess_dataset_override():
@@ -67,7 +67,7 @@ def _resolve_mode(cfg: DictConfig) -> None:
     mode = cfg.get("mode")
     if mode is None:
         raise ValueError(
-            "mode is required. Use: mode=image_only | sft | image2text | text2image | interleave | alignment"
+            "mode is required. Use: mode=image_only | sft | image2text | text2image | interleave | posttraining"
         )
     if mode not in _VALID_MODES:
         raise ValueError(

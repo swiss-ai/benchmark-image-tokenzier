@@ -1,4 +1,5 @@
-# Task fragment for alignment-mode datasets (composed via defaults).
+# Task fragment for posttraining-mode datasets (composed via defaults; the
+# file keeps the internal `alignment` name).
 # The mode is task-neutral; `task` selects the row adapter + view schema in
 # ingest.py (ROW_ADAPTERS). `preference` today; `rl_prompt` reserved for P4.
 task: preference

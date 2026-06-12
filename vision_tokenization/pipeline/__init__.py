@@ -25,13 +25,13 @@ def _build_output_subdir(cfg: Dict[str, Any]) -> str:
         image2text:     image2text/{output_name}
         text2image:     text2image/{output_name}
         interleave:     interleave/{output_name}
-        alignment:      {alignment|rl}/{output_name}   (task-keyed)
+        posttraining:   {alignment|rl}/{output_name}   (task-keyed)
     """
     output_name = cfg.get("output_name")
     if not output_name:
         raise ValueError("'output_name' is required in the dataset config.")
     mode = cfg["mode"]
-    if mode == "alignment":
+    if mode == "posttraining":
         # The output namespace comes from the TASK, not the mode: preference
         # data lands under alignment/, RL data under rl/ (TASK_OUTPUT_DIRS).
         from vision_tokenization.indexing.alignment.ingest import TASK_OUTPUT_DIRS
@@ -127,13 +127,13 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
         f"no NCCL — each rank is independent)"
     )
 
-    # Alignment mode (views+media preference data) has no manifest/plan, so the
-    # generic executor path (which loads a TokenizationPlan) is unusable. It is
-    # single-rank: the GPU work is the unique-media encode.
-    if cfg["mode"] == "alignment":
+    # Posttraining mode (views+media preference data) has no manifest/plan, so
+    # the generic executor path (which loads a TokenizationPlan) is unusable.
+    # It is single-rank: the GPU work is the unique-media encode.
+    if cfg["mode"] == "posttraining":
         if cfg["world_size"] != 1:
             raise RuntimeError(
-                f"alignment mode is single-rank; got world_size={cfg['world_size']}"
+                f"posttraining mode is single-rank; got world_size={cfg['world_size']}"
             )
         from .runtime.alignment_runner import run_alignment_mode
 

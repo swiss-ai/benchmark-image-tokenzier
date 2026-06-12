@@ -18,7 +18,7 @@ defaults:
 # --- Pipeline -----------------------------------------------------------------
 
 num_gpus: ???                      # total GPU count (verified against SLURM_NTASKS)
-mode: ???                          # required: image_only | sft | image2text | text2image | interleave | alignment
+mode: ???                          # required: image_only | sft | image2text | text2image | interleave | posttraining
 
 # --- Tokenizer ----------------------------------------------------------------
 

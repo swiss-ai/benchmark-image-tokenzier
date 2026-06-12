@@ -31,9 +31,9 @@ def _all_dataset_choices() -> list[str]:
         str(path.relative_to(_DATASET_DIR)).replace("\\", "/")[:-5]
         for path in _DATASET_DIR.rglob("*.yaml")
         if not any(part.startswith("_") for part in path.relative_to(_DATASET_DIR).parts)
-        # `alignment` mode reads `input_parquet` directly (no storage backend),
+        # `posttraining` mode reads `input_parquet` directly (no storage backend),
         # so it has no `dataset_type`; it is covered by tests/alignment/test_config.py.
-        and path.relative_to(_DATASET_DIR).parts[0] != "alignment"
+        and path.relative_to(_DATASET_DIR).parts[0] != "posttraining"
     )
 
 
