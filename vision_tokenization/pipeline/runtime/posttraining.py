@@ -101,6 +101,8 @@ def run_posttraining(cfg: dict) -> dict:
     # scan.parquet IS this mode's manifest (plan fingerprint source); the
     # inventory is its in-memory companion — same row order, plus raw bytes.
     cfg["manifest_path"] = str(out / "scan.parquet")
+    # ORDER CONTRACT: must equal scan.parquet row order — the plan's source_ref
+    # and MediaStoreBackend both index this list by position.
     cfg["media_inventory"] = res.unique_media
 
     result = run_executor(cfg["rank"], cfg["world_size"], cfg)

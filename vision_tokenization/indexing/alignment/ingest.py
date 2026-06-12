@@ -100,11 +100,8 @@ def _decode_dims(raw: bytes) -> tuple[int, int]:
 
 
 def _register_media(row: dict, seen: dict) -> list[str]:
-    """Register each of the row's images into *seen* (``media_id ->
-    UniqueMedia``, the cross-row dedup index) keyed by ``sha256(raw bytes)``
-    full hex, decoding width/height once per unique media (the scan pass).
-    Returns the row's refs in order. Shared across ROW_ADAPTERS.
-    """
+    """Dedup-register the row's images into *seen* by sha256, decoding dims
+    once per unique media; return the row's refs in marker order."""
     refs = []
     for img in _images_of(row):
         mid = hashlib.sha256(img["bytes"]).hexdigest()
@@ -155,12 +152,9 @@ TASK_OUTPUT_DIRS = {"preference": "preference", "rl_prompt": "rl"}
 
 
 def ingest_parquet(path: Path, task: str) -> IngestResult:
-    """Ingest one source parquet into unique media + drafted view rows.
-
-    The scan gate runs here: media whose decoded ``min(width, height)`` falls
-    below ``SPATIAL_FACTOR`` (corrupt bytes decode to (0, 0)) are skipped and
-    counted, and every view row referencing them is dropped with its pair.
-    """
+    """Ingest one source parquet into unique media + drafted view rows,
+    applying the scan gate (sub-``SPATIAL_FACTOR``/corrupt media skipped,
+    referencing rows dropped with their pairs)."""
     try:
         parse_row = ROW_ADAPTERS[task]
     except KeyError:
@@ -180,10 +174,8 @@ def ingest_parquet(path: Path, task: str) -> IngestResult:
 
 
 def write_scan_parquet(path: Path, unique_media: list) -> int:
-    """Persist the scan artifact: one geometry row per kept unique media,
-    written atomically (tmp + ``os.replace``) BEFORE any GPU work. Returns the
-    byte size for the dataset manifest's ``files`` map.
-    """
+    """Atomically persist the scan artifact (one geometry row per kept media,
+    before any GPU work); return byte size for the manifest files map."""
     table = pa.Table.from_pylist(
         [{"media_id": m.media_id, "width": m.width, "height": m.height,
           "raw_length_bytes": len(m.raw), "source": m.source}

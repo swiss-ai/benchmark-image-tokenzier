@@ -35,8 +35,7 @@ class EMUSftTokenizer(ThreadPoolExecutorOwner, EMUImageOnlyTokenizer):
     def __init__(self, *args, conversation_policy: Optional[ConversationPolicy] = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.conversation_policy = conversation_policy or ConversationPolicy()
-        # image_token_id is consumed by StructureTokenIds in the rebuild path;
-        # the single resolver refuses an UNK fallback (ingest.MARKER is the string).
+        # Via the single UNK-guarded resolver; consumed by the rebuild path.
         self.image_token_id = resolve_token_ids(
             self.text_tokenizer, {"image_marker": IMAGE_MARKER})["image_marker"]
         self._sft_renderer = ChatTemplateSFTDocumentRenderer(
