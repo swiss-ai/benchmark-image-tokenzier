@@ -1,5 +1,6 @@
 # 16-row producer smoke (Part A6). input_parquet / output_dir are supplied on
-# the CLI. The _pipeline fragment satisfies tokenize.py's unconditional
+# the CLI; task-keyed root: <output_dir>/alignment/mllm_dpo_smoke (task:
+# preference). The _pipeline fragment satisfies tokenize.py's unconditional
 # dataset.min_pixels/max_pixels reads; its manifest/plan keys are never read
 # once the alignment branch short-circuits in pipeline/__init__.py.
 defaults:

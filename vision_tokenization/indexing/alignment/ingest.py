@@ -147,6 +147,11 @@ def _parse_preference_row(row: dict, seen: dict) -> dict:
 
 ROW_ADAPTERS = {"preference": _parse_preference_row}
 
+# The output namespace comes from the TASK, not the mode (user directive):
+# preference data lands under alignment/, RL data under rl/. Consumed by
+# run_distributed_pipeline when namespacing the dataset root.
+TASK_OUTPUT_DIRS = {"preference": "alignment", "rl_prompt": "rl"}
+
 
 def ingest_parquet(path: Path, task: str) -> IngestResult:
     """Ingest one source parquet into unique media + drafted view rows.

@@ -25,11 +25,23 @@ def _build_output_subdir(cfg: Dict[str, Any]) -> str:
         image2text:     image2text/{output_name}
         text2image:     text2image/{output_name}
         interleave:     interleave/{output_name}
+        alignment:      {alignment|rl}/{output_name}   (task-keyed)
     """
     output_name = cfg.get("output_name")
     if not output_name:
         raise ValueError("'output_name' is required in the dataset config.")
     mode = cfg["mode"]
+    if mode == "alignment":
+        # The output namespace comes from the TASK, not the mode: preference
+        # data lands under alignment/, RL data under rl/ (TASK_OUTPUT_DIRS).
+        from vision_tokenization.indexing.alignment.ingest import TASK_OUTPUT_DIRS
+
+        task = cfg["task"]
+        if task not in TASK_OUTPUT_DIRS:
+            raise ValueError(
+                f"unknown task {task!r}; expected one of: {sorted(TASK_OUTPUT_DIRS)}"
+            )
+        return str(Path(TASK_OUTPUT_DIRS[task]) / output_name)
     return str(Path(mode) / output_name)
 
 
