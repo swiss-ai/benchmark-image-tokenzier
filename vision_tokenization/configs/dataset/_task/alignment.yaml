@@ -1,0 +1,13 @@
+# Task fragment for alignment-mode datasets (composed via defaults).
+# The mode is task-neutral; `task` selects the row adapter + view schema in
+# ingest.py (ROW_ADAPTERS). `preference` today; `rl_prompt` reserved for P4.
+task: preference
+
+tokenizer_path: /capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_wavtok_instruct_thinking_token_fixed
+# Resize band ALIGNED WITH PRETRAIN/SFT (user decision 2026-06-11): post-training
+# never silently changes the vision front-end. 1400^2 -> <=~7.7k tokens/image;
+# multimodal DPO runs use max_total_sequence_length 16384. Recorded in manifest.json.
+min_pixels: "128*128"
+max_pixels: "1400*1400"
+encode_batch_size: 32
+val_rows: 256

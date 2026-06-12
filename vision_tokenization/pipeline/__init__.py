@@ -115,6 +115,18 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
         f"no NCCL — each rank is independent)"
     )
 
+    # Alignment mode (views+media preference data) has no manifest/plan, so the
+    # generic executor path (which loads a TokenizationPlan) is unusable. It is
+    # single-rank: the GPU work is the unique-media encode.
+    if cfg["mode"] == "alignment":
+        if cfg["world_size"] != 1:
+            raise RuntimeError(
+                f"alignment mode is single-rank; got world_size={cfg['world_size']}"
+            )
+        from .runtime.alignment_runner import run_alignment_mode
+
+        return run_alignment_mode(cfg)
+
     from .runtime.executor import run_executor
 
     return run_executor(rank, world_size, cfg)
