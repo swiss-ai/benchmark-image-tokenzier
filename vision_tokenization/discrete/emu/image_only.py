@@ -6,13 +6,53 @@ Supports both Emu3 and Emu3.5 vision tokenizers.
 
 from vision_tokenization.utils.json import json_load
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
 from transformers import AutoTokenizer
 
 # Tokenizer imports require the repo root on PYTHONPATH (set by SLURM scripts)
 
+# EMU block-structure specials, name -> token string. Single source of truth:
+# tokenizer caches and the posttraining manifest's token_layout both resolve
+# ids through resolve_token_ids — never from literals.
+STRUCTURE_TOKENS = {
+    "img_start": "<|img_start|>",
+    "img_end": "<|img_end|>",
+    "img_token_start": "<|img_token_start|>",
+    "eol": "<|img_end_of_row|>",
+    "eof": "<|img_end_of_frame|>",
+}
+
+
+def resolve_token_ids(text_tokenizer, tokens: Dict[str, str]) -> Dict[str, int]:
+    """Resolve special tokens to ids, refusing any that fall back to UNK."""
+    unk_id = text_tokenizer.unk_token_id
+    resolved = {}
+    for name, token in tokens.items():
+        tid = text_tokenizer.convert_tokens_to_ids(token)
+        if tid == unk_id:
+            raise ValueError(
+                f"Special token {token} resolved to UNK (id={unk_id}). "
+                f"Ensure the tokenizer vocabulary contains this token."
+            )
+        resolved[name] = tid
+    return resolved
+
+
+def vision_band(tokenizer_config: dict) -> Tuple[int, int]:
+    """Inclusive [lo, hi] id range of vision codebook tokens (omnimodal_config)."""
+    omni_cfg = tokenizer_config.get("omnimodal_config", {})
+    vision_modality = next(
+        (m for m in omni_cfg.get("modalities", []) if m["name"] == "vision"), None
+    )
+    if vision_modality is None:
+        raise ValueError(
+            "No vision modality found in tokenizer_config.json omnimodal_config. "
+            "Ensure the tokenizer has omnimodal_config.modalities with a 'vision' entry."
+        )
+    lo = vision_modality["offset"]
+    return lo, lo + vision_modality["vocab_size"] - 1
 
 
 class EMUImageOnlyTokenizer:
@@ -113,42 +153,14 @@ class EMUImageOnlyTokenizer:
         self.bos_id = self.text_tokenizer.bos_token_id
         self.eos_id = self.text_tokenizer.eos_token_id
 
-        # EMU3 special tokens — validate none resolved to UNK
-        unk_id = self.text_tokenizer.unk_token_id
-        special_tokens = {
-            "img_start": "<|img_start|>",
-            "img_end": "<|img_end|>",
-            "img_token_start": "<|img_token_start|>",
-            "eol": "<|img_end_of_row|>",
-            "eof": "<|img_end_of_frame|>",
-        }
-        resolved = {}
-        for name, token in special_tokens.items():
-            tid = self.text_tokenizer.convert_tokens_to_ids(token)
-            if tid == unk_id:
-                raise ValueError(
-                    f"Special token {token} resolved to UNK (id={unk_id}). "
-                    f"Ensure the tokenizer vocabulary contains this token."
-                )
-            resolved[name] = tid
-
+        resolved = resolve_token_ids(self.text_tokenizer, STRUCTURE_TOKENS)
         self.img_start_id = resolved["img_start"]
         self.img_end_id = resolved["img_end"]
         self.img_token_start_id = resolved["img_token_start"]
         self.eol_id = resolved["eol"]
         self.eof_id = resolved["eof"]
 
-        # Read vision token offset from omnimodal_config in tokenizer_config.json
-        omni_cfg = tokenizer_config.get("omnimodal_config", {})
-        vision_modality = next(
-            (m for m in omni_cfg.get("modalities", []) if m["name"] == "vision"), None
-        )
-        if vision_modality is None:
-            raise ValueError(
-                "No vision modality found in tokenizer_config.json omnimodal_config. "
-                "Ensure the tokenizer has omnimodal_config.modalities with a 'vision' entry."
-            )
-        self.vision_token_offset = vision_modality["offset"]
+        self.vision_token_offset, _ = vision_band(tokenizer_config)
 
     def _get_dim_tokens(self, height: int, width: int) -> List[int]:
         """
