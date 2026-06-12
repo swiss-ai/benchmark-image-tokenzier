@@ -1,0 +1,20 @@
+# MMPR-v1.2 (OpenGVLab, ~800k preference pairs after converter filters) ->
+# views+media alignment stores, one store per converted shard.
+#
+# Source shards (scripts/convert_mmpr_v1_2.py, hash-of-first-image sharding so
+# image reuse colocates within a store):
+#   /capstor/store/cscs/swissai/infra01/vision-datasets/alignment-processed/mmpr-v1.2/part_{00..07}.parquet
+#
+# input_parquet/output_name are ??? BY DESIGN (fail-loud): posttraining's
+# in-job ingest loads the whole input parquet into RAM, so the lineage is
+# tokenized shard-by-shard — the launcher must pin both per shard:
+#   dataset.input_parquet=.../mmpr-v1.2/part_03.parquet \
+#   dataset.output_name=mmpr_v1_2_part03
+# Task-keyed output root: <output_dir>/preference/<output_name>.
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_task/alignment@_here_
+
+output_name: ???
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_parquet: ???
