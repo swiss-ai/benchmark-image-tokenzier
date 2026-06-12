@@ -18,9 +18,10 @@ from vision_tokenization.discrete.sft_segments import (
     RenderedSFTDocument,
     build_segment_component_maps,
 )
+from vision_tokenization.indexing.alignment.ingest import MARKER as IMAGE_MARKER
 
 from ._mixins import ThreadPoolExecutorOwner
-from .image_only import EMUImageOnlyTokenizer
+from .image_only import EMUImageOnlyTokenizer, resolve_token_ids
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +35,10 @@ class EMUSftTokenizer(ThreadPoolExecutorOwner, EMUImageOnlyTokenizer):
     def __init__(self, *args, conversation_policy: Optional[ConversationPolicy] = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.conversation_policy = conversation_policy or ConversationPolicy()
-        # image_token_id is consumed by StructureTokenIds in the rebuild path.
-        self.image_token_id = self.text_tokenizer.convert_tokens_to_ids("<|image|>")
+        # image_token_id is consumed by StructureTokenIds in the rebuild path;
+        # the single resolver refuses an UNK fallback (ingest.MARKER is the string).
+        self.image_token_id = resolve_token_ids(
+            self.text_tokenizer, {"image_marker": IMAGE_MARKER})["image_marker"]
         self._sft_renderer = ChatTemplateSFTDocumentRenderer(
             text_tokenizer=self.text_tokenizer,
             conversation_policy=self.conversation_policy,
