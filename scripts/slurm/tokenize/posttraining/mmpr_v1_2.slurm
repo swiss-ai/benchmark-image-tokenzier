@@ -58,15 +58,16 @@ srun -ul --kill-on-bad-exit=0 bash -c '
     export PYTHONPATH=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier:$PYTHONPATH
     cd /iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier
     export RANK=0 WORLD_SIZE=1
-    echo "[task ${SLURM_PROCID} local ${SLURM_LOCALID}] -> shard ${SLURM_PROCID}"
+    SHARD=$(printf "%02d" "${SLURM_PROCID}")   # 0..7 -> 00..07, matches part_NN.parquet
+    echo "[task ${SLURM_PROCID} local ${SLURM_LOCALID}] -> shard ${SHARD}"
 
     python -m vision_tokenization.tokenize \
         mode=posttraining dataset=posttraining/mmpr_v1_2 \
-        dataset.shard=${SLURM_PROCID} \
+        dataset.shard=${SHARD} \
         num_gpus=1 \
-        wandb.enabled=true wandb.name=mmpr_v1_2_part0${SLURM_PROCID}
+        wandb.enabled=true wandb.name=mmpr_v1_2_part${SHARD}
 
     python vision_tokenization/tests/alignment/check_store.py \
-        /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/preference/mmpr_v1_2_part0${SLURM_PROCID}
+        /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/preference/mmpr_v1_2_part${SHARD}
 '
 echo "END TIME: $(date)"
