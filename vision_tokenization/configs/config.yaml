@@ -46,4 +46,5 @@ wandb:
   project: vision-tokenization
   entity: null
   name: null
+  group: null   # nest related runs (e.g. sharded posttraining: one group, N shard runs)
   tags: []

@@ -64,7 +64,7 @@ srun -ul --kill-on-bad-exit=0 bash -c '
         mode=posttraining dataset=posttraining/mmpr_v1_2 \
         dataset.shard=${SHARD} \
         num_gpus=1 \
-        wandb.enabled=true wandb.name=mmpr_v1_2_part${SHARD}
+        wandb.enabled=true wandb.group=mmpr_v1_2 wandb.name=mmpr_v1_2_part${SHARD}
 
     python vision_tokenization/tests/alignment/check_store.py \
         /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/preference/mmpr_v1_2_part${SHARD}

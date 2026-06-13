@@ -336,6 +336,7 @@ def run_executor(
             project=wandb_cfg["project"],
             entity=wandb_cfg["entity"],
             name=wandb_cfg["name"] or _build_run_name(cfg, mode, world_size),
+            group=wandb_cfg.get("group"),
             tags=wandb_cfg["tags"],
             config={
                 "rank": rank, "world_size": world_size, "mode": mode,
