@@ -16,9 +16,8 @@
 # MMPR-v1.2 -> 8 preference stores (one per converted shard).
 #
 # GEOMETRY (matches the multi-node SFT tokenize scripts): ONE job, 2 nodes,
-# 4 GPUs/node, 4 tasks/node = 8 ranks, fully packing both nodes. mllm_dpo.slurm
-# uses 1 node/1 GPU only because it is a single tiny shard (5,182 pairs); MMPR
-# has 8 shards, so it packs like SFT instead of fanning into 8 whole nodes.
+# 4 GPUs/node, 4 tasks/node = 8 ranks, fully packing both nodes — 8 shards
+# pack onto 8 GPUs rather than fanning into 8 whole nodes.
 #
 # PER-TASK SEMANTICS (matches mllm_dpo.slurm): posttraining is single-rank per
 # STORE (pipeline/__init__.py:152 hard-errors unless world_size==1), so this is

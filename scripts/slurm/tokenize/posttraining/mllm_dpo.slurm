@@ -12,6 +12,11 @@
 #SBATCH --partition=debug
 #SBATCH --no-requeue
 
+# 1 node / 1 GPU: mllm-dpo is a single tiny shard (5,182 pairs), so one
+# single-rank posttraining store fits in one process. Larger preference sets
+# (e.g. MMPR-v1.2, 8 shards) are sharded and packed onto multiple GPUs — see
+# scripts/slurm/tokenize/posttraining/mmpr_v1_2.slurm.
+
 set -e
 export LD_LIBRARY_PATH=/capstor/store/cscs/swissai/infra01/MLLM/wheelhouse:${LD_LIBRARY_PATH:-}
 
