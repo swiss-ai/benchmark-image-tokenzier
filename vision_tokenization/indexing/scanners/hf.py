@@ -23,6 +23,7 @@ from vision_tokenization.indexing.scanners._workers.hf_parquet import (
 from vision_tokenization.indexing.manifest import (
     HF_SCHEMA_PHYSICAL,
     HF_SCHEMA_PHYSICAL_MULTI_IMAGE,
+    with_media_sha256,
 )
 from vision_tokenization.utils.contamination import load_contamination_index
 
@@ -117,6 +118,8 @@ def _finalize_shard_table(
     if is_multi:
         arrays["group_id"] = pc.add(table.column("group_id"), sample_offset_scalar)
         arrays["image_index"] = table.column("image_index")
+    if "media_sha256" in table.column_names:
+        arrays["media_sha256"] = table.column("media_sha256")
     return pa.table(arrays, schema=schema)
 
 
@@ -134,11 +137,16 @@ def _scan_single_hf_shard(
     image_map_column: Optional[str] = None,
     message_column: Optional[str] = None,
     contaminated_rows: frozenset[int] = frozenset(),
+    compute_media_sha256: bool = False,
 ):
     if shard_path.endswith(".arrow"):
         if image_map_column is not None:
             return (
-                build_hf_output_table(build_hf_output_columns(True), True),
+                build_hf_output_table(
+                    build_hf_output_columns(True, compute_media_sha256=compute_media_sha256),
+                    True,
+                    compute_media_sha256=compute_media_sha256,
+                ),
                 0,
                 0,
                 0,
@@ -151,6 +159,7 @@ def _scan_single_hf_shard(
             image_column=image_column,
             image_list_column=image_list_column,
             contaminated_rows=contaminated_rows,
+            compute_media_sha256=compute_media_sha256,
         )
     if shard_path.endswith(".parquet"):
         return scan_single_hf_parquet_shard(
@@ -160,6 +169,7 @@ def _scan_single_hf_shard(
             image_map_column=image_map_column,
             message_column=message_column,
             contaminated_rows=contaminated_rows,
+            compute_media_sha256=compute_media_sha256,
         )
     raise ValueError(f"Unsupported HF shard format: {shard_path}")
 
@@ -246,6 +256,7 @@ def scan_hf_dataset(
     contamination_ids_path: Optional[Union[str, Path]] = None,
     contamination_format: str = "innovator_vl",
     num_workers: int = 8,
+    compute_media_sha256: bool = False,
 ) -> str:
     """Scan HF Arrow/Parquet shards and write a Parquet manifest.
 
@@ -272,6 +283,8 @@ def scan_hf_dataset(
 
     is_multi = image_list_column is not None or image_map_column is not None
     schema = HF_SCHEMA_PHYSICAL_MULTI_IMAGE if is_multi else HF_SCHEMA_PHYSICAL
+    if compute_media_sha256:
+        schema = with_media_sha256(schema)
 
     shard_paths = _discover_shards(input_pattern)
     num_arrow = sum(path.endswith(".arrow") for path in shard_paths)
@@ -324,6 +337,7 @@ def scan_hf_dataset(
             image_map_column,
             message_column,
             contaminated_rows,
+            compute_media_sha256,
         )
 
     def _emit(idx, result):
@@ -385,6 +399,7 @@ def scan_hf_dataset(
         "failed_image_maps": total_failed_image_maps,
         "contaminated_skipped": total_contaminated_skipped,
         "skipped_shards": skipped_shards,
+        "compute_media_sha256": compute_media_sha256,
     }
     if contamination_index is not None:
         metadata_extra.update(

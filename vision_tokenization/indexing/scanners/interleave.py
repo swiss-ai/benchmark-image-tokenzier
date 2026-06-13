@@ -19,6 +19,7 @@ def scan_jsonl_tar_interleave_dataset(
     tar_scope: str = "parent_dir",
     tar_root: str | Path | None = None,
     num_workers: int = 64,
+    compute_media_sha256: bool = False,
 ) -> str:
     """Scan an interleave JSONL+tar dataset into the grouped manifest schema."""
     return _scan_jsonl_tar_dataset_impl(
@@ -33,6 +34,7 @@ def scan_jsonl_tar_interleave_dataset(
         tar_root=tar_root,
         image_path_prefix_strip=None,
         num_workers=num_workers,
+        compute_media_sha256=compute_media_sha256,
         metadata_dataset_type="jsonl_tar",
         metadata_extra={
             "document_format": document_format,

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 import tarfile
 
 import numpy as np
+import pyarrow as pa
 import pytest
 from PIL import Image
 
@@ -73,6 +75,43 @@ def test_scan_jsonl_tar_dataset_resolves_global_tar_scope_and_prefix_strip(tmp_p
     assert table.column("image_index").to_pylist() == [0]
     assert table.column("image_ref").to_pylist() == ["germany/Q183.jpg"]
     assert table.column("tar_path").to_pylist() == [str(tar_path)]
+
+
+def test_scan_jsonl_tar_dataset_can_emit_raw_byte_sha256(tmp_path):
+    pytest.importorskip("orjson")
+
+    from vision_tokenization.indexing.manifest import load_interleave_manifest
+    from vision_tokenization.indexing.scanners.jsonl_tar import scan_jsonl_tar_dataset
+
+    part_dir = tmp_path / "part00000"
+    part_dir.mkdir()
+    jsonl_path = part_dir / "data.jsonl"
+    tar_path = part_dir / "imgs.tar"
+    manifest_path = tmp_path / "manifest.parquet"
+
+    _create_content_tar(str(tar_path), {"imgs/1.png": (40, 30), "imgs/2.png": (64, 48)})
+    with open(jsonl_path, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps({"image": ["./imgs/1.png", "./imgs/2.png"]}))
+        fh.write("\n")
+
+    scan_jsonl_tar_dataset(
+        input_pattern=str(jsonl_path),
+        output_manifest=str(manifest_path),
+        image_field="image",
+        tar_pattern="imgs.tar",
+        tar_scope="parent_dir",
+        compute_media_sha256=True,
+        num_workers=1,
+    )
+
+    table = load_interleave_manifest(manifest_path)
+    assert table.schema.field("media_sha256").type == pa.binary(32)
+    with tarfile.open(tar_path, "r") as tf:
+        expected = []
+        for name in ("imgs/1.png", "imgs/2.png"):
+            raw = tf.extractfile(name).read()
+            expected.append(hashlib.sha256(raw).digest())
+    assert table.column("media_sha256").to_pylist() == expected
 
 
 def test_jsonl_tar_loader_sft_loads_grouped_and_flat_texts(tmp_path):

@@ -417,11 +417,11 @@ different failure mode:
 
 | Stage | Cost | Frequency | Failure mode |
 |---|---|---|---|
-| **Scan** → manifest | minutes — never image-bytes (see below) | once per dataset version | wrong dataset path; partial scan |
+| **Scan** → manifest | minutes by default; optional raw-byte SHA reads media bytes | once per dataset version | wrong dataset path; partial scan |
 | **Plan** → batch + split | seconds (numpy-only, no I/O, no GPU) | once per `(batch_size, max_batch_tokens, world_size)` | bad cost weights → idle ranks |
 | **Tokenize** → micro-shards | hours, GPU-bound | every run, possibly resumed | OOM; storage hiccup |
 
-> **Scanning is intentionally cheap.** The scanners (`indexing/scanners/wds.py`,
+> **Scanning is intentionally cheap by default.** The scanners (`indexing/scanners/wds.py`,
 > `hf.py`, `jsonl_tar.py`, `interleave.py`) drive a `ProcessPoolExecutor`
 > via `_parallel.run_ordered_pool` (default 64 workers, in-flight cap
 > `2 × num_workers`). A WDS scan reads only the **tar header chain** —
@@ -430,7 +430,11 @@ different failure mode:
 > on tar TOC reads, parallel across hundreds of shards: hundreds of
 > millions of samples scan in O(minutes), not O(hours). A re-scan after
 > ingesting a new dataset version costs less than a single tokenization
-> rank's startup overhead.
+> rank's startup overhead. Set `compute_media_sha256: true` in a dataset
+> config, or pass `compute_media_sha256=True` to a scanner, to append
+> `media_sha256: binary(32)` for exact raw-byte deduplication. That mode
+> intentionally reads the encoded media payload, but keeps the default
+> manifest schema unchanged.
 
 Decoupling means:
 

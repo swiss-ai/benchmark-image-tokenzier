@@ -12,6 +12,7 @@ from vision_tokenization.indexing.scanners._workers.wds import (
     DEFAULT_IMAGE_EXTENSIONS,
     _get_image_dims,
 )
+from vision_tokenization.indexing.media_identity import sha256_fileobj
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 def _index_one_tar(
     tar_path: str,
     image_exts: FrozenSet[str],
+    compute_media_sha256: bool = False,
 ) -> tuple[str, Dict[str, dict]]:
     """Walk one tar archive, returning ``(tar_path, member_name -> metadata)``.
 
@@ -51,13 +53,16 @@ def _index_one_tar(
             width, height = _get_image_dims(fobj, ext)
             if width < 0 or height < 0:
                 continue
-            index[name] = {
+            media_meta = {
                 "tar_path": tar_path,
                 "offset_data": int(member.offset_data),
                 "file_size": int(member.size),
                 "width": int(width),
                 "height": int(height),
             }
+            if compute_media_sha256:
+                media_meta["media_sha256"] = sha256_fileobj(fobj, member.size)
+            index[name] = media_meta
     except Exception:
         logger.warning("Error reading tar (truncated?): %s", tar_path, exc_info=True)
     finally:
@@ -69,6 +74,7 @@ def build_tar_index(
     tar_paths: Sequence[str],
     image_extensions: Sequence[str] = tuple(DEFAULT_IMAGE_EXTENSIONS),
     workers: int = 64,
+    compute_media_sha256: bool = False,
 ) -> Dict[str, dict]:
     """Build ``member_name -> tar metadata`` for random-access image loading.
 
@@ -90,7 +96,10 @@ def build_tar_index(
 
     unified: Dict[str, dict] = {}
     with ProcessPoolExecutor(max_workers=n) as pool:
-        futs = {pool.submit(_index_one_tar, p, image_exts): p for p in paths}
+        futs = {
+            pool.submit(_index_one_tar, p, image_exts, compute_media_sha256): p
+            for p in paths
+        }
         for f in as_completed(futs):
             try:
                 tar_path, idx = f.result()

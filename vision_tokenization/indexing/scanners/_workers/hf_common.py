@@ -8,6 +8,11 @@ import imagesize
 import pyarrow as pa
 import pyarrow.compute as pc
 
+from vision_tokenization.indexing.manifest import with_media_sha256
+from vision_tokenization.indexing.media_identity import (
+    sha256_arrow_scalar,
+    sha256_buffer,
+)
 from vision_tokenization.utils.image_map_sft import extract_image_refs, image_map_as_dict
 
 _HEADER_BYTES = 4096
@@ -38,10 +43,13 @@ def _is_contaminated_row(contaminated_rows, sample_index: int) -> bool:
     return bool(contaminated_rows) and sample_index in contaminated_rows
 
 
-def build_hf_output_columns(is_multi: bool) -> dict[str, array]:
+def build_hf_output_columns(
+    is_multi: bool,
+    compute_media_sha256: bool = False,
+) -> dict[str, array | list[bytes | None]]:
     """Create empty manifest-output columns for one shard scan."""
     if is_multi:
-        return {
+        out: dict[str, array | list[bytes | None]] = {
             "sample_index": array("q"),
             "width": array("i"),
             "height": array("i"),
@@ -50,18 +58,28 @@ def build_hf_output_columns(is_multi: bool) -> dict[str, array]:
             "chunk_index": array("i"),
             "row_in_chunk": array("i"),
         }
-    return {
-        "sample_index": array("q"),
-        "width": array("i"),
-        "height": array("i"),
-        "chunk_index": array("i"),
-        "row_in_chunk": array("i"),
-    }
+    else:
+        out = {
+            "sample_index": array("q"),
+            "width": array("i"),
+            "height": array("i"),
+            "chunk_index": array("i"),
+            "row_in_chunk": array("i"),
+        }
+    if compute_media_sha256:
+        out["media_sha256"] = []
+    return out
 
 
-def build_hf_output_table(columns: dict[str, array], is_multi: bool) -> pa.Table:
+def build_hf_output_table(
+    columns: dict[str, array | list[bytes | None]],
+    is_multi: bool,
+    compute_media_sha256: bool = False,
+) -> pa.Table:
     """Convert compact typed column buffers into an Arrow table."""
     schema = _HF_WORKER_SCHEMA_MULTI_IMAGE if is_multi else _HF_WORKER_SCHEMA
+    if compute_media_sha256:
+        schema = with_media_sha256(schema)
     arrays = {
         field.name: pa.array(columns[field.name], type=field.type)
         for field in schema
@@ -141,6 +159,19 @@ def _as_single_array(column):
     return column
 
 
+def _sha256_from_py_image_data(img_data) -> bytes | None:
+    raw = img_data.get("bytes") if isinstance(img_data, dict) else img_data
+    return sha256_buffer(raw) if raw is not None else None
+
+
+def _struct_field_or_none(struct_array, name: str):
+    return (
+        struct_array.field(name)
+        if struct_array.type.get_field_index(name) >= 0
+        else None
+    )
+
+
 def _image_map_value_arrays(image_map_col):
     image_map_col = _as_single_array(image_map_col)
     if not pa.types.is_map(image_map_col.type):
@@ -183,6 +214,7 @@ def _scan_hf_image_map_batch_columns_python(
     failed_image_maps: int,
     row_base: int = 0,
     contaminated_rows: frozenset[int] = frozenset(),
+    compute_media_sha256: bool = False,
 ) -> Tuple[dict[str, array], int, int, int, int, int]:
     contaminated_skipped = 0
     for row_idx in range(len(message_col)):
@@ -204,7 +236,8 @@ def _scan_hf_image_map_batch_columns_python(
             images_by_ref = {}
 
         for image_index, image_ref in enumerate(row_refs):
-            width, height = get_image_dimensions(images_by_ref.get(image_ref))
+            img_data = images_by_ref.get(image_ref)
+            width, height = get_image_dimensions(img_data)
             if width < 0 or height < 0:
                 failed_dims += 1
             out["sample_index"].append(sample_index)
@@ -214,6 +247,8 @@ def _scan_hf_image_map_batch_columns_python(
             out["image_index"].append(image_index)
             out["chunk_index"].append(chunk_index)
             out["row_in_chunk"].append(row_base + row_idx)
+            if compute_media_sha256:
+                out["media_sha256"].append(_sha256_from_py_image_data(img_data))
 
     return (
         out,
@@ -234,11 +269,12 @@ def _scan_single_image_chunk(
     source_rows: int,
     failed_dims: int,
     contaminated_rows: frozenset[int] = frozenset(),
+    compute_media_sha256: bool = False,
 ) -> Tuple[int, int, int]:
     contaminated_skipped = 0
     if pa.types.is_struct(chunk.type):
-        bytes_arr = chunk.field("bytes")
-        path_arr = chunk.field("path")
+        bytes_arr = _struct_field_or_none(chunk, "bytes")
+        path_arr = _struct_field_or_none(chunk, "path")
         header_arr = _binary_header_array(bytes_arr)
 
         for local_idx in range(len(chunk)):
@@ -259,6 +295,12 @@ def _scan_single_image_chunk(
             out["height"].append(height)
             out["chunk_index"].append(chunk_index)
             out["row_in_chunk"].append(row_base + local_idx)
+            if compute_media_sha256:
+                out["media_sha256"].append(
+                    sha256_arrow_scalar(bytes_arr[local_idx])
+                    if bytes_arr is not None
+                    else None
+                )
         return source_rows, failed_dims, contaminated_skipped
 
     for local_idx in range(len(chunk)):
@@ -275,6 +317,9 @@ def _scan_single_image_chunk(
         out["height"].append(height)
         out["chunk_index"].append(chunk_index)
         out["row_in_chunk"].append(row_base + local_idx)
+        if compute_media_sha256:
+            img_data = chunk[local_idx].as_py()
+            out["media_sha256"].append(_sha256_from_py_image_data(img_data))
     return source_rows, failed_dims, contaminated_skipped
 
 
@@ -287,6 +332,7 @@ def _scan_multi_image_chunk(
     source_rows: int,
     failed_dims: int,
     contaminated_rows: frozenset[int] = frozenset(),
+    compute_media_sha256: bool = False,
 ) -> Tuple[int, int, int]:
     contaminated_skipped = 0
     if pa.types.is_list(chunk.type) or pa.types.is_large_list(chunk.type):
@@ -295,8 +341,8 @@ def _scan_multi_image_chunk(
         values = chunk.flatten()
 
         if pa.types.is_struct(values.type):
-            bytes_arr = values.field("bytes")
-            path_arr = values.field("path")
+            bytes_arr = _struct_field_or_none(values, "bytes")
+            path_arr = _struct_field_or_none(values, "path")
             header_arr = _binary_header_array(bytes_arr)
 
             for local_row_idx in range(len(chunk)):
@@ -322,6 +368,12 @@ def _scan_multi_image_chunk(
                     out["image_index"].append(flat_idx - start)
                     out["chunk_index"].append(chunk_index)
                     out["row_in_chunk"].append(row_base + local_row_idx)
+                    if compute_media_sha256:
+                        out["media_sha256"].append(
+                            sha256_arrow_scalar(bytes_arr[flat_idx])
+                            if bytes_arr is not None
+                            else None
+                        )
             return source_rows, failed_dims, contaminated_skipped
 
     for local_row_idx in range(len(chunk)):
@@ -342,6 +394,8 @@ def _scan_multi_image_chunk(
             out["image_index"].append(image_index)
             out["chunk_index"].append(chunk_index)
             out["row_in_chunk"].append(row_base + local_row_idx)
+            if compute_media_sha256:
+                out["media_sha256"].append(_sha256_from_py_image_data(img_data))
     return source_rows, failed_dims, contaminated_skipped
 
 
@@ -356,6 +410,7 @@ def scan_hf_image_map_batch_columns(
     failed_image_maps: int,
     row_base: int = 0,
     contaminated_rows: frozenset[int] = frozenset(),
+    compute_media_sha256: bool = False,
 ) -> Tuple[dict[str, array], int, int, int, int, int]:
     """Append manifest rows for image-map SFT shards.
 
@@ -374,6 +429,7 @@ def scan_hf_image_map_batch_columns(
             failed_image_maps,
             row_base=row_base,
             contaminated_rows=contaminated_rows,
+            compute_media_sha256=compute_media_sha256,
         )
 
     offsets, keys, bytes_arr, path_arr = map_arrays
@@ -391,6 +447,7 @@ def scan_hf_image_map_batch_columns(
             failed_image_maps,
             row_base=row_base,
             contaminated_rows=contaminated_rows,
+            compute_media_sha256=compute_media_sha256,
         )
 
     header_arr = _binary_header_array(bytes_arr)
@@ -440,6 +497,12 @@ def scan_hf_image_map_batch_columns(
             out["image_index"].append(image_index)
             out["chunk_index"].append(chunk_index)
             out["row_in_chunk"].append(row_base + row_idx)
+            if compute_media_sha256:
+                out["media_sha256"].append(
+                    sha256_arrow_scalar(bytes_arr[flat_idx])
+                    if flat_idx >= 0 and bytes_arr is not None
+                    else None
+                )
 
     return (
         out,
@@ -460,6 +523,7 @@ def scan_hf_batch_columns(
     *,
     is_multi: bool,
     contaminated_rows: frozenset[int] = frozenset(),
+    compute_media_sha256: bool = False,
 ) -> Tuple[dict[str, array], int, int, int]:
     """Append one Arrow/Parquet batch worth of manifest rows."""
     contaminated_skipped = 0
@@ -473,6 +537,7 @@ def scan_hf_batch_columns(
             source_rows=source_rows,
             failed_dims=failed_dims,
             contaminated_rows=contaminated_rows,
+            compute_media_sha256=compute_media_sha256,
         )
         contaminated_skipped += batch_skipped
 

@@ -20,6 +20,7 @@ def scan_single_hf_parquet_shard(
     image_map_column: Optional[str] = None,
     message_column: Optional[str] = None,
     contaminated_rows: frozenset[int] = frozenset(),
+    compute_media_sha256: bool = False,
 ) -> Tuple[pa.Table, int, int, int, int, int, Optional[str]]:
     """Scan one HF Parquet shard and return manifest columns."""
     is_map = image_map_column is not None
@@ -28,7 +29,7 @@ def scan_single_hf_parquet_shard(
 
     import pyarrow.parquet as pq
 
-    out = build_hf_output_columns(is_multi)
+    out = build_hf_output_columns(is_multi, compute_media_sha256=compute_media_sha256)
     failed_dims = 0
     failed_messages = 0
     failed_image_maps = 0
@@ -38,7 +39,7 @@ def scan_single_hf_parquet_shard(
     if is_map:
         if message_column is None:
             return (
-                build_hf_output_table(out, is_multi),
+                build_hf_output_table(out, is_multi, compute_media_sha256=compute_media_sha256),
                 0,
                 0,
                 0,
@@ -53,7 +54,7 @@ def scan_single_hf_parquet_shard(
         ]
         if missing:
             return (
-                build_hf_output_table(out, is_multi),
+                build_hf_output_table(out, is_multi, compute_media_sha256=compute_media_sha256),
                 0,
                 0,
                 0,
@@ -87,11 +88,12 @@ def scan_single_hf_parquet_shard(
                     failed_image_maps,
                     row_base=row_base,
                     contaminated_rows=contaminated_rows,
+                    compute_media_sha256=compute_media_sha256,
                 )
                 contaminated_skipped += batch_skipped
 
         return (
-            build_hf_output_table(out, is_multi),
+            build_hf_output_table(out, is_multi, compute_media_sha256=compute_media_sha256),
             source_rows,
             failed_dims,
             failed_messages,
@@ -102,7 +104,7 @@ def scan_single_hf_parquet_shard(
 
     if column not in parquet_file.schema_arrow.names:
         return (
-            build_hf_output_table(out, is_multi),
+            build_hf_output_table(out, is_multi, compute_media_sha256=compute_media_sha256),
             0,
             0,
             0,
@@ -121,11 +123,12 @@ def scan_single_hf_parquet_shard(
             failed_dims,
             is_multi=is_multi,
             contaminated_rows=contaminated_rows,
+            compute_media_sha256=compute_media_sha256,
         )
         contaminated_skipped += batch_skipped
 
     return (
-        build_hf_output_table(out, is_multi),
+        build_hf_output_table(out, is_multi, compute_media_sha256=compute_media_sha256),
         source_rows,
         failed_dims,
         0,

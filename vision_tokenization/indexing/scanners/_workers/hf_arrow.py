@@ -32,12 +32,13 @@ def scan_single_hf_arrow_shard(
     image_column: str = "image",
     image_list_column: Optional[str] = None,
     contaminated_rows: frozenset[int] = frozenset(),
+    compute_media_sha256: bool = False,
 ) -> Tuple[pa.Table, int, int, int, int, int, Optional[str]]:
     """Scan one HF Arrow shard and return manifest columns."""
     is_multi = image_list_column is not None
     column = image_list_column if is_multi else image_column
 
-    out = build_hf_output_columns(is_multi)
+    out = build_hf_output_columns(is_multi, compute_media_sha256=compute_media_sha256)
     failed_dims = 0
     contaminated_skipped = 0
     source_rows = 0
@@ -45,7 +46,7 @@ def scan_single_hf_arrow_shard(
     for chunk_index, batch in _iter_arrow_batches(shard_path):
         if column not in batch.schema.names:
             return (
-                build_hf_output_table(out, is_multi),
+                build_hf_output_table(out, is_multi, compute_media_sha256=compute_media_sha256),
                 0,
                 0,
                 0,
@@ -61,11 +62,12 @@ def scan_single_hf_arrow_shard(
             failed_dims,
             is_multi=is_multi,
             contaminated_rows=contaminated_rows,
+            compute_media_sha256=compute_media_sha256,
         )
         contaminated_skipped += batch_skipped
 
     return (
-        build_hf_output_table(out, is_multi),
+        build_hf_output_table(out, is_multi, compute_media_sha256=compute_media_sha256),
         source_rows,
         failed_dims,
         0,

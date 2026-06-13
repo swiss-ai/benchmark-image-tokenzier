@@ -1,6 +1,7 @@
 """Tests for vision_tokenization.indexing — CPU-only, no tokenizer needed."""
 
 import io
+import hashlib
 import logging
 import tarfile
 from dataclasses import dataclass
@@ -316,6 +317,32 @@ class TestWDSScanner:
         expected = {"sample_key", "tar_path", "offset_data", "file_size", "width", "height", "image_ext"}
         assert set(schema.names) == expected
 
+    def test_scan_wds_dataset_can_emit_raw_byte_sha256(self, tmp_path):
+        """Opt-in media_sha256 should hash the original encoded tar member bytes."""
+        samples = [
+            {"key": "000001", "ext": "jpg", "width": 32, "height": 32, "color": (1, 2, 3)},
+            {"key": "000002", "ext": "jpg", "width": 48, "height": 48, "color": (4, 5, 6)},
+        ]
+        tar_path = str(tmp_path / "shard.tar")
+        _create_tar(tar_path, samples)
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        scan_wds_dataset(
+            input_pattern=tar_path,
+            output_manifest=manifest_path,
+            compute_media_sha256=True,
+            num_workers=1,
+        )
+
+        table = load_wds_manifest(manifest_path)
+        assert table.schema.field("media_sha256").type == pa.binary(32)
+        with tarfile.open(tar_path, "r") as tf:
+            expected = []
+            for member in sorted((m for m in tf if m.isfile()), key=lambda m: m.name):
+                raw = tf.extractfile(member).read()
+                expected.append(hashlib.sha256(raw).digest())
+        assert table.column("media_sha256").to_pylist() == expected
+
     def test_image_field_pattern_without_multi_image_keeps_single_image_manifest(self, tmp_path):
         """image_field_pattern should normalize sample keys without forcing grouped output."""
         samples = [
@@ -530,6 +557,27 @@ class TestHFScanner:
             str(tmp_path / "part_001.parquet"),
         ]
 
+    def test_scan_hf_parquet_can_emit_raw_byte_sha256(self, tmp_path):
+        rows = [(80, 40), (120, 60), (25, 35)]
+        shard_path = str(tmp_path / "part_000.parquet")
+        _write_hf_parquet_shard(shard_path, rows)
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        scan_hf_dataset(
+            input_pattern=shard_path,
+            output_manifest=manifest_path,
+            compute_media_sha256=True,
+            num_workers=1,
+        )
+
+        table = load_hf_manifest(manifest_path)
+        assert table.schema.field("media_sha256").type == pa.binary(32)
+        expected = [
+            hashlib.sha256(_hf_image_cell(width, height)["bytes"]).digest()
+            for width, height in rows
+        ]
+        assert table.column("media_sha256").to_pylist() == expected
+
     def test_scan_hf_parquet_skips_shards_missing_image_column(self, tmp_path, caplog):
         (tmp_path / "good").mkdir()
         (tmp_path / "bad").mkdir()
@@ -632,6 +680,36 @@ class TestHFScanner:
         assert table.column("height").to_pylist() == [21, 41, 61, 81, 101]
         assert table.column("chunk_index").to_pylist() == [0, 0, 0, 0, 0]
         assert table.column("row_in_chunk").to_pylist() == [0, 0, 1, 0, 0]
+
+    def test_scan_hf_parquet_multi_image_can_emit_marker_order_sha256(self, tmp_path):
+        rows = [
+            [(11, 21), (31, 41)],
+            [(51, 61)],
+        ]
+        shard_path = str(tmp_path / "part_000.parquet")
+        _write_hf_parquet_shard(
+            shard_path,
+            rows,
+            column_name="images",
+            multi_image=True,
+        )
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        scan_hf_dataset(
+            input_pattern=shard_path,
+            output_manifest=manifest_path,
+            image_list_column="images",
+            compute_media_sha256=True,
+            num_workers=1,
+        )
+
+        table = load_hf_manifest(manifest_path)
+        expected = [
+            hashlib.sha256(_hf_image_cell(width, height)["bytes"]).digest()
+            for sample in rows
+            for width, height in sample
+        ]
+        assert table.column("media_sha256").to_pylist() == expected
 
     def test_scan_hf_parquet_skips_contaminated_source_rows(self, tmp_path):
         rows = [

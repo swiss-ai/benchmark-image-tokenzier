@@ -10,6 +10,15 @@ import pyarrow.parquet as pq
 
 logger = logging.getLogger(__name__)
 
+MEDIA_SHA256_FIELD = pa.field("media_sha256", pa.binary(32))
+
+
+def with_media_sha256(schema: pa.Schema) -> pa.Schema:
+    """Return *schema* with the optional raw-byte SHA-256 media identity column."""
+    if "media_sha256" in schema.names:
+        return schema
+    return pa.schema(list(schema) + [MEDIA_SHA256_FIELD])
+
 # ---------------------------------------------------------------------------
 # WDS manifest schema
 # ---------------------------------------------------------------------------

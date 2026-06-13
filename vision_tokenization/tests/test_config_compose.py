@@ -46,6 +46,7 @@ def test_all_dataset_configs_compose_with_storage_only_dataset_types(dataset: st
     assert cfg.dataset.dataset_type in {"hf", "jsonl_tar", "wds"}
     assert OmegaConf.select(cfg, "dataset._storage") is None
     assert OmegaConf.select(cfg, "dataset._task") is None
+    assert isinstance(cfg.dataset.compute_media_sha256, bool)
 
 
 @pytest.mark.parametrize(

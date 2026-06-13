@@ -14,6 +14,7 @@ import pyarrow.parquet as pq
 from vision_tokenization.indexing.manifest import (
     INTERLEAVE_JSONL_TAR_SCHEMA,
     append_parquet_records,
+    with_media_sha256,
 )
 from vision_tokenization.indexing.scanners._parallel import run_ordered_pool
 from vision_tokenization.indexing.scanners._workers.tar_index import build_tar_index
@@ -88,6 +89,7 @@ def _scan_jsonl_scope(
     local_image_prefixes: Optional[Sequence[str]],
     tar_pattern: str,
     image_path_prefix_strip: Optional[str],
+    compute_media_sha256: bool = False,
 ) -> tuple[list[dict], int, int, int, int]:
     """Scan all JSONL files within one tar-resolution scope."""
     tar_paths = _discover_scope_tars(scope_key, tar_pattern)
@@ -95,7 +97,7 @@ def _scan_jsonl_scope(
         raise FileNotFoundError(
             f"No tar files found for scope={scope_key!r} with tar_pattern={tar_pattern!r}"
         )
-    tar_index = build_tar_index(tar_paths)
+    tar_index = build_tar_index(tar_paths, compute_media_sha256=compute_media_sha256)
 
     records: list[dict] = []
     skipped_missing = 0
@@ -164,21 +166,22 @@ def _scan_jsonl_scope(
                     continue
 
                 for image_index, (ref, meta) in enumerate(resolved):
-                    records.append(
-                        {
-                            "tar_path": meta["tar_path"],
-                            "offset_data": meta["offset_data"],
-                            "file_size": meta["file_size"],
-                            "width": meta["width"],
-                            "height": meta["height"],
-                            "group_id": next_group_id,
-                            "image_index": image_index,
-                            "jsonl_path": jsonl_path,
-                            "line_start": int(line_start),
-                            "line_length": int(line_length),
-                            "image_ref": ref,
-                        }
-                    )
+                    record = {
+                        "tar_path": meta["tar_path"],
+                        "offset_data": meta["offset_data"],
+                        "file_size": meta["file_size"],
+                        "width": meta["width"],
+                        "height": meta["height"],
+                        "group_id": next_group_id,
+                        "image_index": image_index,
+                        "jsonl_path": jsonl_path,
+                        "line_start": int(line_start),
+                        "line_length": int(line_length),
+                        "image_ref": ref,
+                    }
+                    if compute_media_sha256:
+                        record["media_sha256"] = meta["media_sha256"]
+                    records.append(record)
                 next_group_id += 1
 
     return records, next_group_id, skipped_no_images, skipped_missing, skipped_invalid
@@ -204,6 +207,7 @@ def _scan_jsonl_tar_dataset_impl(
     tar_root: Optional[Union[str, Path]],
     image_path_prefix_strip: Optional[str],
     num_workers: int,
+    compute_media_sha256: bool,
     metadata_dataset_type: str,
     metadata_extra: Optional[dict[str, Any]] = None,
 ) -> str:
@@ -226,7 +230,12 @@ def _scan_jsonl_tar_dataset_impl(
     if tmp_manifest.exists():
         tmp_manifest.unlink()
 
-    writer = pq.ParquetWriter(str(tmp_manifest), INTERLEAVE_JSONL_TAR_SCHEMA, compression="zstd")
+    manifest_schema = (
+        with_media_sha256(INTERLEAVE_JSONL_TAR_SCHEMA)
+        if compute_media_sha256
+        else INTERLEAVE_JSONL_TAR_SCHEMA
+    )
+    writer = pq.ParquetWriter(str(tmp_manifest), manifest_schema, compression="zstd")
     buffer: list[dict] = []
     total_rows = 0
     total_groups = 0
@@ -238,7 +247,7 @@ def _scan_jsonl_tar_dataset_impl(
         nonlocal total_rows
         if not buffer:
             return
-        total_rows += append_parquet_records(writer, buffer, INTERLEAVE_JSONL_TAR_SCHEMA)
+        total_rows += append_parquet_records(writer, buffer, manifest_schema)
         buffer.clear()
 
     if tar_scope == "global":
@@ -279,6 +288,7 @@ def _scan_jsonl_tar_dataset_impl(
                     local_image_prefixes=local_image_prefixes,
                     tar_pattern=tar_pattern,
                     image_path_prefix_strip=image_path_prefix_strip,
+                    compute_media_sha256=compute_media_sha256,
                 )
                 _offset_group_ids(records, next_group_id)
                 next_group_id += num_groups
@@ -312,6 +322,7 @@ def _scan_jsonl_tar_dataset_impl(
                     local_image_prefixes=local_image_prefixes,
                     tar_pattern=tar_pattern,
                     image_path_prefix_strip=image_path_prefix_strip,
+                    compute_media_sha256=compute_media_sha256,
                 )
 
             def _emit(_idx, result):
@@ -353,6 +364,7 @@ def _scan_jsonl_tar_dataset_impl(
         "skipped_no_images": skipped_no_images,
         "skipped_missing": skipped_missing,
         "skipped_invalid": skipped_invalid,
+        "compute_media_sha256": compute_media_sha256,
     }
     if metadata_extra:
         extra.update(metadata_extra)
@@ -388,6 +400,7 @@ def scan_jsonl_tar_dataset(
     tar_root: str | Path | None = None,
     image_path_prefix_strip: str | None = None,
     num_workers: int = 64,
+    compute_media_sha256: bool = False,
 ) -> str:
     """Scan a raw JSONL + tar dataset into a grouped manifest."""
     return _scan_jsonl_tar_dataset_impl(
@@ -402,6 +415,7 @@ def scan_jsonl_tar_dataset(
         tar_root=tar_root,
         image_path_prefix_strip=image_path_prefix_strip,
         num_workers=num_workers,
+        compute_media_sha256=compute_media_sha256,
         metadata_dataset_type="jsonl_tar",
         metadata_extra={
             "image_field": image_field,

@@ -21,6 +21,7 @@ from vision_tokenization.indexing.manifest import (
     WDS_SCHEMA_MULTI_IMAGE_WITH_TEXT,
     WDS_SCHEMA_WITH_TEXT,
     records_to_table,
+    with_media_sha256,
 )
 
 from vision_tokenization.indexing.scanners._parallel import run_ordered_pool
@@ -128,11 +129,18 @@ def _flush_table_buffer(writer: pq.ParquetWriter, buffer: list[pa.Table]) -> Non
     buffer.clear()
 
 
-def _select_wds_schema(*, include_text: bool, multi_image: bool) -> pa.Schema:
+def _select_wds_schema(
+    *,
+    include_text: bool,
+    multi_image: bool,
+    compute_media_sha256: bool = False,
+) -> pa.Schema:
     """Choose the manifest schema for the requested WDS scan mode."""
     if multi_image:
-        return WDS_SCHEMA_MULTI_IMAGE_WITH_TEXT if include_text else WDS_SCHEMA_MULTI_IMAGE
-    return WDS_SCHEMA_WITH_TEXT if include_text else WDS_SCHEMA
+        schema = WDS_SCHEMA_MULTI_IMAGE_WITH_TEXT if include_text else WDS_SCHEMA_MULTI_IMAGE
+    else:
+        schema = WDS_SCHEMA_WITH_TEXT if include_text else WDS_SCHEMA
+    return with_media_sha256(schema) if compute_media_sha256 else schema
 
 
 def scan_wds_dataset(
@@ -143,6 +151,7 @@ def scan_wds_dataset(
     text_extensions: Optional[FrozenSet[str]] = None,
     image_field_pattern: Optional[str] = None,
     multi_image: bool = False,
+    compute_media_sha256: bool = False,
 ) -> str:
     """Scan all WDS tars in parallel and write a Parquet manifest."""
     from ._metadata import ScanTimer, write_scan_metadata
@@ -157,7 +166,11 @@ def scan_wds_dataset(
 
     tar_paths = _discover_shards(input_pattern)
     include_text = text_extensions is not None
-    schema = _select_wds_schema(include_text=include_text, multi_image=multi_image)
+    schema = _select_wds_schema(
+        include_text=include_text,
+        multi_image=multi_image,
+        compute_media_sha256=compute_media_sha256,
+    )
     logger.info(
         f"Scanning {len(tar_paths)} tar files with {num_workers} workers"
         f"{' (with text sidecars)' if include_text else ''}"
@@ -192,6 +205,7 @@ def scan_wds_dataset(
                 text_extensions,
                 image_field_pattern,
                 multi_image,
+                compute_media_sha256,
             )
 
         def _emit(idx, records):
@@ -273,6 +287,7 @@ def scan_wds_dataset(
             "num_tars": len(tar_paths),
             "failed_tars": len(failed_tars),
             "multi_image": multi_image,
+            "compute_media_sha256": compute_media_sha256,
         },
     )
 
