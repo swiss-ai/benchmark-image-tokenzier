@@ -41,7 +41,12 @@
 set -e
 export LD_LIBRARY_PATH=/capstor/store/cscs/swissai/infra01/MLLM/wheelhouse:${LD_LIBRARY_PATH:-}
 
-SRC_DIR=/capstor/store/cscs/swissai/infra01/vision-datasets/alignment-processed/mmpr-v1.2
+# Data location: single source of truth is the dataset config's `source_dir`
+# (not duplicated here). The pipeline reads the same yaml; we just derive the
+# per-shard input path from it below.
+DATASET_CFG=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/vision_tokenization/configs/dataset/posttraining/mmpr_v1_2.yaml
+SRC_DIR=$(awk -F': +' '/^source_dir:/{print $2; exit}' "$DATASET_CFG")
+test -n "$SRC_DIR" || { echo "FATAL: source_dir not found in $DATASET_CFG"; exit 1; }
 # Pre-flight on the head node: converter seals shards via .tmp rename and writes
 # the report last — all 8 shards + the report must exist before any GPU minute.
 test -f "${SRC_DIR}/_conversion_report.json" || { echo "FATAL: conversion report missing — converter not finished"; exit 1; }
