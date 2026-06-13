@@ -30,15 +30,15 @@ defaults:
   - /dataset/_pipeline@_here_
   - /dataset/_task/alignment@_here_
 
-# Data location (single source of truth; launcher derives ${source_dir}/part_NN.parquet):
+# Data location (single source of truth; per-shard paths derive from it below):
 source_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/alignment-processed/mmpr-v1.2
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 
-# --- Per-shard, pinned by the launcher (??? = Hydra mandatory, fail-loud) ------
-# One config, 8 shards: a single hardcoded path would be wrong for 7 of them, so
-# the launcher sets these per shard (SHARD = SLURM_PROCID, 0..7):
-#   dataset.input_parquet=${source_dir}/part_0${SHARD}.parquet
-#   dataset.output_name=mmpr_v1_2_part0${SHARD}
-# The exact input is also recorded per store in manifest.json:source_input.
-input_parquet: ???
-output_name: ???
+# --- Per-shard selection ------------------------------------------------------
+# One config, 8 shards: the launcher passes `dataset.shard=$SLURM_PROCID` (0..7)
+# and input_parquet/output_name derive from it by interpolation — no hardcoded
+# paths, no bash path-building. (Single-digit zero-pad; assumes <10 shards.)
+# manifest.json:source_input records the resolved input per store.
+shard: ???
+input_parquet: ${.source_dir}/part_0${.shard}.parquet
+output_name: mmpr_v1_2_part0${.shard}

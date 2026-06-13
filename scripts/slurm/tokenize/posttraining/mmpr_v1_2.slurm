@@ -41,48 +41,32 @@
 set -e
 export LD_LIBRARY_PATH=/capstor/store/cscs/swissai/infra01/MLLM/wheelhouse:${LD_LIBRARY_PATH:-}
 
-# Data location: single source of truth is the dataset config's `source_dir`
-# (not duplicated here). The pipeline reads the same yaml; we just derive the
-# per-shard input path from it below.
-DATASET_CFG=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/vision_tokenization/configs/dataset/posttraining/mmpr_v1_2.yaml
-SRC_DIR=$(awk -F': +' '/^source_dir:/{print $2; exit}' "$DATASET_CFG")
-test -n "$SRC_DIR" || { echo "FATAL: source_dir not found in $DATASET_CFG"; exit 1; }
-# Pre-flight on the head node: converter seals shards via .tmp rename and writes
-# the report last — all 8 shards + the report must exist before any GPU minute.
-test -f "${SRC_DIR}/_conversion_report.json" || { echo "FATAL: conversion report missing — converter not finished"; exit 1; }
-for i in 0 1 2 3 4 5 6 7; do
-    test -f "${SRC_DIR}/part_0${i}.parquet" || { echo "FATAL: ${SRC_DIR}/part_0${i}.parquet missing"; exit 1; }
-done
-
 echo "=========================================="
 echo "MMPR-v1.2 -> 8 views+media preference stores (1 job, 2 nodes, 8 GPUs)"
 echo "  mode=posttraining task=preference; 8 independent single-rank shards"
 echo "  out: .../vision-datasets/tokenized/preference/mmpr_v1_2_part0{0..7}"
 echo "=========================================="
 
+# 8 tasks (2 nodes x 4) -> 8 shards. Each task is its own single-rank store:
+# WORLD_SIZE=1 (posttraining contract; the per-shard num_gpus=1 is NOT the job
+# total — all 8 GPUs run, one shard each), shard = SLURM_PROCID. input_parquet
+# and output_name derive from `shard` inside the dataset yaml (interpolation),
+# so we pass only the index. local_rank=SLURM_LOCALID pins GPUs 0..3 per node.
 srun -ul --kill-on-bad-exit=0 bash -c '
     set -e
     export LD_LIBRARY_PATH=/capstor/store/cscs/swissai/infra01/MLLM/wheelhouse:${LD_LIBRARY_PATH:-}
     export PYTHONPATH=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier:$PYTHONPATH
     cd /iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier
-
-    # This task owns exactly one shard; make it a clean single-rank world.
-    SHARD=$(printf "%02d" "${SLURM_PROCID}")
-    export RANK=0 WORLD_SIZE=1            # posttraining single-rank contract (world_size==1)
-    unset LOCAL_RANK                       # let pipeline read SLURM_LOCALID -> set_device(0..3)
-    INPUT='"${SRC_DIR}"'/part_${SHARD}.parquet
-    OUT_NAME=mmpr_v1_2_part${SHARD}
-    echo "[task ${SLURM_PROCID} local ${SLURM_LOCALID}] shard ${SHARD} -> ${OUT_NAME}"
+    export RANK=0 WORLD_SIZE=1
+    echo "[task ${SLURM_PROCID} local ${SLURM_LOCALID}] -> shard ${SLURM_PROCID}"
 
     python -m vision_tokenization.tokenize \
         mode=posttraining dataset=posttraining/mmpr_v1_2 \
-        dataset.input_parquet=${INPUT} \
-        dataset.output_name=${OUT_NAME} \
+        dataset.shard=${SLURM_PROCID} \
         num_gpus=1 \
-        wandb.enabled=true wandb.name=mmpr_v1_2_part${SHARD}
+        wandb.enabled=true wandb.name=mmpr_v1_2_part0${SLURM_PROCID}
 
-    echo "[task ${SLURM_PROCID}] Gate 2: ${OUT_NAME}"
     python vision_tokenization/tests/alignment/check_store.py \
-        /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/preference/${OUT_NAME}
+        /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/preference/mmpr_v1_2_part0${SLURM_PROCID}
 '
 echo "END TIME: $(date)"
