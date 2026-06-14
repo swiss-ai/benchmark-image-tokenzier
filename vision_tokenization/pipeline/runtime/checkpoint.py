@@ -58,17 +58,50 @@ class WorkerStats:
     cuda_oom_errors: int = 0
     elapsed_offset: float = 0.0
     start_time: float = field(default_factory=time.time)
+    setup_elapsed_time: float = 0.0
+    loop_timing_started: bool = False
+    tokenizer_load_time: float = 0.0
+    model_load_time: float = 0.0
+    text_tokenizer_load_time: float = 0.0
     elapsed_time: float = 0.0
     throughput: float = 0.0
 
+    def record_tokenizer_load_time(
+        self,
+        *,
+        tokenizer_load_time: float,
+        model_load_time: float = 0.0,
+        text_tokenizer_load_time: float = 0.0,
+    ) -> None:
+        """Record cumulative setup-only tokenizer/model load durations in seconds."""
+        self.tokenizer_load_time += max(0.0, float(tokenizer_load_time or 0.0))
+        self.model_load_time += max(0.0, float(model_load_time or 0.0))
+        self.text_tokenizer_load_time += max(
+            0.0, float(text_tokenizer_load_time or 0.0)
+        )
+
+    def start_loop_timer(self) -> None:
+        """Exclude setup/model-load time from tokenization throughput."""
+        if self.loop_timing_started:
+            return
+        now = time.time()
+        self.setup_elapsed_time += max(0.0, now - self.start_time)
+        self.start_time = now
+        self.loop_timing_started = True
+
     def current_elapsed_time(self) -> float:
-        """Return total wall time across all resume segments."""
+        """Return measured tokenization-loop time across resume segments."""
         return self.elapsed_offset + max(0.0, time.time() - self.start_time)
+
+    def current_total_elapsed_time(self) -> float:
+        """Return setup plus tokenization-loop wall time."""
+        return self.setup_elapsed_time + self.current_elapsed_time()
 
     def to_dict(self) -> Dict[str, Any]:
         elapsed = self.current_elapsed_time()
         throughput = self.tokens_generated / elapsed if elapsed > 0 else 0
         image_tokens_per_second = self.image_tokens / elapsed if elapsed > 0 else 0
+        total_elapsed = self.current_total_elapsed_time()
         d = {
             "samples_processed": self.samples_processed,
             "tokens_generated": self.tokens_generated,
@@ -78,6 +111,11 @@ class WorkerStats:
             "samples_skipped": self.samples_skipped,
             "cuda_oom_errors": self.cuda_oom_errors,
             "elapsed_time": elapsed,
+            "setup_elapsed_time": self.setup_elapsed_time,
+            "total_elapsed_time": total_elapsed,
+            "tokenizer_load_time": self.tokenizer_load_time,
+            "model_load_time": self.model_load_time,
+            "text_tokenizer_load_time": self.text_tokenizer_load_time,
             "throughput": throughput,
             "image_tokens_per_second": image_tokens_per_second,
         }
@@ -94,6 +132,13 @@ class WorkerStats:
         self.cuda_oom_errors = data.get("cuda_oom_errors", 0)
         self.elapsed_time = float(data.get("elapsed_time", 0.0) or 0.0)
         self.elapsed_offset = self.elapsed_time
+        self.setup_elapsed_time = float(data.get("setup_elapsed_time", 0.0) or 0.0)
+        self.tokenizer_load_time = float(data.get("tokenizer_load_time", 0.0) or 0.0)
+        self.model_load_time = float(data.get("model_load_time", 0.0) or 0.0)
+        self.text_tokenizer_load_time = float(
+            data.get("text_tokenizer_load_time", 0.0) or 0.0
+        )
+        self.loop_timing_started = False
         self.throughput = float(data.get("throughput", 0.0) or 0.0)
 
     def finalize(self) -> Dict[str, Any]:

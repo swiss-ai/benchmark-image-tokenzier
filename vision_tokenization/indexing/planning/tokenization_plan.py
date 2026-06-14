@@ -679,8 +679,6 @@ def build_plan_image2text(
             N_rows = len(valid_idx)
             images_per_doc = np.bincount(doc_inverse, minlength=N_docs).astype(np.int16)
 
-    components_per_doc = images_per_doc + 1  # images + 1 text
-
     # Build component arrays: image components first, then text components
     n_image_comps = N_rows
     n_text_comps = N_docs
@@ -874,7 +872,7 @@ def build_plan_interleave(
     return plan
 
 
-def build_plan_posttraining(
+def build_plan_alignment(
     manifest_path: Union[str, Path],
     *,
     batch_size: int = 128,
@@ -884,7 +882,7 @@ def build_plan_posttraining(
     resize_max_pixels: int = 1960000,
     window_size: int = 2000,
 ) -> TokenizationPlan:
-    """Build plan for posttraining mode from the scan artifact (``scan.parquet``).
+    """Build plan for alignment mode from the scan artifact (``scan.parquet``).
 
     One single-image document per unique media; ``source_ref`` is the scan row
     (== media inventory index). Batch composition is the shared planner path:
@@ -929,7 +927,7 @@ def build_plan_posttraining(
     plan.metadata = PlanMetadata(
         manifest_path=manifest_path,
         manifest_fingerprint=_manifest_fingerprint(manifest_path),
-        mode="posttraining",
+        mode="alignment",
         window_size=window_size,
         batch_size=batch_size,
         max_batch_tokens=max_batch_tokens,
@@ -939,7 +937,7 @@ def build_plan_posttraining(
     )
 
     logger.info(
-        f"posttraining plan: {plan.total_documents:,} unique media, "
+        f"alignment plan: {plan.total_documents:,} unique media, "
         f"{plan.total_batches:,} image batches"
     )
     return plan
@@ -969,8 +967,8 @@ def build_tokenization_plan(
     """Build a TokenizationPlan for the given mode.
 
     Args:
-        manifest_path: Path to manifest parquet (``scan.parquet`` for posttraining).
-        mode: One of image_only, image2text, text2image, sft, interleave, posttraining.
+        manifest_path: Path to manifest parquet (``scan.parquet`` for alignment).
+        mode: One of image_only, image2text, text2image, sft, interleave, alignment.
         text_column: Text column/field name for text loading.
         parser: Optional dataset parser name used at text load time.
         min_pixels, max_pixels: Pixel count filter bounds.
@@ -1011,10 +1009,10 @@ def build_tokenization_plan(
             parser=parser,
             **common,
         )
-    elif mode == "posttraining":
+    elif mode == "alignment":
         # No pixel filter kwargs: the scan is the only gate (every scanned
         # row must encode); batching itself is the shared planner path.
-        return build_plan_posttraining(
+        return build_plan_alignment(
             manifest_path,
             batch_size=batch_size,
             max_batch_tokens=max_batch_tokens,

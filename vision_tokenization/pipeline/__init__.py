@@ -8,8 +8,6 @@ import os
 from pathlib import Path
 from typing import Any, Dict
 
-import torch
-
 logger = logging.getLogger(__name__)
 
 __all__ = ["run_distributed_pipeline"]
@@ -25,23 +23,12 @@ def _build_output_subdir(cfg: Dict[str, Any]) -> str:
         image2text:     image2text/{output_name}
         text2image:     text2image/{output_name}
         interleave:     interleave/{output_name}
-        posttraining:   {preference|rl}/{output_name}   (task-keyed)
+        alignment:      alignment/{output_name}
     """
     output_name = cfg.get("output_name")
     if not output_name:
         raise ValueError("'output_name' is required in the dataset config.")
     mode = cfg["mode"]
-    if mode == "posttraining":
-        # The output namespace comes from the TASK, not the mode: preference
-        # data lands under preference/, RL data under rl/ (TASK_OUTPUT_DIRS).
-        from vision_tokenization.indexing.alignment.ingest import TASK_OUTPUT_DIRS
-
-        task = cfg["task"]
-        if task not in TASK_OUTPUT_DIRS:
-            raise ValueError(
-                f"unknown task {task!r}; expected one of: {sorted(TASK_OUTPUT_DIRS)}"
-            )
-        return str(Path(TASK_OUTPUT_DIRS[task]) / output_name)
     return str(Path(mode) / output_name)
 
 
@@ -58,10 +45,10 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
     world_size = int(os.environ.get("WORLD_SIZE", os.environ.get("SLURM_NTASKS", 1)))
     local_rank = int(os.environ.get("LOCAL_RANK", os.environ.get("SLURM_LOCALID", 0)))
 
-    if cfg["mode"] == "posttraining":
+    if cfg["mode"] == "alignment":
         # One single-image document per unique media — grouping knobs don't apply.
         if cfg.get("multi_image", False):
-            raise ValueError("multi_image is meaningless for posttraining")
+            raise ValueError("multi_image is meaningless for alignment")
 
     # Handle dry-run mode early (no GPU, no world-size check needed)
     if cfg.get("dry_run", False):
@@ -69,15 +56,21 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
         cfg["world_size"] = 1
         cfg["local_rank"] = 0
         cfg["output_dir"] = str(Path(cfg["output_dir"]) / _build_output_subdir(cfg))
+        public_dir = Path(cfg["output_dir"])
 
-        if cfg["mode"] == "posttraining":
+        if cfg["mode"] == "alignment":
             # The plan is built from scan.parquet, which only the scan stage
             # produces — so the dry run runs the real scan stage (ingest IS
-            # the scan; CPU-only), then reports plan-derived token counts.
-            # The persisted scan.parquet is byte-identical to the GPU job's
+            # the scan; CPU-only), then reports plan-derived token counts. The
+            # persisted scan.parquet is byte-identical to the GPU job's
             # (deterministic ingest), making this a true pre-flight.
-            from .runtime.posttraining import run_scan_stage
+            from .runtime.alignment import (
+                run_scan_stage,
+                _stage_scan_into_work,
+                _unstage_work,
+            )
 
+            _stage_scan_into_work(cfg)
             run_scan_stage(cfg)
 
         from .runtime.dry_run import export_dry_run
@@ -94,9 +87,13 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
                 b.batch_token_count for b in plan.execution.image_batches
             ),
         }
-        result["output_dir"] = cfg["output_dir"]
-        export_dry_run(result, cfg["output_dir"])
+        result["output_dir"] = str(public_dir)
+        export_dry_run(result, str(public_dir))
+        if cfg["mode"] == "alignment":
+            _unstage_work(public_dir, cfg)
         return result
+
+    import torch
 
     # Cross-check num_gpus against env-derived world_size
     if num_gpus is not None:
@@ -142,19 +139,19 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
         f"no NCCL — each rank is independent)"
     )
 
-    # Posttraining plugs into the unified executor via its own scan stage
+    # Alignment plugs into the unified executor via its own scan stage
     # (scan.parquet manifest), loader, and media-store backend; views+manifest
     # publish after the executor returns.
-    if cfg["mode"] == "posttraining":
+    if cfg["mode"] == "alignment":
         # Single-rank: the publish stage is a rank-0 commit step; multi-rank
         # needs cross-rank completion gating first.
         if cfg["world_size"] != 1:
             raise RuntimeError(
-                f"posttraining mode is single-rank; got world_size={cfg['world_size']}"
+                f"alignment mode is single-rank; got world_size={cfg['world_size']}"
             )
-        from .runtime.posttraining import run_posttraining
+        from .runtime.alignment import run_alignment
 
-        return run_posttraining(cfg)
+        return run_alignment(cfg)
 
     from .runtime.executor import run_executor
 

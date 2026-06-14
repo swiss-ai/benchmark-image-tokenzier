@@ -1,46 +1,27 @@
-"""Alignment-mode parquet ingest: hash+dedup images, scan geometry, draft views.
+"""Alignment-mode view building from dedup-filtered media row refs.
 
 The input marker is the dataset-level ``<image>``; the canonical on-disk marker
 is the tokenizer special ``<|image|>`` — the manifest's ``token_layout`` records
 its id so the consumer can count it in token space. Per-field marker counts
 must equal per-field ref counts (spec contract).
 
-Ingest IS the scan stage (pipeline contract: every mode persists geometry
-before planning): the one pass that reads each image's bytes for sha256 also
-decodes width/height. Corrupt/undecodable and sub-``SPATIAL_FACTOR`` images are
-skipped here — with every view row referencing them — and the surviving
-geometry is persisted as ``scan.parquet`` (``write_scan_parquet``) before any
-GPU work. The plan builder (``build_plan_posttraining``) consumes dims from
-the scan; only the executor's loader re-opens bytes, to feed the GPU encoder.
-
-``ROW_ADAPTERS`` keys the per-task row parser + view schema (``task:`` in the
-dataset yaml): ``preference`` today, ``rl_prompt`` reserved for P4. The media
-store, plan builder, executor, and Gate 2 never branch on task.
+The scan/dedup path owns media facts and row-media references. This module owns
+only the task-specific text conversion for final views.
 """
 
 from __future__ import annotations
 
-import hashlib
-import io
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Sequence
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-from PIL import Image
 
 MARKER = "<|image|>"
 INPUT_MARKER = "<image>"
 SPATIAL_FACTOR = 16
-
-SCAN_SCHEMA = pa.schema([
-    pa.field("media_id", pa.string()),
-    pa.field("width", pa.int32()),
-    pa.field("height", pa.int32()),
-    pa.field("raw_length_bytes", pa.int64()),
-    pa.field("source", pa.string()),
-])
+DEFAULT_INGEST_BATCH_SIZE = 1024
 
 
 class MarkerMismatch(ValueError):
@@ -48,20 +29,99 @@ class MarkerMismatch(ValueError):
 
 
 @dataclass
-class UniqueMedia:
-    media_id: str
-    raw: bytes
-    source: str
-    raw_ext: str
-    width: int       # source pixels; (0, 0) marks undecodable bytes
-    height: int
-
-
-@dataclass
 class IngestResult:
     unique_media: list = field(default_factory=list)
     view_rows: list = field(default_factory=list)
     n_skipped_media: int = 0
+
+
+def _task_payload_columns(task: str, schema: pa.Schema) -> list[str]:
+    if task == "preference":
+        required = ["prompt", "accepted", "rejected"]
+        optional = ["source-id"]
+    else:
+        required = []
+        optional = ["source-id"]
+
+    names = set(schema.names)
+    missing = [name for name in required if name not in names]
+    if missing:
+        raise ValueError(f"missing required payload column(s) for {task!r}: {missing}")
+    return [name for name in [*required, *optional] if name in names]
+
+
+def build_alignment_views_from_row_refs(
+    source_path: Path | Sequence[Path],
+    row_refs_path: Path,
+    output_path: Path,
+    *,
+    task: str,
+    batch_size: int = DEFAULT_INGEST_BATCH_SIZE,
+) -> int:
+    """Build alignment view rows from dedup-filtered row/media references.
+
+    This is intentionally after scan+dedup: the scanner owns media facts and
+    row refs only, while this function owns task text conversion.
+    """
+    if task != "preference":
+        raise ValueError("only preference view building is implemented")
+
+    source_paths = (
+        [Path(source_path)]
+        if isinstance(source_path, (str, Path))
+        else [Path(path) for path in source_path]
+    )
+    row_refs_path = Path(row_refs_path)
+    output_path = Path(output_path)
+    refs_by_source: dict[str, dict[int, dict[int, list[str]]]] = {}
+    for ref_row in pq.read_table(row_refs_path).to_pylist():
+        source_key = str(Path(ref_row["source_path"]))
+        refs_by_group = refs_by_source.setdefault(source_key, {})
+        group_refs = refs_by_group.setdefault(int(ref_row["row_group"]), {})
+        group_refs[int(ref_row["row_index"])] = list(ref_row["media_refs"])
+
+    rows: list[dict] = []
+    seen_sources = set()
+    for path in source_paths:
+        source_key = str(path)
+        seen_sources.add(source_key)
+        refs_by_group = refs_by_source.get(source_key)
+        if not refs_by_group:
+            continue
+        parquet_file = pq.ParquetFile(path)
+        columns = _task_payload_columns(task, parquet_file.schema_arrow)
+        for row_group in sorted(refs_by_group):
+            row_index = 0
+            for batch in parquet_file.iter_batches(
+                row_groups=[row_group],
+                columns=columns,
+                batch_size=batch_size,
+            ):
+                col_by_name = {
+                    name: batch.column(i)
+                    for i, name in enumerate(batch.schema.names)
+                }
+                for local_idx in range(batch.num_rows):
+                    refs = refs_by_group[row_group].get(row_index)
+                    if refs is not None:
+                        row = {
+                            name: col[local_idx].as_py()
+                            for name, col in col_by_name.items()
+                        }
+                        rows.append(_parse_preference_row_with_refs(row, refs))
+                    row_index += 1
+
+    unknown_sources = sorted(set(refs_by_source) - seen_sources)
+    if unknown_sources:
+        raise ValueError(
+            f"row refs contain source path(s) not present in source_path: {unknown_sources[:5]}"
+        )
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = output_path.with_suffix(".parquet.tmp")
+    pq.write_table(pa.Table.from_pylist(rows), tmp)
+    tmp.replace(output_path)
+    return len(rows)
 
 
 def _normalize(messages):
@@ -80,52 +140,14 @@ def _normalize(messages):
     return out
 
 
-def _images_of(row) -> list[dict]:
-    img = row["image"]
-    return img if isinstance(img, list) else [img]
-
-
-def _decode_dims(raw: bytes) -> tuple[int, int]:
-    """(width, height) of the encoded image, or (0, 0) for undecodable bytes.
-
-    Never raises: corrupt bytes must fail at scan as a skip, not a crash; the
-    (0, 0) sentinel is caught by the sub-``SPATIAL_FACTOR`` gate in
-    ``ingest_parquet``.
-    """
-    try:
-        with Image.open(io.BytesIO(raw)) as im:
-            return im.size
-    except Exception:
-        return (0, 0)
-
-
-def _register_media(row: dict, seen: dict) -> list[str]:
-    """Dedup-register the row's images into *seen* by sha256, decoding dims
-    once per unique media; return the row's refs in marker order."""
-    refs = []
-    for img in _images_of(row):
-        mid = hashlib.sha256(img["bytes"]).hexdigest()
-        if mid not in seen:
-            ext = (img.get("path") or "bin").rsplit(".", 1)[-1]
-            w, h = _decode_dims(img["bytes"])
-            seen[mid] = UniqueMedia(mid, img["bytes"],
-                                    source=str(row.get("source-id", "")),
-                                    raw_ext=ext, width=w, height=h)
-        refs.append(mid)
-    return refs
-
-
-def _refs_of(row: dict) -> list[str]:
-    """All media refs of one view row (any ``*_media_refs`` field, by schema)."""
-    return [m for k, v in row.items() if k.endswith("_media_refs") for m in v]
-
-
-def _parse_preference_row(row: dict, seen: dict) -> dict:
-    """Parse one mllm-dpo-shaped row into a preference view row."""
+def _parse_preference_row_with_refs(row: dict, refs: list[str]) -> dict:
+    """Parse one mllm-dpo-shaped row using already-computed media refs."""
     prompt = _normalize(row["prompt"])
     accepted = _normalize(row["accepted"])
     rejected = _normalize(row["rejected"])
-    refs = _register_media(row, seen)
+    if not accepted or not rejected:
+        raise MarkerMismatch(
+            f"{row.get('source-id')}: empty accepted/rejected message list")
     n_markers = sum(m["content"].count(MARKER) for m in prompt)
     if n_markers != len(refs):
         raise MarkerMismatch(
@@ -141,47 +163,3 @@ def _parse_preference_row(row: dict, seen: dict) -> dict:
         "chosen_media_refs": [], "rejected_media_refs": [],
         "prompt_id": str(row.get("source-id", "")),
     }
-
-
-ROW_ADAPTERS = {"preference": _parse_preference_row}
-
-# The output namespace comes from the TASK, not the mode (user directive):
-# preference data lands under preference/, RL data under rl/. Consumed by
-# run_distributed_pipeline when namespacing the dataset root.
-TASK_OUTPUT_DIRS = {"preference": "preference", "rl_prompt": "rl"}
-
-
-def ingest_parquet(path: Path, task: str) -> IngestResult:
-    """Ingest one source parquet into unique media + drafted view rows,
-    applying the scan gate (sub-``SPATIAL_FACTOR``/corrupt media skipped,
-    referencing rows dropped with their pairs)."""
-    try:
-        parse_row = ROW_ADAPTERS[task]
-    except KeyError:
-        raise ValueError(
-            f"unknown task {task!r}; registered tasks: {sorted(ROW_ADAPTERS)}"
-        ) from None
-    table = pq.read_table(path)
-    res = IngestResult()
-    seen: dict[str, UniqueMedia] = {}
-    rows = [parse_row(row, seen) for row in table.to_pylist()]
-    skipped = {m.media_id for m in seen.values()
-               if m.width < SPATIAL_FACTOR or m.height < SPATIAL_FACTOR}
-    res.unique_media = [m for m in seen.values() if m.media_id not in skipped]
-    res.view_rows = [r for r in rows if not skipped.intersection(_refs_of(r))]
-    res.n_skipped_media = len(skipped)
-    return res
-
-
-def write_scan_parquet(path: Path, unique_media: list) -> int:
-    """Atomically persist the scan artifact (one geometry row per kept media,
-    before any GPU work); return byte size for the manifest files map."""
-    table = pa.Table.from_pylist(
-        [{"media_id": m.media_id, "width": m.width, "height": m.height,
-          "raw_length_bytes": len(m.raw), "source": m.source}
-         for m in unique_media],
-        schema=SCAN_SCHEMA)
-    tmp = path.with_suffix(".parquet.tmp")
-    pq.write_table(table, tmp)
-    os.replace(tmp, path)
-    return path.stat().st_size

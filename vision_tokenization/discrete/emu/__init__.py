@@ -38,8 +38,8 @@ def create_tokenizer(
         from .interleave import EMUInterleaveTokenizer
 
         tokenizer_class = EMUInterleaveTokenizer
-    elif mode == "posttraining":
-        # Posttraining freezes media as raw image blocks (no paired text
+    elif mode == "alignment":
+        # Alignment freezes media as raw image blocks (no paired text
         # render); the image-only tokenizer is exactly the encode + encapsulate
         # path it needs. It swallows the unused ``mode`` kwarg via ``**kwargs``.
         from .image_only import EMUImageOnlyTokenizer
@@ -48,7 +48,7 @@ def create_tokenizer(
     else:
         raise ValueError(
             f"Unknown tokenizer mode: {mode}. "
-            "Must be one of: image_only, image2text, text2image, sft, interleave, posttraining"
+            "Must be one of: image_only, image2text, text2image, sft, interleave, alignment"
         )
 
     return tokenizer_class(

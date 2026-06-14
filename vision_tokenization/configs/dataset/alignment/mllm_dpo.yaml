@@ -1,5 +1,5 @@
-# mllm-dpo (5,182 preference pairs) -> views+media alignment store (Part C1).
-# Task-keyed output root: <output_dir>/preference/mllm_dpo (task: preference).
+# mllm-dpo (5,182 preference pairs) -> alignment payload.
+# Output root: <output_dir>/alignment/mllm_dpo.
 defaults:
   - /dataset/_pipeline@_here_
   - /dataset/_task/alignment@_here_

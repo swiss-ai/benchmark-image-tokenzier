@@ -1,5 +1,5 @@
 # 16-row producer smoke (Part A6). input_parquet is supplied on the CLI;
-# task-keyed root: <output_dir>/preference/mllm_dpo_smoke (task: preference).
+# output root: <output_dir>/alignment/mllm_dpo_smoke.
 # manifest_path stays ??? in yaml: the scan stage injects scan.parquet at
 # runtime before the executor builds the plan.
 defaults:

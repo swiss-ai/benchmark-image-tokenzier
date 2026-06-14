@@ -6,7 +6,7 @@ Loader classes:
   physical manifest coordinates when available.
 - ``JSONLTarLoader``: Reads images from a JSONL+tar manifest, with document
   text loaded from JSONL by byte offsets.
-- ``AlignmentMediaLoader``: Decodes posttraining unique-media bytes from the
+- ``AlignmentMediaLoader``: Decodes alignment unique-media bytes from the
   scan stage's in-memory inventory.
 
 All but ``AlignmentMediaLoader`` support loading associated text for
@@ -1381,12 +1381,12 @@ class HFImageLoader:
 
 
 # ---------------------------------------------------------------------------
-# Alignment media loader (posttraining)
+# Alignment media loader (alignment)
 # ---------------------------------------------------------------------------
 
 
 class AlignmentMediaLoader:
-    """Decode posttraining unique-media bytes into PIL images.
+    """Decode alignment unique-media bytes into PIL images.
 
     The scan stage hands the executor its in-memory inventory via
     ``cfg["media_inventory"]`` (scan.parquet row order); plan ``source_ref``
@@ -1436,8 +1436,8 @@ def _normalize_loader_storage_and_mode(cfg: Dict[str, Any]) -> Tuple[str, Option
 
 def create_loader(cfg: Dict[str, Any]):
     """Factory to create the appropriate loader based on mode/dataset_type."""
-    # Posttraining loads from the scan stage's inventory, not a storage backend.
-    if cfg.get("mode") == "posttraining":
+    # Alignment loads from the scan stage's inventory, not a storage backend.
+    if cfg.get("mode") == "alignment":
         return AlignmentMediaLoader(cfg["media_inventory"])
 
     dataset_type, mode = _normalize_loader_storage_and_mode(cfg)

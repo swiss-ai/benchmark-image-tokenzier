@@ -3,7 +3,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from vision_tokenization.indexing.planning.tokenization_plan import (
-    build_plan_posttraining,
+    build_plan_alignment,
 )
 
 # 16-aligned dims inside this band pass smart_resize unchanged, so full
@@ -26,7 +26,7 @@ def test_shared_planner_contract(tmp_path):
     # 160x160 run of 3 with batch_size 2 -> one full exact-dims batch of 2;
     # the straggler and the lone 224x112 go through spillover cluster-packing.
     path = _scan(tmp_path, [(160, 160), (160, 160), (160, 160), (224, 112)])
-    plan = build_plan_posttraining(path, batch_size=2, **BAND)
+    plan = build_plan_alignment(path, batch_size=2, **BAND)
     batches = list(plan.execution.image_batches)
 
     # The full same-dims run keeps its exact dims.
@@ -47,8 +47,8 @@ def test_deterministic_across_builds_including_spillover(tmp_path):
     # two builds must produce identical batches (dims, members, order).
     dims = [(128 + 16 * i, 128 + 16 * (i % 7)) for i in range(100)]
     path = _scan(tmp_path, dims)
-    a = build_plan_posttraining(path, batch_size=8, **BAND)
-    b = build_plan_posttraining(path, batch_size=8, **BAND)
+    a = build_plan_alignment(path, batch_size=8, **BAND)
+    b = build_plan_alignment(path, batch_size=8, **BAND)
 
     def flat(plan):
         return [(x.resize_height, x.resize_width, x.component_indices.tolist())
@@ -62,8 +62,8 @@ def test_deterministic_across_builds_including_spillover(tmp_path):
 
 def test_one_document_per_unique_media(tmp_path):
     path = _scan(tmp_path, [(160, 160), (224, 112)])
-    plan = build_plan_posttraining(path, batch_size=8, **BAND)
+    plan = build_plan_alignment(path, batch_size=8, **BAND)
     assert plan.total_documents == plan.total_image_components == 2
     np.testing.assert_array_equal(plan.components.source_ref, [0, 1])
     np.testing.assert_array_equal(plan.documents.num_images, [1, 1])
-    assert plan.metadata.mode == "posttraining"
+    assert plan.metadata.mode == "alignment"

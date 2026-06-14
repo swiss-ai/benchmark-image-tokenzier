@@ -2,7 +2,7 @@
 
 - ``DirectBackend``: assembles and writes final bin/idx immediately.
 - ``SpillBackend``: writes keyed component payloads for offline rebuild.
-- ``MediaStoreBackend``: content-addressed media store (posttraining mode).
+- ``AlignmentPayloadBackend``: writes final alignment views/tokens/raw payload.
 
 The executor instantiates one based on mode/multi_image.
 """
@@ -10,18 +10,38 @@ The executor instantiates one based on mode/multi_image.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+import pyarrow as pa
+import pyarrow.parquet as pq
 import torch
 
 from ..runtime.checkpoint import WorkerStats
+from ...indexing.alignment.payload import (
+    RAW_SCHEMA,
+    TOKEN_DTYPE,
+    VIEW_SCHEMA,
+    _alignment_media_refs,
+    split_payload_rows,
+)
 from ...indexing.planning.tokenization_plan import IMAGE, TEXT
 from ...discrete.sft_segments import build_segment_component_maps
 
 logger = logging.getLogger(__name__)
+
+
+class EncodeIncompleteError(RuntimeError):
+    """A view row references a media that was never encoded.
+
+    The alignment publish-stage completeness gate, raised from
+    ``AlignmentPayloadBackend.finalize``. The executor only calls finalize on a
+    clean loop, so this surfaces a genuine encode gap — never a masked loop
+    error.
+    """
 
 
 def write_rank_success_marker(output_dir: Path, rank: int) -> None:
@@ -524,31 +544,112 @@ class SpillBackend:
                 stats.tokens_generated += len(tokens_np)
 
 
-class MediaStoreBackend:
-    """Content-addressed media store for posttraining mode.
+def _fsync_file(path) -> None:
+    """fsync a closed file's contents to stable storage (by path) before its
+    atomic os.replace, matching the token-file fsync."""
+    fd = os.open(str(path), os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
-    One sealed ``<|img_start|>..<|img_end|>`` block per unique media, written
-    via ``MediaStoreWriter`` (the storage layer). Shares the spill calling
-    convention: the executor GPU-encodes, this backend writes keyed payloads.
+
+class AlignmentPayloadBackend:
+    """Write the final alignment payload directly.
+
+    The executor still GPU-encodes unique media, but this backend writes the
+    public ``views/``, ``tokens/``, and ``raw/`` artifacts directly. It does not
+    create a content-addressed media store on disk.
     """
 
-    name = "media_store"
+    name = "alignment_payload"
 
-    def __init__(self, media_inventory: List[Any]):
-        # Scan-row-ordered UniqueMedia list; plan source_ref values index it.
+    def __init__(
+        self,
+        media_inventory: List[Any],
+        view_rows: List[dict],
+        *,
+        public_output_dir: str | Path,
+        requested_validation_rows: int,
+        split_key: str = "prompt_id",
+        seed: int = 42,
+        raw_flush_rows: int = 1024,
+    ):
         self._inventory = media_inventory
-        self._writer = None
-        self._sealed_files: Dict[str, int] = {}
+        self._public_dir = Path(public_output_dir)
+        train_rows, validation_rows = split_payload_rows(
+            view_rows,
+            requested_validation_rows=requested_validation_rows,
+            split_key=split_key,
+            seed=seed,
+        )
+        self._rows_by_split: dict[str, list[dict]] = {"train": train_rows}
+        if validation_rows:
+            self._rows_by_split["validation"] = validation_rows
+
+        self._media_splits: dict[str, set[str]] = {}
+        self._first_occurrence: dict[str, dict[str, tuple[str, int]]] = {
+            split: {} for split in self._rows_by_split
+        }
+        self._image_ref_counts: dict[str, int] = {split: 0 for split in self._rows_by_split}
+        for split, rows in self._rows_by_split.items():
+            first = self._first_occurrence[split]
+            for row in rows:
+                sample_id = str(row.get("prompt_id", ""))
+                for image_index, media_id in enumerate(_alignment_media_refs(row)):
+                    self._image_ref_counts[split] += 1
+                    self._media_splits.setdefault(media_id, set()).add(split)
+                    first.setdefault(media_id, (sample_id, image_index))
+
+        self._raw_flush_rows = int(raw_flush_rows)
+        self._token_files: dict[str, Any] = {}
+        self._token_tmp: dict[str, Path] = {}
+        self._token_final: dict[str, Path] = {}
+        self._token_offsets: dict[str, int] = {}
+        self._raw_tmp: dict[str, Path] = {}
+        self._raw_final: dict[str, Path] = {}
+        self._raw_writers: dict[str, pq.ParquetWriter] = {}
+        self._raw_buffers: dict[str, list[dict]] = {}
+        self._raw_counts: dict[str, int] = {}
+        self._locations: dict[str, dict[str, dict]] = {
+            split: {} for split in self._rows_by_split
+        }
+        self._completed_files: list[dict] = []
         self._n_media = 0
         self._n_tokens = 0
+        self.result: dict | None = None
 
     def open(self, output_dir: str, rank: int, writer_state: Optional[dict] = None) -> None:
-        from .media_store import MediaStoreWriter
-
-        # Seal-at-end store: there is no mid-run cursor to restore from.
+        if rank != 0:
+            raise ValueError("alignment payload backend is single-rank")
         if writer_state:
-            raise ValueError("media store is seal-at-end; resume is unsupported")
-        self._writer = MediaStoreWriter(Path(output_dir) / "media", shard_id=rank)
+            raise ValueError("alignment payload backend is seal-at-end; resume is unsupported")
+
+        self._public_dir.mkdir(parents=True, exist_ok=True)
+        # No upfront wipe — a failed re-run keeps the prior store intact; the
+        # old payload and manifest survive until finalize's atomic os.replace.
+        for split in self._rows_by_split:
+            token_rel = f"tokens/{split}-00000.i32"
+            raw_rel = f"raw/{split}-00000.parquet"
+            token_final = self._public_dir / token_rel
+            raw_final = self._public_dir / raw_rel
+            token_final.parent.mkdir(parents=True, exist_ok=True)
+            raw_final.parent.mkdir(parents=True, exist_ok=True)
+
+            token_tmp = token_final.with_suffix(token_final.suffix + ".tmp")
+            raw_tmp = raw_final.with_suffix(raw_final.suffix + ".tmp")
+            for tmp in (token_tmp, raw_tmp):
+                if tmp.exists():
+                    tmp.unlink()
+
+            self._token_tmp[split] = token_tmp
+            self._token_final[split] = token_final
+            self._token_files[split] = open(token_tmp, "wb")
+            self._token_offsets[split] = 0
+            self._raw_tmp[split] = raw_tmp
+            self._raw_final[split] = raw_final
+            self._raw_buffers[split] = []
+            self._raw_counts[split] = 0
 
     def write_batch(
         self,
@@ -562,7 +663,6 @@ class MediaStoreBackend:
         tokenizer: Any,
         stats: WorkerStats,
     ) -> dict:
-        """Strip the outer BOS/EOS and store each media's encapsulated block."""
         t0 = time.perf_counter()
         for seq, comp_idx in zip(image_tokens, component_indices):
             media = self._inventory[int(plan.components.source_ref[int(comp_idx)])]
@@ -572,37 +672,192 @@ class MediaStoreBackend:
                     f"media {media.media_id[:12]}: encode did not return a "
                     f"BOS..EOS-wrapped block"
                 )
-            block = row[1:-1].numpy()
-            self._writer.add(
-                media.media_id, tokens=block, raw=media.raw,
-                resize_h=resize_height, resize_w=resize_width,
-                kind="image", source=media.source, raw_ext=media.raw_ext,
-            )
+            block = np.ascontiguousarray(row[1:-1].numpy(), dtype=TOKEN_DTYPE)
+            for split in sorted(self._media_splits.get(media.media_id, ())):
+                if media.media_id in self._locations[split]:
+                    continue
+                self._write_media_to_split(
+                    split,
+                    media,
+                    block,
+                    resize_height=resize_height,
+                    resize_width=resize_width,
+                )
+
             stats.samples_processed += 1
-            stats.image_tokens += len(block)
-            stats.tokens_generated += len(block)
+            stats.image_tokens += int(block.size)
+            stats.tokens_generated += int(block.size)
             self._n_media += 1
-            self._n_tokens += len(block)
+            self._n_tokens += int(block.size)
         return {"write_ms": (time.perf_counter() - t0) * 1000}
 
+    def _write_media_to_split(
+        self,
+        split: str,
+        media: Any,
+        tokens: np.ndarray,
+        *,
+        resize_height: int,
+        resize_width: int,
+    ) -> None:
+        token_offset = self._token_offsets[split]
+        raw_row = self._raw_counts[split]
+        self._token_files[split].write(tokens.tobytes())
+        self._token_offsets[split] += int(tokens.size)
+
+        width = int(media.width)
+        height = int(media.height)
+        sample_id, image_index = self._first_occurrence[split][media.media_id]
+        self._locations[split][media.media_id] = {
+            "media_id": media.media_id,
+            "width": width,
+            "height": height,
+            "resize_height": int(resize_height),
+            "resize_width": int(resize_width),
+            "token_offset": token_offset,
+            "token_length": int(tokens.size),
+            "raw_row": raw_row,
+        }
+        self._raw_buffers[split].append({
+            "sample_id": sample_id,
+            "image_index": int(image_index),
+            "media_id": media.media_id,
+            "width": width,
+            "height": height,
+            "resize_height": int(resize_height),
+            "resize_width": int(resize_width),
+            "raw_ext": str(media.raw_ext),
+            "raw_bytes": media.raw,
+        })
+        self._raw_counts[split] += 1
+        if len(self._raw_buffers[split]) >= self._raw_flush_rows:
+            self._flush_raw(split)
+
+    def _flush_raw(self, split: str) -> None:
+        rows = self._raw_buffers[split]
+        if not rows:
+            return
+        writer = self._raw_writers.get(split)
+        if writer is None:
+            writer = pq.ParquetWriter(self._raw_tmp[split], RAW_SCHEMA)
+            self._raw_writers[split] = writer
+        writer.write_table(pa.Table.from_pylist(rows, schema=RAW_SCHEMA))
+        rows.clear()
+
     def checkpoint(self) -> dict:
-        """No resumable cursor: the store seals at finalize (resume rejected at open)."""
         return {}
 
-    def completed_files(self) -> list:
-        """Sealed-triple records for the rank completion manifest.
+    def _build_view_rows(self, split: str) -> tuple[list[dict], int]:
+        locations = self._locations[split]
+        view_rows = []
+        dropped = 0
+        for row in self._rows_by_split[split]:
+            media_ids = _alignment_media_refs(row)
+            missing = next((mid for mid in media_ids if mid not in locations), None)
+            if missing is not None:
+                dropped += 1
+                logger.warning(
+                    "dropping pair %s: media %s did not encode (undecodable source image)",
+                    row.get("prompt_id", ""), missing[:12],
+                )
+                continue
+            images = [dict(locations[mid]) for mid in media_ids]
 
-        Valid only after ``finalize()`` (seal populates ``_sealed_files``).
-        Counts live on the tokens shard; the parquet/raw files ride along at 0
-        so the manifest sums stay (n media blocks, n token elements).
-        """
-        return [
-            {"name": f"media/{name}", "bytes": size,
-             "sequences": self._n_media if name.startswith("tokens.") else 0,
-             "tokens": self._n_tokens if name.startswith("tokens.") else 0}
-            for name, size in sorted(self._sealed_files.items())
-        ]
+            prompt = row.get("prompt") or []
+            chosen = str(row.get("chosen", ""))
+            rejected = str(row.get("rejected", ""))
+            text_chars = row.get("text_chars")
+            if text_chars is None:
+                text_chars = (
+                    sum(len(str(m.get("content", ""))) for m in prompt)
+                    + len(chosen)
+                    + len(rejected)
+                )
+            view_rows.append({
+                "prompt": prompt,
+                "chosen": chosen,
+                "rejected": rejected,
+                "prompt_id": str(row.get("prompt_id", "")),
+                "text_chars": int(text_chars),
+                "media_tokens_total": sum(int(img["token_length"]) for img in images),
+                "images": images,
+            })
+        if self._rows_by_split[split] and not view_rows:
+            raise EncodeIncompleteError(
+                f"all {len(self._rows_by_split[split])} {split} pairs dropped — every "
+                f"referenced media failed to encode (systematic, not sporadic corruption)"
+            )
+        return view_rows, dropped
 
     def finalize(self) -> None:
-        if self._writer:
-            self._sealed_files = self._writer.seal()
+        files: dict[str, int] = {}
+        views: dict[str, list[dict]] = {}
+        completed: list[dict] = []
+        n_dropped_pairs = 0
+
+        for split in self._rows_by_split:
+            self._flush_raw(split)
+            raw_writer = self._raw_writers.pop(split, None)
+            if raw_writer is None:
+                pq.write_table(pa.Table.from_pylist([], schema=RAW_SCHEMA), self._raw_tmp[split])
+            else:
+                raw_writer.close()
+
+            token_file = self._token_files.pop(split)
+            token_file.flush()
+            os.fsync(token_file.fileno())
+            token_file.close()
+
+            view_rel = f"views/{split}-00000.parquet"
+            token_rel = f"tokens/{split}-00000.i32"
+            raw_rel = f"raw/{split}-00000.parquet"
+            view_final = self._public_dir / view_rel
+            view_tmp = view_final.with_suffix(view_final.suffix + ".tmp")
+            view_final.parent.mkdir(parents=True, exist_ok=True)
+
+            split_rows, n_dropped = self._build_view_rows(split)
+            n_dropped_pairs += n_dropped
+            pq.write_table(
+                pa.Table.from_pylist(split_rows, schema=VIEW_SCHEMA),
+                view_tmp,
+            )
+            _fsync_file(self._raw_tmp[split])
+            _fsync_file(view_tmp)
+            os.replace(self._token_tmp[split], self._token_final[split])
+            os.replace(self._raw_tmp[split], self._raw_final[split])
+            os.replace(view_tmp, view_final)
+
+            for rel in (view_rel, token_rel, raw_rel):
+                files[rel] = (self._public_dir / rel).stat().st_size
+            spec = {
+                "view": view_rel,
+                "tokens": token_rel,
+                "raw": raw_rel,
+                "n_rows": len(split_rows),
+                "n_image_refs": self._image_ref_counts[split],
+                "n_media": self._raw_counts[split],
+                "token_elements": self._token_offsets[split],
+                "token_dtype": "<i4",
+            }
+            views[split] = [spec]
+            completed.extend([
+                {"name": view_rel, "bytes": files[view_rel], "sequences": 0, "tokens": 0},
+                {
+                    "name": token_rel,
+                    "bytes": files[token_rel],
+                    "sequences": self._raw_counts[split],
+                    "tokens": self._token_offsets[split],
+                },
+                {"name": raw_rel, "bytes": files[raw_rel], "sequences": 0, "tokens": 0},
+            ])
+
+        if n_dropped_pairs:
+            logger.warning(
+                "dropped %d pair(s) whose source image failed to decode; published "
+                "the rest", n_dropped_pairs,
+            )
+        self._completed_files = completed
+        self.result = {"files": files, "views": views, "n_dropped_pairs": n_dropped_pairs}
+
+    def completed_files(self) -> list:
+        return list(self._completed_files)

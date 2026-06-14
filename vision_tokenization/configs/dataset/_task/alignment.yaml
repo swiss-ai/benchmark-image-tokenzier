@@ -1,14 +1,23 @@
-# Task fragment for posttraining-mode datasets (composed via defaults; the
-# file keeps the internal `alignment` name).
-# The mode is task-neutral; `task` selects the row adapter + view schema in
-# ingest.py (ROW_ADAPTERS). `preference` today; `rl_prompt` reserved for P4.
+# Task fragment for alignment-mode datasets (composed via defaults).
+# The mode is task-neutral; `task` selects the post-dedup view builder and
+# row schema. `preference` today; `rl_prompt` reserved for P4.
 task: preference
 
 tokenizer_path: /capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_wavtok_instruct_thinking_token_fixed
-# No dataset min/max_pixels here: build_plan_posttraining ignores the pixel
+# No dataset min/max_pixels here: build_plan_alignment ignores the pixel
 # filter (the scan is the only gate); the recorded resize band is the
 # tokenizer's (config.yaml tokenizer.min_pixels/max_pixels).
 # Unified-executor batch-size cap (max_batch_tokens also applies); the
 # tokenizer's max_encode_pixels chunks within a batch to bound peak GPU memory.
 batch_size: 32
 val_rows: 256
+
+# Seal-at-end with no resume: a skipped batch's media is unrecoverable and
+# would only surface as EncodeIncompleteError at finalize, so any batch error
+# fails the run immediately instead of wasting the rest of the GPU time.
+max_consecutive_errors: 1
+
+# CPU scan/dedup path. Scanner records media facts + row/media refs only;
+# task text conversion happens after dedup.
+scan_workers: 64
+scan_batch_size: 8192

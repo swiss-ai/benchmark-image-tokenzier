@@ -1,11 +1,11 @@
-"""Gate 2: structural integrity of an alignment media store.
+"""Gate 2: structural integrity of a shard-local alignment payload.
 
-Verifies the per-store block contract (spec invariant 3). For each sampled block:
+Verifies the per-image block contract (spec invariant 3). For each sampled block:
 ``<|img_start|>`` H*W ``<|img_token_start|>`` vision/EOL... ``<|img_end_of_frame|>``
 ``<|img_end|>`` — the EOL count equals ``resize_h // 16``, the vision-token count
 equals ``(resize_h // 16) * (resize_w // 16)``, and the only legal place for text
 ids is the dims header (before ``<|img_token_start|>``). The dims come from
-``media.parquet``, so the cross-check is what makes Gate 2 protect invariant 3.
+``views/*.parquet``, so the cross-check is what makes Gate 2 protect invariant 3.
 Token ids come from the manifest's ``token_layout`` (derived at build time);
 the checker carries no token-id literals.
 
@@ -22,33 +22,46 @@ from pathlib import Path
 import numpy as np
 import pyarrow.parquet as pq
 
-# File sits at vision_tokenization/tests/alignment/; add the repo root so the
-# media store reader imports as a package.
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from vision_tokenization.pipeline.output.media_store import MediaStoreReader  # noqa: E402
+
+def _iter_view_specs(manifest: dict):
+    for split_specs in manifest["views"].values():
+        for spec in split_specs:
+            yield spec
 
 
 def check(root: Path, n: int = 64) -> int:
     manifest = json.loads((root / "manifest.json").read_text())
     assert manifest["token_dtype"] == "<i4", "manifest token_dtype is not <i4"
+    assert manifest.get("payload_format") == "alignment_shard_local_v1"
     tl = manifest["token_layout"]
     img_start, img_end = tl["img_start"], tl["img_end"]
     img_token_start, eol, eof = tl["img_token_start"], tl["eol"], tl["eof"]
     vis_lo, vis_hi = tl["vision_lo"], tl["vision_hi"]
-    reader = MediaStoreReader([root / r for r in manifest["media_roots"]])
 
-    # media_id -> (resize_h, resize_w) from media.parquet (the dims cross-check).
-    dims = {}
-    for r in manifest["media_roots"]:
-        for pq_file in sorted((root / r).glob("media.*.parquet")):
-            for m in pq.read_table(pq_file).to_pylist():
-                dims[m["media_id"]] = (m["resize_h"], m["resize_w"])
+    blocks = []
+    for spec in _iter_view_specs(manifest):
+        tokens = np.memmap(root / spec["tokens"], dtype=np.dtype(manifest["token_dtype"]), mode="r")
+        raw_rows = pq.read_table(root / spec["raw"]).num_rows
+        for row in pq.read_table(root / spec["view"]).to_pylist():
+            for img in row["images"]:
+                raw_row = int(img["raw_row"])
+                if raw_row < 0 or raw_row >= raw_rows:
+                    raise AssertionError(
+                        f"raw_row {raw_row} out of bounds for {spec['raw']}"
+                    )
+                off = int(img["token_offset"])
+                ln = int(img["token_length"])
+                blocks.append((
+                    img["media_id"],
+                    int(img["resize_height"]),
+                    int(img["resize_width"]),
+                    np.asarray(tokens[off:off + ln]),
+                ))
 
-    ids = random.Random(0).sample(sorted(reader.index), min(n, len(reader.index)))
+    ids = random.Random(0).sample(range(len(blocks)), min(n, len(blocks)))
     bad = 0
-    for mid in ids:
-        b = reader.tokens(mid)
-        rh, rw = dims[mid]
+    for idx in ids:
+        mid, rh, rw, b = blocks[idx]
         errs = []
         if not (b[0] == img_start and b[-1] == img_end):
             errs.append("missing img_start/img_end wrapper")

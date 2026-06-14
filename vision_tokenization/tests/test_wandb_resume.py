@@ -66,6 +66,53 @@ def test_worker_stats_resume_preserves_elapsed_time(monkeypatch):
     assert resumed_snapshot["image_tokens_per_second"] == pytest.approx(3.6)
 
 
+def test_worker_stats_excludes_setup_time_from_throughput(monkeypatch):
+    current_time = {"value": 100.0}
+    monkeypatch.setattr(checkpoint_mod.time, "time", lambda: current_time["value"])
+
+    stats = checkpoint_mod.WorkerStats()
+    stats.start_time = current_time["value"]
+
+    current_time["value"] = 115.0
+    stats.start_loop_timer()
+    stats.tokens_generated = 300
+    stats.image_tokens = 240
+    stats.samples_processed = 30
+
+    current_time["value"] = 125.0
+    snapshot = stats.to_dict()
+    assert snapshot["setup_elapsed_time"] == pytest.approx(15.0)
+    assert snapshot["elapsed_time"] == pytest.approx(10.0)
+    assert snapshot["total_elapsed_time"] == pytest.approx(25.0)
+    assert snapshot["throughput"] == pytest.approx(30.0)
+    assert snapshot["image_tokens_per_second"] == pytest.approx(24.0)
+
+
+def test_worker_stats_records_tokenizer_and_model_load_time(monkeypatch):
+    current_time = {"value": 100.0}
+    monkeypatch.setattr(checkpoint_mod.time, "time", lambda: current_time["value"])
+
+    stats = checkpoint_mod.WorkerStats()
+    stats.start_time = current_time["value"]
+    stats.record_tokenizer_load_time(
+        tokenizer_load_time=21.0,
+        model_load_time=19.0,
+        text_tokenizer_load_time=1.5,
+    )
+
+    snapshot = stats.to_dict()
+    assert snapshot["tokenizer_load_time"] == pytest.approx(21.0)
+    assert snapshot["model_load_time"] == pytest.approx(19.0)
+    assert snapshot["text_tokenizer_load_time"] == pytest.approx(1.5)
+
+    resumed = checkpoint_mod.WorkerStats()
+    resumed.load_from_dict(snapshot)
+    resumed_snapshot = resumed.to_dict()
+    assert resumed_snapshot["tokenizer_load_time"] == pytest.approx(21.0)
+    assert resumed_snapshot["model_load_time"] == pytest.approx(19.0)
+    assert resumed_snapshot["text_tokenizer_load_time"] == pytest.approx(1.5)
+
+
 def test_simple_wandb_logger_restores_step_and_uses_elapsed_seconds(monkeypatch):
     fake_wandb = _install_fake_wandb(monkeypatch)
     current_time = {"value": 50.0}

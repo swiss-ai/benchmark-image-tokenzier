@@ -290,6 +290,7 @@ def run_executor(
     from vision_tokenization.discrete.emu import create_tokenizer
 
     device = f"cuda:{cfg['local_rank']}"
+    tokenizer_load_t0 = time.perf_counter()
     tokenizer = create_tokenizer(
         mode=mode,
         text_tokenizer_path=cfg["tokenizer_path"],
@@ -299,22 +300,45 @@ def run_executor(
         max_encode_pixels=cfg.get("max_encode_pixels"),
         **(cfg.get("tokenizer_kwargs", {})),
     )
+    tokenizer_load_time = time.perf_counter() - tokenizer_load_t0
+    model_load_time = float(getattr(tokenizer, "model_load_time", 0.0) or 0.0)
+    text_tokenizer_load_time = float(
+        getattr(tokenizer, "text_tokenizer_load_time", 0.0) or 0.0
+    )
+    cumulative_stats.record_tokenizer_load_time(
+        tokenizer_load_time=tokenizer_load_time,
+        model_load_time=model_load_time,
+        text_tokenizer_load_time=text_tokenizer_load_time,
+    )
+    logger.info(
+        "[rank %s] Tokenizer setup loaded in %.1fs "
+        "(text_tokenizer=%.1fs, model=%.1fs)",
+        rank,
+        tokenizer_load_time,
+        text_tokenizer_load_time,
+        model_load_time,
+    )
 
     # ------------------------------------------------------------------
     # 5. Setup output backend, data loader, prefetcher, W&B
     # ------------------------------------------------------------------
     multi_image = bool(cfg.get("multi_image", False))
-    # posttraining always selects MediaStoreBackend below; use_spill must agree
-    # (run_distributed_pipeline rejects the multi_image+posttraining combo).
-    use_spill = (multi_image or mode == "interleave") and mode != "posttraining"
+    # alignment always selects AlignmentPayloadBackend below; use_spill must agree
+    # (run_distributed_pipeline rejects the multi_image+alignment combo).
+    use_spill = (multi_image or mode == "interleave") and mode != "alignment"
     # Spill and media-store backends share a calling convention: the executor
     # GPU-encodes, the backend writes keyed payloads.
-    executor_encodes = use_spill or mode == "posttraining"
+    executor_encodes = use_spill or mode == "alignment"
 
     writer_state = ckpt.get("writer") if ckpt else None
-    if mode == "posttraining":
-        from ..output.backend import MediaStoreBackend
-        backend = MediaStoreBackend(cfg["media_inventory"])
+    if mode == "alignment":
+        from ..output.backend import AlignmentPayloadBackend
+        backend = AlignmentPayloadBackend(
+            cfg["media_inventory"],
+            cfg["alignment_view_rows"],
+            public_output_dir=cfg["alignment_public_dir"],
+            requested_validation_rows=int(cfg.get("val_rows", 0)),
+        )
         backend.open(output_dir, rank, writer_state=writer_state)
     elif use_spill:
         from ..output.backend import SpillBackend
@@ -430,6 +454,7 @@ def run_executor(
         num_workers=prefetch_cfg["num_workers"],
     )
 
+    stats.start_loop_timer()
     logger.info(
         f"[rank {rank}] Starting unified tokenization loop "
         f"(start_batch={start_batch_index}, "
@@ -608,9 +633,11 @@ def run_executor(
         prefetcher.shutdown()
 
     # ------------------------------------------------------------------
-    # 8. Finalize
+    # 8. Finalize (clean loop only — a crashed run re-raises its own error
+    #    below, rather than the backend's completeness gate)
     # ------------------------------------------------------------------
-    backend.finalize()
+    if _loop_error is None:
+        backend.finalize()
 
     # Per-rank rebuild: assemble documents from this rank's spill into
     # rank_XXXX_chunk_0000.bin/.idx so merge_shards works identically
@@ -670,6 +697,9 @@ def run_executor(
     result = stats.finalize()
     result["rank"] = rank
     result["output_dir"] = output_dir
+    backend_result = getattr(backend, "result", None)
+    if backend_result is not None:
+        result["alignment_payload"] = backend_result
 
     # Write per-rank stats for post-run aggregation
     from vision_tokenization.utils.json import json_dump

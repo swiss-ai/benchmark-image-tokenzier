@@ -4,17 +4,19 @@ EMU image-only tokenizer with core functionality.
 Supports both Emu3 and Emu3.5 vision tokenizers.
 """
 
-from vision_tokenization.utils.json import json_load
 from pathlib import Path
+import time
 from typing import Dict, List, Optional, Tuple
 
 import torch
 from transformers import AutoTokenizer
 
+from vision_tokenization.utils.json import json_load
+
 # Tokenizer imports require the repo root on PYTHONPATH (set by SLURM scripts)
 
 # EMU block-structure specials, name -> token string. Single source of truth:
-# tokenizer caches and the posttraining manifest's token_layout both resolve
+# tokenizer caches and the alignment manifest's token_layout both resolve
 # ids through resolve_token_ids — never from literals.
 STRUCTURE_TOKENS = {
     "img_start": "<|img_start|>",
@@ -117,9 +119,18 @@ class EMUImageOnlyTokenizer:
         self.torch_compile = torch_compile
         self.torch_compile_mode = torch_compile_mode
 
-        # Load tokenizer with trust_remote_code for custom tokenizer class
-        # Use fast tokenizer for better performance
-        self.text_tokenizer = AutoTokenizer.from_pretrained(text_tokenizer_path, trust_remote_code=True, use_fast=True)
+        self.text_tokenizer_load_time = 0.0
+        self.model_load_time = 0.0
+
+        # Load tokenizer with trust_remote_code for custom tokenizer class.
+        # Use fast tokenizer for better performance.
+        text_load_t0 = time.perf_counter()
+        self.text_tokenizer = AutoTokenizer.from_pretrained(
+            text_tokenizer_path,
+            trust_remote_code=True,
+            use_fast=True,
+        )
+        self.text_tokenizer_load_time = time.perf_counter() - text_load_t0
 
         # min_pixels and max_pixels are required parameters
         assert min_pixels is not None, "min_pixels must be provided"
@@ -142,6 +153,7 @@ class EMUImageOnlyTokenizer:
         print(f"Loading vision tokenizer: {vision_tokenizer_type} from {vision_tokenizer_path}")
 
         # Dynamically load the correct vision tokenizer class
+        model_load_t0 = time.perf_counter()
         if vision_tokenizer_type == "Emu3":
             from Tokenizer.Emu3VisionTokenizer import Emu3VisionTokenizer
 
@@ -163,6 +175,7 @@ class EMUImageOnlyTokenizer:
             raise ValueError(
                 f"Unsupported vision tokenizer type: {vision_tokenizer_type}. " f"Supported types: Emu3, Emu3.5"
             )
+        self.model_load_time = time.perf_counter() - model_load_t0
 
         # Pixel budget per encode call — controls GPU memory chunking.
         self.max_encode_pixels = max_encode_pixels
@@ -359,7 +372,6 @@ class EMUImageOnlyTokenizer:
         # Create the structural suffix template.
         suffix_tokens = [self.eof_id, self.img_end_id, self.eos_id]
         suffix_tensor = torch.tensor(suffix_tokens, dtype=torch.long, device=image_indices.device)
-        suffix_len = len(suffix_tokens)
 
         # 4. Fill the final output tensor [B, T_total]
 
