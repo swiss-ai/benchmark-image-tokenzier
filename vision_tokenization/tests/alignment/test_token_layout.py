@@ -1,6 +1,6 @@
 import pytest
 
-from vision_tokenization.discrete.emu.image_only import (
+from vision_tokenization.discrete.emu.token_layout import (
     STRUCTURE_TOKENS,
     resolve_token_ids,
     resolve_token_ids_from_config,

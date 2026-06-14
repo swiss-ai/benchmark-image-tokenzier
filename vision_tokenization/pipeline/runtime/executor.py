@@ -323,24 +323,17 @@ def run_executor(
     # 5. Setup output backend, data loader, prefetcher, W&B
     # ------------------------------------------------------------------
     multi_image = bool(cfg.get("multi_image", False))
-    # alignment always selects AlignmentPayloadBackend below; use_spill must agree
-    # (run_distributed_pipeline rejects the multi_image+alignment combo).
-    use_spill = (multi_image or mode == "interleave") and mode != "alignment"
-    # Spill and media-store backends share a calling convention: the executor
-    # GPU-encodes, the backend writes keyed payloads.
-    executor_encodes = use_spill or mode == "alignment"
+    # alignment rides the spill path: each rank spills its disjoint media-block
+    # slice, and the offline alignment merge (materialize_alignment) assembles
+    # the views/tokens/raw store. The executor GPU-encodes for every spill mode.
+    use_spill = multi_image or mode in ("interleave", "alignment")
+    executor_encodes = use_spill
+    # alignment spills but produces no per-rank bin/idx — its merge reads the
+    # spills directly. Every other spill mode rebuilds shards for merge_shards.
+    rebuilds_shards = mode != "alignment"
 
     writer_state = ckpt.get("writer") if ckpt else None
-    if mode == "alignment":
-        from ..output.backend import AlignmentPayloadBackend
-        backend = AlignmentPayloadBackend(
-            cfg["media_inventory"],
-            cfg["alignment_view_rows"],
-            public_output_dir=cfg["alignment_public_dir"],
-            requested_validation_rows=int(cfg.get("val_rows", 0)),
-        )
-        backend.open(output_dir, rank, writer_state=writer_state)
-    elif use_spill:
+    if use_spill:
         from ..output.backend import SpillBackend
         backend = SpillBackend()
         backend.open(output_dir, rank, writer_state=writer_state)
@@ -642,7 +635,7 @@ def run_executor(
     # Per-rank rebuild: assemble documents from this rank's spill into
     # rank_XXXX_chunk_0000.bin/.idx so merge_shards works identically
     # for both spill and direct backend paths.
-    if use_spill and _loop_error is None and cfg["rebuild"]:
+    if use_spill and _loop_error is None and cfg["rebuild"] and rebuilds_shards:
         from ..output.rebuild import rebuild_rank
         from ...common.assembly import StructureTokenIds
 
@@ -674,7 +667,12 @@ def run_executor(
     # written only when every final artifact is atomically in place. The
     # merge gate verifies this claim against disk; no manifest, no merge.
     if _loop_error is None:
-        if use_spill:
+        if not rebuilds_shards:
+            # Spill-only (alignment): the merge reads each rank's spill directly,
+            # so the manifest carries no shard files — its presence plus the
+            # world-size + fingerprint agreement is the completion gate.
+            manifest_files = []
+        elif use_spill:
             manifest_files = rebuild_stats["files"] if cfg["rebuild"] else None
         else:
             manifest_files = backend.completed_files()
@@ -697,9 +695,6 @@ def run_executor(
     result = stats.finalize()
     result["rank"] = rank
     result["output_dir"] = output_dir
-    backend_result = getattr(backend, "result", None)
-    if backend_result is not None:
-        result["alignment_payload"] = backend_result
 
     # Write per-rank stats for post-run aggregation
     from vision_tokenization.utils.json import json_dump

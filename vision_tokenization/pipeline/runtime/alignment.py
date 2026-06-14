@@ -1,17 +1,16 @@
-"""Alignment mode: scan + publish stages around the unified executor.
+"""Alignment mode: scan + encode phases around the unified executor.
 
-The mode's CLI name is ``alignment``; internals keep the ``alignment``
-naming (matching the capstor dataset layout). No orchestration loop lives
-here — ``run_executor`` owns plan/prefetch/encode/checkpoint. This module
-owns only the stages unique to the mode:
+The mode's CLI name is ``alignment``; internals keep the ``alignment`` naming
+(matching the capstor dataset layout). No orchestration loop lives here —
+``run_executor`` owns plan/prefetch/encode/checkpoint. This module owns the two
+phases unique to the mode; the inline merge that assembles the store lives in
+``pipeline.output.alignment_merge`` (``publish_alignment_store``):
 
-  scan (rank 0, CPU): shared parquet media scan + exact dedup persists
-      ``scan.parquet`` as an internal geometry artifact for planning;
-  executor: plan builder (``build_plan_alignment``), parquet-bytes loader
-      (``AlignmentMediaLoader``), and ``AlignmentPayloadBackend`` plug in via
-      cfg and write the final shard-local ``views/`` + ``tokens/`` + ``raw/``
-      payload artifacts directly;
-  publish (rank 0): write ``manifest.json`` LAST (the commit record).
+  scan (inline, CPU, torch-free): shared parquet media scan + exact dedup
+      persists ``scan.parquet`` / ``media_unique.parquet`` / ``views.raw.parquet``
+      + ``publish_meta.json`` for the encode and the merge to read;
+  encode (multi-rank GPU): read the pre-built scan, spill each rank's disjoint
+      media slice via ``SpillBackend`` (the merge reads the spills directly).
 
 The mode is task-neutral; ``cfg["task"]`` selects the post-dedup view builder.
 Nothing below branches on task otherwise.
@@ -19,19 +18,15 @@ Nothing below branches on task otherwise.
 
 from __future__ import annotations
 
-import hashlib
 import glob
-import json
 import logging
 import os
 import shutil
-import time
 from pathlib import Path
 
 import pyarrow.parquet as pq
 
 from vision_tokenization.indexing.alignment.ingest import (
-    MARKER,
     SPATIAL_FACTOR,
     IngestResult,
     build_alignment_views_from_row_refs,
@@ -41,18 +36,9 @@ from vision_tokenization.indexing.scanners.parquet_media_scan import (
     load_media_inventory,
     scan_parquet_media_refs_many,
 )
-from vision_tokenization.utils.json import json_load
+from vision_tokenization.utils.json import json_dump
 
 logger = logging.getLogger(__name__)
-
-
-def atomic_write_json(path: Path, obj: dict) -> None:
-    tmp = Path(str(path) + ".tmp")
-    with open(tmp, "w") as f:
-        json.dump(obj, f, indent=1)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, path)
 
 
 def _alignment_input_paths(cfg: dict) -> list[Path]:
@@ -62,26 +48,6 @@ def _alignment_input_paths(cfg: dict) -> list[Path]:
             raise FileNotFoundError(f"input_pattern matched no parquet files: {cfg['input_pattern']}")
         return paths
     return [Path(cfg["input_parquet"])]
-
-
-def _token_layout(tokenizer_config: dict) -> dict:
-    """Manifest ``token_layout``, derived from tokenizer_config.json alone.
-
-    Every id comes from the snapshot's ``added_tokens_decoder`` /
-    ``omnimodal_config`` — consumers read ids from the manifest, never from
-    literals, and publish never loads the tokenizer.
-    """
-    from vision_tokenization.discrete.emu.image_only import (
-        STRUCTURE_TOKENS,
-        resolve_token_ids_from_config,
-        vision_band,
-    )
-
-    ids = resolve_token_ids_from_config(
-        tokenizer_config, {"image_marker": MARKER, **STRUCTURE_TOKENS})
-    vision_lo, vision_hi = vision_band(tokenizer_config)
-    return {"image_marker": MARKER, "image_marker_id": ids.pop("image_marker"),
-            **ids, "vision_lo": vision_lo, "vision_hi": vision_hi}
 
 
 def run_scan_stage(cfg: dict) -> IngestResult:
@@ -168,7 +134,6 @@ def _stage_scan_into_work(cfg: dict) -> Path:
     if work.exists():
         shutil.rmtree(work)
     work.mkdir(parents=True, exist_ok=True)
-    cfg["alignment_public_dir"] = str(out)
     cfg["output_dir"] = str(work)
     return out
 
@@ -180,10 +145,41 @@ def _unstage_work(public_dir: Path, cfg: dict) -> None:
         shutil.rmtree(Path(public_dir) / "_work", ignore_errors=True)
 
 
+def run_alignment_scan(cfg: dict) -> dict:
+    """Alignment SCAN phase (inline, CPU, torch-free): ingest the preference
+    parquet(s), dedup media globally, build the raw views, and persist the
+    artifacts the GPU encode + inline merge consume — ``scan.parquet``,
+    ``media_unique.parquet``, ``views.raw.parquet`` — plus ``publish_meta.json``,
+    the config-derived fields the merge stamps into ``manifest.json``. Mirrors
+    the sft/interleave contract (a pre-built scan the GPU job reads); the scan is
+    an explicit inline step here because global content-dedup must precede encode."""
+    out = Path(cfg["output_dir"])
+    res = run_scan_stage(cfg)
+    json_dump({
+        "tokenizer_path": cfg["tokenizer_path"],
+        "tokenizer_min_pixels": cfg["tokenizer_min_pixels"],
+        "tokenizer_max_pixels": cfg["tokenizer_max_pixels"],
+        "val_rows": int(cfg.get("val_rows", 0)),
+        "source_input": (str(cfg["input_pattern"]) if cfg.get("input_pattern")
+                         else str(cfg["input_parquet"])),
+        "n_skipped_media": res.n_skipped_media,
+    }, out / "publish_meta.json")
+    logger.info("alignment scan: %d pairs, %d unique media (%d skipped) -> %s",
+                len(res.view_rows), len(res.unique_media), res.n_skipped_media, out)
+    return {"output_dir": str(out), "n_pairs": len(res.view_rows),
+            "n_unique_media": len(res.unique_media), "n_skipped_media": res.n_skipped_media}
+
+
 def run_alignment(cfg: dict) -> dict:
+    """Alignment ENCODE phase (multi-rank GPU): read the pre-built scan and spill
+    this rank's disjoint slice of media-token blocks via the shared SpillBackend.
+    The scan runs inline beforehand (``run_alignment_scan``);
+    ``publish_alignment_store`` assembles the store afterwards. Seal-at-end, no
+    resume — each unique media is encoded by exactly one rank, so a skipped batch
+    is unrecoverable."""
     if cfg["resume"]:
         raise ValueError(
-            "alignment is seal-at-end (media store + views + manifest); "
+            "alignment is seal-at-end (spill + views + manifest); "
             "resume is unsupported — re-run from scratch"
         )
     if int(cfg.get("max_consecutive_errors", 50)) > 1:
@@ -191,62 +187,17 @@ def run_alignment(cfg: dict) -> dict:
             "alignment is seal-at-end with no resume; a skipped batch is "
             "unrecoverable, so max_consecutive_errors must be <= 1"
         )
-    t_start = time.perf_counter()
-
-    # ------------------------------------------------------------------
-    # Scan stage (CPU): this mode's manifest scan, staged into <out>/_work
-    # ------------------------------------------------------------------
-    out = _stage_scan_into_work(cfg)
-    res = run_scan_stage(cfg)
-    cfg["alignment_view_rows"] = res.view_rows
+    out = Path(cfg["output_dir"])
+    scan_path = out / "scan.parquet"
+    inventory_path = out / "media_unique.parquet"
+    if not (scan_path.exists() and inventory_path.exists()):
+        raise FileNotFoundError(
+            f"alignment encode: pre-built scan missing in {out} "
+            f"(run the scan phase on the head node first)"
+        )
+    cfg["manifest_path"] = str(scan_path)
+    cfg["media_inventory"] = load_media_inventory(inventory_path)
+    cfg["output_dir"] = str(out / "_spill")
 
     from .executor import run_executor
-    result = run_executor(cfg["rank"], cfg["world_size"], cfg)
-    payload = result.get("alignment_payload")
-    if not payload:
-        raise RuntimeError("alignment executor did not return payload metadata")
-    payload_files = payload["files"]
-    views = payload["views"]
-    _unstage_work(out, cfg)
-
-    tokenizer_config = json_load(Path(cfg["tokenizer_path"]) / "tokenizer_config.json")
-    token_layout = _token_layout(tokenizer_config)
-    tok_sha = hashlib.sha256(
-        (Path(cfg["tokenizer_path"]) / "tokenizer.json").read_bytes()).hexdigest()
-    atomic_write_json(out / "manifest.json", {
-        "schema_version": 3,
-        "payload_format": "alignment_shard_local_v1",
-        "tokenizer": {"path": cfg["tokenizer_path"], "sha256": tok_sha},
-        "vision_tokenizer": {"version": tokenizer_config["vision_tokenizer"]["type"],
-                             "min_pixels": cfg["tokenizer_min_pixels"],
-                             "max_pixels": cfg["tokenizer_max_pixels"]},
-        "token_dtype": "<i4",
-        "token_layout": token_layout,
-        "expected_min_model_vocab": max(
-            m["offset"] + m["vocab_size"]
-            for m in tokenizer_config["omnimodal_config"]["modalities"]),
-        "views": views,
-        "default_train_view": "train" if "train" in views else None,
-        "default_validation_view": "validation" if "validation" in views else None,
-        "files": payload_files,
-        "source_input": (
-            str(cfg["input_pattern"])
-            if cfg.get("input_pattern")
-            else str(cfg["input_parquet"])
-        ),
-        "n_pairs": len(res.view_rows),
-        "n_unique_media": len(res.unique_media),
-        "n_skipped_media": res.n_skipped_media,
-    })
-
-    elapsed = time.perf_counter() - t_start
-    logger.info(
-        "alignment mode done: %d pairs, %d unique media (%d skipped) -> %s "
-        "[%.1f s end-to-end, %.1f img/s]",
-        len(res.view_rows), len(res.unique_media), res.n_skipped_media, out,
-        elapsed, len(res.unique_media) / elapsed)
-    return {**result,
-            "output_dir": str(out),
-            "n_pairs": len(res.view_rows),
-            "n_unique_media": len(res.unique_media),
-            "n_skipped_media": res.n_skipped_media}
+    return run_executor(cfg["rank"], cfg["world_size"], cfg)

@@ -139,16 +139,10 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
         f"no NCCL — each rank is independent)"
     )
 
-    # Alignment plugs into the unified executor via its own scan stage
-    # (scan.parquet manifest), loader, and media-store backend; views+manifest
-    # publish after the executor returns.
+    # Alignment ENCODE phase (multi-rank): read the pre-built scan and spill this
+    # rank's disjoint media slice via SpillBackend. The scan runs inline
+    # beforehand; publish_alignment_store assembles the store + manifest after.
     if cfg["mode"] == "alignment":
-        # Single-rank: the publish stage is a rank-0 commit step; multi-rank
-        # needs cross-rank completion gating first.
-        if cfg["world_size"] != 1:
-            raise RuntimeError(
-                f"alignment mode is single-rank; got world_size={cfg['world_size']}"
-            )
         from .runtime.alignment import run_alignment
 
         return run_alignment(cfg)

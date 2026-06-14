@@ -10,6 +10,8 @@ Adapted from audio_tokenization/pipelines/lhotse/checkpoint.py.
 - **WorkerStats**: Inline dataclass tracking vision-specific metrics.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -17,14 +19,10 @@ import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
-import torch
-
-from vision_tokenization.formats.megatron import (
-    DType,
-    IndexedDatasetBuilder,
-)
+if TYPE_CHECKING:
+    from vision_tokenization.formats.megatron import IndexedDatasetBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -169,6 +167,8 @@ def open_chunk_writer(
     Returns:
         (builder, tmp_bin_path, tmp_idx_path, final_bin_path, final_idx_path)
     """
+    from vision_tokenization.formats.megatron import DType, IndexedDatasetBuilder
+
     output_prefix = Path(output_dir) / f"rank_{rank:04d}_chunk_{chunk_id:04d}"
     bin_path = str(output_prefix) + ".bin"
     idx_path = str(output_prefix) + ".idx"
@@ -233,6 +233,8 @@ def save_checkpoint(
     never interpreted here), *plan_fingerprint* identifies the plan the
     batch_index was counted against (resume refuses on mismatch).
     """
+    import torch
+
     ckpt_path = _checkpoint_path(output_dir, rank)
     tmp_path = str(ckpt_path) + ".tmp"
     payload = {
@@ -256,6 +258,8 @@ def load_checkpoint(output_dir: str, rank: int) -> Optional[Dict[str, Any]]:
     Pre-v2 checkpoints (before writer-owned cursor state and plan
     fingerprints) are refused: re-tokenize the dataset with current code.
     """
+    import torch
+
     ckpt_path = _checkpoint_path(output_dir, rank)
     if not ckpt_path.exists():
         return None
@@ -328,6 +332,8 @@ def verify_run_world_size(output_dir: str, world_size: int, rank: int) -> None:
     dropped documents). The directory records its own world size; refuse
     with the exact resubmit size.
     """
+    import torch
+
     recorded = set()
     for cp in sorted(Path(output_dir).glob("rank_*_checkpoint.pt")):
         ws = torch.load(str(cp), map_location="cpu", weights_only=False).get("world_size")

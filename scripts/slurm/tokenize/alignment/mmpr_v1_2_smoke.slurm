@@ -3,19 +3,24 @@
 #SBATCH --job-name=mmpr-smoke
 #SBATCH --output=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs/mmpr_v1_2_smoke_%j.out
 #SBATCH --error=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs/mmpr_v1_2_smoke_%j.err
-#SBATCH --time=00:30:00
+#SBATCH --time=00:20:00
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1
-#SBATCH --gpus-per-node=1
+#SBATCH --ntasks-per-node=4
+#SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=72
 #SBATCH --partition=debug
 #SBATCH --exclusive
 #SBATCH --no-requeue
 
-# MMPR-v1.2 -> one preference media store from sized processed parquet parts.
-# alignment is single-rank per store; scanner reads data/part-*.parquet and
-# dedups globally before the 1-GPU encode loop. alignment is seal-at-end with
-# NO resume.
+# Multi-rank alignment SMOKE: 4-rank ENCODE of a pre-scanned 1-part subset, then
+# inline MERGE + check_store — validates the scan -> encode -> merge wiring end
+# to end (disjoint media across 4 ranks, cross-rank offset assembly).
+#
+# Prereq (already run inline in the pa-24 venv):
+#   python -m vision_tokenization.alignment_scan mode=alignment dataset=alignment/mmpr_v1_2 \
+#       dataset.input_pattern=<.../part-00000.parquet> \
+#       dataset.output_dir=/iopsstor/scratch/cscs/xyixuan/apertus/mmpr_smoke_test \
+#       dataset.output_name=mmpr_smoke
 #
 # Submit from a clean env:
 #   env -i HOME="$HOME" USER="$USER" /usr/bin/sbatch \
@@ -23,35 +28,34 @@
 
 set -e
 export LD_LIBRARY_PATH=/capstor/store/cscs/swissai/infra01/MLLM/wheelhouse:${LD_LIBRARY_PATH:-}
+SMOKE=/iopsstor/scratch/cscs/xyixuan/apertus/mmpr_smoke_test
+STORE=$SMOKE/alignment/mmpr_smoke
+export NUM_GPUS=$(( SLURM_NNODES * SLURM_NTASKS_PER_NODE ))
+mkdir -p /iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs
 
-echo "=========================================="
-echo "MMPR-v1.2 -> 1-part SMOKE (pre-flight)"
-echo "  mode=alignment task=preference; input_pattern=data/part-00000.parquet"
-echo "  out: .../vision-datasets/tokenized/alignment/mmpr_v1_2_smoke"
-echo "=========================================="
-
+echo "=== ${NUM_GPUS}-rank ENCODE (reads pre-built scan, spills disjoint media) ==="
 srun -u --mpi=pmix --environment=nemo_26_02 bash -c '
     set -e
     unset LD_PRELOAD || true
+    export LD_LIBRARY_PATH=/capstor/store/cscs/swissai/infra01/MLLM/wheelhouse:${LD_LIBRARY_PATH:-}
     python -c "import orjson" 2>/dev/null || uv pip install --python "$(command -v python)" --break-system-packages orjson
     TOKENIZERS_0222=/iopsstor/scratch/cscs/xyixuan/.cache/uv/archive-v0/1CtSrhkL_p104lhucBDaz
     export PYTHONPATH=${TOKENIZERS_0222}:/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier:${PYTHONPATH:-}
     cd /iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier
-    export RANK=0 WORLD_SIZE=1
-    python - <<'"'"'PY'"'"'
-import tokenizers, orjson
-if tokenizers.__version__ != "0.22.2":
-    raise SystemExit(f"expected tokenizers 0.22.2, got {tokenizers.__version__}")
-print("tokenizers", tokenizers.__version__)
-print("orjson", orjson.__version__)
-PY
-
     python -m vision_tokenization.tokenize \
-        mode=alignment dataset=alignment/mmpr_v1_2_smoke \
-        num_gpus=1 \
+        mode=alignment dataset=alignment/mmpr_v1_2 num_gpus='"${NUM_GPUS}"' \
+        dataset.output_dir='"$SMOKE"' dataset.output_name=mmpr_smoke \
         wandb.enabled=false
-
-    python vision_tokenization/tests/alignment/check_store.py \
-        /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/alignment/mmpr_v1_2_smoke
 '
-echo "END TIME: $(date)"
+
+echo "=== inline MERGE + check_store (single task) ==="
+srun -u --mpi=pmix --ntasks=1 --environment=nemo_26_02 bash -c '
+    set -e
+    unset LD_PRELOAD || true
+    python -c "import orjson" 2>/dev/null || uv pip install --python "$(command -v python)" --break-system-packages orjson
+    export PYTHONPATH=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier:${PYTHONPATH:-}
+    cd /iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier
+    python -m vision_tokenization.pipeline.output.alignment_merge '"$STORE"' --keep-intermediates
+    python vision_tokenization/tests/alignment/check_store.py '"$STORE"'
+'
+echo "SMOKE DONE: $STORE"
