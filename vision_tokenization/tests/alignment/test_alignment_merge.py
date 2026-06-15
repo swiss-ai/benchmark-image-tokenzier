@@ -14,6 +14,7 @@ def _media(media_id, raw, width, height, raw_ext, source):
     return SimpleNamespace(
         media_id=media_id, raw=raw, width=width, height=height,
         raw_ext=raw_ext, source=source,
+        source_path=source, row_group=0, row_index=0, image_index=0,
     )
 
 

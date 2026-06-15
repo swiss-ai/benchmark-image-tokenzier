@@ -11,10 +11,11 @@ Each rank GPU-encodes a disjoint slice of the unique media — the plan gives on
 document per media, so ``split_image_batches_for_workers`` partitions media
 across ranks with no overlap — and spills the stripped blocks via
 ``ComponentSpillWriter``. ``materialize_alignment`` replays every rank's blocks
-through ``AlignmentPayloadBackend.add_media`` in deterministic document-id order:
-a single running token cursor assigns the offsets, so there is no cross-rank
-offset rebasing — the offsets fall out of the concatenation, identical to the
-single-rank path (which feeds the same ``add_media`` from live encode).
+through ``AlignmentPayloadBackend.add_media`` in deterministic source-parquet
+order (so each media's lazily-read raw bytes sweep their source row group once
+instead of thrashing in media_id-hash order): a single running token cursor
+assigns the offsets, so there is no cross-rank rebasing — the offsets are
+recorded in the views, leaving the token file's physical order free.
 """
 
 from __future__ import annotations
@@ -79,7 +80,7 @@ class AlignmentPayloadBackend:
 
     The merge drives this writer: ranks GPU-encode the unique media and spill
     their stripped blocks; ``materialize_alignment`` replays them through
-    ``add_media`` in document-id order. It does not create a content-addressed
+    ``add_media`` in source-parquet order. It does not create a content-addressed
     media store on disk.
     """
 
@@ -175,7 +176,7 @@ class AlignmentPayloadBackend:
     ) -> None:
         """Materialize one media's stripped token block into each split it
         appears in (deduped per split). The single per-media write op, driven by
-        the merge replaying each rank's spilled blocks in document-id order."""
+        the merge replaying each rank's spilled blocks in source-parquet order."""
         for split in sorted(self._media_splits.get(media.media_id, ())):
             if media.media_id in self._locations[split]:
                 continue
@@ -420,11 +421,14 @@ def materialize_alignment(
         seed=seed,
     )
     backend.open(str(public_output_dir), rank=0)
-    for doc_id in range(len(inventory)):
-        spilled = blocks.get(doc_id)
-        if spilled is None:
-            continue
-        block, resize_height, resize_width = spilled
+    # source-parquet order: keeps media.raw reads sequential, no row-group cache thrash
+    order = sorted(
+        (d for d in range(len(inventory)) if d in blocks),
+        key=lambda d: (inventory[d].source_path, inventory[d].row_group,
+                       inventory[d].row_index, inventory[d].image_index),
+    )
+    for doc_id in order:
+        block, resize_height, resize_width = blocks[doc_id]
         backend.add_media(
             inventory[doc_id], block,
             resize_height=resize_height, resize_width=resize_width,
