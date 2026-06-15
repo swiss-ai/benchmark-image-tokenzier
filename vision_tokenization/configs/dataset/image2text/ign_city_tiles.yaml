@@ -9,7 +9,7 @@ defaults:
 output_name: ign_city_tiles
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 input_pattern: /capstor/store/cscs/swissai/infra01/vision-datasets/processed/ign___ign_city_tiles___processed___cleaned/part-*.tar
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/ign_city_tiles/manifest.parquet
+manifest_path: ${manifest_root}/ign_city_tiles/manifest.parquet
 text_column: txt
 
 multi_image: false

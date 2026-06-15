@@ -6,7 +6,7 @@ defaults:
 
 output_name: nicolas_handwriting_latex
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/handwriting_latex/manifest.parquet
+manifest_path: ${manifest_root}/handwriting_latex/manifest.parquet
 text_column: txt
 
 max_batch_tokens: 32_768

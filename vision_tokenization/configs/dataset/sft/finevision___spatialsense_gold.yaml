@@ -33,7 +33,7 @@ defaults:
 output_name: finevision___spatialsense_gold
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/sft/finevision/spatialsense_recap_gold/**/*.parquet"
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/spatialsense_gold/manifest.parquet
+manifest_path: ${manifest_root}/spatialsense_gold/manifest.parquet
 
 image_list_column: images
 multi_image: true

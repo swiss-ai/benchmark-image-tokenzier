@@ -8,7 +8,7 @@ defaults:
 
 output_name: fine_t2i_curated
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/fine_t2i_curated/manifest.parquet
+manifest_path: ${manifest_root}/fine_t2i_curated/manifest.parquet
 text_column: enhanced_prompt
 
 max_pixels: "16384*16384"

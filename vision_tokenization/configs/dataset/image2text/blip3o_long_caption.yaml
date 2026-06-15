@@ -9,7 +9,7 @@ defaults:
 output_name: blip3o_long_caption
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/hf_datasets_cache/BLIP3o___blip3o-pretrain-long-caption/default/0.0.0/e4d07091a466d1a1e35a9b0c61caddc78d14a059/*.arrow"
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/blip3o_long_caption/manifest.parquet
+manifest_path: ${manifest_root}/blip3o_long_caption/manifest.parquet
 image_column: jpg
 text_column: txt
 

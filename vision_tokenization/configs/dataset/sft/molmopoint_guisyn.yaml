@@ -23,7 +23,7 @@ defaults:
 output_name: molmopoint_guisyn
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/sft/molmopoint_guisyn/**/*.parquet"
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/molmopoint_guisyn/manifest.parquet
+manifest_path: ${manifest_root}/molmopoint_guisyn/manifest.parquet
 
 # One image per row, binary bytes column.
 image_column: image

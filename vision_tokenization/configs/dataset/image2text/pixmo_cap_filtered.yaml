@@ -8,7 +8,7 @@ defaults:
 
 output_name: pixmo_cap_filtered
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/pixmo_cap_filtered/manifest.parquet
+manifest_path: ${manifest_root}/pixmo_cap_filtered/manifest.parquet
 text_column: txt
 
 max_pixels: "65536*65536"

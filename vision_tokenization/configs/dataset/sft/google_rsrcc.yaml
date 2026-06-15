@@ -24,7 +24,7 @@ multi_image: true
 output_name: google_rsrcc
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 input_pattern: "/capstor/scratch/cscs/xyixuan/vision-datasets-processed/google_rsrcc_sft/*.parquet"
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/google_rsrcc/manifest.parquet
+manifest_path: ${manifest_root}/google_rsrcc/manifest.parquet
 image_list_column: images
 
 # ``messages`` is already a list[{role, content}] in canonical chat form. The

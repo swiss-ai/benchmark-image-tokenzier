@@ -29,7 +29,7 @@ defaults:
 output_name: finevision___CoSyn_400k
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/sft/finevision/CoSyn_400k/**/*.parquet"
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/CoSyn_400k/manifest.parquet
+manifest_path: ${manifest_root}/CoSyn_400k/manifest.parquet
 
 image_list_column: images
 multi_image: true

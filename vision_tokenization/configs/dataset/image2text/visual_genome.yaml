@@ -34,7 +34,7 @@ defaults:
 output_name: visual_genome
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/cooldown
 input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/stage2/visual_genome/parquet_blip3_clean/*.parquet"
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/visual_genome/manifest.parquet
+manifest_path: ${manifest_root}/visual_genome/manifest.parquet
 
 image_column: image
 text_column: grounded_text

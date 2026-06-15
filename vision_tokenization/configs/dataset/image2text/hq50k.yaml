@@ -19,7 +19,7 @@ defaults:
 output_name: hq50k
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/cooldown
 input_pattern: "/capstor/scratch/cscs/xyixuan/vision-datasets-processed/hq50k_v7_flat/*.parquet"
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/hq50k/manifest.parquet
+manifest_path: ${manifest_root}/hq50k/manifest.parquet
 image_column: image_bytes
 text_column: caption
 

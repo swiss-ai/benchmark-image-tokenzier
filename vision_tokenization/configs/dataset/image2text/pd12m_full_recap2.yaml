@@ -8,7 +8,7 @@ defaults:
 
 output_name: pd12m_full_recap2
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/pd12m_full_recap2/manifest.parquet
+manifest_path: ${manifest_root}/pd12m_full_recap2/manifest.parquet
 text_column: txt
 
 max_pixels: "65536*65536"

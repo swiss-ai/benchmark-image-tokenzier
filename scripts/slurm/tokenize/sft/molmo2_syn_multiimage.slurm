@@ -24,7 +24,7 @@ export NUM_GPUS=$(( SLURM_NNODES * SLURM_NTASKS_PER_NODE ))
 echo "GPUs:     ${NUM_GPUS}"
 echo
 echo "Source:   /capstor/store/cscs/swissai/infra01/vision-datasets/raw/stage2/hf___allenai___Molmo2-SynMultiImageQA/"
-echo "Manifest: /capstor/scratch/cscs/xyixuan/manifests/molmo2_syn_multiimage/manifest.parquet"
+echo "Manifest: /capstor/store/cscs/swissai/infra01/vision-datasets/manifest/molmo2_syn_multiimage/manifest.parquet"
 echo "Target:   /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/sft/molmo2_syn_multiimage/"
 echo "Plan:     186,967 docs / 1,060,649 image components / ~6.03B vision tok / 205K batches"
 echo "Split:    stage2 (≤8K) ~12% / lct (>8K) ~88% — long-context-heavy multi-image SFT"

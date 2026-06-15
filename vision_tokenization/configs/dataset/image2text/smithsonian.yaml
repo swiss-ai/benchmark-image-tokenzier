@@ -22,7 +22,7 @@ defaults:
 output_name: smithsonian
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/cooldown
 input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/smithsonian/smithsonian_cleaned5/*.parquet"
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/smithsonian/manifest.parquet
+manifest_path: ${manifest_root}/smithsonian/manifest.parquet
 image_column: image
 text_column: caption
 

@@ -24,7 +24,7 @@ export NUM_GPUS=$(( SLURM_NNODES * SLURM_NTASKS_PER_NODE ))
 echo "GPUs:     ${NUM_GPUS}"
 echo
 echo "Source:   /capstor/store/cscs/swissai/infra01/vision-datasets/processed/hf___allenai___Molmo2-MultiImageQA___doc_keyed/"
-echo "Manifest: /capstor/scratch/cscs/xyixuan/manifests/molmo2_multiimage_qa/manifest.parquet"
+echo "Manifest: /capstor/store/cscs/swissai/infra01/vision-datasets/manifest/molmo2_multiimage_qa/manifest.parquet"
 echo "Target:   /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/sft/molmo2_multiimage_qa/"
 echo "Note:     joined doc-keyed (strict drop on any failed URL fetch, ~59% survive)"
 echo "=========================================="

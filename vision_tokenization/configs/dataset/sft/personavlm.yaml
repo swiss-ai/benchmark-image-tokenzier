@@ -8,7 +8,7 @@ defaults:
 
 output_name: personavlm
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/personavlm/manifest.parquet
+manifest_path: ${manifest_root}/personavlm/manifest.parquet
 
 image_field: image
 text_column: conversations

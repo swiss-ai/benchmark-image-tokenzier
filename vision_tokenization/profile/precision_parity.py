@@ -18,7 +18,7 @@ import numpy as np
 import torch
 
 MODEL_PATH = "/capstor/store/cscs/swissai/infra01/MLLM/tokenizer/Emu3.5-VisionTokenizer"
-MANIFEST = "/capstor/scratch/cscs/xyixuan/manifests/docci/manifest.parquet"
+MANIFEST = "/capstor/store/cscs/swissai/infra01/vision-datasets/manifest/docci/manifest.parquet"
 INPUT_PATTERN = (
     "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/stage2/"
     "hf___google___docci/docci-train.arrow"

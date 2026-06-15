@@ -9,7 +9,7 @@ defaults:
 output_name: ignf_flair_hub
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 input_pattern: /capstor/store/cscs/swissai/infra01/vision-datasets/processed/ign___IGNF___FLAIR-HUB___processed___cleaned/part-*.tar
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/ignf_flair_hub/manifest.parquet
+manifest_path: ${manifest_root}/ignf_flair_hub/manifest.parquet
 text_column: txt
 
 multi_image: false

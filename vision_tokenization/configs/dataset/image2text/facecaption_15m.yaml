@@ -8,7 +8,7 @@ defaults:
 
 output_name: facecaption_15m
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/facecaption_15m_cropped/manifest.parquet
+manifest_path: ${manifest_root}/facecaption_15m_cropped/manifest.parquet
 text_column: caption
 
 plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/facecaption_15m_cropped.pt

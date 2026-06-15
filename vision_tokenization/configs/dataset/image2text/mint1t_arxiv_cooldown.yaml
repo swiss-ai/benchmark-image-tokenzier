@@ -20,7 +20,7 @@ defaults:
 output_name: mint1t_arxiv_cooldown
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/cooldown
 input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/hf___mlfoundations___MINT-1T-ArXiv___cooldown/*.parquet"
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/mint1t_arxiv_cooldown/manifest.parquet
+manifest_path: ${manifest_root}/mint1t_arxiv_cooldown/manifest.parquet
 image_column: image_bytes
 text_column: caption
 

@@ -8,7 +8,7 @@ defaults:
 
 output_name: megalith_10m_florence2_v2
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/megalith_10m_florence2/manifest.parquet
+manifest_path: ${manifest_root}/megalith_10m_florence2/manifest.parquet
 text_column: txt
 
 max_batch_tokens: 32_768

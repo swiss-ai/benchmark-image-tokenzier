@@ -16,7 +16,7 @@ defaults:
 output_name: owid_grapher_charts
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/cooldown
 input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/owid___charts/grapher_charts_captioned_merged.parquet"
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/owid_grapher_charts/manifest.parquet
+manifest_path: ${manifest_root}/owid_grapher_charts/manifest.parquet
 image_column: image_bytes
 text_column: caption
 

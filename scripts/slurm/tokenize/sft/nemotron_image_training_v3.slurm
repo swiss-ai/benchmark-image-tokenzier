@@ -25,7 +25,7 @@ export NUM_GPUS=$(( SLURM_NNODES * SLURM_NTASKS_PER_NODE ))
 echo "GPUs:     ${NUM_GPUS}"
 echo
 echo "Source:   /capstor/store/cscs/swissai/infra01/vision-datasets/raw/sft/nemotron_image_training_v3/swissai___Nemotron-Image-Training-v3/"
-echo "Manifest: /capstor/scratch/cscs/xyixuan/manifests/nemotron_image_training_v3/manifest.parquet"
+echo "Manifest: /capstor/store/cscs/swissai/infra01/vision-datasets/manifest/nemotron_image_training_v3/manifest.parquet"
 echo "Target:   /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/sft/nemotron_image_training_v3/"
 echo "Plan:     6,725,124 docs, 28,575,943 images, 4,334,990 batches, ~133.5B image tokens"
 echo "Layout:   stage2/ (<=8K) + lct/ (>8K) split at seqlen_threshold=8192"

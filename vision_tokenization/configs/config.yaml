@@ -20,6 +20,9 @@ defaults:
 num_gpus: ???                      # total GPU count (verified against SLURM_NTASKS)
 mode: ???                          # required: image_only | sft | image2text | text2image | interleave | alignment
 
+# Persistent root for scan manifests; dataset configs reference it as ${manifest_root}.
+manifest_root: /capstor/store/cscs/swissai/infra01/vision-datasets/manifest
+
 # --- Tokenizer ----------------------------------------------------------------
 
 tokenizer:

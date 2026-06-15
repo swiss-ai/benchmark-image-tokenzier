@@ -9,7 +9,7 @@ defaults:
 output_name: medtrinity_full
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 input_pattern: /capstor/store/cscs/swissai/infra01/vision-datasets/raw/stage2/hf___UCSC-VLAA___MedTrinity-25M___cleaned/part-*.tar
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/medtrinity_full/manifest.parquet
+manifest_path: ${manifest_root}/medtrinity_full/manifest.parquet
 text_column: txt
 
 # --- Single-image: each sample has img1.png ----------------------------------

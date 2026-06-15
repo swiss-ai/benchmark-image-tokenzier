@@ -8,7 +8,7 @@ defaults:
 
 output_name: commoncatalog_recap
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/commoncatalog_cc_by_recap/manifest.parquet
+manifest_path: ${manifest_root}/commoncatalog_cc_by_recap/manifest.parquet
 text_column: txt
 
 plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/commoncatalog_recap.pt

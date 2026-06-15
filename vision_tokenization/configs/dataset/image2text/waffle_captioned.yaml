@@ -9,7 +9,7 @@ defaults:
 output_name: waffle_captioned
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/waffle_captions/waffle_captioned_clean_shards/waffle_captioned_full_*.parquet"
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/waffle_captioned/manifest.parquet
+manifest_path: ${manifest_root}/waffle_captioned/manifest.parquet
 image_column: image_bytes
 text_column: caption
 

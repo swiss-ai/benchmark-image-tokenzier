@@ -24,7 +24,7 @@ export NUM_GPUS=$(( SLURM_NNODES * SLURM_NTASKS_PER_NODE ))
 echo "GPUs:     ${NUM_GPUS}"
 echo
 echo "Source:   /capstor/store/cscs/swissai/infra01/vision-datasets/raw/stage2/visual_genome/parquet_blip3_clean/  (52 shards, 14.35 GB)"
-echo "Manifest: /capstor/scratch/cscs/xyixuan/manifests/visual_genome/manifest.parquet  (102,005 rows)"
+echo "Manifest: /capstor/store/cscs/swissai/infra01/vision-datasets/manifest/visual_genome/manifest.parquet  (102,005 rows)"
 echo "Target:   /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/cooldown/image2text/visual_genome/"
 echo "Plan:     102,004 docs, ~88M predicted image tokens"
 echo "Note:     RefCOCO/+/g eval-image-id overlaps EXCLUDED (6,068 dropped, 0% leak)"

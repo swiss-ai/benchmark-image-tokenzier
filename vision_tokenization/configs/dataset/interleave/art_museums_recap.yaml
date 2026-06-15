@@ -13,7 +13,7 @@ multi_image: true
 
 output_name: art_museums_recap
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/art_museums_recap/manifest.parquet
+manifest_path: ${manifest_root}/art_museums_recap/manifest.parquet
 text_column: txt
 parser: multilingual_recap
 

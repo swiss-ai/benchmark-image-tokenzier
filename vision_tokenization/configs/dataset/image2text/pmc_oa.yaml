@@ -9,7 +9,7 @@ defaults:
 output_name: pmc_oa
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 input_pattern: /capstor/store/cscs/swissai/infra01/vision-datasets/raw/stage2/hf___axiong___pmc_oa___cleaned/part-*.tar
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/pmc_oa/manifest.parquet
+manifest_path: ${manifest_root}/pmc_oa/manifest.parquet
 text_column: txt
 
 # --- Single-image: each sample has img1.png ----------------------------------

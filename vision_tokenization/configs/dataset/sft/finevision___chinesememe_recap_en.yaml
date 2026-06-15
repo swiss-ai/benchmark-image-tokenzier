@@ -26,7 +26,7 @@ defaults:
 output_name: finevision___chinesememe_recap_en
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/sft/finevision/chinesememe_recap_en/**/*.parquet"
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/chinesememe_recap_en/manifest.parquet
+manifest_path: ${manifest_root}/chinesememe_recap_en/manifest.parquet
 
 # Each row has exactly 1 image stored as list[struct<bytes,path>] (FineVision
 # convention). Use image_list_column to read it; multi_image=true so the loader

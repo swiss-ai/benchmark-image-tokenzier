@@ -8,7 +8,7 @@ defaults:
 
 output_name: recap_datacomp_1b
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/recap_datacomp_1b/manifest.parquet
+manifest_path: ${manifest_root}/recap_datacomp_1b/manifest.parquet
 text_column: txt
 
 max_batch_tokens: 32_768

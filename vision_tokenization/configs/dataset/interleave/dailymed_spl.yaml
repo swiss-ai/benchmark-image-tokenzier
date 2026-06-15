@@ -31,7 +31,7 @@ multi_image: true
 output_name: dailymed_spl
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 input_pattern: "/capstor/store/cscs/swissai/infra01/medical-datasets/raw/dailymed_spl/interleaved2/*.parquet"
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/dailymed_spl_interleaved2/manifest.parquet
+manifest_path: ${manifest_root}/dailymed_spl_interleaved2/manifest.parquet
 
 image_list_column: images_bytes
 parser: dailymed

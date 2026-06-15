@@ -22,7 +22,7 @@ echo "Job ID: ${SLURM_JOB_ID}"
 echo "Node:   $(hostname -s)"
 export NUM_GPUS=$(( SLURM_NNODES * SLURM_NTASKS_PER_NODE ))
 echo "GPUs:   ${NUM_GPUS}"
-echo "Manifest: /capstor/scratch/cscs/xyixuan/manifests/crello/manifest.parquet"
+echo "Manifest: /capstor/store/cscs/swissai/infra01/vision-datasets/manifest/crello/manifest.parquet"
 echo "Source:   /capstor/scratch/cscs/xyixuan/recon/qwen_crello_grounded/*.parquet"
 echo "Target:   /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/cooldown/image2text/crello"
 echo "Predicted image tokens: ~47.4M (per dry run)"

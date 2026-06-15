@@ -14,7 +14,7 @@ defaults:
 output_name: pixmo_cap_qa
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/sft/hf___allenai___pixmo-cap-qa/preprocessed/*.parquet"
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/pixmo_cap_qa/manifest.parquet
+manifest_path: ${manifest_root}/pixmo_cap_qa/manifest.parquet
 image_column: jpg
 
 # ``messages`` is already a list[{role, content}] in canonical chat form; the

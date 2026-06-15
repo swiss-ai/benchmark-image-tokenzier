@@ -9,7 +9,7 @@ defaults:
 output_name: radimgnet_vqa
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/sft/hf___raidium___RadImageNet-VQA/instruct/train-*.parquet"
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/radimgnet_vqa/manifest.parquet
+manifest_path: ${manifest_root}/radimgnet_vqa/manifest.parquet
 image_column: image
 text_column: conversations
 

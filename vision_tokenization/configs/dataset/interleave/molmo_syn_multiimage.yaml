@@ -12,7 +12,7 @@ multi_image: true
 output_name: molmo_syn_multiimage
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/hf___allenai___Molmo2-SynMultiImageQA/*/train-*.parquet"
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/molmo_syn_multiimage/manifest.parquet
+manifest_path: ${manifest_root}/molmo_syn_multiimage/manifest.parquet
 image_list_column: images
 
 parser: molmo_syn

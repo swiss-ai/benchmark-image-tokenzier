@@ -9,7 +9,7 @@ defaults:
 output_name: datikz_v4
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/hf___nllg___DaTikZ-V4/data/*.parquet"
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/datikz_v4/manifest.parquet
+manifest_path: ${manifest_root}/datikz_v4/manifest.parquet
 image_column: png_image
 text_column: vlm_description
 

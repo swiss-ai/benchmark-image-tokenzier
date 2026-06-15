@@ -24,7 +24,7 @@ export NUM_GPUS=$(( SLURM_NNODES * SLURM_NTASKS_PER_NODE ))
 echo "GPUs:     ${NUM_GPUS}"
 echo
 echo "Source:   /capstor/store/cscs/swissai/infra01/medical-datasets/raw/dailymed_spl/interleaved2/"
-echo "Manifest: /capstor/scratch/cscs/xyixuan/manifests/dailymed_spl_interleaved2/manifest.parquet"
+echo "Manifest: /capstor/store/cscs/swissai/infra01/vision-datasets/manifest/dailymed_spl_interleaved2/manifest.parquet"
 echo "Target:   /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/interleave/dailymed_spl/"
 echo "Plan:     88,287 docs, 162,557 image components, ~466M image tokens"
 echo "Layout:   stage2/ (≤8K) + lct/ (>8K) split at seqlen_threshold=8192"

@@ -9,7 +9,7 @@ defaults:
 output_name: mmfinereason_1_8m
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
 input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/sft/hf___OpenDataArena___MMFineReason-1.8M-Qwen3-VL-235B-Thinking/data/sft-*.parquet"
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/mmfinereason_1_8m/manifest.parquet
+manifest_path: ${manifest_root}/mmfinereason_1_8m/manifest.parquet
 image_column: image
 min_pixels: "32*64"
 

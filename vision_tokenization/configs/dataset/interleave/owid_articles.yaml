@@ -13,7 +13,7 @@ multi_image: true
 output_name: owid_articles
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/cooldown
 input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/owid___charts/articles.parquet"
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/owid_articles/manifest.parquet
+manifest_path: ${manifest_root}/owid_articles/manifest.parquet
 image_list_column: images_bytes
 
 parser: owid_article

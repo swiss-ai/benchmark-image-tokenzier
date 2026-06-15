@@ -20,7 +20,7 @@ export NUM_GPUS=$(( SLURM_NNODES * SLURM_NTASKS_PER_NODE ))
 echo "=========================================="
 echo "LLaVA-OV permissive SFT tokenize"
 echo "  GPUs: ${NUM_GPUS}, Nodes: ${SLURM_NNODES}"
-echo "  Manifest: /capstor/scratch/cscs/xyixuan/manifests/llava_ov_permissive/manifest.parquet (10,450,286 rows / 125 subsets)"
+echo "  Manifest: /capstor/store/cscs/swissai/infra01/vision-datasets/manifest/llava_ov_permissive/manifest.parquet (10,450,286 rows / 125 subsets)"
 echo "=========================================="
 
 mkdir -p /iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs

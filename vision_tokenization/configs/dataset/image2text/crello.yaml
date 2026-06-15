@@ -38,7 +38,7 @@ defaults:
 output_name: crello
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/cooldown
 input_pattern: "/capstor/scratch/cscs/xyixuan/recon/qwen_crello_grounded/*.parquet"
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/crello/manifest.parquet
+manifest_path: ${manifest_root}/crello/manifest.parquet
 
 image_column: image
 text_column: grounded_text

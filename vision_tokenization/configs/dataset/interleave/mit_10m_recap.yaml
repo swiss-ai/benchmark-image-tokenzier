@@ -13,7 +13,7 @@ multi_image: true
 
 output_name: mit_10m_recap
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/mit_10m_recap/manifest.parquet
+manifest_path: ${manifest_root}/mit_10m_recap/manifest.parquet
 text_column: txt
 parser: multilingual_recap
 

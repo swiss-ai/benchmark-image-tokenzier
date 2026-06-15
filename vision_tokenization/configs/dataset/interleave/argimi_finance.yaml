@@ -8,7 +8,7 @@ defaults:
 
 output_name: argimi_finance
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
-manifest_path: /capstor/scratch/cscs/xyixuan/manifests/argimi_finance/manifest.parquet
+manifest_path: ${manifest_root}/argimi_finance/manifest.parquet
 tar_pattern: "part-*.tar"
 parser: pin200m
 document_field: md
