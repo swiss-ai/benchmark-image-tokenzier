@@ -1,6 +1,7 @@
 #!/bin/bash
 #SBATCH --account=infra01
 #SBATCH --job-name=mmpr-v1.2-encode
+#SBATCH --environment=nemo_25_11
 #SBATCH --output=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs/mmpr_v1_2_%j.out
 #SBATCH --error=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs/mmpr_v1_2_%j.err
 #SBATCH --time=01:30:00
@@ -45,28 +46,16 @@ echo "MMPR-v1.2 ENCODE: ${NUM_GPUS} GPUs across ${SLURM_NNODES} nodes"
 echo "  reads pre-built scan -> spills to .../alignment/mmpr_v1_2/_spill"
 echo "=========================================="
 
-srun -u --mpi=pmix --environment=nemo_26_02 bash -c '
+srun -u --kill-on-bad-exit=0 bash -c "
     set -e
-    unset LD_PRELOAD || true
-    export LD_LIBRARY_PATH=/capstor/store/cscs/swissai/infra01/MLLM/wheelhouse:${LD_LIBRARY_PATH:-}
-    python -c "import orjson" 2>/dev/null || uv pip install --python "$(command -v python)" --break-system-packages orjson
-    TOKENIZERS_0222=/iopsstor/scratch/cscs/xyixuan/.cache/uv/archive-v0/1CtSrhkL_p104lhucBDaz
-    export PYTHONPATH=${TOKENIZERS_0222}:/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier:${PYTHONPATH:-}
-    export WANDB_DIR=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs
+    uv pip install --python /opt/venv/bin/python3 orjson
+    export PYTHONPATH=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier:\$PYTHONPATH
     cd /iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier
-    python - <<'"'"'PY'"'"'
-import tokenizers, orjson
-if tokenizers.__version__ != "0.22.2":
-    raise SystemExit(f"expected tokenizers 0.22.2, got {tokenizers.__version__}")
-print("tokenizers", tokenizers.__version__)
-print("orjson", orjson.__version__)
-PY
-
     python -m vision_tokenization.tokenize \
         mode=alignment dataset=alignment/mmpr_v1_2 \
-        num_gpus='"${NUM_GPUS}"' \
+        num_gpus=${NUM_GPUS} \
         wandb.enabled=true wandb.group=mmpr_v1_2 wandb.name=mmpr_v1_2_encode
-'
+"
 echo "ENCODE done -> $(date). Now run the inline MERGE (pa-24 venv):"
 echo "  /iopsstor/scratch/cscs/xyixuan/apertus/venvs/scan-pa21/bin/python \\"
 echo "    -m vision_tokenization.pipeline.output.alignment_merge \\"
