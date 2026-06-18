@@ -22,6 +22,8 @@ import glob
 import logging
 import os
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pyarrow.parquet as pq
@@ -72,6 +74,7 @@ def run_scan_stage(cfg: dict) -> IngestResult:
         build_dir,
         out,
         min_side=int(cfg.get("spatial_factor", SPATIAL_FACTOR)),
+        materialize_raw=bool(cfg.get("materialize_raw_store", False)),
     )
     if dedup.n_invalid_media:
         logger.warning("scan skipped %d corrupt/sub-%dpx images (and their pairs)",
@@ -197,7 +200,45 @@ def run_alignment(cfg: dict) -> dict:
         )
     cfg["manifest_path"] = str(scan_path)
     cfg["media_inventory"] = load_media_inventory(inventory_path)
-    cfg["output_dir"] = str(out / "_spill")
+    spill_dir = out / "_spill"
+    cfg["output_dir"] = str(spill_dir)
 
-    from .executor import run_executor
-    return run_executor(cfg["rank"], cfg["world_size"], cfg)
+    # Tokenize this rank's pair text in a SEPARATE process, concurrent with the GPU
+    # vision encode below. A distinct interpreter avoids a transformers lazy-import
+    # race with the executor's tokenizer load; the merge joins the spilled pieces.
+    text_proc = subprocess.Popen([
+        sys.executable, "-m", "vision_tokenization.pipeline.runtime.alignment_text",
+        str(out / "views.raw.parquet"), str(spill_dir), str(cfg["rank"]), str(cfg["world_size"]),
+        "--tokenizer-path", str(cfg["tokenizer_path"]),
+        "--system", str(cfg.get("binidx_system", "empty")),
+    ])
+    try:
+        from .executor import run_executor
+        result = run_executor(cfg["rank"], cfg["world_size"], cfg)
+    except BaseException:
+        text_proc.kill()
+        text_proc.wait()
+        raise
+    if text_proc.wait() != 0:
+        raise RuntimeError(f"alignment text pass failed (rank {cfg['rank']}, rc={text_proc.returncode})")
+    return result
+
+
+def run_dpo_binidx(cfg: dict) -> dict:
+    """DPO binidx phase (CPU): build the ``[prompt|chosen|rejected]`` ``.bin/.idx`` + per-pair
+    ``index`` from the published store, register them in ``manifest.json`` (schema 4), and retire
+    the now-redundant deduped ``tokens/``."""
+    out = Path(cfg["output_dir"])
+    if not (out / "manifest.json").exists():
+        raise FileNotFoundError(
+            f"dpo binidx: manifest missing in {out} (run scan -> encode -> merge first)"
+        )
+    from vision_tokenization.pipeline.output.alignment_merge import stamp_dpo_section
+    from vision_tokenization.pipeline.output.dpo_binidx import build_dpo_binidx
+    section = build_dpo_binidx(str(out), system=cfg.get("binidx_system", "empty"))
+    delete = cfg.get("binidx_delete_tokens", False)
+    stamp_dpo_section(out, section, delete_tokens=delete)
+    logger.info("dpo binidx: %d pairs, schema 4 stamped, tokens/ %s -> %s",
+                sum(s["n_pairs"] for s in section["splits"].values()),
+                "retired" if delete else "kept", out)
+    return section

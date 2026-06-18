@@ -212,6 +212,48 @@ def test_null_arrow_image_bytes_use_empty_media_sentinel_and_are_filtered(tmp_pa
     assert pq.read_table(tmp_path / "published" / "row_media_refs.parquet").num_rows == 0
 
 
+def test_materialize_raw_blob_round_trip_reads_from_memmap(tmp_path):
+    """materialize_raw=True writes media_raw.blob + a raw_offset column; the
+    inventory then reads each media's bytes back from the memmap (not the
+    source parquet) and they match the originals exactly."""
+    img_a = _png(32, 32)
+    img_b = _png(48, 32, color=(1, 2, 3))
+    src = tmp_path / "input.parquet"
+    _write_parquet(src, [_row("a0", img_a), _row("b0", img_b), _row("b1", img_b), _row("a1", img_a)])
+
+    build = tmp_path / "_build"
+    scan_parquet_media_refs(src, build, workers=2, batch_size=1)
+    published = tmp_path / "published"
+    dedup = dedup_media_scan(build, published, materialize_raw=True)
+
+    assert dedup.n_unique_media == 2
+    assert (published / "media_raw.blob").exists()
+    assert "raw_offset" in pq.read_table(published / "media_unique.parquet").schema.names
+
+    inventory = load_media_inventory(published / "media_unique.parquet")
+    assert all(media.blob is not None for media in inventory)
+    by_id = {media.media_id: media for media in inventory}
+    assert by_id[hashlib.sha256(img_a).hexdigest()].raw == img_a
+    assert by_id[hashlib.sha256(img_b).hexdigest()].raw == img_b
+
+
+def test_materialize_raw_blob_empty_inventory_writes_no_blob(tmp_path):
+    """An all-filtered input with materialize_raw=True must not memmap an empty
+    blob: no blob, no raw_offset column, and the inventory loads as empty."""
+    src = tmp_path / "input.parquet"
+    _write_parquet(src, [_row("tiny", _png(8, 8))])
+
+    build = tmp_path / "_build"
+    scan_parquet_media_refs(src, build, workers=1, batch_size=1)
+    published = tmp_path / "published"
+    dedup = dedup_media_scan(build, published, materialize_raw=True)
+
+    assert dedup.n_unique_media == 0
+    assert not (published / "media_raw.blob").exists()
+    assert "raw_offset" not in pq.read_table(published / "media_unique.parquet").schema.names
+    assert load_media_inventory(published / "media_unique.parquet") == []
+
+
 def test_dedup_raises_when_occurrences_exceed_in_memory_ceiling(tmp_path):
     """An occurrence set over the in-memory ceiling fails loud, never silently
     produces an empty inventory."""

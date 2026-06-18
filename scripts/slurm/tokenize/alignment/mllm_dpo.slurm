@@ -15,8 +15,8 @@
 # mllm-dpo alignment ENCODE phase (single-rank, 1 GPU). mllm-dpo is a tiny
 # single shard (5,182 pairs), so one rank encodes all media in one process.
 #
-# THREE-PHASE FLOW — scan + merge run INLINE on the head node (pa-24 venv),
-# only the encode is a slurm job:
+# FOUR-PHASE FLOW — scan + merge run INLINE on the head node (pa-24 venv),
+# encode + binidx are slurm jobs:
 #
 #   1. SCAN (inline, torch-free):
 #        /iopsstor/scratch/cscs/xyixuan/apertus/venvs/scan-pa21/bin/python \
@@ -33,6 +33,12 @@
 #        /iopsstor/scratch/cscs/xyixuan/apertus/venvs/scan-pa21/bin/python \
 #          -m vision_tokenization.pipeline.output.alignment_merge \
 #          /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/alignment/mllm_dpo
+#
+#   4. BINIDX (DPO export — post-hoc, re-runnable, CPU slurm):
+#        env -i HOME="$HOME" USER="$USER" \
+#          LD_LIBRARY_PATH=/capstor/store/cscs/swissai/infra01/MLLM/wheelhouse \
+#          /usr/bin/sbatch \
+#          /iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/scripts/slurm/tokenize/alignment/dpo_binidx/mllm_dpo.slurm
 
 set -e
 export LD_LIBRARY_PATH=/capstor/store/cscs/swissai/infra01/MLLM/wheelhouse:${LD_LIBRARY_PATH:-}

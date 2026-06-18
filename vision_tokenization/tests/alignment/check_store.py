@@ -33,21 +33,26 @@ def check(root: Path, n: int = 64) -> int:
     manifest = json.loads((root / "manifest.json").read_text())
     assert manifest["token_dtype"] == "<i4", "manifest token_dtype is not <i4"
     assert manifest.get("payload_format") == "alignment_shard_local_v1"
+    if manifest.get("schema_version", 3) >= 4:
+        raise SystemExit(
+            f"{root}: schema {manifest['schema_version']} (post-binidx); Gate 2 checks the "
+            "pre-binidx deduped store -- run scripts/_algn_binidx_check.py on the .bin instead"
+        )
     tl = manifest["token_layout"]
     img_start, img_end = tl["img_start"], tl["img_end"]
     img_token_start, eol, eof = tl["img_token_start"], tl["eol"], tl["eof"]
     vis_lo, vis_hi = tl["vision_lo"], tl["vision_hi"]
 
+    blob = np.memmap(root / manifest["raw_blob"], dtype=np.uint8, mode="r")
     blocks = []
     for spec in _iter_view_specs(manifest):
         tokens = np.memmap(root / spec["tokens"], dtype=np.dtype(manifest["token_dtype"]), mode="r")
-        raw_rows = pq.read_table(root / spec["raw"]).num_rows
         for row in pq.read_table(root / spec["view"]).to_pylist():
             for img in row["images"]:
-                raw_row = int(img["raw_row"])
-                if raw_row < 0 or raw_row >= raw_rows:
+                ro, rl = int(img["raw_offset"]), int(img["raw_length"])
+                if ro < 0 or ro + rl > blob.size:
                     raise AssertionError(
-                        f"raw_row {raw_row} out of bounds for {spec['raw']}"
+                        f"raw slice [{ro}:{ro + rl}] out of bounds for media_raw.blob ({blob.size} bytes)"
                     )
                 off = int(img["token_offset"])
                 ln = int(img["token_length"])
