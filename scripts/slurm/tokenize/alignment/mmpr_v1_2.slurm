@@ -1,58 +1,68 @@
 #!/bin/bash
 #SBATCH --account=infra01
-#SBATCH --job-name=mmpr-v1.2
+#SBATCH --job-name=mmpr-v1.2-encode
+#SBATCH --environment=nemo_25_11
 #SBATCH --output=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs/mmpr_v1_2_%j.out
 #SBATCH --error=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs/mmpr_v1_2_%j.err
-#SBATCH --time=03:00:00
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1
-#SBATCH --gpus-per-node=1
+#SBATCH --time=01:30:00
+#SBATCH --nodes=4
+#SBATCH --ntasks-per-node=4
+#SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=72
 #SBATCH --partition=normal
 #SBATCH --exclusive
 #SBATCH --no-requeue
 
-# MMPR-v1.2 -> one preference media store from sized processed parquet parts.
-# alignment is single-rank per store; scanner reads data/part-*.parquet and
-# dedups globally before the 1-GPU encode loop. alignment is seal-at-end with
-# NO resume.
+# MMPR-v1.2 alignment ENCODE phase (multi-rank, 4x4 = 16 GPUs). Reads the
+# pre-built scan and spills each rank's disjoint media slice via SpillBackend.
+# Seal-at-end, no resume — each unique media is encoded by exactly one rank.
 #
-# Submit from a clean env:
-#   env -i HOME="$HOME" USER="$USER" /usr/bin/sbatch \
-#       /iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/scripts/slurm/tokenize/alignment/mmpr_v1_2.slurm
+# FOUR-PHASE FLOW — scan + merge run INLINE on the head node (pa-24 venv),
+# encode + binidx are slurm jobs:
+#
+#   1. SCAN (inline, torch-free):
+#        /iopsstor/scratch/cscs/xyixuan/apertus/venvs/scan-pa21/bin/python \
+#          -m vision_tokenization.alignment_scan \
+#          mode=alignment dataset=alignment/mmpr_v1_2
+#
+#   2. ENCODE (this job):
+#        env -i HOME="$HOME" USER="$USER" \
+#          LD_LIBRARY_PATH=/capstor/store/cscs/swissai/infra01/MLLM/wheelhouse \
+#          /usr/bin/sbatch \
+#          /iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/scripts/slurm/tokenize/alignment/mmpr_v1_2.slurm
+#
+#   3. MERGE (inline, torch-free):
+#        /iopsstor/scratch/cscs/xyixuan/apertus/venvs/scan-pa21/bin/python \
+#          -m vision_tokenization.pipeline.output.alignment_merge \
+#          /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/alignment/mmpr_v1_2
+#
+#   4. BINIDX (DPO export — post-hoc, re-runnable, CPU slurm):
+#        env -i HOME="$HOME" USER="$USER" \
+#          LD_LIBRARY_PATH=/capstor/store/cscs/swissai/infra01/MLLM/wheelhouse \
+#          /usr/bin/sbatch \
+#          /iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/scripts/slurm/tokenize/alignment/dpo_binidx/mmpr_v1_2.slurm
 
 set -e
 export LD_LIBRARY_PATH=/capstor/store/cscs/swissai/infra01/MLLM/wheelhouse:${LD_LIBRARY_PATH:-}
+export NUM_GPUS=$(( SLURM_NNODES * SLURM_NTASKS_PER_NODE ))
+mkdir -p /iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs
 
 echo "=========================================="
-echo "MMPR-v1.2 -> one views+media preference store"
-echo "  mode=alignment task=preference; input_pattern=data/part-*.parquet"
-echo "  out: .../vision-datasets/tokenized/alignment/mmpr_v1_2"
+echo "MMPR-v1.2 ENCODE: ${NUM_GPUS} GPUs across ${SLURM_NNODES} nodes"
+echo "  reads pre-built scan -> spills to .../alignment/mmpr_v1_2/_spill"
 echo "=========================================="
 
-srun -u --mpi=pmix --environment=nemo_26_02 bash -c '
+srun -u --kill-on-bad-exit=0 bash -c "
     set -e
-    unset LD_PRELOAD || true
-    python -c "import orjson" 2>/dev/null || uv pip install --python "$(command -v python)" --break-system-packages orjson
-    TOKENIZERS_0222=/iopsstor/scratch/cscs/xyixuan/.cache/uv/archive-v0/1CtSrhkL_p104lhucBDaz
-    export PYTHONPATH=${TOKENIZERS_0222}:/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier:${PYTHONPATH:-}
-    export WANDB_DIR=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/logs
+    uv pip install --python /opt/venv/bin/python3 orjson
+    export PYTHONPATH=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier:\$PYTHONPATH
     cd /iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier
-    export RANK=0 WORLD_SIZE=1
-    python - <<'"'"'PY'"'"'
-import tokenizers, orjson
-if tokenizers.__version__ != "0.22.2":
-    raise SystemExit(f"expected tokenizers 0.22.2, got {tokenizers.__version__}")
-print("tokenizers", tokenizers.__version__)
-print("orjson", orjson.__version__)
-PY
-
     python -m vision_tokenization.tokenize \
         mode=alignment dataset=alignment/mmpr_v1_2 \
-        num_gpus=1 \
-        wandb.enabled=true wandb.group=mmpr_v1_2 wandb.name=mmpr_v1_2
-
-    python vision_tokenization/tests/alignment/check_store.py \
-        /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/alignment/mmpr_v1_2
-'
-echo "END TIME: $(date)"
+        num_gpus=${NUM_GPUS} \
+        wandb.enabled=true wandb.group=mmpr_v1_2 wandb.name=mmpr_v1_2_encode
+"
+echo "ENCODE done -> $(date). Now run the inline MERGE (pa-24 venv):"
+echo "  /iopsstor/scratch/cscs/xyixuan/apertus/venvs/scan-pa21/bin/python \\"
+echo "    -m vision_tokenization.pipeline.output.alignment_merge \\"
+echo "    /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/alignment/mmpr_v1_2"

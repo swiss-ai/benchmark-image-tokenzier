@@ -6,10 +6,12 @@ text/view conversion belongs to a later view builder.
 
 from __future__ import annotations
 
+import os
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
@@ -70,6 +72,7 @@ class MediaDedupResult:
     media_unique_path: str = ""
     scan_path: str = ""
     row_refs_path: str = ""
+    raw_blob_path: str = ""
 
 
 @dataclass
@@ -84,9 +87,13 @@ class LazyRawMedia:
     row_group: int
     row_index: int
     image_index: int
+    raw_offset: int = -1
+    blob: "np.memmap | None" = None
 
     @property
     def raw(self) -> bytes:
+        if self.blob is not None:
+            return bytes(self.blob[self.raw_offset : self.raw_offset + self.raw_length_bytes])
         return _read_source_image_bytes(
             self.source_path,
             self.row_group,
@@ -96,7 +103,7 @@ class LazyRawMedia:
 
 
 _SOURCE_IMAGE_CACHE: OrderedDict[tuple[str, int], ImageColumnView] = OrderedDict()
-_SOURCE_IMAGE_CACHE_MAX_ROW_GROUPS = 4
+_SOURCE_IMAGE_CACHE_MAX_ROW_GROUPS = 16
 
 
 def _source_image_view(source_path: str, row_group: int) -> ImageColumnView:
@@ -394,12 +401,41 @@ def _write_row_refs(build_dir: Path, publish_dir: Path, valid_media: set[str]) -
     return len(rows), filtered, str(out)
 
 
+def _materialize_raw_blob(media_table: pa.Table, publish_dir: Path) -> tuple[pa.Table, str]:
+    """Write the deduped raw image bytes into a flat ``media_raw.blob`` in the
+    table's (source-sorted) order; return the table with a ``raw_offset`` column.
+    Reads in source order so each row group is swept once; committed atomically."""
+    locators = [media_table.column(c).to_pylist()
+                for c in ("source_path", "row_group", "row_index", "image_index")]
+    lengths = media_table.column("raw_length_bytes").to_pylist()
+    if not lengths:
+        return media_table, ""
+    offsets = np.empty(len(lengths), dtype=np.int64)
+    blob_final = publish_dir / "media_raw.blob"
+    blob_tmp = blob_final.with_suffix(".blob.tmp")
+    cursor = 0
+    with open(blob_tmp, "wb") as handle:
+        for i, locator in enumerate(zip(*locators)):
+            data = _read_source_image_bytes(*locator)
+            if len(data) != lengths[i]:
+                raise RuntimeError(f"raw blob length mismatch at {locator}: {len(data)} != {lengths[i]}")
+            handle.write(data)
+            offsets[i] = cursor
+            cursor += len(data)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(blob_tmp, blob_final)
+    table = media_table.append_column("raw_offset", pa.array(offsets, type=pa.int64()))
+    return table, str(blob_final)
+
+
 def dedup_media_scan(
     build_dir: Path,
     publish_dir: Path,
     *,
     min_side: int = 16,
     max_in_memory_bytes: int = 4 << 30,
+    materialize_raw: bool = False,
 ) -> MediaDedupResult:
     """Exact global dedup and filtered row-ref materialization.
 
@@ -431,6 +467,16 @@ def dedup_media_scan(
         pc.greater_equal(media_table.column("height"), min_side),
     )
     media_table = media_table.filter(valid_mask)
+    media_table = media_table.sort_by([
+        ("source_path", "ascending"),
+        ("row_group", "ascending"),
+        ("row_index", "ascending"),
+        ("image_index", "ascending"),
+    ])
+
+    raw_blob_path = ""
+    if materialize_raw:
+        media_table, raw_blob_path = _materialize_raw_blob(media_table, publish_dir)
 
     media_unique = publish_dir / "media_unique.parquet"
     pq.write_table(media_table, media_unique)
@@ -454,11 +500,21 @@ def dedup_media_scan(
         media_unique_path=str(media_unique),
         scan_path=str(scan_path),
         row_refs_path=row_refs_path,
+        raw_blob_path=raw_blob_path,
     )
 
 
 def load_media_inventory(media_unique_path: Path) -> list[LazyRawMedia]:
-    rows = pq.read_table(media_unique_path).to_pylist()
+    table = pq.read_table(media_unique_path)
+    rows = table.to_pylist()
+    blob = None
+    if "raw_offset" in table.schema.names:
+        blob_path = Path(media_unique_path).parent / "media_raw.blob"
+        size = blob_path.stat().st_size if blob_path.exists() else 0
+        if size > 0:
+            blob = np.memmap(blob_path, dtype=np.uint8, mode="r")
+        elif rows:
+            raise FileNotFoundError(f"{blob_path} missing/empty but media_unique carries raw_offset")
     return [
         LazyRawMedia(
             media_id=row["media_id"],
@@ -471,6 +527,8 @@ def load_media_inventory(media_unique_path: Path) -> list[LazyRawMedia]:
             row_group=row["row_group"],
             row_index=row["row_index"],
             image_index=row["image_index"],
+            raw_offset=row.get("raw_offset", -1),
+            blob=blob,
         )
         for row in rows
     ]

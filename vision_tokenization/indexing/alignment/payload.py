@@ -5,12 +5,14 @@ sidecars:
 
   views/*.parquet  -> text + per-row image token offsets
   tokens/*.i32     -> flat little-endian int32 image tokens
-  raw/*.parquet    -> cold raw bytes for judges/audit
+  media_raw.blob   -> flat deduped raw image bytes (per-image raw_offset/raw_length)
 """
 
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
+
 import numpy as np
 import pyarrow as pa
 
@@ -32,7 +34,9 @@ IMAGE_REF_TYPE = pa.list_(
         pa.field("resize_width", pa.int32()),
         pa.field("token_offset", pa.int64()),
         pa.field("token_length", pa.int32()),
-        pa.field("raw_row", pa.int32()),
+        pa.field("raw_offset", pa.int64()),
+        pa.field("raw_length", pa.int32()),
+        pa.field("raw_ext", pa.string()),
     ])
 )
 
@@ -43,20 +47,25 @@ VIEW_SCHEMA = pa.schema([
     pa.field("prompt_id", pa.string()),
     pa.field("text_chars", pa.int64()),
     pa.field("media_tokens_total", pa.int64()),
+    pa.field("seq_chosen_len", pa.int32()),
+    pa.field("seq_rejected_len", pa.int32()),
     pa.field("images", IMAGE_REF_TYPE),
 ])
 
-RAW_SCHEMA = pa.schema([
-    pa.field("sample_id", pa.string()),
-    pa.field("image_index", pa.int16()),
-    pa.field("media_id", pa.string()),
-    pa.field("width", pa.int32()),
-    pa.field("height", pa.int32()),
-    pa.field("resize_height", pa.int32()),
-    pa.field("resize_width", pa.int32()),
-    pa.field("raw_ext", pa.string()),
-    pa.field("raw_bytes", pa.large_binary()),
+# Engine-spilled per-pair text tokenization (vision-free); the merge joins it with
+# the encoded vision lengths. Transient — the binidx writer retires it like tokens/.
+TOKENIZED_SCHEMA = pa.schema([
+    pa.field("prompt_id", pa.string()),
+    pa.field("prompt_text_ids", pa.list_(pa.int32())),
+    pa.field("image_insert_positions", pa.list_(pa.int32())),
+    pa.field("chosen_ids", pa.list_(pa.int32())),
+    pa.field("rejected_ids", pa.list_(pa.int32())),
+    pa.field("enable_thinking", pa.bool_()),
 ])
+
+
+def tokenized_views_dir(spill_dir):
+    return Path(spill_dir) / "views_tokenized"
 
 
 def _validation_target_count(n_rows: int, requested_validation_rows: int) -> int:

@@ -21,7 +21,8 @@ from vision_tokenization.discrete.sft_segments import (
 from vision_tokenization.indexing.alignment.ingest import MARKER as IMAGE_MARKER
 
 from ._mixins import ThreadPoolExecutorOwner
-from .image_only import EMUImageOnlyTokenizer, resolve_token_ids
+from .image_only import EMUImageOnlyTokenizer
+from .token_layout import resolve_token_ids
 
 logger = logging.getLogger(__name__)
 

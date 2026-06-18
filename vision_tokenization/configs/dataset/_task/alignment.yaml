@@ -21,3 +21,12 @@ max_consecutive_errors: 1
 # task text conversion happens after dedup.
 scan_workers: 64
 scan_batch_size: 8192
+
+# DPO binidx phase (post-merge, CPU): builds [prompt|chosen|rejected] .bin/.idx
+# + index from the store. delete_tokens retires the deduped tokens/ once the
+# .bin has inlined it -- opt-in, the production slurms pass it true.
+binidx_system: empty
+binidx_delete_tokens: false
+
+# Materialize the deduped raw bytes to a flat blob at scan; encode + online DPO/RL read O(1) slices.
+materialize_raw_store: true
