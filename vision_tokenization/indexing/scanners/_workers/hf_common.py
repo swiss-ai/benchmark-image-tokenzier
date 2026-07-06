@@ -58,10 +58,7 @@ def build_hf_output_columns(is_multi: bool) -> dict[str, array]:
 def build_hf_output_table(columns: dict[str, array], is_multi: bool) -> pa.Table:
     """Convert compact typed column buffers into an Arrow table."""
     schema = _HF_WORKER_SCHEMA_MULTI_IMAGE if is_multi else _HF_WORKER_SCHEMA
-    arrays = {
-        field.name: pa.array(columns[field.name], type=field.type)
-        for field in schema
-    }
+    arrays = {field.name: pa.array(columns[field.name], type=field.type) for field in schema}
     return pa.table(arrays, schema=schema)
 
 
@@ -173,13 +170,20 @@ def _scan_single_image_chunk(
     row_base: int,
     source_rows: int,
     failed_dims: int,
-) -> Tuple[int, int]:
+    contaminated_rows: frozenset[int] = frozenset(),
+) -> Tuple[int, int, int]:
+    contaminated_skipped = 0
     if pa.types.is_struct(chunk.type):
         bytes_arr = chunk.field("bytes")
         path_arr = chunk.field("path")
         header_arr = pc.binary_slice(bytes_arr, 0, _HEADER_BYTES)
 
         for local_idx in range(len(chunk)):
+            sample_index = source_rows
+            source_rows += 1
+            if contaminated_rows and sample_index in contaminated_rows:
+                contaminated_skipped += 1
+                continue
             width, height = _get_dims_from_scalars(
                 header_arr[local_idx],
                 bytes_arr[local_idx],
@@ -187,25 +191,28 @@ def _scan_single_image_chunk(
             )
             if width < 0 or height < 0:
                 failed_dims += 1
-            out["sample_index"].append(source_rows)
+            out["sample_index"].append(sample_index)
             out["width"].append(width)
             out["height"].append(height)
             out["chunk_index"].append(chunk_index)
             out["row_in_chunk"].append(row_base + local_idx)
-            source_rows += 1
-        return source_rows, failed_dims
+        return source_rows, failed_dims, contaminated_skipped
 
     for local_idx in range(len(chunk)):
+        sample_index = source_rows
+        source_rows += 1
+        if contaminated_rows and sample_index in contaminated_rows:
+            contaminated_skipped += 1
+            continue
         width, height = get_image_dimensions(chunk[local_idx].as_py())
         if width < 0 or height < 0:
             failed_dims += 1
-        out["sample_index"].append(source_rows)
+        out["sample_index"].append(sample_index)
         out["width"].append(width)
         out["height"].append(height)
         out["chunk_index"].append(chunk_index)
         out["row_in_chunk"].append(row_base + local_idx)
-        source_rows += 1
-    return source_rows, failed_dims
+    return source_rows, failed_dims, contaminated_skipped
 
 
 def _scan_multi_image_chunk(
@@ -216,7 +223,9 @@ def _scan_multi_image_chunk(
     row_base: int,
     source_rows: int,
     failed_dims: int,
-) -> Tuple[int, int]:
+    contaminated_rows: frozenset[int] = frozenset(),
+) -> Tuple[int, int, int]:
+    contaminated_skipped = 0
     if pa.types.is_list(chunk.type) or pa.types.is_large_list(chunk.type):
         offsets = chunk.offsets.to_numpy(zero_copy_only=False)
         offset_base = int(offsets[0])
@@ -228,8 +237,11 @@ def _scan_multi_image_chunk(
             header_arr = pc.binary_slice(bytes_arr, 0, _HEADER_BYTES)
 
             for local_row_idx in range(len(chunk)):
-                local_sample_index = source_rows
+                sample_index = source_rows
                 source_rows += 1
+                if contaminated_rows and sample_index in contaminated_rows:
+                    contaminated_skipped += 1
+                    continue
                 start = int(offsets[local_row_idx]) - offset_base
                 end = int(offsets[local_row_idx + 1]) - offset_base
                 for flat_idx in range(start, end):
@@ -240,31 +252,34 @@ def _scan_multi_image_chunk(
                     )
                     if width < 0 or height < 0:
                         failed_dims += 1
-                    out["sample_index"].append(local_sample_index)
+                    out["sample_index"].append(sample_index)
                     out["width"].append(width)
                     out["height"].append(height)
-                    out["group_id"].append(local_sample_index)
+                    out["group_id"].append(sample_index)
                     out["image_index"].append(flat_idx - start)
                     out["chunk_index"].append(chunk_index)
                     out["row_in_chunk"].append(row_base + local_row_idx)
-            return source_rows, failed_dims
+            return source_rows, failed_dims, contaminated_skipped
 
     for local_row_idx in range(len(chunk)):
-        local_sample_index = source_rows
+        sample_index = source_rows
         source_rows += 1
+        if contaminated_rows and sample_index in contaminated_rows:
+            contaminated_skipped += 1
+            continue
         image_list = chunk[local_row_idx].as_py()
         for image_index, img_data in enumerate(image_list or []):
             width, height = get_image_dimensions(img_data)
             if width < 0 or height < 0:
                 failed_dims += 1
-            out["sample_index"].append(local_sample_index)
+            out["sample_index"].append(sample_index)
             out["width"].append(width)
             out["height"].append(height)
-            out["group_id"].append(local_sample_index)
+            out["group_id"].append(sample_index)
             out["image_index"].append(image_index)
             out["chunk_index"].append(chunk_index)
             out["row_in_chunk"].append(row_base + local_row_idx)
-    return source_rows, failed_dims
+    return source_rows, failed_dims, contaminated_skipped
 
 
 def scan_hf_batch_columns(
@@ -275,26 +290,21 @@ def scan_hf_batch_columns(
     failed_dims: int,
     *,
     is_multi: bool,
-) -> Tuple[dict[str, array], int, int]:
+    contaminated_rows: frozenset[int] = frozenset(),
+) -> Tuple[dict[str, array], int, int, int]:
     """Append one Arrow/Parquet batch worth of manifest rows."""
+    contaminated_skipped = 0
+    scan_chunk = _scan_multi_image_chunk if is_multi else _scan_single_image_chunk
     for row_base, chunk in _iter_column_chunks(image_col):
-        if is_multi:
-            source_rows, failed_dims = _scan_multi_image_chunk(
-                out,
-                chunk,
-                chunk_index=chunk_index,
-                row_base=row_base,
-                source_rows=source_rows,
-                failed_dims=failed_dims,
-            )
-        else:
-            source_rows, failed_dims = _scan_single_image_chunk(
-                out,
-                chunk,
-                chunk_index=chunk_index,
-                row_base=row_base,
-                source_rows=source_rows,
-                failed_dims=failed_dims,
-            )
+        source_rows, failed_dims, batch_skipped = scan_chunk(
+            out,
+            chunk,
+            chunk_index=chunk_index,
+            row_base=row_base,
+            source_rows=source_rows,
+            failed_dims=failed_dims,
+            contaminated_rows=contaminated_rows,
+        )
+        contaminated_skipped += batch_skipped
 
-    return out, source_rows, failed_dims
+    return out, source_rows, failed_dims, contaminated_skipped

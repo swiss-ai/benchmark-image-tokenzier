@@ -9,32 +9,36 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-import torch
 import pyarrow as pa
 import pyarrow.ipc as ipc
 import pyarrow.parquet as pq
 import pytest
+import torch
 from PIL import Image
 
-from vision_tokenization.indexing.scanners._workers.wds import scan_single_tar
-from vision_tokenization.indexing.planning.tokenization_plan import (
-    TokenizationPlan,
-    build_tokenization_plan,
-)
 from vision_tokenization.indexing.manifest import (
     load_hf_manifest,
     load_resolution_arrays,
     load_wds_manifest,
     save_wds_manifest,
 )
-from vision_tokenization.indexing.scanners.hf import scan_hf_dataset
+from vision_tokenization.indexing.planning.tokenization_plan import (
+    TokenizationPlan,
+    build_tokenization_plan,
+)
 from vision_tokenization.indexing.reader import TarRandomAccessReader
+from vision_tokenization.indexing.scanners._workers.hf_common import (
+    build_hf_output_columns,
+    scan_hf_batch_columns,
+)
+from vision_tokenization.indexing.scanners._workers.wds import scan_single_tar
+from vision_tokenization.indexing.scanners.hf import scan_hf_dataset
 from vision_tokenization.indexing.scanners.wds import scan_wds_dataset
 from vision_tokenization.pipeline.runtime.data import HFImageLoader, WDSImageLoader
 from vision_tokenization.pipeline.runtime.dry_run import dry_run_batch_plan
-from vision_tokenization.utils.partitioning import weighted_contiguous_split
 from vision_tokenization.utils.image_geometry import estimate_image_tokens, smart_resize_dims
-
+from vision_tokenization.utils.json import json_load
+from vision_tokenization.utils.partitioning import weighted_contiguous_split
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -133,6 +137,7 @@ def plan_clustered_batches(
         total_filtered=max(0, total_rows - int(plan.total_image_components)),
     )
 
+
 def _make_image(width: int, height: int, color: tuple = (255, 0, 0)) -> Image.Image:
     """Create a solid-colour RGB image."""
     return Image.new("RGB", (width, height), color)
@@ -191,10 +196,7 @@ def _write_hf_arrow_shard(
 ):
     if multi_image:
         array = pa.array(
-            [
-                [_hf_image_cell(width, height) for width, height in sample]
-                for sample in rows
-            ],
+            [[_hf_image_cell(width, height) for width, height in sample] for sample in rows],
             type=pa.list_(_HF_IMAGE_TYPE),
         )
     else:
@@ -224,10 +226,7 @@ def _write_hf_parquet_shard(
 ):
     if multi_image:
         array = pa.array(
-            [
-                [_hf_image_cell(width, height) for width, height in sample]
-                for sample in rows
-            ],
+            [[_hf_image_cell(width, height) for width, height in sample] for sample in rows],
             type=pa.list_(_HF_IMAGE_TYPE),
         )
     else:
@@ -249,10 +248,7 @@ class TestWDSScanner:
 
     def test_scan_single_tar(self, tmp_path):
         """Scan a tar with 5 images, verify correct dims and offsets."""
-        samples = [
-            {"key": f"{i:06d}", "ext": "jpg", "width": 100 + i * 10, "height": 200 + i * 10}
-            for i in range(5)
-        ]
+        samples = [{"key": f"{i:06d}", "ext": "jpg", "width": 100 + i * 10, "height": 200 + i * 10} for i in range(5)]
         tar_path = str(tmp_path / "shard_000.tar")
         _create_tar(tar_path, samples)
 
@@ -282,10 +278,7 @@ class TestWDSScanner:
     def test_scan_multiple_tars(self, tmp_path):
         """Parallel scan of 3 tars should find 15 total images."""
         for shard_idx in range(3):
-            samples = [
-                {"key": f"{shard_idx:03d}_{i:03d}", "ext": "jpg", "width": 80, "height": 80}
-                for i in range(5)
-            ]
+            samples = [{"key": f"{shard_idx:03d}_{i:03d}", "ext": "jpg", "width": 80, "height": 80} for i in range(5)]
             _create_tar(str(tmp_path / f"shard_{shard_idx:03d}.tar"), samples)
 
         manifest_path = str(tmp_path / "manifest.parquet")
@@ -398,7 +391,11 @@ class TestWDSScanner:
 
         table = load_wds_manifest(manifest_path)
         assert table.column("sample_key").to_pylist() == [
-            "000001", "000001", "000002", "000010", "000010",
+            "000001",
+            "000001",
+            "000002",
+            "000010",
+            "000010",
         ]
         assert table.column("group_id").to_pylist() == [0, 0, 1, 2, 2]
         assert table.column("image_index").to_pylist() == [0, 1, 0, 0, 1]
@@ -445,11 +442,190 @@ class TestWDSScanner:
 
         assert "only singleton groups" in caplog.text
 
+    def test_wds_key_format_matches_by_tar_and_path(self, tmp_path):
+        from vision_tokenization.utils.contamination import load_contamination_index
+
+        ids_path = tmp_path / "ids.txt"
+        ids_path.write_text(
+            "shard_000:000001  shard_000.tar:000003\n"  # .tar tolerated, dropped on parse
+            "subA/0000:aaa subB/0000:bbb\n"  # path-qualified disambiguation of stem "0000"
+        )
+        index = load_contamination_index(ids_path, format="wds_key")
+        assert index.rows_for_path("/x/shard_000.tar") == frozenset({"000001", "000003"})
+        assert index.rows_for_path("/d/subA/0000.tar") == frozenset({"aaa"})
+        assert index.rows_for_path("/d/subB/0000.tar") == frozenset({"bbb"})
+        assert index.rows_for_path("/d/subC/0000.tar") == frozenset()
+
+    def test_scan_wds_skips_excluded_samples_single_image(self, tmp_path):
+        data = tmp_path / "data"
+        data.mkdir()
+        samples = [{"key": f"{i:06d}", "ext": "jpg", "width": 32, "height": 32} for i in range(5)]
+        _create_tar(str(data / "shard_000.tar"), samples)
+        ids_path = tmp_path / "ids.txt"
+        ids_path.write_text("shard_000:000001, shard_000:000003\n")
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        scan_wds_dataset(
+            input_pattern=str(data / "*.tar"),
+            output_manifest=manifest_path,
+            contamination_ids_path=ids_path,
+            contamination_format="wds_key",
+            num_workers=1,
+        )
+
+        table = load_wds_manifest(manifest_path)
+        assert table.column("sample_key").to_pylist() == ["000000", "000002", "000004"]
+        meta = json_load(Path(manifest_path).with_name("manifest_meta.json"))
+        assert meta["contaminated_skipped"] == 2
+        assert meta["contamination_format"] == "wds_key"
+        assert meta["contamination_ids"] == 2
+
+    def test_scan_wds_skips_excluded_samples_multi_image(self, tmp_path):
+        data = tmp_path / "data"
+        data.mkdir()
+        samples = [
+            {"key": "000001.img0", "ext": "jpg", "width": 32, "height": 32},
+            {"key": "000001.img1", "ext": "jpg", "width": 32, "height": 32},
+            {"key": "000002.img0", "ext": "jpg", "width": 32, "height": 32},
+            {"key": "000002.img1", "ext": "jpg", "width": 32, "height": 32},
+            {"key": "000003.img0", "ext": "jpg", "width": 32, "height": 32},
+            {"key": "000003.img1", "ext": "jpg", "width": 32, "height": 32},
+        ]
+        _create_tar(str(data / "shard_000.tar"), samples)
+        ids_path = tmp_path / "ids.txt"
+        # Drop the middle group, which is itself multi-image: exercises both re-densification
+        # (000001->0, 000003->1 with a gap) and per-sample skip counting (2 rows, 1 sample).
+        ids_path.write_text("shard_000:000002\n")
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        scan_wds_dataset(
+            input_pattern=str(data / "*.tar"),
+            output_manifest=manifest_path,
+            image_field_pattern="img",
+            multi_image=True,
+            contamination_ids_path=ids_path,
+            contamination_format="wds_key",
+            num_workers=1,
+        )
+
+        table = load_wds_manifest(manifest_path)
+        assert table.column("sample_key").to_pylist() == ["000001", "000001", "000003", "000003"]
+        # group_ids must be re-densified contiguous (000001->0, 000003->1), not [0,0,2,2]
+        assert table.column("group_id").to_pylist() == [0, 0, 1, 1]
+        assert table.column("image_index").to_pylist() == [0, 1, 0, 1]
+        meta = json_load(Path(manifest_path).with_name("manifest_meta.json"))
+        assert meta["contaminated_skipped"] == 1
+
+    def test_scan_wds_tar_qualified_disambiguation(self, tmp_path):
+        data = tmp_path / "data"
+        (data / "subA").mkdir(parents=True)
+        (data / "subB").mkdir(parents=True)
+        _create_tar(
+            str(data / "subA" / "0000.tar"),
+            [{"key": k, "ext": "jpg", "width": 32, "height": 32} for k in ("000001", "000002")],
+        )
+        _create_tar(
+            str(data / "subB" / "0000.tar"),
+            [{"key": k, "ext": "jpg", "width": 32, "height": 32} for k in ("000001", "000009")],
+        )
+        ids_path = tmp_path / "ids.txt"
+        ids_path.write_text("subA/0000:000001\n")  # only subA's 000001
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        scan_wds_dataset(
+            input_pattern=str(data / "**" / "*.tar"),
+            output_manifest=manifest_path,
+            contamination_ids_path=ids_path,
+            contamination_format="wds_key",
+            num_workers=1,
+        )
+
+        table = load_wds_manifest(manifest_path)
+        rows = list(zip(table.column("tar_path").to_pylist(), table.column("sample_key").to_pylist()))
+        assert not any(sk == "000001" and tp.endswith("subA/0000.tar") for tp, sk in rows)
+        assert any(sk == "000001" and tp.endswith("subB/0000.tar") for tp, sk in rows)
+
+    def test_scan_wds_ambiguous_key_raises(self, tmp_path):
+        data = tmp_path / "data"
+        (data / "subA").mkdir(parents=True)
+        (data / "subB").mkdir(parents=True)
+        _create_tar(str(data / "subA" / "0000.tar"), [{"key": "000001", "ext": "jpg", "width": 32, "height": 32}])
+        _create_tar(str(data / "subB" / "0000.tar"), [{"key": "000001", "ext": "jpg", "width": 32, "height": 32}])
+        ids_path = tmp_path / "ids.txt"
+        ids_path.write_text("0000:000001\n")  # bare tar stem matches both subsets
+
+        with pytest.raises(ValueError, match="multiple shards"):
+            scan_wds_dataset(
+                input_pattern=str(data / "**" / "*.tar"),
+                output_manifest=str(tmp_path / "manifest.parquet"),
+                contamination_ids_path=ids_path,
+                contamination_format="wds_key",
+                num_workers=1,
+            )
+
+    def test_decontaminate_manifest_filters_wds_manifest(self, tmp_path):
+        from scripts.decontaminate_manifest import decontaminate_manifest
+
+        data = tmp_path / "data"
+        data.mkdir()
+        _create_tar(
+            str(data / "a.tar"),
+            [{"key": f"{i:06d}", "ext": "jpg", "width": 32, "height": 32} for i in (1, 2, 3)],
+        )
+        _create_tar(
+            str(data / "b.tar"),
+            [{"key": f"{i:06d}", "ext": "jpg", "width": 32, "height": 32} for i in (1, 4)],
+        )
+        raw_manifest = tmp_path / "raw.parquet"
+        scan_wds_dataset(input_pattern=str(data / "*.tar"), output_manifest=str(raw_manifest), num_workers=1)
+
+        ids_path = tmp_path / "ids.txt"
+        ids_path.write_text("a:000002\n")
+        summary = decontaminate_manifest(
+            raw_manifest,
+            tmp_path / "clean.parquet",
+            ids_path,
+            contamination_format="wds_key",
+        )
+        assert summary["manifest_kind"] == "wds"
+        assert summary["rows_in"] == 5
+        assert summary["rows_out"] == 4
+        assert summary["manifest_rows_dropped"] == 1
+        assert summary["source_docs_dropped"] == 1
+
 
 # ======================================================================
 # TestHFScanner
 # ======================================================================
 class TestHFScanner:
+
+    def test_hf_batch_scan_skips_contamination_lookup_when_empty(self):
+        class EmptyRows:
+            def __bool__(self):
+                return False
+
+            def __contains__(self, _item):
+                raise AssertionError("empty contamination index should not be checked")
+
+        out = build_hf_output_columns(is_multi=False)
+        image_col = pa.array(
+            [_hf_image_cell(10, 20), _hf_image_cell(30, 40)],
+            type=_HF_IMAGE_TYPE,
+        )
+
+        out, source_rows, failed_dims, contaminated_skipped = scan_hf_batch_columns(
+            out,
+            image_col,
+            chunk_index=0,
+            source_rows=0,
+            failed_dims=0,
+            is_multi=False,
+            contaminated_rows=EmptyRows(),
+        )
+
+        assert source_rows == 2
+        assert failed_dims == 0
+        assert contaminated_skipped == 0
 
     def test_scan_hf_arrow_single_image(self, tmp_path):
         rows_a = [(32, 48), (64, 96)]
@@ -604,6 +780,253 @@ class TestHFScanner:
         assert table.column("chunk_index").to_pylist() == [0, 0, 0, 0, 0]
         assert table.column("row_in_chunk").to_pylist() == [0, 0, 1, 0, 0]
 
+    def test_scan_hf_parquet_skips_contaminated_source_rows(self, tmp_path):
+        rows = [
+            [(10, 20)],
+            [(30, 40), (31, 41)],
+            [(50, 60)],
+            [(70, 80), (71, 81)],
+            [(90, 100)],
+        ]
+        _write_hf_parquet_shard(
+            str(tmp_path / "SFT_000099.parquet"),
+            rows,
+            column_name="images",
+            multi_image=True,
+            row_group_size=2,
+        )
+        ids_path = tmp_path / "contaminated.txt"
+        ids_path.write_text("SFT_000099_000001,SFT_000099_000003\n")
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        scan_hf_dataset(
+            input_pattern=str(tmp_path / "SFT_*.parquet"),
+            output_manifest=manifest_path,
+            image_list_column="images",
+            contamination_ids_path=ids_path,
+            contamination_format="innovator_vl",
+            num_workers=1,
+        )
+
+        table = load_hf_manifest(manifest_path)
+        assert table.column("sample_index").to_pylist() == [0, 2, 4]
+        assert table.column("group_id").to_pylist() == [0, 2, 4]
+        assert table.column("chunk_index").to_pylist() == [0, 1, 2]
+        assert table.column("row_in_chunk").to_pylist() == [0, 0, 0]
+
+        meta = json_load(Path(manifest_path).with_name("manifest_meta.json"))
+        assert meta["contaminated_skipped"] == 2
+        assert meta["contamination_format"] == "innovator_vl"
+        assert meta["contamination_ids"] == 2
+
+    def test_decontaminate_manifest_filters_existing_hf_manifest(self, tmp_path):
+        from scripts.decontaminate_manifest import decontaminate_manifest
+
+        rows = [
+            [(10, 20)],
+            [(30, 40), (31, 41)],
+            [(50, 60)],
+            [(70, 80), (71, 81)],
+            [(90, 100)],
+        ]
+        _write_hf_parquet_shard(
+            str(tmp_path / "SFT_000100.parquet"),
+            rows,
+            column_name="images",
+            multi_image=True,
+            row_group_size=2,
+        )
+        ids_path = tmp_path / "contaminated.txt"
+        ids_path.write_text("SFT_000100_000001 SFT_000100_000003\n")
+
+        raw_manifest = tmp_path / "raw_manifest.parquet"
+        clean_manifest = tmp_path / "clean_manifest.parquet"
+        scan_hf_dataset(
+            input_pattern=str(tmp_path / "SFT_*.parquet"),
+            output_manifest=raw_manifest,
+            image_list_column="images",
+            num_workers=1,
+        )
+
+        summary = decontaminate_manifest(
+            raw_manifest,
+            clean_manifest,
+            ids_path,
+            contamination_format="innovator_vl",
+        )
+
+        table = load_hf_manifest(clean_manifest)
+        assert table.column("sample_index").to_pylist() == [0, 2, 4]
+        assert summary["rows_in"] == 7
+        assert summary["rows_out"] == 3
+        assert summary["manifest_rows_dropped"] == 4
+        assert summary["source_docs_dropped"] == 2
+        meta = json_load(clean_manifest.with_name("clean_manifest_decontamination_meta.json"))
+        assert meta["source_docs_dropped"] == 2
+
+    def test_rebuild_guardrail_requires_matching_plan_document_count(self, tmp_path):
+        # rebuild_decontaminated maps contaminated source rows -> plan doc_ids via
+        # doc_id == position in np.unique(group_ids). That positional mapping is only
+        # valid when the plan's document count equals the manifest's unique-group count.
+        # If a Stage-2 plan filter (e.g. a --min-pixels mismatch vs the original run)
+        # dropped a group, the positions shift and it must abort instead of dropping the
+        # wrong docs. A fake plan lets us test the guardrail without a real plan/tokenizer.
+        from types import SimpleNamespace
+
+        from scripts.rebuild_decontaminated import compute_rejected_doc_ids
+
+        _write_hf_parquet_shard(
+            str(tmp_path / "part_000.parquet"),
+            [(10, 20), (30, 40), (50, 60), (70, 80), (90, 100)],
+            column_name="image",
+            row_group_size=2,  # chunk_offsets == [0, 2, 4]
+        )
+        ids_path = tmp_path / "ids.txt"
+        ids_path.write_text("part_000:2\n")  # source row 2 -> chunk 1, row_in_chunk 0
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        scan_hf_dataset(
+            input_pattern=str(tmp_path / "part_*.parquet"),
+            output_manifest=manifest_path,
+            num_workers=1,
+        )
+
+        # Matching plan: 5 single-image docs == manifest's 5 unique sample_index -> maps
+        # the contaminated source row (sample_index 2) to plan doc_id 2.
+        rejected = compute_rejected_doc_ids(
+            Path(manifest_path), ids_path, "stem_row", SimpleNamespace(total_documents=5)
+        )
+        assert rejected == {2}
+
+        # Mismatched plan (a filter dropped one group): positions no longer align -> abort.
+        with pytest.raises(SystemExit):
+            compute_rejected_doc_ids(Path(manifest_path), ids_path, "stem_row", SimpleNamespace(total_documents=4))
+
+    def test_stem_row_format_matches_by_stem_and_path(self, tmp_path):
+        from vision_tokenization.utils.contamination import load_contamination_index
+
+        ids_path = tmp_path / "ids.txt"
+        ids_path.write_text(
+            "train-00000-of-00003:5, train-00000-of-00003:9\n"
+            "train-00002-of-00003.parquet:120\n"  # extension tolerated, dropped on parse
+            "subsetA/0000:1  subsetB/0000:2\n"  # path-qualified to disambiguate same stem
+        )
+        index = load_contamination_index(ids_path, format="stem_row")
+
+        # bare stem matches regardless of directory or extension
+        assert index.rows_for_path("/d/train-00000-of-00003.parquet") == frozenset({5, 9})
+        assert index.rows_for_path("/d/train-00002-of-00003.arrow") == frozenset({120})
+        assert index.rows_for_path("/d/train-00001-of-00003.parquet") == frozenset()
+        # colliding stem "0000" disambiguated by the subset path component
+        assert index.rows_for_path("/cache/subsetA/0000.parquet") == frozenset({1})
+        assert index.rows_for_path("/cache/subsetB/0000.parquet") == frozenset({2})
+        assert index.rows_for_path("/cache/subsetC/0000.parquet") == frozenset()
+
+    def test_scan_hf_parquet_stem_row_skips_rows_across_files(self, tmp_path):
+        _write_hf_parquet_shard(
+            str(tmp_path / "train-00000-of-00002.parquet"),
+            [[(10, 20)], [(30, 40)], [(50, 60)]],
+            column_name="images",
+            multi_image=True,
+            row_group_size=2,
+        )
+        _write_hf_parquet_shard(
+            str(tmp_path / "train-00001-of-00002.parquet"),
+            [[(11, 21)], [(31, 41)], [(51, 61)]],
+            column_name="images",
+            multi_image=True,
+            row_group_size=2,
+        )
+        ids_path = tmp_path / "ids.txt"
+        ids_path.write_text(
+            "train-00000-of-00002:1\n"  # drop row 1 of file 0
+            "train-00001-of-00002:0, train-00001-of-00002:2\n"  # drop rows 0,2 of file 1
+        )
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        scan_hf_dataset(
+            input_pattern=str(tmp_path / "*.parquet"),
+            output_manifest=manifest_path,
+            image_list_column="images",
+            contamination_ids_path=ids_path,
+            contamination_format="stem_row",
+            num_workers=1,
+        )
+
+        table = load_hf_manifest(manifest_path)
+        # file0 keeps source rows 0,2 -> sample_index 0,2; file1 (offset 3) keeps row 1 -> 4
+        assert table.column("sample_index").to_pylist() == [0, 2, 4]
+        meta = json_load(Path(manifest_path).with_name("manifest_meta.json"))
+        assert meta["contaminated_skipped"] == 3
+        assert meta["contamination_format"] == "stem_row"
+
+    def test_scan_hf_ambiguous_stem_row_id_raises(self, tmp_path):
+        data = tmp_path / "data"
+        (data / "configA").mkdir(parents=True)
+        (data / "configB").mkdir(parents=True)
+        _write_hf_parquet_shard(
+            str(data / "configA" / "0000.parquet"),
+            [[(10, 20)], [(30, 40)]],
+            column_name="images",
+            multi_image=True,
+        )
+        _write_hf_parquet_shard(
+            str(data / "configB" / "0000.parquet"),
+            [[(11, 21)], [(31, 41)]],
+            column_name="images",
+            multi_image=True,
+        )
+        ids_path = tmp_path / "ids.txt"
+        ids_path.write_text("0000:1\n")  # bare stem matches both configs -> ambiguous
+
+        with pytest.raises(ValueError, match="multiple shards"):
+            scan_hf_dataset(
+                input_pattern=str(data),
+                output_manifest=str(tmp_path / "manifest.parquet"),
+                image_list_column="images",
+                contamination_ids_path=ids_path,
+                contamination_format="stem_row",
+                num_workers=1,
+            )
+
+    def test_decontaminate_manifest_counts_colliding_stems_per_shard(self, tmp_path):
+        from scripts.decontaminate_manifest import decontaminate_manifest
+
+        data = tmp_path / "data"
+        (data / "configA").mkdir(parents=True)
+        (data / "configB").mkdir(parents=True)
+        _write_hf_parquet_shard(
+            str(data / "configA" / "0000.parquet"),
+            [[(10, 20)], [(30, 40)], [(50, 60)]],
+            column_name="images",
+            multi_image=True,
+        )
+        _write_hf_parquet_shard(
+            str(data / "configB" / "0000.parquet"),
+            [[(11, 21)], [(31, 41)], [(51, 61)]],
+            column_name="images",
+            multi_image=True,
+        )
+        raw_manifest = tmp_path / "raw.parquet"
+        scan_hf_dataset(
+            input_pattern=str(data),
+            output_manifest=str(raw_manifest),
+            image_list_column="images",
+            num_workers=1,
+        )
+        ids_path = tmp_path / "ids.txt"
+        ids_path.write_text("configA/0000:1\nconfigB/0000:1\n")  # same row, different subset
+
+        summary = decontaminate_manifest(
+            raw_manifest,
+            tmp_path / "clean.parquet",
+            ids_path,
+            contamination_format="stem_row",
+        )
+        assert summary["manifest_rows_dropped"] == 2
+        assert summary["source_docs_dropped"] == 2  # per-shard, not deduped by shared stem
+        assert summary["unmatched_contamination_ids"] == 0
+
 
 # ======================================================================
 # TestWDSRandomAccess
@@ -613,8 +1036,13 @@ class TestWDSRandomAccess:
     def _scan_and_build_refs(self, tar_path: str):
         """Helper: scan a tar and return list of (tar_path, offset, size, original_img)."""
         samples_meta = [
-            {"key": f"{i:06d}", "ext": "jpg", "width": 50 + i * 20, "height": 50 + i * 20,
-             "color": (i * 40 % 256, 100, 200)}
+            {
+                "key": f"{i:06d}",
+                "ext": "jpg",
+                "width": 50 + i * 20,
+                "height": 50 + i * 20,
+                "color": (i * 40 % 256, 100, 200),
+            }
             for i in range(5)
         ]
         _create_tar(tar_path, samples_meta)
@@ -731,7 +1159,9 @@ class TestClusteredBatchPlanner:
         h = np.concatenate([rng.randint(200, 300, 334), rng.randint(200, 300, 333), rng.randint(400, 600, 333)])
         path = self._create_manifest(tmp_path, w, h)
 
-        plan = plan_clustered_batches(path, batch_size=32, max_batch_tokens=999999, resize_min_pixels=64*64, resize_max_pixels=1024*1024)
+        plan = plan_clustered_batches(
+            path, batch_size=32, max_batch_tokens=999999, resize_min_pixels=64 * 64, resize_max_pixels=1024 * 1024
+        )
         assert isinstance(plan, BatchPlan)
         assert len(plan.batches) > 0
         assert plan.total_samples == 1000
@@ -744,7 +1174,9 @@ class TestClusteredBatchPlanner:
         path = self._create_manifest(tmp_path, w, h)
 
         bs = 16
-        plan = plan_clustered_batches(path, batch_size=bs, max_batch_tokens=999999, resize_min_pixels=64*64, resize_max_pixels=1024*1024)
+        plan = plan_clustered_batches(
+            path, batch_size=bs, max_batch_tokens=999999, resize_min_pixels=64 * 64, resize_max_pixels=1024 * 1024
+        )
         for batch in plan.batches:
             assert len(batch.sample_indices) <= bs
 
@@ -756,7 +1188,9 @@ class TestClusteredBatchPlanner:
         h = rng.randint(100, 500, N)
         path = self._create_manifest(tmp_path, w, h)
 
-        plan = plan_clustered_batches(path, batch_size=20, max_batch_tokens=999999, resize_min_pixels=64*64, resize_max_pixels=1024*1024)
+        plan = plan_clustered_batches(
+            path, batch_size=20, max_batch_tokens=999999, resize_min_pixels=64 * 64, resize_max_pixels=1024 * 1024
+        )
         all_indices = np.concatenate([b.sample_indices for b in plan.batches])
         assert len(all_indices) == N
         assert len(np.unique(all_indices)) == N
@@ -769,7 +1203,9 @@ class TestClusteredBatchPlanner:
         h = rng.randint(100, 1000, 600)
         path = self._create_manifest(tmp_path, w, h)
 
-        plan = plan_clustered_batches(path, batch_size=32, max_batch_tokens=999999, resize_min_pixels=64*64, resize_max_pixels=1024*1024)
+        plan = plan_clustered_batches(
+            path, batch_size=32, max_batch_tokens=999999, resize_min_pixels=64 * 64, resize_max_pixels=1024 * 1024
+        )
 
         global_ar = w.astype(np.float64) / h.astype(np.float64)
         global_std = np.std(global_ar)
@@ -785,8 +1221,7 @@ class TestClusteredBatchPlanner:
 
         mean_within_std = np.mean(within_stds)
         assert mean_within_std < global_std, (
-            f"Mean within-batch AR std ({mean_within_std:.4f}) should be < "
-            f"global AR std ({global_std:.4f})"
+            f"Mean within-batch AR std ({mean_within_std:.4f}) should be < " f"global AR std ({global_std:.4f})"
         )
 
     def test_resolution_filtering(self, tmp_path):
@@ -796,7 +1231,14 @@ class TestClusteredBatchPlanner:
         h = np.array([10] * 50 + [200] * 50)
         path = self._create_manifest(tmp_path, w, h)
 
-        plan = plan_clustered_batches(path, batch_size=10, max_batch_tokens=999999, min_pixels=1000, resize_min_pixels=64*64, resize_max_pixels=1024*1024)
+        plan = plan_clustered_batches(
+            path,
+            batch_size=10,
+            max_batch_tokens=999999,
+            min_pixels=1000,
+            resize_min_pixels=64 * 64,
+            resize_max_pixels=1024 * 1024,
+        )
         assert plan.total_filtered == 50
         all_idx = np.concatenate([b.sample_indices for b in plan.batches])
         assert len(all_idx) == 50
@@ -810,7 +1252,9 @@ class TestClusteredBatchPlanner:
         h = rng.randint(100, 500, 200)
         path = self._create_manifest(tmp_path, w, h)
 
-        plan = plan_clustered_batches(path, batch_size=10, max_batch_tokens=999999, resize_min_pixels=64*64, resize_max_pixels=1024*1024)
+        plan = plan_clustered_batches(
+            path, batch_size=10, max_batch_tokens=999999, resize_min_pixels=64 * 64, resize_max_pixels=1024 * 1024
+        )
         chunks = plan.split_for_workers(4)
         assert len(chunks) == 4
         # Flatten and verify all batches covered
@@ -908,11 +1352,11 @@ class TestEndToEnd:
             for i in range(15):
                 cluster = i % 3
                 if cluster == 0:
-                    w, h = 320, 240   # landscape
+                    w, h = 320, 240  # landscape
                 elif cluster == 1:
-                    w, h = 200, 200   # square
+                    w, h = 200, 200  # square
                 else:
-                    w, h = 150, 400   # portrait
+                    w, h = 150, 400  # portrait
                 # Unique colour per image
                 color = ((shard_idx * 15 + i) * 17 % 256, 100, 50)
                 key = f"{shard_idx:03d}_{i:03d}"
@@ -934,7 +1378,13 @@ class TestEndToEnd:
         assert len(table) == 30
 
         # --- Plan batches ---
-        plan = plan_clustered_batches(manifest_path, batch_size=8, max_batch_tokens=999999, resize_min_pixels=64*64, resize_max_pixels=1024*1024)
+        plan = plan_clustered_batches(
+            manifest_path,
+            batch_size=8,
+            max_batch_tokens=999999,
+            resize_min_pixels=64 * 64,
+            resize_max_pixels=1024 * 1024,
+        )
         assert plan.total_samples == 30
         all_idx = np.concatenate([b.sample_indices for b in plan.batches])
         assert len(np.unique(all_idx)) == 30
@@ -948,10 +1398,7 @@ class TestEndToEnd:
 
         with TarRandomAccessReader() as reader:
             for batch in plan.batches:
-                refs = [
-                    (tar_paths_col[i], offsets_col[i], sizes_col[i])
-                    for i in batch.sample_indices
-                ]
+                refs = [(tar_paths_col[i], offsets_col[i], sizes_col[i]) for i in batch.sample_indices]
                 images = reader.read_batch(refs)
                 for img, idx in zip(images, batch.sample_indices):
                     assert img is not None
@@ -1255,8 +1702,10 @@ class TestMergeShards:
 
     def _read_shard(self, path):
         import sys
+
         sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
         from megatron.core.datasets.indexed_dataset import IndexedDataset
+
         ds = IndexedDataset(str(path))
         return [ds[i].tolist() for i in range(len(ds))]
 
@@ -1333,4 +1782,5 @@ class TestMergeShards:
     def test_merge_empty_dir_returns_none(self, tmp_path):
         """No shards → returns None."""
         from vision_tokenization.pipeline.output.merge import merge_shards
+
         assert merge_shards(tmp_path) is None

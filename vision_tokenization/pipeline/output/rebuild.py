@@ -431,18 +431,25 @@ def rebuild_rank(
     seqlen_threshold: Optional[int] = None,
     reject_doc_ids: Optional[set] = None,
     emit_prov: bool = False,
+    spill_dir: str | Path | None = None,
 ) -> Dict:
     """Per-rank rebuild: read this rank's spill, assemble documents, write shards.
 
     Output naming matches the direct backend: ``rank_XXXX_chunk_0000.bin/.idx``
     (and ``stage2/``, ``lct/`` subdirs when seqlen_threshold is set).
 
+    Reads the spill from ``spill_dir`` (defaults to ``output_dir``) and writes the
+    rebuilt shards to ``output_dir``. Splitting the two lets a decontaminated
+    rebuild read a preserved spill and write clean shards elsewhere; with
+    ``reject_doc_ids`` those documents are dropped during assembly.
+
     Called at the end of each rank's executor loop, before merge.
     """
     from vision_tokenization.formats.megatron import DType, IndexedDatasetBuilder
 
     output_dir = Path(output_dir)
-    rank_dir = output_dir / f"rank_{rank:04d}"
+    spill_dir = Path(spill_dir) if spill_dir is not None else output_dir
+    rank_dir = spill_dir / f"rank_{rank:04d}"
     mode = plan.mode
 
     if not (rank_dir / "_SUCCESS").exists():

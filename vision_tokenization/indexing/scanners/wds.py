@@ -11,11 +11,6 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from vision_tokenization.indexing.scanners._workers.wds import (
-    DEFAULT_IMAGE_EXTENSIONS,
-    DEFAULT_TEXT_EXTENSIONS,
-    scan_single_tar,
-)
 from vision_tokenization.indexing.manifest import (
     WDS_SCHEMA,
     WDS_SCHEMA_MULTI_IMAGE,
@@ -23,8 +18,13 @@ from vision_tokenization.indexing.manifest import (
     WDS_SCHEMA_WITH_TEXT,
     records_to_table,
 )
-
 from vision_tokenization.indexing.scanners._parallel import run_ordered_pool
+from vision_tokenization.indexing.scanners._workers.wds import (
+    DEFAULT_IMAGE_EXTENSIONS,
+    DEFAULT_TEXT_EXTENSIONS,
+    scan_single_tar,
+)
+from vision_tokenization.utils.contamination import contamination_metadata, load_and_validate
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +47,7 @@ def _discover_shards(input_pattern: str) -> list[str]:
             tar_paths = sorted(p for p in expanded if os.path.isfile(p))
             if tar_paths:
                 logger.info(
-                    f"Braceexpand: {len(expanded)} paths expanded, "
-                    f"{len(tar_paths)} existing tar files found"
+                    f"Braceexpand: {len(expanded)} paths expanded, " f"{len(tar_paths)} existing tar files found"
                 )
                 return tar_paths
             logger.warning("Braceexpand produced paths but none exist. Falling back to glob.")
@@ -102,6 +101,19 @@ def _summarize_multi_image_records(records: list[dict]) -> tuple[int, bool]:
     return num_groups, num_groups < len(records)
 
 
+def _renumber_group_ids(records: list[dict]) -> None:
+    """Re-densify surviving local group_ids to a contiguous ``0..k-1`` range in place.
+
+    After dropping excluded samples, the surviving per-tar ``group_id``s may have
+    gaps; the per-tar ``global_group_offset`` arithmetic in ``_emit`` requires
+    contiguous local ids (otherwise global group_ids gap and collide across tars).
+    """
+    distinct = sorted({rec["group_id"] for rec in records})
+    remap = {gid: i for i, gid in enumerate(distinct)}
+    for rec in records:
+        rec["group_id"] = remap[rec["group_id"]]
+
+
 def _finalize_record_table(
     records: list[dict],
     *,
@@ -144,17 +156,23 @@ def scan_wds_dataset(
     text_extensions: Optional[FrozenSet[str]] = None,
     image_field_pattern: Optional[str] = None,
     multi_image: bool = False,
+    contamination_ids_path: Optional[Union[str, Path]] = None,
+    contamination_format: str = "wds_key",
 ) -> str:
-    """Scan all WDS tars in parallel and write a Parquet manifest."""
+    """Scan all WDS tars in parallel and write a Parquet manifest.
+
+    contamination_ids_path: optional file of ``<tar>:<sample_key>`` ids whose
+        samples are dropped from the manifest (see contamination.py ``wds_key``).
+    contamination_format: decoder for contamination_ids_path (default ``wds_key``).
+    """
     from ._metadata import ScanTimer, write_scan_metadata
+
     _timer = ScanTimer()
     _timer.__enter__()
     if image_extensions is None:
         image_extensions = DEFAULT_IMAGE_EXTENSIONS
     if multi_image and image_field_pattern is None:
-        raise ValueError(
-            "scan_wds_dataset(..., multi_image=True) requires image_field_pattern."
-        )
+        raise ValueError("scan_wds_dataset(..., multi_image=True) requires image_field_pattern.")
 
     tar_paths = _discover_shards(input_pattern)
     include_text = text_extensions is not None
@@ -165,6 +183,27 @@ def scan_wds_dataset(
         f"{f' (field pattern: {image_field_pattern}*)' if image_field_pattern is not None else ''}"
         f"{' (grouped multi-image)' if multi_image else ''}..."
     )
+
+    contamination_index = None
+    if contamination_ids_path is not None:
+        contamination_index, unmatched = load_and_validate(
+            contamination_ids_path,
+            format=contamination_format,
+            shard_paths=tar_paths,
+            source="input pattern",
+        )
+        logger.info(
+            "Loaded %d contamination keys across %d tars from %s",
+            contamination_index.total_ids,
+            len(contamination_index.by_source),
+            contamination_index.path,
+        )
+        if unmatched:
+            logger.warning(
+                "%d contamination tar key(s) matched no tar under the input pattern (first few: %s)",
+                len(unmatched),
+                unmatched[:5],
+            )
 
     output_manifest = str(output_manifest)
     output_path = Path(output_manifest)
@@ -180,11 +219,13 @@ def scan_wds_dataset(
     global_group_offset = 0
     total_groups = 0
     saw_multi_image_group = False
+    total_contaminated_skipped = 0
     writer = pq.ParquetWriter(str(tmp_manifest), schema, compression="zstd")
     buffer: list[pa.Table] = []
     success = False
 
     try:
+
         def _submit(pool, idx):
             return pool.submit(
                 scan_single_tar,
@@ -198,19 +239,37 @@ def scan_wds_dataset(
         def _emit(idx, records):
             nonlocal completed, total_rows, buffered_rows
             nonlocal global_group_offset, total_groups, saw_multi_image_group
+            nonlocal total_contaminated_skipped
             tar_path = tar_paths[idx]
+
+            if contamination_index is not None:
+                excluded = contamination_index.rows_for_path(tar_path)
+                if excluded:
+                    # Count dropped *samples* (distinct sample_keys), not image rows, so
+                    # contaminated_skipped means the same thing here as in the HF scanner
+                    # (one excluded multi-image sample spans several rows but is one drop).
+                    dropped_samples = {r["sample_key"] for r in records if r["sample_key"] in excluded}
+                    if dropped_samples:
+                        records = [r for r in records if r["sample_key"] not in excluded]
+                        total_contaminated_skipped += len(dropped_samples)
+                        # Re-densify surviving group_ids so the per-tar offset stays contiguous.
+                        if multi_image:
+                            _renumber_group_ids(records)
 
             if multi_image:
                 num_groups, has_non_singleton = _summarize_multi_image_records(records)
                 total_groups += num_groups
                 saw_multi_image_group |= has_non_singleton
                 table = _finalize_record_table(
-                    records, schema=schema, group_id_offset=global_group_offset,
+                    records,
+                    schema=schema,
+                    group_id_offset=global_group_offset,
                 )
                 global_group_offset += num_groups
             else:
                 _validate_single_image_records(
-                    records, tar_path=tar_path,
+                    records,
+                    tar_path=tar_path,
                     image_field_pattern=image_field_pattern,
                 )
                 table = _finalize_record_table(records, schema=schema)
@@ -236,8 +295,7 @@ def scan_wds_dataset(
             num_workers=num_workers,
             error_fn=_error,
             progress_fn=lambda done, total: logger.info(
-                f"Progress: {done}/{total} tars scanned, "
-                f"{total_rows:,} images found so far"
+                f"Progress: {done}/{total} tars scanned, " f"{total_rows:,} images found so far"
             ),
         )
 
@@ -264,17 +322,21 @@ def scan_wds_dataset(
         )
 
     _timer.__exit__(None, None, None)
+    metadata_extra = {
+        "num_tars": len(tar_paths),
+        "failed_tars": len(failed_tars),
+        "multi_image": multi_image,
+        "contaminated_skipped": total_contaminated_skipped,
+    }
+    if contamination_index is not None:
+        metadata_extra.update(contamination_metadata(contamination_index))
     write_scan_metadata(
         output_path,
         num_workers=num_workers,
         elapsed_seconds=_timer.elapsed,
         total_rows=total_rows,
         dataset_type="wds",
-        extra={
-            "num_tars": len(tar_paths),
-            "failed_tars": len(failed_tars),
-            "multi_image": multi_image,
-        },
+        extra=metadata_extra,
     )
 
     logger.info(
