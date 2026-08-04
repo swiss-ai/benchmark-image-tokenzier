@@ -7,64 +7,31 @@ with minor adaptations for our tokenization pipeline.
 
 This format is directly compatible with Megatron-LM's data loaders.
 
-Workflow for Vision Token Datasets
-----------------------------------
+Usage
+-----
 
-1. **Dataset Creation**:
-   ```python
-   # Initialize builder with vocabulary configuration
-   builder = VisionTokenIndexedDatasetBuilder(
-       output_prefix="path/to/dataset",
-       image_vocab_size=131072,  # e.g., Emu3 vocab size
-       text_vocab_size=0          # 0 for pure vision, >0 for multimodal
-   )
-   ```
+``IndexedDatasetBuilder`` writes the .bin/.idx pair; callers pass complete
+sequences whose ids are already in the model's id space. Vision ids are offset
+at encode time from ``omnimodal_config``, not here — the writer has no view of
+modalities, and the vision band does not begin where the text vocabulary ends
+(Apertus 1.5 leaves 200 reserved slots between them).
 
-2. **Processing Images**:
-   ```python
-   # For each image in your dataset:
-   for image_path in image_paths:
-       # Tokenize image using your vision tokenizer (e.g., Emu3)
-       tokens = vision_tokenizer.encode(image)  # Returns token indices
+```python
+builder = IndexedDatasetBuilder(f"{prefix}.bin", dtype=np.int32)
+builder.add_item(sequence)
+builder.end_document()
+builder.finalize(f"{prefix}.idx")
+```
 
-       # Add to dataset (automatically handles vocab offset if multimodal)
-       builder.add_image_tokens(tokens)
-   ```
+Loading in Megatron-LM::
 
-3. **Finalization**:
-   ```python
-   # Write the dataset files (.bin and .idx)
-   builder.finalize()
-   ```
-
-4. **Output Files**:
-   - `dataset.bin`: Binary file containing token data
-   - `dataset.idx`: Index file with metadata and offsets
-
-5. **Loading in Megatron-LM**:
-   ```python
-   # In your Megatron training script:
-   from megatron.data.indexed_dataset import IndexedDataset
-   dataset = IndexedDataset("path/to/dataset")
-   ```
+    from megatron.data.indexed_dataset import IndexedDataset
+    dataset = IndexedDataset("path/to/dataset")
 
 Key Features
 ------------
-- **Multimodal Support**: Handles vocabulary offset for text+vision tokenizers
 - **Optimal Storage**: Auto-selects uint16 for vocab < 65,500 (saves 50% space)
-- **Document Structure**: Each image is stored as a separate document
 - **Megatron Compatible**: Uses official MMIDIDX header format
-
-Example Usage Scenarios
-----------------------
-1. **Pure Vision Tokenizer** (e.g., standalone Emu3):
-   - Set text_vocab_size=0
-   - Tokens stored as-is [0, vocab_size)
-
-2. **Multimodal Tokenizer** (e.g., SwissGPT + Emu3):
-   - Set text_vocab_size=32000 (text tokenizer size)
-   - Vision tokens automatically offset: token 0 → 32000, token 1 → 32001, etc.
-   - Total vocab = text_vocab + vision_vocab
 
 File Format Details
 ------------------
@@ -299,112 +266,3 @@ def get_bin_path(path_prefix: str) -> str:
     return path_prefix + ".bin"
 
 
-class VisionTokenIndexedDatasetBuilder:
-    """
-    Specialized builder for vision token datasets with multimodal tokenizer support.
-
-    This wraps the IndexedDatasetBuilder with optimizations for vision tokens:
-    - Automatically selects optimal dtype based on vocabulary size
-    - Treats each image as a document
-    - Handles vocabulary offset for multimodal tokenizers
-    - Provides simple API for adding tokenized images
-    """
-
-    def __init__(self, output_prefix: str, image_vocab_size: int, text_vocab_size: int):
-        """
-        Initialize the builder.
-
-        Args:
-            output_prefix: Path prefix for output files (without extension)
-            image_vocab_size: Image vocabulary size (e.g., 131072 for Emu3)
-            text_vocab_size: Size of the text vocabulary (image tokens start after this)
-                           If 0, no offset is applied (pure vision tokenizer)
-
-        Note for distributed usage:
-            In distributed settings, determine text_vocab_size once before launching workers:
-
-            # On main process only:
-            from transformers import AutoTokenizer
-            tokenizer = AutoTokenizer.from_pretrained("your-tokenizer")
-            text_vocab_size = len(tokenizer)  # or tokenizer.vocab_size
-
-            # Then pass text_vocab_size as argument to all workers
-        """
-        self.output_prefix = output_prefix
-        self.text_vocab_size = text_vocab_size
-        self.image_vocab_size = image_vocab_size
-        self.total_vocab_size = text_vocab_size + image_vocab_size
-
-        # Choose optimal dtype based on total vocabulary size
-        self.dtype = DType.optimal_dtype(self.total_vocab_size)
-
-        # Create the builder
-        self.builder = IndexedDatasetBuilder(bin_path=get_bin_path(output_prefix), dtype=self.dtype)
-
-        # Track statistics
-        self.num_images = 0
-        self.total_tokens = 0
-
-        # Log configuration
-        if text_vocab_size > 0:
-            print(f"Multimodal tokenizer configuration:")
-            print(f"  - Text vocabulary size: {text_vocab_size:,}")
-            print(f"  - Image vocabulary size: {self.image_vocab_size:,}")
-            print(f"  - Total vocabulary size: {self.total_vocab_size:,}")
-            print(f"  - Image token offset: {text_vocab_size}")
-            print(f"  - Token dtype: {self.dtype.__name__}")
-        else:
-            print(f"Pure image tokenizer configuration:")
-            print(f"  - Image vocabulary size: {image_vocab_size:,}")
-            print(f"  - Token dtype: {self.dtype.__name__}")
-
-    def add_image_tokens(self, tokens: Union[torch.Tensor, np.ndarray]):
-        """
-        Add tokens from a single image with proper vocabulary offset.
-
-        Each image is treated as a separate document.
-
-        Args:
-            tokens: Flattened token indices from the image (from vision tokenizer)
-        """
-        if isinstance(tokens, torch.Tensor):
-            tokens = tokens.cpu().numpy()
-
-        # Flatten if needed
-        tokens = tokens.flatten()
-
-        # Apply vocabulary offset for multimodal tokenizers
-        if self.text_vocab_size > 0:
-            # Image tokens start after the text vocabulary
-            # e.g., if text vocab is 50000, image token 0 becomes 50000, token 1 becomes 50001, etc.
-            tokens = tokens + self.text_vocab_size
-
-            # Validate that tokens don't exceed total vocabulary
-            max_token = np.max(tokens)
-            if max_token >= self.total_vocab_size:
-                raise ValueError(
-                    f"Image token {max_token} exceeds total vocabulary size {self.total_vocab_size}. "
-                    f"Check your vocabulary configuration."
-                )
-
-        # Add as a document with single sequence
-        self.builder.add_document(tokens, lengths=[len(tokens)])
-
-        # Update statistics
-        self.num_images += 1
-        self.total_tokens += len(tokens)
-
-    def finalize(self):
-        """Finalize the dataset and print statistics."""
-        # Write index file
-        self.builder.finalize(get_idx_path(self.output_prefix))
-
-        # Print statistics
-        print(f"✓ Created IndexedDataset: {self.output_prefix}")
-        print(f"  - Format: Megatron-LM compatible")
-        print(f"  - Images: {self.num_images:,}")
-        print(f"  - Total tokens: {self.total_tokens:,}")
-        print(f"  - Avg tokens/image: {self.total_tokens / max(1, self.num_images):.1f}")
-        print(f"  - Token dtype: {self.dtype.__name__} ({DType.size(self.dtype)} bytes/token)")
-        print(f"  - Binary file size: {os.stat(get_bin_path(self.output_prefix)).st_size / 1024 / 1024:.1f} MB")
-        print(f"  - Index file size: {os.stat(get_idx_path(self.output_prefix)).st_size / 1024:.1f} KB")
