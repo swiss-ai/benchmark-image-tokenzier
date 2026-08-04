@@ -493,7 +493,8 @@ def publish_alignment_store(output_dir, *, keep_intermediates: bool = False) -> 
         "schema_version": 3,
         "payload_format": "alignment_shard_local_v1",
         "tokenizer": {"path": meta["tokenizer_path"], "sha256": tok_sha},
-        "vision_tokenizer": {"version": tokenizer_config["vision_tokenizer"]["type"],
+        "vision_tokenizer": {"version": (meta.get("vision_tokenizer_type")
+                                         or tokenizer_config.get("vision_tokenizer", {}).get("type")),
                              "min_pixels": meta["tokenizer_min_pixels"],
                              "max_pixels": meta["tokenizer_max_pixels"]},
         "token_dtype": "<i4",

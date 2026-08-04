@@ -59,8 +59,9 @@ def resolve_token_ids_from_dir(
 def tokenizer_identity(tokenizer_dir) -> Dict[str, Any]:
     """Content identity of a tokenizer, for resume safety.
 
-    Carried in the plan fingerprint so pointing an existing output dir at a
-    different tokenizer refuses to resume instead of mixing id spaces.
+    Carried in the plan fingerprint,
+    so pointing an existing output dir at a different tokenizer refuses to resume
+    instead of mixing id spaces.
     """
     path = os.path.join(tokenizer_dir, "tokenizer.json")
     with open(path, "rb") as f:

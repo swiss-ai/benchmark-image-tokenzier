@@ -365,9 +365,9 @@ def verify_run_world_size(output_dir: str, world_size: int, rank: int) -> None:
 def verify_plan_fingerprint(ckpt: Dict[str, Any], current: Dict[str, Any], rank: int) -> None:
     """Refuse resume when the plan no longer matches the checkpoint.
 
-    Checkpoints written before the tokenizer was part of the fingerprint carry
-    no identity. They are all Apertus 1.5, so they resume only under a 1.5
-    tokenizer — resuming one under Apertus 2 would mix id spaces in one shard.
+    Checkpoints written before the tokenizer was part of the fingerprint carry no identity.
+    They are all Apertus 1.5, so they resume only under a 1.5 tokenizer;
+    resuming one under Apertus 2 would mix id spaces in one shard.
     """
     from vision_tokenization.discrete.emu.token_layout import APERTUS_1P5_BASE_VOCAB_SIZE
 

@@ -240,9 +240,9 @@ def run_executor(
     worker_splits = plan.split_image_batches_for_workers(world_size)
     my_batches = worker_splits[rank] if rank < len(worker_splits) else []
 
-    # A checkpoint's batch_index is only valid against this exact plan, and its
-    # ids only against the tokenizer that wrote them. Every rank must agree, so
-    # this is computed before the empty-rank branch.
+    # A checkpoint's batch_index is only valid against this exact plan,
+    # and its ids only against the tokenizer that wrote them.
+    # Every rank must agree, so this is computed before the empty-rank branch.
     from vision_tokenization.discrete.emu.token_layout import tokenizer_identity
     plan_fingerprint = {**plan.fingerprint(),
                         **tokenizer_identity(cfg["tokenizer_path"])}
@@ -302,6 +302,8 @@ def run_executor(
         min_pixels=cfg["tokenizer_min_pixels"],
         max_pixels=cfg["tokenizer_max_pixels"],
         max_encode_pixels=cfg.get("max_encode_pixels"),
+        vision_tokenizer_type=cfg.get("vision_tokenizer_type"),
+        vision_tokenizer_path=cfg.get("vision_tokenizer_path"),
         **(cfg.get("tokenizer_kwargs", {})),
     )
     tokenizer_load_time = time.perf_counter() - tokenizer_load_t0

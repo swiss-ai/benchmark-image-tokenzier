@@ -37,6 +37,8 @@ class EMUImageOnlyTokenizer:
         max_encode_pixels: Optional[int] = 8_000_000,
         torch_compile: bool = False,
         torch_compile_mode: str = "reduce-overhead",
+        vision_tokenizer_type: Optional[str] = None,
+        vision_tokenizer_path: Optional[str] = None,
         **kwargs,
     ):
         """
@@ -47,6 +49,10 @@ class EMUImageOnlyTokenizer:
             min_pixels: Minimum pixels for image preprocessing (required)
             max_pixels: Maximum pixels for image preprocessing (required)
             device: Device for image tokenizer (default: "cuda")
+            vision_tokenizer_type: Which discrete vision tokenizer to use, "Emu3" or "Emu3.5".
+                Falls back to the text tokenizer's ``vision_tokenizer`` config section,
+                which only the Apertus 1.5 artifacts carry.
+            vision_tokenizer_path: Weights path for that tokenizer, same fallback.
         """
 
         # Store device
@@ -75,15 +81,18 @@ class EMUImageOnlyTokenizer:
         config_path = Path(text_tokenizer_path) / "tokenizer_config.json"
         tokenizer_config = json_load(config_path)
 
-        if "vision_tokenizer" not in tokenizer_config:
-            raise ValueError(
-                f"No vision_tokenizer config found in {config_path}. "
-                f"Make sure the omni-tokenizer was created with vision tokenizer info."
-            )
+        vision_config = tokenizer_config.get("vision_tokenizer", {})
+        vision_tokenizer_type = vision_tokenizer_type or vision_config.get("type")
+        vision_tokenizer_path = vision_tokenizer_path or vision_config.get("path")
 
-        vision_config = tokenizer_config["vision_tokenizer"]
-        vision_tokenizer_type = vision_config["type"]
-        vision_tokenizer_path = vision_config["path"]
+        missing = [name for name, value in
+                   (("vision_tokenizer_type", vision_tokenizer_type),
+                    ("vision_tokenizer_path", vision_tokenizer_path)) if not value]
+        if missing:
+            raise ValueError(
+                f"{', '.join(missing)} not set. Pass it in the pipeline config, or use a "
+                f"text tokenizer whose vision_tokenizer section supplies it ({config_path})."
+            )
 
         print(f"Loading vision tokenizer: {vision_tokenizer_type} from {vision_tokenizer_path}")
 

@@ -19,7 +19,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 
 import numpy as np
 
@@ -70,7 +70,10 @@ import numba
 
 @numba.njit
 def _strip_thinking_inner(tokens, think_id, end_think_id, out):
-    """Numba-compiled one-pass state machine. Returns write count."""
+    """Numba-compiled one-pass state machine.
+
+    Returns the write count and whether the sequence ended mid-span.
+    """
     w = 0
     inside = False
     for i in range(len(tokens)):
@@ -85,15 +88,15 @@ def _strip_thinking_inner(tokens, think_id, end_think_id, out):
         else:
             out[w] = tok
             w += 1
-    return w
+    return w, inside
 
 
 def strip_thinking_tokens(
     tokens: np.ndarray,
-    think_id: int = 32,
-    end_think_id: int = 33,
-) -> Optional[np.ndarray]:
-    """Remove ``<think>...</think>`` spans from a token sequence.
+    think_id: int,
+    end_think_id: int,
+) -> Tuple[Optional[np.ndarray], bool]:
+    """Remove reasoning spans from a token sequence.
 
     One-pass two-state delimiter machine (numba-compiled):
 
@@ -102,18 +105,22 @@ def strip_thinking_tokens(
     - **inside**: drop everything including repeated ``think_id``;
       ``end_think_id`` exits back to *outside*.
 
-    Returns ``None`` if the result is empty after stripping.
+    Returns the stripped sequence (``None`` if empty afterwards),
+    and whether the sequence ended still inside a span.
+    An unclosed span means everything after the opener was dropped,
+    which the output cannot be distinguished from a correct strip —
+    so callers must treat it as malformed rather than accept it.
     """
     n = len(tokens)
     if n == 0:
-        return None
+        return None, False
     if not ((tokens == think_id) | (tokens == end_think_id)).any():
-        return tokens  # fast path — no copy
+        return tokens, False  # fast path — no copy
 
     out = np.empty(n, dtype=tokens.dtype)
-    w = _strip_thinking_inner(tokens, think_id, end_think_id, out)
+    w, unclosed = _strip_thinking_inner(tokens, think_id, end_think_id, out)
 
-    return out[:w] if w > 0 else None
+    return (out[:w] if w > 0 else None), unclosed
 
 
 # ---------------------------------------------------------------------------
@@ -170,35 +177,6 @@ def _index_has_sequence_modes(path_prefix: str) -> bool:
         f"Unrecognized indexed dataset layout for {path_prefix}: "
         f"idx_size={idx_size}, expected {plain_size} or {plain_size + seq_count}"
     )
-
-
-def resolve_thinking_token_ids(tokenizer_path: str) -> tuple[int, int]:
-    """Resolve ``<think>``/``</think>`` token IDs from a tokenizer.json file.
-
-    Uses the Rust-based ``tokenizers`` library for fast loading (no full
-    HuggingFace AutoTokenizer initialization).
-
-    Raises ``ValueError`` if either token is not in the vocabulary.
-    """
-    from tokenizers import Tokenizer
-
-    json_path = Path(tokenizer_path)
-    if json_path.is_dir():
-        json_path = json_path / "tokenizer.json"
-    if not json_path.is_file():
-        raise FileNotFoundError(f"tokenizer.json not found at {json_path}")
-
-    tok = Tokenizer.from_file(str(json_path))
-
-    think_id = tok.token_to_id("<think>")
-    end_think_id = tok.token_to_id("</think>")
-
-    if think_id is None:
-        raise ValueError(f"<think> not found in tokenizer at {json_path}")
-    if end_think_id is None:
-        raise ValueError(f"</think> not found in tokenizer at {json_path}")
-
-    return think_id, end_think_id
 
 
 def rewrite_dataset(
@@ -470,34 +448,26 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     parser.add_argument("--no-cot-output-name", default="merged_no_cot")
     parser.add_argument(
-        "--think-id", type=int, default=32,
-        help="<think> token ID (default: 32)",
+        "--think-id", type=int, default=None,
+        help="Reasoning-span opening token ID (required with --strip-thinking)",
     )
     parser.add_argument(
-        "--end-think-id", type=int, default=33,
-        help="</think> token ID (default: 33)",
-    )
-    parser.add_argument(
-        "--resolve-thinking-ids", action="store_true",
-        help="Resolve think/end-think IDs from --tokenizer-path instead of using defaults",
-    )
-    parser.add_argument(
-        "--tokenizer-path",
-        default="/capstor/store/cscs/swissai/infra01/MLLM/tokenizer/"
-        "apertus_emu3.5_wavtok_instruct",
-        help="Tokenizer path for --resolve-thinking-ids",
+        "--end-think-id", type=int, default=None,
+        help="Reasoning-span closing token ID (required with --strip-thinking)",
     )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-    # Resolve thinking token IDs early so we fail before merge, not after
+    # No defaults: the delimiter ids differ per tokenizer,
+    # and a wrong pair silently deletes the tail of every sequence rather than failing.
     think_id, end_think_id = args.think_id, args.end_think_id
-    if args.strip_thinking and args.resolve_thinking_ids:
-        think_id, end_think_id = resolve_thinking_token_ids(args.tokenizer_path)
-        logger.info(
-            "Resolved thinking IDs from %s: think=%d, end_think=%d",
-            args.tokenizer_path, think_id, end_think_id,
+    if args.strip_thinking and (think_id is None or end_think_id is None):
+        parser.error(
+            "--strip-thinking requires --think-id and --end-think-id. Resolve them "
+            "from the tokenizer that produced this dataset by encoding the delimiter "
+            "the chat template writes, e.g. "
+            "Tokenizer.from_file(f'{tokenizer_path}/tokenizer.json').encode('<think>').ids"
         )
 
     output_dir = Path(args.output_dir)
@@ -537,19 +507,29 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(f"Merged to {result}.bin / {result}.idx")
 
     if args.strip_thinking:
-        from functools import partial
+        unclosed = 0
 
-        transform = partial(
-            strip_thinking_tokens,
-            think_id=think_id,
-            end_think_id=end_think_id,
-        )
+        def transform(seq):
+            nonlocal unclosed
+            stripped, ended_inside = strip_thinking_tokens(seq, think_id, end_think_id)
+            unclosed += ended_inside
+            return stripped
+
         no_cot_prefix = str(output_dir / args.no_cot_output_name)
         logger.info(
             "Rewriting %s → %s (stripping think_id=%d, end_think_id=%d)",
             result, no_cot_prefix, think_id, end_think_id,
         )
         stats = rewrite_dataset(str(result), no_cot_prefix, transform)
+        if unclosed:
+            for suffix in (".bin", ".idx"):
+                Path(no_cot_prefix + suffix).unlink(missing_ok=True)
+            raise SystemExit(
+                f"REFUSING to write {no_cot_prefix}: {unclosed} of {stats.input_count} "
+                f"sequences ended inside an unclosed reasoning span, so everything after "
+                f"the opener was dropped. think_id={think_id}/end_think_id={end_think_id} "
+                f"are almost certainly wrong for the tokenizer that produced this dataset."
+            )
         logger.info(
             "Rewrite complete: %d input → %d written (%d tokens), %d skipped",
             stats.input_count, stats.written_count, stats.output_tokens,

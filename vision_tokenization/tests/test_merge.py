@@ -23,72 +23,77 @@ THINK = 32
 END_THINK = 33
 
 
+def _strip(tokens, think_id=THINK, end_think_id=END_THINK):
+    """Stripped sequence only; the unclosed-span flag has its own tests below."""
+    return strip_thinking_tokens(tokens, think_id, end_think_id)[0]
+
+
 class TestStripThinkingTokens:
     def test_basic(self):
         tokens = np.array([1, THINK, 99, 100, END_THINK, 2], dtype=np.int32)
-        result = strip_thinking_tokens(tokens)
+        result = _strip(tokens)
         np.testing.assert_array_equal(result, [1, 2])
 
     def test_no_think_tokens(self):
         tokens = np.array([1, 2, 3], dtype=np.int32)
-        result = strip_thinking_tokens(tokens)
+        result = _strip(tokens)
         assert result is tokens  # exact same object, no copy
 
     def test_multiple_spans(self):
         tokens = np.array(
             [1, THINK, 99, END_THINK, 5, THINK, 88, END_THINK, 2], dtype=np.int32
         )
-        result = strip_thinking_tokens(tokens)
+        result = _strip(tokens)
         np.testing.assert_array_equal(result, [1, 5, 2])
 
     def test_unmatched_open(self):
         tokens = np.array([1, THINK, 99, 100], dtype=np.int32)
-        result = strip_thinking_tokens(tokens)
+        result = _strip(tokens)
         np.testing.assert_array_equal(result, [1])
 
     def test_orphan_close(self):
         tokens = np.array([END_THINK, 1, 2], dtype=np.int32)
-        result = strip_thinking_tokens(tokens)
+        result = _strip(tokens)
         np.testing.assert_array_equal(result, [1, 2])
 
     def test_all_thinking(self):
         tokens = np.array([THINK, 99, END_THINK], dtype=np.int32)
-        result = strip_thinking_tokens(tokens)
+        result = _strip(tokens)
         assert result is None
 
     def test_empty_input(self):
         tokens = np.array([], dtype=np.int32)
-        result = strip_thinking_tokens(tokens)
+        result = _strip(tokens)
         assert result is None
 
     def test_adjacent_spans(self):
         tokens = np.array([THINK, END_THINK, THINK, END_THINK], dtype=np.int32)
-        result = strip_thinking_tokens(tokens)
+        result = _strip(tokens)
         assert result is None
 
     def test_think_at_start(self):
         tokens = np.array([THINK, 99, END_THINK, 5, 6], dtype=np.int32)
-        result = strip_thinking_tokens(tokens)
+        result = _strip(tokens)
         np.testing.assert_array_equal(result, [5, 6])
 
     def test_think_at_end(self):
         tokens = np.array([5, 6, THINK, 99, END_THINK], dtype=np.int32)
-        result = strip_thinking_tokens(tokens)
+        result = _strip(tokens)
         np.testing.assert_array_equal(result, [5, 6])
 
     def test_custom_ids(self):
         tokens = np.array([1, 50, 99, 51, 2], dtype=np.int32)
-        result = strip_thinking_tokens(tokens, think_id=50, end_think_id=51)
+        result = _strip(tokens, 50, 51)
         np.testing.assert_array_equal(result, [1, 2])
 
     def test_orphan_close_mid_sequence(self):
         tokens = np.array([1, END_THINK, 2, END_THINK, 3], dtype=np.int32)
-        result = strip_thinking_tokens(tokens)
+        result = _strip(tokens)
         np.testing.assert_array_equal(result, [1, 2, 3])
 
     def test_preserves_dtype(self):
         tokens = np.array([1, THINK, 99, END_THINK, 2], dtype=np.int32)
-        result = strip_thinking_tokens(tokens)
+        result = _strip(tokens)
         assert result.dtype == np.int32
 
     def test_repeated_think_inside_span(self):
@@ -96,7 +101,7 @@ class TestStripThinkingTokens:
         tokens = np.array(
             [10, THINK, 20, THINK, 30, END_THINK, 40], dtype=np.int32
         )
-        result = strip_thinking_tokens(tokens)
+        result = _strip(tokens)
         np.testing.assert_array_equal(result, [10, 40])
 
     def test_repeated_think_then_unmatched(self):
@@ -104,7 +109,7 @@ class TestStripThinkingTokens:
         tokens = np.array(
             [10, THINK, THINK, THINK, END_THINK, 40, 50], dtype=np.int32
         )
-        result = strip_thinking_tokens(tokens)
+        result = _strip(tokens)
         np.testing.assert_array_equal(result, [10, 40, 50])
 
     def test_close_before_open_then_span(self):
@@ -112,8 +117,35 @@ class TestStripThinkingTokens:
         tokens = np.array(
             [END_THINK, 1, THINK, 99, END_THINK, 2], dtype=np.int32
         )
-        result = strip_thinking_tokens(tokens)
+        result = _strip(tokens)
         np.testing.assert_array_equal(result, [1, 2])
+
+
+class TestUnclosedSpanIsReported:
+    """An unclosed span drops everything after the opener,
+    and the output cannot be distinguished from a correct strip — so it has to be reported."""
+
+    def test_closed_span_is_not_flagged(self):
+        tokens = np.array([1, THINK, 99, END_THINK, 2], dtype=np.int32)
+        assert strip_thinking_tokens(tokens, THINK, END_THINK)[1] is False
+
+    def test_unclosed_span_is_flagged(self):
+        tokens = np.array([1, THINK, 99, 100], dtype=np.int32)
+        result, unclosed = strip_thinking_tokens(tokens, THINK, END_THINK)
+        np.testing.assert_array_equal(result, [1])
+        assert unclosed is True
+
+    def test_wrong_ids_that_truncate_are_flagged(self):
+        """The Apertus 2 failure: there 32/33 are <|img_generation_start|> and <|audio_start|>,
+        so an image sequence opens a span that never closes."""
+        tokens = np.array([1, 27, 32, 200064, 30, 28, 500, 2], dtype=np.int32)
+        result, unclosed = strip_thinking_tokens(tokens, 32, 33)
+        assert len(result) < len(tokens)
+        assert unclosed is True
+
+    def test_no_delimiters_present_is_not_flagged(self):
+        tokens = np.array([1, 2, 3], dtype=np.int32)
+        assert strip_thinking_tokens(tokens, THINK, END_THINK)[1] is False
 
 
 # ---------------------------------------------------------------------------
@@ -192,7 +224,7 @@ class TestRewriteDataset:
         assert merged is not None
 
         no_cot_prefix = str(tmp_path / "no_cot")
-        stats = rewrite_dataset(str(merged), no_cot_prefix, strip_thinking_tokens)
+        stats = rewrite_dataset(str(merged), no_cot_prefix, _strip)
 
         assert stats.input_count == 4
         assert stats.written_count == 3
@@ -215,7 +247,7 @@ class TestRewriteDataset:
         merged = merge_shards(tmp_path, output_name="merged")
 
         no_cot_prefix = str(tmp_path / "no_cot")
-        rewrite_dataset(str(merged), no_cot_prefix, strip_thinking_tokens)
+        rewrite_dataset(str(merged), no_cot_prefix, _strip)
 
         rewritten = _read_all_sequences(no_cot_prefix)
         np.testing.assert_array_equal(rewritten[0], [100, 200])
@@ -228,7 +260,7 @@ class TestRewriteDataset:
         merged = merge_shards(tmp_path, output_name="merged")
 
         no_cot_prefix = str(tmp_path / "no_cot")
-        rewrite_dataset(str(merged), no_cot_prefix, strip_thinking_tokens)
+        rewrite_dataset(str(merged), no_cot_prefix, _strip)
 
         from megatron.core.datasets.indexed_dataset import IndexedDataset
         ds = IndexedDataset(no_cot_prefix)
@@ -248,7 +280,7 @@ class TestRewriteDataset:
         merged_prefix = str(tmp_path / "rank_0000_chunk_0000")
 
         no_cot_prefix = str(tmp_path / "no_cot")
-        stats = rewrite_dataset(merged_prefix, no_cot_prefix, strip_thinking_tokens)
+        stats = rewrite_dataset(merged_prefix, no_cot_prefix, _strip)
 
         assert stats.written_count == 2
         assert stats.skipped_count == 1
@@ -266,10 +298,10 @@ class TestRewriteDataset:
         merged = merge_shards(tmp_path, output_name="merged")
 
         no_cot_prefix = str(tmp_path / "no_cot")
-        rewrite_dataset(str(merged), no_cot_prefix, strip_thinking_tokens)
+        rewrite_dataset(str(merged), no_cot_prefix, _strip)
 
         with pytest.raises(FileExistsError):
-            rewrite_dataset(str(merged), no_cot_prefix, strip_thinking_tokens)
+            rewrite_dataset(str(merged), no_cot_prefix, _strip)
 
     def test_regression_no_cot_matches_merged_minus_think(self, tmp_path):
         """The no-CoT variant must match merged exactly, minus think spans."""
@@ -284,14 +316,14 @@ class TestRewriteDataset:
         merged = merge_shards(tmp_path, output_name="merged")
 
         no_cot_prefix = str(tmp_path / "no_cot")
-        rewrite_dataset(str(merged), no_cot_prefix, strip_thinking_tokens)
+        rewrite_dataset(str(merged), no_cot_prefix, _strip)
 
         merged_seqs = _read_all_sequences(str(merged))
         no_cot_seqs = _read_all_sequences(no_cot_prefix)
 
         expected = []
         for seq in merged_seqs:
-            stripped = strip_thinking_tokens(seq)
+            stripped = _strip(seq)
             if stripped is not None:
                 expected.append(stripped)
 
@@ -305,8 +337,7 @@ class TestRewriteDataset:
 # ---------------------------------------------------------------------------
 
 class TestCLI:
-    def test_strip_thinking_flag_with_defaults(self, tmp_path):
-        """--strip-thinking works with default IDs, no tokenizer needed."""
+    def test_strip_thinking_with_explicit_ids(self, tmp_path):
         from vision_tokenization.pipeline.output.merge import main
 
         sequences = [
@@ -315,7 +346,8 @@ class TestCLI:
         ]
         _build_test_shards(tmp_path, sequences)
 
-        ret = main([str(tmp_path), "--strip-thinking"])
+        ret = main([str(tmp_path), "--strip-thinking",
+                    "--think-id", str(THINK), "--end-think-id", str(END_THINK)])
         assert ret == 0
 
         assert (tmp_path / "merged.bin").exists()
@@ -328,28 +360,26 @@ class TestCLI:
         np.testing.assert_array_equal(no_cot_seqs[0], [1, 2])
         np.testing.assert_array_equal(no_cot_seqs[1], [10, 20])
 
-    def test_resolve_thinking_ids(self, tmp_path):
-        """--resolve-thinking-ids resolves from the real tokenizer."""
+    def test_strip_thinking_without_ids_is_refused(self, tmp_path):
+        """No default pair is correct for every tokenizer, so there is none."""
         from vision_tokenization.pipeline.output.merge import main
 
-        tokenizer_path = (
-            "/capstor/store/cscs/swissai/infra01/MLLM/tokenizer/"
-            "apertus_emu3.5_wavtok_instruct"
-        )
-        if not Path(tokenizer_path).exists():
-            pytest.skip("Tokenizer not available")
+        _build_test_shards(tmp_path, [[1, THINK, 99, END_THINK, 2]])
+        with pytest.raises(SystemExit):
+            main([str(tmp_path), "--strip-thinking"])
 
-        sequences = [[1, THINK, 99, END_THINK, 2]]
-        _build_test_shards(tmp_path, sequences)
+    def test_wrong_ids_refuse_and_leave_no_output(self, tmp_path):
+        """Wrong ids open a span that never closes, dropping every sequence tail.
+        The result looks well-formed, so the run must abort and clean up."""
+        from vision_tokenization.pipeline.output.merge import main
 
-        ret = main([
-            str(tmp_path), "--strip-thinking",
-            "--resolve-thinking-ids", "--tokenizer-path", tokenizer_path,
-        ])
-        assert ret == 0
+        _build_test_shards(tmp_path, [[1, 40, 99, 100, 2], [1, 40, 7, 8, 2]])
+        with pytest.raises(SystemExit, match="unclosed reasoning span"):
+            main([str(tmp_path), "--strip-thinking",
+                  "--think-id", "40", "--end-think-id", "41"])
 
-        no_cot_seqs = _read_all_sequences(str(tmp_path / "merged_no_cot"))
-        np.testing.assert_array_equal(no_cot_seqs[0], [1, 2])
+        assert not (tmp_path / "merged_no_cot.bin").exists()
+        assert not (tmp_path / "merged_no_cot.idx").exists()
 
 
 class TestBandViews:
