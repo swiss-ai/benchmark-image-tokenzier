@@ -143,6 +143,46 @@ class TestUnclosedSpanIsReported:
         assert strip_thinking_tokens(tokens, THINK, END_THINK)[1] is False
 
 
+class TestResolveReasoningDelimiters:
+    """Delimiters are resolved by ENCODING the authored string, so a tokenizer that
+    normalizes <think> into another token still answers with the id in its data."""
+
+    def _tokenizer(self, tmp_path, vocab, replacements=()):
+        from tokenizers import Tokenizer, models, normalizers
+        tok = Tokenizer(models.WordLevel(vocab=vocab, unk_token="<unk>"))
+        if replacements:
+            tok.normalizer = normalizers.Sequence(
+                [normalizers.Replace(a, b) for a, b in replacements])
+        p = tmp_path / "tokenizer.json"
+        tok.save(str(p))
+        return p
+
+    def test_resolves_plain_delimiters(self, tmp_path):
+        from vision_tokenization.pipeline.output.merge import resolve_reasoning_delimiters
+        p = self._tokenizer(tmp_path, {"<unk>": 0, "<think>": 32, "</think>": 33})
+        assert resolve_reasoning_delimiters(str(p)) == (32, 33)
+
+    def test_follows_the_normalizer_alias(self, tmp_path):
+        """The _thinking_token_fixed shape: <think> is not a token, it rewrites
+        into <|inner_prefix|>, and the id in the data is that one."""
+        from vision_tokenization.pipeline.output.merge import resolve_reasoning_delimiters
+        p = self._tokenizer(
+            tmp_path,
+            {"<unk>": 0, "<|inner_prefix|>": 32, "<|inner_suffix|>": 33, "<think>": 69},
+            replacements=(("<think>", "<|inner_prefix|>"), ("</think>", "<|inner_suffix|>")),
+        )
+        assert resolve_reasoning_delimiters(str(p)) == (32, 33)
+
+    def test_refuses_when_the_delimiter_is_absent(self, tmp_path):
+        """encode() answers UNK rather than None, so absence needs its own check —
+        without it both delimiters resolve to the UNK id and stripping toggles on
+        every UNK token in the corpus."""
+        from vision_tokenization.pipeline.output.merge import resolve_reasoning_delimiters
+        p = self._tokenizer(tmp_path, {"<unk>": 0, "a": 1})
+        with pytest.raises(ValueError, match="absent from the vocabulary"):
+            resolve_reasoning_delimiters(str(p))
+
+
 # ---------------------------------------------------------------------------
 # rewrite_dataset — integration tests
 # ---------------------------------------------------------------------------
