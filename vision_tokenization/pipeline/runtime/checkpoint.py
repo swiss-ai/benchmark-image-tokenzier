@@ -363,8 +363,28 @@ def verify_run_world_size(output_dir: str, world_size: int, rank: int) -> None:
 
 
 def verify_plan_fingerprint(ckpt: Dict[str, Any], current: Dict[str, Any], rank: int) -> None:
-    """Refuse resume when the plan no longer matches the checkpoint."""
-    if ckpt.get("plan") != current:
+    """Refuse resume when the plan no longer matches the checkpoint.
+
+    Checkpoints written before the tokenizer was part of the fingerprint carry
+    no identity. They are all Apertus 1.5, so they resume only under a 1.5
+    tokenizer — resuming one under Apertus 2 would mix id spaces in one shard.
+    """
+    from vision_tokenization.discrete.emu.token_layout import APERTUS_1P5_BASE_VOCAB_SIZE
+
+    stored = ckpt.get("plan")
+    if (isinstance(stored, dict) and "tokenizer_sha256" in current
+            and "tokenizer_sha256" not in stored):
+        if current.get("tokenizer_base_vocab_size") != APERTUS_1P5_BASE_VOCAB_SIZE:
+            raise RuntimeError(
+                f"[rank {rank}] This checkpoint predates tokenizer fingerprinting, so it "
+                f"belongs to an Apertus 1.5 run, but the current tokenizer has "
+                f"base_vocab_size={current.get('tokenizer_base_vocab_size')}. Resuming would "
+                f"mix two id spaces in one shard — use a fresh output_dir."
+            )
+        stored = {**stored, **{k: current.get(k) for k in
+                               ("tokenizer_sha256", "tokenizer_base_vocab_size")}}
+
+    if stored != current:
         raise RuntimeError(
             f"[rank {rank}] Plan no longer matches this checkpoint "
             f"(checkpoint {ckpt['plan']} vs current {current}). The planner, "

@@ -103,6 +103,38 @@ def test_fingerprint_mismatch_refuses(tmp_path):
         verify_plan_fingerprint(ckpt, {**fp, "total_batches": 8}, rank=0)
 
 
+class TestTokenizerIdentity:
+    """A tokenizer swap must not resume into a directory holding the other's ids."""
+
+    BASE = {"manifest_fingerprint": "abc", "total_batches": 7, "total_tokens": 99}
+    V15 = {"tokenizer_sha256": "aaa", "tokenizer_base_vocab_size": 131072}
+    V2 = {"tokenizer_sha256": "bbb", "tokenizer_base_vocab_size": 200064}
+
+    def _ckpt(self, tmp_path, fp):
+        save_checkpoint(str(tmp_path), 0, batch_index=1, writer_state={"chunk_id": 0},
+                        plan_fingerprint=fp, stats={}, world_size=1)
+        return load_checkpoint(str(tmp_path), 0)
+
+    def test_same_tokenizer_resumes(self, tmp_path):
+        ckpt = self._ckpt(tmp_path, {**self.BASE, **self.V2})
+        verify_plan_fingerprint(ckpt, {**self.BASE, **self.V2}, rank=0)
+
+    def test_swapped_tokenizer_refused(self, tmp_path):
+        ckpt = self._ckpt(tmp_path, {**self.BASE, **self.V2})
+        with pytest.raises(RuntimeError, match="no longer matches"):
+            verify_plan_fingerprint(ckpt, {**self.BASE, **self.V15}, rank=0)
+
+    def test_legacy_checkpoint_resumes_under_1p5(self, tmp_path):
+        """Checkpoints predating the field are all 1.5, so 1.5 still resumes."""
+        ckpt = self._ckpt(tmp_path, dict(self.BASE))
+        verify_plan_fingerprint(ckpt, {**self.BASE, **self.V15}, rank=0)
+
+    def test_legacy_checkpoint_refused_under_v2(self, tmp_path):
+        ckpt = self._ckpt(tmp_path, dict(self.BASE))
+        with pytest.raises(RuntimeError, match="predates tokenizer fingerprinting"):
+            verify_plan_fingerprint(ckpt, {**self.BASE, **self.V2}, rank=0)
+
+
 class TestWorldSizeGuard:
     """One output_dir = one run configuration: a world-size change re-splits
     the plan, so resuming into the same directory must fail fast with the

@@ -240,6 +240,13 @@ def run_executor(
     worker_splits = plan.split_image_batches_for_workers(world_size)
     my_batches = worker_splits[rank] if rank < len(worker_splits) else []
 
+    # A checkpoint's batch_index is only valid against this exact plan, and its
+    # ids only against the tokenizer that wrote them. Every rank must agree, so
+    # this is computed before the empty-rank branch.
+    from vision_tokenization.discrete.emu.token_layout import tokenizer_identity
+    plan_fingerprint = {**plan.fingerprint(),
+                        **tokenizer_identity(cfg["tokenizer_path"])}
+
     logger.info(
         f"[rank {rank}/{world_size}] Assigned {len(my_batches)} image batches"
     )
@@ -255,13 +262,10 @@ def run_executor(
         result["rank"] = rank
         result["output_dir"] = output_dir
         json_dump(result, Path(output_dir) / f"rank_{rank:04d}_stats.json")
-        write_rank_manifest(output_dir, rank, world_size, plan.fingerprint(),
+        write_rank_manifest(output_dir, rank, world_size, plan_fingerprint,
                             backend="empty", files=[])
         maybe_write_stats_summary(output_dir, expected_ranks=world_size)
         return result
-
-    # A checkpoint's batch_index is only valid against this exact plan.
-    plan_fingerprint = plan.fingerprint()
 
     # ------------------------------------------------------------------
     # 3. Resume from checkpoint
