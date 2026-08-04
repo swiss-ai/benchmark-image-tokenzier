@@ -193,22 +193,12 @@ def resolve_reasoning_delimiters(tokenizer_dir: str) -> Tuple[int, int]:
         path = path / "tokenizer.json"
     tok = Tokenizer.from_file(str(path))
 
-    # encode() answers UNK for a token the vocabulary lacks, where token_to_id would
-    # have answered None — so absence has to be tested against the UNK id explicitly.
-    unk_token = getattr(tok.model, "unk_token", None)
-    unk_id = tok.token_to_id(unk_token) if unk_token else None
-
     ids = []
     for text in ("<think>", "</think>"):
         encoded = tok.encode(text, add_special_tokens=False).ids
         if len(encoded) != 1:
             raise ValueError(
                 f"{text!r} is not a single token in {path} (encodes to {encoded}). "
-                f"Pass --think-id/--end-think-id explicitly."
-            )
-        if unk_id is not None and encoded[0] == unk_id:
-            raise ValueError(
-                f"{text!r} is absent from the vocabulary of {path} (encodes to UNK). "
                 f"Pass --think-id/--end-think-id explicitly."
             )
         ids.append(encoded[0])

@@ -173,13 +173,20 @@ class TestResolveReasoningDelimiters:
         )
         assert resolve_reasoning_delimiters(str(p)) == (32, 33)
 
-    def test_refuses_when_the_delimiter_is_absent(self, tmp_path):
-        """encode() answers UNK rather than None, so absence needs its own check —
-        without it both delimiters resolve to the UNK id and stripping toggles on
-        every UNK token in the corpus."""
+    def test_refuses_when_the_delimiter_is_not_one_token(self, tmp_path):
+        """A byte-level BPE shreds an absent delimiter into pieces rather than
+        answering UNK, so the single-token test is what catches it. This is the
+        real llama_emu3.5 case, where "<think>" encodes to three tokens."""
+        from tokenizers import Tokenizer, models, pre_tokenizers
         from vision_tokenization.pipeline.output.merge import resolve_reasoning_delimiters
-        p = self._tokenizer(tmp_path, {"<unk>": 0, "a": 1})
-        with pytest.raises(ValueError, match="absent from the vocabulary"):
+
+        tok = Tokenizer(models.WordLevel(
+            vocab={"<": 0, "think": 1, ">": 2, "/": 3}, unk_token=None))
+        tok.pre_tokenizer = pre_tokenizers.Punctuation()
+        p = tmp_path / "tokenizer.json"
+        tok.save(str(p))
+
+        with pytest.raises(ValueError, match="not a single token"):
             resolve_reasoning_delimiters(str(p))
 
 
