@@ -107,9 +107,8 @@ def strip_thinking_tokens(
 
     Returns the stripped sequence (``None`` if empty afterwards),
     and whether the sequence ended still inside a span.
-    An unclosed span means everything after the opener was dropped,
-    which the output cannot be distinguished from a correct strip —
-    so callers must treat it as malformed rather than accept it.
+    An unclosed span drops everything after the opener, which the output cannot be
+    distinguished from a correct strip — hence the flag rather than silence.
     """
     n = len(tokens)
     if n == 0:
@@ -177,6 +176,59 @@ def _index_has_sequence_modes(path_prefix: str) -> bool:
         f"Unrecognized indexed dataset layout for {path_prefix}: "
         f"idx_size={idx_size}, expected {plain_size} or {plain_size + seq_count}"
     )
+
+
+def resolve_reasoning_delimiters(tokenizer_dir: str) -> Tuple[int, int]:
+    """Delimiter ids for *tokenizer_dir*, by encoding the strings a chat template writes.
+
+    Encoding rather than looking the names up is what makes this correct across
+    tokenizer revisions: apertus_emu3.5_wavtok_instruct_thinking_token_fixed
+    normalizes ``<think>`` into ``<|inner_prefix|>``, so a name lookup returns 69
+    while the id actually present in its data is 32.
+    """
+    from tokenizers import Tokenizer
+
+    path = Path(tokenizer_dir)
+    if path.is_dir():
+        path = path / "tokenizer.json"
+    tok = Tokenizer.from_file(str(path))
+
+    ids = []
+    for text in ("<think>", "</think>"):
+        encoded = tok.encode(text, add_special_tokens=False).ids
+        if len(encoded) != 1:
+            raise ValueError(
+                f"{text!r} is not a single token in {path} (encodes to {encoded}). "
+                f"Pass --think-id/--end-think-id explicitly."
+            )
+        ids.append(encoded[0])
+    return ids[0], ids[1]
+
+
+def strip_thinking_dataset(
+    input_prefix: str,
+    output_prefix: str,
+    think_id: int,
+    end_think_id: int,
+) -> RewriteStats:
+    """Write *input_prefix* to *output_prefix* with reasoning spans removed."""
+    unclosed = 0
+
+    def transform(seq):
+        nonlocal unclosed
+        stripped, ended_inside = strip_thinking_tokens(seq, think_id, end_think_id)
+        unclosed += ended_inside
+        return stripped
+
+    stats = rewrite_dataset(input_prefix, output_prefix, transform)
+    if unclosed:
+        logger.warning(
+            "%d of %d sequences ended inside an unclosed reasoning span — everything "
+            "after the opener was dropped. Expected for truncated generations; if it is "
+            "most of the dataset, think_id=%d/end_think_id=%d belong to another tokenizer.",
+            unclosed, stats.input_count, think_id, end_think_id,
+        )
+    return stats
 
 
 def rewrite_dataset(
@@ -257,6 +309,13 @@ def _find_shard_pairs(directory: Path) -> list[tuple[str, str]]:
         if idx.exists() and f.stat().st_size > 0:
             pairs.append((str(f), str(idx)))
     return pairs
+
+
+def _run_tokenizer_path(manifests: list) -> Optional[str]:
+    """The tokenizer this run was written with, if every rank agrees on it."""
+    paths = {m.get("tokenizer_path") for m in manifests}
+    paths.discard(None)
+    return paths.pop() if len(paths) == 1 else None
 
 
 def verify_manifests(output_dir: Path, manifests: list) -> tuple:
@@ -449,26 +508,16 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--no-cot-output-name", default="merged_no_cot")
     parser.add_argument(
         "--think-id", type=int, default=None,
-        help="Reasoning-span opening token ID (required with --strip-thinking)",
+        help="Override the reasoning-span opening token ID; by default it is "
+             "resolved from the tokenizer this run recorded",
     )
     parser.add_argument(
         "--end-think-id", type=int, default=None,
-        help="Reasoning-span closing token ID (required with --strip-thinking)",
+        help="Override the reasoning-span closing token ID",
     )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-
-    # No defaults: the delimiter ids differ per tokenizer,
-    # and a wrong pair silently deletes the tail of every sequence rather than failing.
-    think_id, end_think_id = args.think_id, args.end_think_id
-    if args.strip_thinking and (think_id is None or end_think_id is None):
-        parser.error(
-            "--strip-thinking requires --think-id and --end-think-id. Resolve them "
-            "from the tokenizer that produced this dataset by encoding the delimiter "
-            "the chat template writes, e.g. "
-            "Tokenizer.from_file(f'{tokenizer_path}/tokenizer.json').encode('<think>').ids"
-        )
 
     output_dir = Path(args.output_dir)
     from ..runtime.checkpoint import load_rank_manifests
@@ -507,29 +556,26 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(f"Merged to {result}.bin / {result}.idx")
 
     if args.strip_thinking:
-        unclosed = 0
-
-        def transform(seq):
-            nonlocal unclosed
-            stripped, ended_inside = strip_thinking_tokens(seq, think_id, end_think_id)
-            unclosed += ended_inside
-            return stripped
+        think_id, end_think_id = args.think_id, args.end_think_id
+        if think_id is None or end_think_id is None:
+            tokenizer_path = _run_tokenizer_path(manifests)
+            if tokenizer_path is None:
+                raise SystemExit(
+                    "--strip-thinking needs the delimiter ids. This run's manifests do "
+                    "not record a tokenizer_path (they predate it), so pass --think-id "
+                    "and --end-think-id, resolved from the tokenizer that produced it."
+                )
+            think_id, end_think_id = resolve_reasoning_delimiters(tokenizer_path)
+            logger.info("Resolved delimiters from %s: think=%d end_think=%d",
+                        tokenizer_path, think_id, end_think_id)
 
         no_cot_prefix = str(output_dir / args.no_cot_output_name)
         logger.info(
             "Rewriting %s → %s (stripping think_id=%d, end_think_id=%d)",
             result, no_cot_prefix, think_id, end_think_id,
         )
-        stats = rewrite_dataset(str(result), no_cot_prefix, transform)
-        if unclosed:
-            for suffix in (".bin", ".idx"):
-                Path(no_cot_prefix + suffix).unlink(missing_ok=True)
-            raise SystemExit(
-                f"REFUSING to write {no_cot_prefix}: {unclosed} of {stats.input_count} "
-                f"sequences ended inside an unclosed reasoning span, so everything after "
-                f"the opener was dropped. think_id={think_id}/end_think_id={end_think_id} "
-                f"are almost certainly wrong for the tokenizer that produced this dataset."
-            )
+        stats = strip_thinking_dataset(str(result), no_cot_prefix,
+                                       think_id, end_think_id)
         logger.info(
             "Rewrite complete: %d input → %d written (%d tokens), %d skipped",
             stats.input_count, stats.written_count, stats.output_tokens,

@@ -12,12 +12,13 @@
 #SBATCH --partition=normal
 #SBATCH --exclusive
 #SBATCH --no-requeue
-# Pass via --export=ALL,IN=,OUT=[,TOK=]
+# Pass via --export=ALL,IN=,OUT=,TOK=
+#   TOK is required: the id differs per tokenizer generation.
 set -e
 : "${IN:?}"; : "${OUT:?}"
 export LD_LIBRARY_PATH=/capstor/store/cscs/swissai/infra01/MLLM/wheelhouse:${LD_LIBRARY_PATH:-}
 export PYTHONPATH=/iopsstor/scratch/cscs/xyixuan/apertus/Megatron-LM:/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier
 SC=/iopsstor/scratch/cscs/xyixuan/apertus/benchmark-image-tokenzier/scripts/cot_filter.py
-echo "=== cot_filter $IN -> $OUT (token ${TOK:-32}) on $(hostname) ==="
-srun -u python "$SC" --input "$IN" --output "$OUT" --token "${TOK:-32}"
+echo "=== cot_filter $IN -> $OUT (token $TOK) on $(hostname) ==="
+srun -u python "$SC" --input "$IN" --output "$OUT" --token "$TOK"
 echo "=== done ==="

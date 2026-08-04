@@ -81,17 +81,25 @@ class EMUImageOnlyTokenizer:
         config_path = Path(text_tokenizer_path) / "tokenizer_config.json"
         tokenizer_config = json_load(config_path)
 
+        # Apertus 1.5 names the vision tokenizer in its own config; Apertus 2 does
+        # not, so the pipeline config supplies it. Where both speak they must agree,
+        # otherwise the wrong front end encodes the codebook indices in silence.
         vision_config = tokenizer_config.get("vision_tokenizer", {})
-        vision_tokenizer_type = vision_tokenizer_type or vision_config.get("type")
-        vision_tokenizer_path = vision_tokenizer_path or vision_config.get("path")
-
-        missing = [name for name, value in
-                   (("vision_tokenizer_type", vision_tokenizer_type),
-                    ("vision_tokenizer_path", vision_tokenizer_path)) if not value]
-        if missing:
+        declared_type, declared_path = vision_config.get("type"), vision_config.get("path")
+        if vision_tokenizer_type and declared_type and vision_tokenizer_type != declared_type:
             raise ValueError(
-                f"{', '.join(missing)} not set. Pass it in the pipeline config, or use a "
-                f"text tokenizer whose vision_tokenizer section supplies it ({config_path})."
+                f"vision_tokenizer_type {vision_tokenizer_type!r} from the pipeline config "
+                f"disagrees with {declared_type!r} declared in {config_path}."
+            )
+        vision_tokenizer_type = vision_tokenizer_type or declared_type
+        vision_tokenizer_path = vision_tokenizer_path or declared_path
+
+        if not (vision_tokenizer_type and vision_tokenizer_path):
+            raise ValueError(
+                f"vision tokenizer unresolved (type={vision_tokenizer_type!r}, "
+                f"path={vision_tokenizer_path!r}). Set vision_tokenizer_type and "
+                f"vision_tokenizer_path in the pipeline config, or use a text tokenizer "
+                f"whose vision_tokenizer section supplies them ({config_path})."
             )
 
         print(f"Loading vision tokenizer: {vision_tokenizer_type} from {vision_tokenizer_path}")

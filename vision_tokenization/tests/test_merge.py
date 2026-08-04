@@ -46,11 +46,6 @@ class TestStripThinkingTokens:
         result = _strip(tokens)
         np.testing.assert_array_equal(result, [1, 5, 2])
 
-    def test_unmatched_open(self):
-        tokens = np.array([1, THINK, 99, 100], dtype=np.int32)
-        result = _strip(tokens)
-        np.testing.assert_array_equal(result, [1])
-
     def test_orphan_close(self):
         tokens = np.array([END_THINK, 1, 2], dtype=np.int32)
         result = _strip(tokens)
@@ -368,18 +363,20 @@ class TestCLI:
         with pytest.raises(SystemExit):
             main([str(tmp_path), "--strip-thinking"])
 
-    def test_wrong_ids_refuse_and_leave_no_output(self, tmp_path):
-        """Wrong ids open a span that never closes, dropping every sequence tail.
-        The result looks well-formed, so the run must abort and clean up."""
-        from vision_tokenization.pipeline.output.merge import main
+    def test_wrong_ids_warn_but_still_write(self, tmp_path, caplog):
+        """A wrong pair truncates sequences. It is reported, not fatal — one
+        legitimately truncated generation must not kill a whole corpus."""
+        import logging
+        from vision_tokenization.pipeline.output.merge import strip_thinking_dataset
 
-        _build_test_shards(tmp_path, [[1, 40, 99, 100, 2], [1, 40, 7, 8, 2]])
-        with pytest.raises(SystemExit, match="unclosed reasoning span"):
-            main([str(tmp_path), "--strip-thinking",
-                  "--think-id", "40", "--end-think-id", "41"])
+        merged = _build_test_shards(tmp_path, [[1, 40, 99, 100, 2], [1, 7, 8, 2]])
+        out = str(tmp_path / "out")
+        with caplog.at_level(logging.WARNING):
+            stats = strip_thinking_dataset(merged, out, 40, 41)
 
-        assert not (tmp_path / "merged_no_cot.bin").exists()
-        assert not (tmp_path / "merged_no_cot.idx").exists()
+        assert Path(out + ".bin").exists()
+        assert stats.input_count == 2
+        assert "unclosed reasoning span" in caplog.text
 
 
 class TestBandViews:

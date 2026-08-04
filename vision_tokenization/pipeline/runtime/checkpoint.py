@@ -213,7 +213,7 @@ def _checkpoint_path(output_dir: str, rank: int) -> Path:
     return Path(output_dir) / f"rank_{rank:04d}_checkpoint.pt"
 
 
-CHECKPOINT_VERSION = 2
+CHECKPOINT_VERSION = 3
 
 
 def save_checkpoint(
@@ -288,18 +288,26 @@ def write_rank_manifest(
     plan_fingerprint: Optional[Dict[str, Any]],
     backend: str,
     files: list,
+    tokenizer_path: Optional[str] = None,
 ) -> None:
     """Publish this rank's completion claim — the LAST act of a successful run.
 
     *files* is the writer's own record of every final shard it shipped
     ({name, bytes, sequences, tokens}); the merge gate verifies the claim
     against disk instead of inferring completeness from markers and globs.
+
+    *tokenizer_path* records which tokenizer wrote these ids, so post-hoc tools
+    resolve special tokens from the run's own tokenizer rather than from a
+    literal. It sits outside *plan_fingerprint* deliberately: a path can differ
+    between ranks (symlink, copy) while the tokenizer is identical, and the
+    fingerprint is compared for equality across ranks.
     """
     payload = {
         "version": MANIFEST_VERSION,
         "rank": rank,
         "world_size": world_size,
         "plan": plan_fingerprint,
+        "tokenizer_path": tokenizer_path,
         "backend": backend,
         "files": files,
         "sequences": sum(f["sequences"] for f in files),
@@ -363,28 +371,8 @@ def verify_run_world_size(output_dir: str, world_size: int, rank: int) -> None:
 
 
 def verify_plan_fingerprint(ckpt: Dict[str, Any], current: Dict[str, Any], rank: int) -> None:
-    """Refuse resume when the plan no longer matches the checkpoint.
-
-    Checkpoints written before the tokenizer was part of the fingerprint carry no identity.
-    They are all Apertus 1.5, so they resume only under a 1.5 tokenizer;
-    resuming one under Apertus 2 would mix id spaces in one shard.
-    """
-    from vision_tokenization.discrete.emu.token_layout import APERTUS_1P5_BASE_VOCAB_SIZE
-
-    stored = ckpt.get("plan")
-    if (isinstance(stored, dict) and "tokenizer_sha256" in current
-            and "tokenizer_sha256" not in stored):
-        if current.get("tokenizer_base_vocab_size") != APERTUS_1P5_BASE_VOCAB_SIZE:
-            raise RuntimeError(
-                f"[rank {rank}] This checkpoint predates tokenizer fingerprinting, so it "
-                f"belongs to an Apertus 1.5 run, but the current tokenizer has "
-                f"base_vocab_size={current.get('tokenizer_base_vocab_size')}. Resuming would "
-                f"mix two id spaces in one shard — use a fresh output_dir."
-            )
-        stored = {**stored, **{k: current.get(k) for k in
-                               ("tokenizer_sha256", "tokenizer_base_vocab_size")}}
-
-    if stored != current:
+    """Refuse resume when the plan or the tokenizer no longer matches the checkpoint."""
+    if ckpt.get("plan") != current:
         raise RuntimeError(
             f"[rank {rank}] Plan no longer matches this checkpoint "
             f"(checkpoint {ckpt['plan']} vs current {current}). The planner, "

@@ -38,10 +38,7 @@ from pathlib import Path
 # Megatron path is handled by merge._ensure_megatron_importable() at call time.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from vision_tokenization.pipeline.output.merge import (
-    rewrite_dataset,
-    strip_thinking_tokens,
-)
+from vision_tokenization.pipeline.output.merge import strip_thinking_dataset
 
 
 # Default output dir for stripped variants. Lands directly in
@@ -81,24 +78,8 @@ def strip_cot(
         basename = os.path.basename(input_prefix)
         output_prefix = os.path.join(_DEFAULT_OUTPUT_DIR, basename)
 
-    unclosed = 0
-
-    def transform(toks):
-        nonlocal unclosed
-        stripped, ended_inside = strip_thinking_tokens(toks, think_id, end_think_id)
-        unclosed += ended_inside
-        return stripped
-
-    stats = rewrite_dataset(input_prefix, output_prefix, transform)
-    if unclosed:
-        for suffix in (".bin", ".idx"):
-            Path(output_prefix + suffix).unlink(missing_ok=True)
-        raise SystemExit(
-            f"REFUSING to write {output_prefix}: {unclosed} of {stats.input_count} "
-            f"sequences ended inside an unclosed reasoning span. "
-            f"think_id={think_id}/end_think_id={end_think_id} are almost certainly "
-            f"wrong for the tokenizer that produced this dataset."
-        )
+    stats = strip_thinking_dataset(input_prefix, output_prefix,
+                                   think_id, end_think_id)
     print(f"input:    {stats.input_count:,} sequences")
     print(f"written:  {stats.written_count:,} sequences")
     print(f"skipped:  {stats.skipped_count:,} sequences (empty after strip)")

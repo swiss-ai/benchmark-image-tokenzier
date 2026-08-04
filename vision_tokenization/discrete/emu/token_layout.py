@@ -10,11 +10,10 @@ That lets the alignment scan and the inline merge derive the manifest's
 """
 
 import hashlib
-import json
 import os
-from typing import Any, Dict, Tuple
+from typing import Dict, Tuple
 
-APERTUS_1P5_BASE_VOCAB_SIZE = 131072
+from vision_tokenization.utils.json import json_load
 
 STRUCTURE_TOKENS = {
     "img_start": "<|img_start|>",
@@ -45,8 +44,8 @@ def resolve_token_ids_from_dir(
 ) -> Dict[str, int]:
     """``resolve_token_ids`` from tokenizer.json's ``added_tokens`` — no tokenizer load."""
     path = os.path.join(tokenizer_dir, "tokenizer.json")
-    with open(path, encoding="utf-8") as f:
-        ids = {entry["content"]: int(entry["id"]) for entry in json.load(f)["added_tokens"]}
+    ids = {entry["content"]: int(entry["id"])
+           for entry in json_load(path)["added_tokens"]}
     missing = [token for token in tokens.values() if token not in ids]
     if missing:
         raise ValueError(
@@ -56,20 +55,18 @@ def resolve_token_ids_from_dir(
     return {name: ids[token] for name, token in tokens.items()}
 
 
-def tokenizer_identity(tokenizer_dir) -> Dict[str, Any]:
-    """Content identity of a tokenizer, for resume safety.
+def tokenizer_sha256(tokenizer_dir) -> str:
+    """Content identity of a tokenizer.
 
     Carried in the plan fingerprint,
     so pointing an existing output dir at a different tokenizer refuses to resume
-    instead of mixing id spaces.
+    instead of mixing id spaces. Also what the alignment manifest publishes.
     """
-    path = os.path.join(tokenizer_dir, "tokenizer.json")
-    with open(path, "rb") as f:
-        digest = hashlib.sha256(f.read()).hexdigest()
-    config_path = os.path.join(tokenizer_dir, "tokenizer_config.json")
-    with open(config_path, encoding="utf-8") as f:
-        base_vocab_size = json.load(f).get("base_vocab_size")
-    return {"tokenizer_sha256": digest, "tokenizer_base_vocab_size": base_vocab_size}
+    digest = hashlib.sha256()
+    with open(os.path.join(tokenizer_dir, "tokenizer.json"), "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def vision_band(tokenizer_config: dict) -> Tuple[int, int]:

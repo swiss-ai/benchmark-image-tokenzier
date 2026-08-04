@@ -243,9 +243,9 @@ def run_executor(
     # A checkpoint's batch_index is only valid against this exact plan,
     # and its ids only against the tokenizer that wrote them.
     # Every rank must agree, so this is computed before the empty-rank branch.
-    from vision_tokenization.discrete.emu.token_layout import tokenizer_identity
+    from vision_tokenization.discrete.emu.token_layout import tokenizer_sha256
     plan_fingerprint = {**plan.fingerprint(),
-                        **tokenizer_identity(cfg["tokenizer_path"])}
+                        "tokenizer_sha256": tokenizer_sha256(cfg["tokenizer_path"])}
 
     logger.info(
         f"[rank {rank}/{world_size}] Assigned {len(my_batches)} image batches"
@@ -686,6 +686,7 @@ def run_executor(
             write_rank_manifest(
                 output_dir, rank, world_size, plan_fingerprint,
                 backend=backend.name, files=manifest_files,
+                tokenizer_path=cfg["tokenizer_path"],
             )
 
     save_checkpoint(

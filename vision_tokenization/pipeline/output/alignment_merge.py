@@ -22,7 +22,6 @@ recorded in the views, leaving the token file's physical order free.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import logging
 import os
 import shutil
@@ -37,6 +36,7 @@ import pyarrow.parquet as pq
 from vision_tokenization.discrete.emu.token_layout import (
     STRUCTURE_TOKENS,
     resolve_token_ids_from_dir,
+    tokenizer_sha256,
     vision_band,
 )
 from vision_tokenization.discrete.dpo_pairs import seq_lengths
@@ -487,7 +487,7 @@ def publish_alignment_store(output_dir, *, keep_intermediates: bool = False) -> 
 
     tokenizer_path = Path(meta["tokenizer_path"])
     tokenizer_config = json_load(tokenizer_path / "tokenizer_config.json")
-    tok_sha = hashlib.sha256((tokenizer_path / "tokenizer.json").read_bytes()).hexdigest()
+    tok_sha = tokenizer_sha256(tokenizer_path)
     views = result["views"]
     json_dump_atomic({
         "schema_version": 3,
