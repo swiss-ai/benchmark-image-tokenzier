@@ -11,6 +11,7 @@ from typing import List, Optional, Tuple
 import torch
 from transformers import AutoTokenizer
 
+from vision_tokenization.common.layout import image_sequence_length
 from vision_tokenization.utils.json import json_load
 from vision_tokenization.discrete.emu.token_layout import (
     STRUCTURE_TOKENS,
@@ -195,18 +196,7 @@ class EMUImageOnlyTokenizer:
         # Use cached dimension tokens to avoid repeated encoding
         dim_tokens = self._get_dim_tokens(height, width)
 
-        # Calculate total size
-        total_size = (
-            1  # BOS
-            + 1  # img_start
-            + len(dim_tokens)  # dimension tokens
-            + 1  # img_token_start
-            + num_tokens_needed  # vision tokens
-            + height  # EOL after each row
-            + 1  # EOF
-            + 1  # img_end
-            + 1  # EOS
-        )
+        total_size = image_sequence_length(height, width, len(dim_tokens))
 
         # Pre-allocate the entire output tensor
         output = torch.empty(total_size, dtype=torch.long)

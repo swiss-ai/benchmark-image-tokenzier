@@ -6,6 +6,13 @@ from typing import Optional, Tuple
 
 import numpy as np
 
+from vision_tokenization.common.layout import (
+    IMAGE_BLOCK_FIXED_TOKENS,
+    SEQUENCE_WRAPPER_TOKENS,
+    dim_tokens_upper_bound,
+    image_sequence_length,
+)
+
 try:
     from numba import njit, prange
 except ImportError:  # pragma: no cover - optional dependency
@@ -82,12 +89,21 @@ if njit is not None:
         height: int,
         width: int,
         spatial_factor: int,
+        structural: int,
     ) -> int:
         token_height = height // spatial_factor
         token_width = width // spatial_factor
-        vision_tokens = token_height * token_width
-        structural_tokens = 9 + token_height
-        return vision_tokens + structural_tokens
+        # Character count of "H*W" bounds its token count; digits computed without str().
+        dims = 1
+        v = token_height
+        while v > 0:
+            dims += 1
+            v //= 10
+        v = token_width
+        while v > 0:
+            dims += 1
+            v //= 10
+        return token_height * token_width + structural + dims + token_height
 
 
     @njit(parallel=True, cache=True)
@@ -97,6 +113,7 @@ if njit is not None:
         spatial_factor: int,
         min_pixels: int,
         max_pixels: int,
+        structural: int,
     ) -> np.ndarray:
         tokens = np.empty(len(heights), dtype=np.int64)
         for idx in prange(len(heights)):
@@ -111,6 +128,7 @@ if njit is not None:
                 final_height,
                 final_width,
                 spatial_factor,
+                structural,
             )
         return tokens
 
@@ -156,18 +174,8 @@ def estimate_image_tokens(
     """Estimate emitted image-token sequence length for one resized image."""
     token_height = height // spatial_factor
     token_width = width // spatial_factor
-    vision_tokens = token_height * token_width
-    structural_tokens = (
-        1  # BOS
-        + 1  # img_start
-        + 3  # dimension tokens
-        + 1  # img_token_start
-        + token_height  # EOL per row
-        + 1  # EOF
-        + 1  # img_end
-        + 1  # EOS
-    )
-    return vision_tokens + structural_tokens
+    return image_sequence_length(
+        token_height, token_width, dim_tokens_upper_bound(token_height, token_width))
 
 
 def estimate_image_tokens_batch(
@@ -188,12 +196,15 @@ def estimate_image_tokens_batch(
     max_pixels_i = _pixel_limit(max_pixels)
 
     if _NUMBA_AVAILABLE:
+        # Passed rather than read from a global: @njit(cache=True) freezes globals
+        # into the on-disk cache and will not notice one of them changing.
         return _estimate_image_tokens_batch_numba(
             heights_arr,
             widths_arr,
             int(spatial_factor),
             min_pixels_i,
             max_pixels_i,
+            SEQUENCE_WRAPPER_TOKENS + IMAGE_BLOCK_FIXED_TOKENS,
         )
 
     tokens = np.empty(len(heights_arr), dtype=np.int64)
