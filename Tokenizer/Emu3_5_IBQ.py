@@ -1,0 +1,492 @@
+import os
+import sys
+
+# Add base directory to path
+base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.append(base_dir)
+
+# Add Emu3.5 submodule to path
+emu3_path = os.path.join(os.path.dirname(__file__), "submodules", "Emu3.5", "src")
+sys.path.insert(0, emu3_path)
+
+from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
+import torch
+from omegaconf import OmegaConf
+from PIL import Image
+
+# Import from Emu3.5 submodule
+from vision_tokenizer.ibq import IBQ as Emu3IBQModel
+from vision_tokenization.utils.image_geometry import smart_resize_dims
+
+# Import base class
+from Tokenizer.base import Tokenizer
+
+
+class Emu3_5_IBQ(Tokenizer):
+    """Emu3.5 IBQ discrete image tokenizer"""
+
+    def __init__(
+        self,
+        model_path: str,
+        min_pixels: Optional[int] = None,
+        max_pixels: Optional[int] = None,
+        torch_compile: bool = False,
+        torch_compile_mode: str = "reduce-overhead",
+        metadata_only: bool = False,
+        verbose: bool = False,
+        **kwargs,
+    ):
+        """
+        Initialize Emu3.5 IBQ tokenizer
+
+        Args:
+            model_path: Path to the Emu3.5 IBQ model checkpoint directory
+                       Should contain config.yaml and model.ckpt
+            min_pixels: Minimum number of pixels after resizing (if None, no resizing)
+            max_pixels: Maximum number of pixels after resizing (if None, no resizing)
+            metadata_only: If True, only load metadata (codebook_size, name) without model weights
+            verbose: If True, print detailed information during processing (default: False)
+        """
+        # Token output depends on TF32 (~0.5% of codes flip vs strict FP32 —
+        # measured in vision_tokenization/profile/precision_parity.py). Pin it
+        # HERE, at the layer every consumer shares (tokenize pipeline,
+        # qualitative benchmark, demo notebooks, audit tools), so training-time
+        # and inference-time tokenization stay the same function regardless of
+        # the host environment's defaults. All shipped corpora used TF32.
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+
+        self.model_path = model_path
+        self.name = "Emu3_5_IBQ"
+        self.min_pixels = min_pixels
+        self.max_pixels = max_pixels
+        self.spatial_factor = 16  # Emu3.5 uses 16x downsampling
+        self.verbose = verbose
+        self.torch_compile = torch_compile
+        self.torch_compile_mode = torch_compile_mode
+        self.dtype = None  # Will be set during model loading
+        self._encode_impl = None
+
+        # If metadata_only, just load config and return
+        if metadata_only:
+            config_path = os.path.join(model_path, "config.yaml")
+            if not os.path.exists(config_path):
+                raise FileNotFoundError(f"Config file not found at {config_path}")
+
+            cfg = OmegaConf.load(config_path)
+
+            if "n_embed" not in cfg or "embed_dim" not in cfg:
+                raise ValueError(f"Config must contain 'n_embed' and 'embed_dim'. Found keys: {list(cfg.keys())}")
+
+            self.codebook_size = cfg["n_embed"]
+            self.codebook_dim = cfg["embed_dim"]
+            return
+
+        super().__init__(**kwargs)
+
+    def smart_resize(self, height: int, width: int) -> Tuple[int, int]:
+        """
+        Smart resize following Emu3's approach - maintains aspect ratio and keeps
+        pixels within [min_pixels, max_pixels] range while ensuring divisibility by spatial_factor.
+
+        Args:
+            height: Original image height
+            width: Original image width
+
+        Returns:
+            Tuple of (new_height, new_width)
+        """
+        return smart_resize_dims(
+            height,
+            width,
+            min_pixels=self.min_pixels,
+            max_pixels=self.max_pixels,
+            factor=self.spatial_factor,
+        )
+
+    def _pil_to_tensor(self, image: Image.Image) -> torch.Tensor:
+        """Convert an RGB PIL image to a normalized CHW tensor on the target device."""
+        array = np.array(image, dtype=np.uint8, copy=True)
+        tensor = torch.from_numpy(array)
+        tensor = tensor.permute(2, 0, 1).to(self.device, dtype=self.dtype)
+        tensor.div_(127.5).sub_(1.0)
+        return tensor
+
+    def _load_model(self) -> None:
+        """Load the Emu3.5 IBQ model"""
+        print(f"Loading {self.name} from {self.model_path}...")
+
+        try:
+            # Load configuration
+            config_path = os.path.join(self.model_path, "config.yaml")
+            if not os.path.exists(config_path):
+                raise FileNotFoundError(f"Config file not found at {config_path}")
+
+            cfg = OmegaConf.load(config_path)
+
+            # Initialize the model
+            self.model = Emu3IBQModel(**cfg)
+
+            # Load checkpoint
+            ckpt_path = os.path.join(self.model_path, "model.ckpt")
+            if not os.path.exists(ckpt_path):
+                raise FileNotFoundError(f"Checkpoint file not found at {ckpt_path}")
+
+            ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+            self.model.load_state_dict(ckpt)
+
+            # Move to device and set to eval mode
+            self.model = self.model.to(self.device)
+            self.model.eval()
+            self._encode_impl = self.model.encode
+            if self.torch_compile:
+                self._encode_impl = self._maybe_compile_encode(self._encode_impl)
+
+            print(f"✓ {self.name} loaded successfully")
+            print(f"Model device: {self.device}")
+
+            # Get codebook size and embedding dimension from config
+            if "n_embed" not in cfg or "embed_dim" not in cfg:
+                raise ValueError(f"Config must contain 'n_embed' and 'embed_dim'. Found keys: {list(cfg.keys())}")
+
+            self.codebook_size = cfg["n_embed"]
+            self.codebook_dim = cfg["embed_dim"]
+            print(f"Codebook size: {self.codebook_size}")
+            print(f"Codebook dimension: {self.codebook_dim}")
+
+            # Cache dtype for efficient preprocessing
+            self.dtype = next(self.model.parameters()).dtype
+            if self.verbose:
+                print(f"Model dtype: {self.dtype}")
+
+            self.get_params()
+
+        except Exception as e:
+            print(f"✗ Failed to load {self.name}: {e}")
+            raise
+
+    def _maybe_compile_encode(self, encode_fn):
+        """Compile the encode path when supported; fall back to eager on failure."""
+        if not hasattr(torch, "compile"):
+            print("torch.compile is not available; continuing in eager mode")
+            return encode_fn
+        if self.device.type != "cuda":
+            print("torch.compile requested for Emu3.5 on non-CUDA device; continuing in eager mode")
+            return encode_fn
+        try:
+            compiled = torch.compile(encode_fn, mode=self.torch_compile_mode)
+            print(f"✓ Enabled torch.compile for {self.name}.encode (mode={self.torch_compile_mode})")
+            return compiled
+        except Exception as exc:
+            print(f"⚠ torch.compile failed for {self.name}.encode, continuing in eager mode: {exc}")
+            return encode_fn
+
+    def preprocess(self, image: Image.Image) -> torch.Tensor:
+        """
+        Preprocess PIL image to tensor format expected by the model
+        Following Emu3.5's preprocessing from src/utils/input_utils.py
+        Optionally applies smart resizing if min_pixels/max_pixels are set
+        """
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+
+        if self.min_pixels is not None and self.max_pixels is not None:
+            width, height = image.size
+            new_height, new_width = self.smart_resize(height, width)
+
+            # Only resize if dimensions changed
+            if (new_height, new_width) != (height, width):
+                image = image.resize((new_width, new_height), Image.BICUBIC)
+                if self.verbose:
+                    print(
+                        f"Resized image from {width}x{height} to {new_width}x{new_height} "
+                        f"({width*height} -> {new_width*new_height} pixels)"
+                    )
+
+        # Following exact preprocessing from Emu3.5's build_image function.
+        image_tensor = self._pil_to_tensor(image)
+
+        # Note: NOT adding batch dimension here to be consistent with other tokenizers
+        # Batch dimension will be added in encode() method when needed
+        return image_tensor
+
+    def preprocess_cpu(self, images: List[Image.Image], resize_size: Tuple[int, int]) -> torch.Tensor:
+        """CPU phase of preprocessing: RGB convert + BICUBIC resize + stack.
+
+        Pure CPU work with no device interaction, safe to run in loader
+        threads (PIL releases the GIL during decode/resample). Returns a
+        pinned uint8 ``[B, H, W, C]`` tensor ready for one async H2D copy.
+        """
+        height, width = resize_size
+        # Write each image straight into the (pinned) batch buffer — avoids
+        # a per-image copy plus a pageable full-batch temporary.
+        pixels = torch.empty(
+            (len(images), height, width, 3), dtype=torch.uint8,
+            pin_memory=self.device.type == "cuda",
+        )
+        out = pixels.numpy()
+        for i, image in enumerate(images):
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+            iw, ih = image.size
+            if iw != width or ih != height:
+                image = image.resize((width, height), Image.BICUBIC)
+            out[i] = np.asarray(image, dtype=np.uint8)
+        return pixels
+
+    def to_device(self, pixels: torch.Tensor) -> torch.Tensor:
+        """Device phase: one async H2D copy + batched cast/normalize.
+
+        Elementwise ops match the legacy per-image path exactly (uint8→fp32
+        cast is exact; div/sub are IEEE-rounded identically), so tokens are
+        bit-identical — verified at 0/1,048,576 mismatches on real data.
+        """
+        pixels = pixels.to(self.device, non_blocking=True)
+        # Make NCHW contiguous while still uint8 (2 B/px traffic, not 8 B/px).
+        x = pixels.permute(0, 3, 1, 2).contiguous().to(self.dtype)
+        x.div_(127.5).sub_(1.0)
+        return x
+
+    def preprocess_batch(self, images, resize_size: Tuple[int, int]) -> torch.Tensor:
+        """
+        Preprocess batch of images to tensor format with specific resize dimensions.
+
+        Composition of ``preprocess_cpu`` + ``to_device``. The CPU phase may
+        run elsewhere (the pipeline runs it in prefetch workers), in which
+        case *images* arrives as the uint8 ``[B, H, W, C]`` tensor and only
+        the device phase remains — this entry point owns both forms.
+
+        Args:
+            images: List of PIL Images, or a CPU uint8 ``[B, H, W, C]`` tensor
+                already produced by ``preprocess_cpu``
+            resize_size: Target (height, width) for resizing all images
+
+        Returns:
+            Batched tensor of shape [B, C, H, W]
+        """
+        if isinstance(images, torch.Tensor):
+            return self.to_device(images)
+        return self.to_device(self.preprocess_cpu(images, resize_size))
+
+    def postprocess(self, tensor: torch.Tensor) -> Image.Image:
+        """
+        Postprocess tensor back to PIL image
+        Expects tensor in range [-1, 1]
+        """
+        # Remove batch dimension if present
+        if tensor.dim() == 4:
+            tensor = tensor.squeeze(0)
+
+        # Clamp to [-1, 1] and convert to [0, 1]
+        tensor = tensor.clamp(-1, 1)
+        tensor = (tensor + 1.0) / 2.0
+
+        # Convert to numpy (HWC format) and scale to [0, 255]
+        image_np = tensor.permute(1, 2, 0).cpu().numpy()
+        image_np = (image_np * 255).astype(np.uint8)
+
+        # Convert to PIL Image
+        return Image.fromarray(image_np)
+
+    def encode(self, tensor: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, Any]]:
+        """
+        Encode tensor to discrete tokens using Emu3.5 IBQ
+
+        Args:
+            tensor: Input tensor in shape (C, H, W) or (B, C, H, W) normalized to [-1, 1]
+
+        Returns:
+            indices: Token indices
+            additional_info: Dictionary containing latent shape info for decoding
+        """
+        with torch.no_grad():
+            # Add batch dimension if not present
+            if tensor.ndim == 3:
+                tensor = tensor.unsqueeze(0)
+
+            # Encode using Emu3.5 IBQ
+            encode_fn = self._encode_impl or self.model.encode
+            quant, emb_loss, info = encode_fn(tensor)
+
+            # Extract indices from info tuple
+            # info is typically (perplexity, min_encodings, indices)
+            if isinstance(info, tuple) and len(info) > 2:
+                indices = info[2]
+            else:
+                # If info structure is different, assume last element is indices
+                indices = info[-1] if isinstance(info, tuple) else info
+
+            # Note: After modifying Emu3.5 source, indices are now spatial [B, H, W]
+            # instead of flattened, matching Emu3's behavior
+
+            # Store additional info needed for decoding
+            additional_info = {
+                "latent_shape": quant.shape,  # Shape of the latent representation [B, C, H, W]
+                "original_shape": tensor.shape,
+            }
+
+            return indices, additional_info
+
+    def decode(self, indices: torch.Tensor, additional_info: Optional[Dict[str, Any]] = None) -> torch.Tensor:
+        """
+        Decode discrete tokens back to tensor using Emu3.5 IBQ
+
+        Args:
+            indices: Token indices
+            additional_info: Dictionary containing latent shape info
+
+        Returns:
+            Reconstructed tensor in range [-1, 1]
+        """
+        with torch.no_grad():
+            # Get the shape for proper reconstruction
+            if additional_info and "latent_shape" in additional_info:
+                latent_shape = additional_info["latent_shape"]
+                # latent_shape is (B, C, H, W) format
+                # decode_code expects shape as (batch, height, width, channel)
+                shape = (latent_shape[0], latent_shape[2], latent_shape[3], latent_shape[1])
+            else:
+                # Estimate shape from indices
+                # Assuming indices shape is [batch, num_tokens] or [batch, height, width]
+                if indices.ndim == 3:
+                    # Already in [batch, height, width] format
+                    batch_size, h, w = indices.shape
+                    shape = (batch_size, h, w, self.codebook_dim)
+                elif indices.ndim == 2:
+                    # [batch, num_tokens] format - need to reshape
+                    batch_size = indices.shape[0]
+                    num_tokens = indices.shape[1]
+                    # Assume square spatial dimensions
+                    spatial_size = int(np.sqrt(num_tokens))
+                    shape = (batch_size, spatial_size, spatial_size, self.codebook_dim)
+                else:
+                    # Single batch, flatten format
+                    num_tokens = indices.numel()
+                    spatial_size = int(np.sqrt(num_tokens))
+                    shape = (1, spatial_size, spatial_size, self.codebook_dim)
+
+            # Decode using codebook lookup with indices only
+            reconstructed = self.model.decode_code(indices, shape=shape)
+
+            # Clamp to valid range
+            return reconstructed.clamp(-1, 1)
+
+    def get_num_tokens(self, indices: torch.Tensor) -> int:
+        """Get number of tokens for compression ratio calculation"""
+        # After modifying Emu3.5 source, indices are spatial [B, H, W]
+        if len(indices.shape) == 3:  # [batch, height, width]
+            return indices.shape[1] * indices.shape[2]
+        elif len(indices.shape) == 2:  # [height, width] for single image
+            return indices.shape[0] * indices.shape[1]
+        else:
+            # For other shapes, return total elements per batch
+            return indices.numel() // (indices.shape[0] if indices.shape else 1)
+
+
+if __name__ == "__main__":
+    import sys
+
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+    from utils_benchmark import load_all_images
+
+    # Model path - shared location for all users
+    model_path = "/capstor/store/cscs/swissai/infra01/MLLM/Emu3.5-VisionTokenizer"
+
+    # Check if model exists
+    if not os.path.exists(model_path):
+        print(f"ERROR: Model not found at {model_path}")
+        print("This is the shared model location.")
+        exit(1)
+
+    # Initialize the Emu3.5 IBQ tokenizer with smart resizing
+    print("Initializing Emu3.5 IBQ tokenizer...")
+    tokenizer = Emu3_5_IBQ(
+        model_path=model_path, min_pixels=512 * 512, max_pixels=1024 * 1024  # Same as Emu3  # Same as Emu3
+    )
+
+    # Get model parameters
+    tokenizer.get_params()
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # Load images from original assets folder
+    images, image_names, image_paths = load_all_images(
+        "/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/original"
+    )
+
+    print(f"Found {len(images)} images to process")
+
+    # Setup output path
+    RECONSTRUCTION_PATH = f"/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/{tokenizer.name}"
+    os.makedirs(RECONSTRUCTION_PATH, exist_ok=True)
+
+    print(f"\n{'='*80}")
+    print(f"PROCESSING WITH {tokenizer.name}")
+    print(f"Min pixels: {tokenizer.min_pixels}, Max pixels: {tokenizer.max_pixels}")
+    print(f"Output path: {RECONSTRUCTION_PATH}")
+    print(f"{'='*80}")
+
+    # Process each image
+    with torch.no_grad():
+        for idx, (image, name) in enumerate(zip(images, image_names)):
+            print(f"\n{'-'*60}")
+            print(f"Processing image {idx+1}/{len(images)}: {name}")
+            print(f"{'-'*60}")
+
+            try:
+                # Preprocess (includes smart resizing)
+                image_tensor = tokenizer.preprocess(image)
+                print(f"Preprocessed shape: {image_tensor.shape}")
+
+                # Add batch dimension for tokenizer
+                batch_tensor = image_tensor.unsqueeze(0) if image_tensor.ndim == 3 else image_tensor
+
+                # Encode and decode
+                indices, additional_info = tokenizer.encode(batch_tensor)
+                reconstructed_batch = tokenizer.decode(indices, additional_info)
+
+                # Remove batch dimension and move to CPU
+                reconstructed_tensor = reconstructed_batch.squeeze(0).clamp(-1, 1).cpu()
+
+                print(f"Encoded indices shape: {indices.shape}")
+
+                # Calculate tokens and compression ratio
+                total_tokens = tokenizer.get_num_tokens(indices)
+                original_pixels = image.width * image.height
+                compression_ratio = original_pixels / total_tokens
+
+                print(f"Total tokens: {total_tokens}")
+                print(f"Original image pixels: {original_pixels}")
+                print(f"Compression ratio: {compression_ratio:.2f}x")
+
+                # Convert to PIL for saving
+                reconstructed_pil = tokenizer.postprocess(reconstructed_tensor.unsqueeze(0))
+
+                # Create filename with token count
+                name_without_ext = os.path.splitext(name)[0]
+                output_filename = f"{name_without_ext}_{total_tokens}.png"
+                output_path = os.path.join(RECONSTRUCTION_PATH, output_filename)
+
+                # Save the reconstructed image
+                reconstructed_pil.save(output_path)
+                print(f"  💾 Saved: {output_filename}")
+
+            except Exception as e:
+                print(f"  ❌ Error processing {name}: {e}")
+                import traceback
+
+                traceback.print_exc()
+                continue
+
+            # Clean up memory
+            del image_tensor, batch_tensor, indices, reconstructed_batch, reconstructed_tensor
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    print(f"\n{'='*80}")
+    print(f"✅ Processing complete!")
+    print(f"Reconstructions saved to: {RECONSTRUCTION_PATH}")
+    print(f"{'='*80}")
