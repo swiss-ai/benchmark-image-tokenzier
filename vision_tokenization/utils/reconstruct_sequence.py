@@ -24,10 +24,10 @@ import numpy as np
 def _parse_sequence(seq: np.ndarray, tokenizer, vision_token_offset: int):
     """Parse a token sequence into logical segments.
 
-    Structure tokens (img_start, img_end, img_token_start, img_end_of_row,
-    img_end_of_frame) sit between the text vocab and the vision codebook.
-    Vision codebook IDs start at *vision_token_offset* (loaded from the
-    tokenizer's vision_token_mapping.json).
+    Structure tokens (img_start, img_end, img_token_start, img_end_of_row, img_end_of_frame)
+    are resolved from the tokenizer by name.
+    Apertus 1.5 appends them above the text vocab; Apertus 2 renames them in place inside it.
+    Vision codebook IDs start at *vision_token_offset*.
     """
     IMG_START = tokenizer.encode("<|img_start|>", add_special_tokens=False)[0]
     IMG_END = tokenizer.encode("<|img_end|>", add_special_tokens=False)[0]
@@ -181,10 +181,11 @@ def main():
     seq = np.array(ds[args.index], dtype=np.int32).copy()
     tok = AutoTokenizer.from_pretrained(args.tokenizer, trust_remote_code=True)
 
-    import json
-    mapping_path = Path(args.tokenizer) / "vision_token_mapping.json"
-    with open(mapping_path) as f:
-        vision_token_offset = json.load(f)["vision_token_offset"]
+    from vision_tokenization.discrete.emu.token_layout import vision_band
+    from vision_tokenization.utils.json import json_load
+
+    vision_token_offset, _ = vision_band(
+        json_load(Path(args.tokenizer) / "tokenizer_config.json"))
 
     segments = _parse_sequence(seq, tok, vision_token_offset)
 

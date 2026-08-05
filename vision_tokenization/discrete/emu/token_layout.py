@@ -1,14 +1,19 @@
-"""Token-id resolution from a tokenizer's static config — no tokenizer load,
+"""Token-id resolution from a tokenizer's static files — no tokenizer load,
 no torch.
 
-These helpers read ids straight out of ``tokenizer_config.json``
-(``added_tokens_decoder`` / ``omnimodal_config``) so the alignment scan and the
-inline merge can derive the manifest's ``token_layout`` without importing the
-EMU encoder (which pulls torch). ``EMUImageOnlyTokenizer`` re-imports
-``resolve_token_ids`` / ``vision_band`` / ``STRUCTURE_TOKENS`` from here.
+Structure-token ids come from ``tokenizer.json``'s ``added_tokens``;
+the modality bands come from ``tokenizer_config.json``'s ``omnimodal_config``.
+That lets the alignment scan and the inline merge derive the manifest's ``token_layout``
+without importing the EMU encoder, which pulls torch.
+``EMUImageOnlyTokenizer`` re-imports ``resolve_token_ids`` / ``vision_band`` /
+``STRUCTURE_TOKENS`` from here.
 """
 
+import hashlib
+import os
 from typing import Dict, Tuple
+
+from vision_tokenization.utils.json import json_load
 
 STRUCTURE_TOKENS = {
     "img_start": "<|img_start|>",
@@ -34,27 +39,34 @@ def resolve_token_ids(text_tokenizer, tokens: Dict[str, str]) -> Dict[str, int]:
     return resolved
 
 
-class _ConfigVocab:
-    """Duck-typed vocab over tokenizer_config.json's ``added_tokens_decoder``
-    so ``resolve_token_ids`` works without loading the tokenizer."""
-
-    def __init__(self, tokenizer_config: dict):
-        self._ids = {info["content"]: int(tid)
-                     for tid, info in tokenizer_config["added_tokens_decoder"].items()}
-        unk = tokenizer_config.get("unk_token")
-        if isinstance(unk, dict):
-            unk = unk.get("content")
-        self.unk_token_id = self._ids.get(unk)
-
-    def convert_tokens_to_ids(self, token: str):
-        return self._ids.get(token, self.unk_token_id)
-
-
-def resolve_token_ids_from_config(
-    tokenizer_config: dict, tokens: Dict[str, str],
+def resolve_token_ids_from_dir(
+    tokenizer_dir, tokens: Dict[str, str],
 ) -> Dict[str, int]:
-    """``resolve_token_ids`` from the config dict alone — no tokenizer load."""
-    return resolve_token_ids(_ConfigVocab(tokenizer_config), tokens)
+    """``resolve_token_ids`` from tokenizer.json's ``added_tokens`` — no tokenizer load."""
+    path = os.path.join(tokenizer_dir, "tokenizer.json")
+    ids = {entry["content"]: int(entry["id"])
+           for entry in json_load(path)["added_tokens"]}
+    missing = [token for token in tokens.values() if token not in ids]
+    if missing:
+        raise ValueError(
+            f"{path}: added_tokens is missing {missing}. "
+            f"Ensure the tokenizer vocabulary contains these tokens."
+        )
+    return {name: ids[token] for name, token in tokens.items()}
+
+
+def tokenizer_sha256(tokenizer_dir) -> str:
+    """Content identity of a tokenizer.
+
+    Carried in the plan fingerprint,
+    so pointing an existing output dir at a different tokenizer refuses to resume
+    instead of mixing id spaces. Also what the alignment manifest publishes.
+    """
+    digest = hashlib.sha256()
+    with open(os.path.join(tokenizer_dir, "tokenizer.json"), "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def vision_band(tokenizer_config: dict) -> Tuple[int, int]:

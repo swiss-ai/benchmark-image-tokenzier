@@ -11,6 +11,7 @@ from typing import List, Optional, Tuple
 import torch
 from transformers import AutoTokenizer
 
+from vision_tokenization.common.layout import image_sequence_length
 from vision_tokenization.utils.json import json_load
 from vision_tokenization.discrete.emu.token_layout import (
     STRUCTURE_TOKENS,
@@ -37,6 +38,8 @@ class EMUImageOnlyTokenizer:
         max_encode_pixels: Optional[int] = 8_000_000,
         torch_compile: bool = False,
         torch_compile_mode: str = "reduce-overhead",
+        vision_tokenizer_type: Optional[str] = None,
+        vision_tokenizer_path: Optional[str] = None,
         **kwargs,
     ):
         """
@@ -47,6 +50,10 @@ class EMUImageOnlyTokenizer:
             min_pixels: Minimum pixels for image preprocessing (required)
             max_pixels: Maximum pixels for image preprocessing (required)
             device: Device for image tokenizer (default: "cuda")
+            vision_tokenizer_type: Which discrete vision tokenizer to use, "Emu3" or "Emu3.5".
+                Falls back to the text tokenizer's ``vision_tokenizer`` config section,
+                which only the Apertus 1.5 artifacts carry.
+            vision_tokenizer_path: Weights path for that tokenizer, same fallback.
         """
 
         # Store device
@@ -75,15 +82,28 @@ class EMUImageOnlyTokenizer:
         config_path = Path(text_tokenizer_path) / "tokenizer_config.json"
         tokenizer_config = json_load(config_path)
 
-        if "vision_tokenizer" not in tokenizer_config:
+        # Apertus 1.5 names the vision tokenizer in its own config; Apertus 2 does not,
+        # so the pipeline config supplies it.
+        # The type must agree where both declare one, or the wrong front end encodes the
+        # codebook indices in silence. The path is free to differ — pointing at other
+        # weights is why the pipeline owns it, and 1.5 ships an absolute capstor mount.
+        vision_config = tokenizer_config.get("vision_tokenizer", {})
+        declared_type, declared_path = vision_config.get("type"), vision_config.get("path")
+        if vision_tokenizer_type and declared_type and vision_tokenizer_type != declared_type:
             raise ValueError(
-                f"No vision_tokenizer config found in {config_path}. "
-                f"Make sure the omni-tokenizer was created with vision tokenizer info."
+                f"vision_tokenizer_type {vision_tokenizer_type!r} from the pipeline config "
+                f"disagrees with {declared_type!r} declared in {config_path}."
             )
+        vision_tokenizer_type = vision_tokenizer_type or declared_type
+        vision_tokenizer_path = vision_tokenizer_path or declared_path
 
-        vision_config = tokenizer_config["vision_tokenizer"]
-        vision_tokenizer_type = vision_config["type"]
-        vision_tokenizer_path = vision_config["path"]
+        if not (vision_tokenizer_type and vision_tokenizer_path):
+            raise ValueError(
+                f"vision tokenizer unresolved (type={vision_tokenizer_type!r}, "
+                f"path={vision_tokenizer_path!r}). Set vision_tokenizer_type and "
+                f"vision_tokenizer_path in the pipeline config, or use a text tokenizer "
+                f"whose vision_tokenizer section supplies them ({config_path})."
+            )
 
         print(f"Loading vision tokenizer: {vision_tokenizer_type} from {vision_tokenizer_path}")
 
@@ -178,18 +198,7 @@ class EMUImageOnlyTokenizer:
         # Use cached dimension tokens to avoid repeated encoding
         dim_tokens = self._get_dim_tokens(height, width)
 
-        # Calculate total size
-        total_size = (
-            1  # BOS
-            + 1  # img_start
-            + len(dim_tokens)  # dimension tokens
-            + 1  # img_token_start
-            + num_tokens_needed  # vision tokens
-            + height  # EOL after each row
-            + 1  # EOF
-            + 1  # img_end
-            + 1  # EOS
-        )
+        total_size = image_sequence_length(height, width, len(dim_tokens))
 
         # Pre-allocate the entire output tensor
         output = torch.empty(total_size, dtype=torch.long)

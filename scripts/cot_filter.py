@@ -17,7 +17,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", required=True, help="input prefix (no .bin/.idx)")
     ap.add_argument("--output", required=True, help="output prefix (no .bin/.idx)")
-    ap.add_argument("--token", type=int, default=32, help="token id to require (default 32 = <think>)")
+    ap.add_argument("--token", type=int, required=True,
+                    help="token id to require, in the tokenizer that produced this dataset")
     a = ap.parse_args()
     tok = a.token
 

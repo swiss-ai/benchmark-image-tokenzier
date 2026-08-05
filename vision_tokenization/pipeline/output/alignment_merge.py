@@ -22,7 +22,6 @@ recorded in the views, leaving the token file's physical order free.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import logging
 import os
 import shutil
@@ -36,7 +35,8 @@ import pyarrow.parquet as pq
 
 from vision_tokenization.discrete.emu.token_layout import (
     STRUCTURE_TOKENS,
-    resolve_token_ids_from_config,
+    resolve_token_ids_from_dir,
+    tokenizer_sha256,
     vision_band,
 )
 from vision_tokenization.discrete.dpo_pairs import seq_lengths
@@ -442,15 +442,15 @@ def materialize_alignment(
     return backend.result
 
 
-def _token_layout(tokenizer_config: dict) -> dict:
-    """Manifest ``token_layout``, derived from tokenizer_config.json alone.
+def _token_layout(tokenizer_dir, tokenizer_config: dict) -> dict:
+    """Manifest ``token_layout``, derived from the tokenizer's static files alone.
 
-    Every id comes from the snapshot's ``added_tokens_decoder`` /
-    ``omnimodal_config`` — consumers read ids from the manifest, never from
-    literals, and publish never loads the tokenizer.
+    Ids come from the snapshot's ``added_tokens``, bands from its ``omnimodal_config``.
+    Consumers read ids from the manifest, never from literals,
+    and publish never loads the tokenizer.
     """
-    ids = resolve_token_ids_from_config(
-        tokenizer_config, {"image_marker": MARKER, **STRUCTURE_TOKENS})
+    ids = resolve_token_ids_from_dir(
+        tokenizer_dir, {"image_marker": MARKER, **STRUCTURE_TOKENS})
     vision_lo, vision_hi = vision_band(tokenizer_config)
     return {"image_marker": MARKER, "image_marker_id": ids.pop("image_marker"),
             **ids, "vision_lo": vision_lo, "vision_hi": vision_hi}
@@ -487,17 +487,18 @@ def publish_alignment_store(output_dir, *, keep_intermediates: bool = False) -> 
 
     tokenizer_path = Path(meta["tokenizer_path"])
     tokenizer_config = json_load(tokenizer_path / "tokenizer_config.json")
-    tok_sha = hashlib.sha256((tokenizer_path / "tokenizer.json").read_bytes()).hexdigest()
+    tok_sha = tokenizer_sha256(tokenizer_path)
     views = result["views"]
     json_dump_atomic({
         "schema_version": 3,
         "payload_format": "alignment_shard_local_v1",
         "tokenizer": {"path": meta["tokenizer_path"], "sha256": tok_sha},
-        "vision_tokenizer": {"version": tokenizer_config["vision_tokenizer"]["type"],
+        "vision_tokenizer": {"version": (meta.get("vision_tokenizer_type")
+                                         or tokenizer_config.get("vision_tokenizer", {}).get("type")),
                              "min_pixels": meta["tokenizer_min_pixels"],
                              "max_pixels": meta["tokenizer_max_pixels"]},
         "token_dtype": "<i4",
-        "token_layout": _token_layout(tokenizer_config),
+        "token_layout": _token_layout(tokenizer_path, tokenizer_config),
         "expected_min_model_vocab": max(
             m["offset"] + m["vocab_size"]
             for m in tokenizer_config["omnimodal_config"]["modalities"]),

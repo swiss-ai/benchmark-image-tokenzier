@@ -6,6 +6,11 @@ from typing import Optional, Tuple
 
 import numpy as np
 
+from vision_tokenization.common.layout import (
+    dim_tokens_upper_bound,
+    image_sequence_length,
+)
+
 try:
     from numba import njit, prange
 except ImportError:  # pragma: no cover - optional dependency
@@ -77,44 +82,6 @@ if njit is not None:
         return out_h, out_w
 
 
-    @njit(cache=True)
-    def _estimate_image_tokens_numba(
-        height: int,
-        width: int,
-        spatial_factor: int,
-    ) -> int:
-        token_height = height // spatial_factor
-        token_width = width // spatial_factor
-        vision_tokens = token_height * token_width
-        structural_tokens = 9 + token_height
-        return vision_tokens + structural_tokens
-
-
-    @njit(parallel=True, cache=True)
-    def _estimate_image_tokens_batch_numba(
-        heights: np.ndarray,
-        widths: np.ndarray,
-        spatial_factor: int,
-        min_pixels: int,
-        max_pixels: int,
-    ) -> np.ndarray:
-        tokens = np.empty(len(heights), dtype=np.int64)
-        for idx in prange(len(heights)):
-            final_height, final_width = _smart_resize_dims_numba(
-                int(heights[idx]),
-                int(widths[idx]),
-                min_pixels,
-                max_pixels,
-                spatial_factor,
-            )
-            tokens[idx] = _estimate_image_tokens_numba(
-                final_height,
-                final_width,
-                spatial_factor,
-            )
-        return tokens
-
-
 def smart_resize_dims(
     height: int,
     width: int,
@@ -156,61 +123,8 @@ def estimate_image_tokens(
     """Estimate emitted image-token sequence length for one resized image."""
     token_height = height // spatial_factor
     token_width = width // spatial_factor
-    vision_tokens = token_height * token_width
-    structural_tokens = (
-        1  # BOS
-        + 1  # img_start
-        + 3  # dimension tokens
-        + 1  # img_token_start
-        + token_height  # EOL per row
-        + 1  # EOF
-        + 1  # img_end
-        + 1  # EOS
-    )
-    return vision_tokens + structural_tokens
-
-
-def estimate_image_tokens_batch(
-    heights: np.ndarray,
-    widths: np.ndarray,
-    *,
-    spatial_factor: int = 16,
-    min_pixels: Optional[int],
-    max_pixels: Optional[int],
-) -> np.ndarray:
-    """Estimate image tokens for many images, using Numba when available."""
-    if len(heights) != len(widths):
-        raise ValueError("heights and widths must have the same length")
-
-    heights_arr = np.asarray(heights, dtype=np.int64)
-    widths_arr = np.asarray(widths, dtype=np.int64)
-    min_pixels_i = _pixel_limit(min_pixels)
-    max_pixels_i = _pixel_limit(max_pixels)
-
-    if _NUMBA_AVAILABLE:
-        return _estimate_image_tokens_batch_numba(
-            heights_arr,
-            widths_arr,
-            int(spatial_factor),
-            min_pixels_i,
-            max_pixels_i,
-        )
-
-    tokens = np.empty(len(heights_arr), dtype=np.int64)
-    for idx, (height, width) in enumerate(zip(heights_arr, widths_arr)):
-        final_height, final_width = smart_resize_dims(
-            int(height),
-            int(width),
-            min_pixels=min_pixels,
-            max_pixels=max_pixels,
-            factor=spatial_factor,
-        )
-        tokens[idx] = estimate_image_tokens(
-            final_height,
-            final_width,
-            spatial_factor=spatial_factor,
-        )
-    return tokens
+    return image_sequence_length(
+        token_height, token_width, dim_tokens_upper_bound(token_height, token_width))
 
 
 def smart_resize_dims_batch(

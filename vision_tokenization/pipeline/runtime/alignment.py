@@ -162,6 +162,7 @@ def run_alignment_scan(cfg: dict) -> dict:
         "tokenizer_path": cfg["tokenizer_path"],
         "tokenizer_min_pixels": cfg["tokenizer_min_pixels"],
         "tokenizer_max_pixels": cfg["tokenizer_max_pixels"],
+        "vision_tokenizer_type": cfg.get("vision_tokenizer_type"),
         "val_rows": int(cfg.get("val_rows", 0)),
         "source_input": (str(cfg["input_pattern"]) if cfg.get("input_pattern")
                          else str(cfg["input_parquet"])),

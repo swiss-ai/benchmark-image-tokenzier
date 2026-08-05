@@ -1,0 +1,3 @@
+# Postprocess/merge jobs additionally need a newer pyarrow than the image's 20.0.0.
+-r requirements.in
+pyarrow>=22

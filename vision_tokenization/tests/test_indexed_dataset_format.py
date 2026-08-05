@@ -31,7 +31,7 @@ import numpy as np
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from vision_tokenization.formats.megatron import IndexedDatasetBuilder, VisionTokenIndexedDatasetBuilder
+from vision_tokenization.formats.megatron import IndexedDatasetBuilder
 
 from .test_utils import calculate_expected_pointers, read_index_file, read_index_header
 
@@ -126,30 +126,6 @@ class TestIndexedDatasetFormat:
         saved_tokens = np.fromfile(f"{prefix}.bin", dtype=np.int32)
 
         assert np.array_equal(saved_tokens, tokens), f"Token mismatch: expected {tokens}, got {saved_tokens.tolist()}"
-
-    def test_multimodal_tokenizer_offset(self):
-        """Test vision tokenizer with multimodal offset."""
-        prefix = os.path.join(self.temp_dir, "test_multimodal")
-
-        # Original vision tokens
-        vision_tokens = np.array([100, 200, 300], dtype=np.int32)
-        text_vocab_size = 131072
-
-        # Create vision dataset
-        builder = VisionTokenIndexedDatasetBuilder(
-            output_prefix=prefix, image_vocab_size=32768, text_vocab_size=text_vocab_size
-        )
-        builder.add_image_tokens(vision_tokens)
-        builder.finalize()
-
-        # Read saved tokens
-        saved_tokens = np.fromfile(f"{prefix}.bin", dtype=np.int32)
-
-        # Verify offset was applied
-        expected_tokens = vision_tokens + text_vocab_size
-        assert np.array_equal(
-            saved_tokens, expected_tokens
-        ), f"Offset not applied: expected {expected_tokens.tolist()}, got {saved_tokens.tolist()}"
 
     def test_file_size_calculation(self):
         """Test that file sizes match expected values."""

@@ -73,7 +73,9 @@ def main():
     tok_dir = Path(args.tokenizer or manifest["tokenizer"]["path"])
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(str(tok_dir), trust_remote_code=True, use_fast=True)
-    vision_token_offset = json.loads((tok_dir / "vision_token_mapping.json").read_text())["vision_token_offset"]
+    # The manifest describes this store, so its band is the one these ids were written
+    # against. The tokenizer directory is second-hand and can be repointed.
+    vision_token_offset = manifest["token_layout"]["vision_lo"]
 
     idx = pq.read_table(store / f"index_{args.split}.parquet").to_pylist()
     binarr = np.memmap(store / f"{args.split}.bin", dtype="<i4", mode="r")

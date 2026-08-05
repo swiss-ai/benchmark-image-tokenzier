@@ -208,42 +208,24 @@ def compare_token_sequences(seq1: List[np.ndarray], seq2: List[np.ndarray]) -> T
     return all_match, results
 
 
-def create_test_indexed_dataset(
-    prefix: str, sequences: List[List[int]], multimodal: bool = False, text_vocab_size: int = 0
-):
-    """
-    Helper to create a test IndexedDataset.
+def create_test_indexed_dataset(prefix: str, sequences: List[List[int]]):
+    """Helper to create a test IndexedDataset.
 
     Args:
         prefix: Output prefix
         sequences: List of token sequences
-        multimodal: Whether to use multimodal tokenizer
-        text_vocab_size: Text vocabulary size for multimodal
     """
     import os
     import sys
 
     sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-    if multimodal:
-        from vision_tokenization.formats.megatron import VisionTokenIndexedDatasetBuilder
+    from vision_tokenization.formats.megatron import IndexedDatasetBuilder
 
-        builder = VisionTokenIndexedDatasetBuilder(
-            output_prefix=prefix, image_vocab_size=32768, text_vocab_size=text_vocab_size
-        )
-        for seq in sequences:
-            builder.add_image_tokens(np.array(seq, dtype=np.int32))
-    else:
-        from vision_tokenization.formats.megatron import IndexedDatasetBuilder
-
-        builder = IndexedDatasetBuilder(f"{prefix}.bin", dtype=np.int32)
-        for seq in sequences:
-            builder.add_document(seq, lengths=[len(seq)])
-
-    if multimodal:
-        builder.finalize()  # VisionTokenIndexedDatasetBuilder handles paths internally
-    else:
-        builder.finalize(f"{prefix}.idx")  # IndexedDatasetBuilder needs explicit idx path
+    builder = IndexedDatasetBuilder(f"{prefix}.bin", dtype=np.int32)
+    for seq in sequences:
+        builder.add_document(seq, lengths=[len(seq)])
+    builder.finalize(f"{prefix}.idx")
 
 
 def compare_with_original(tokenizer, image_indices: np.ndarray, height: int, width: int) -> Dict:

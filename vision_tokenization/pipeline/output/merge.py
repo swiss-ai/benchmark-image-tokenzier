@@ -19,7 +19,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 
 import numpy as np
 
@@ -70,7 +70,10 @@ import numba
 
 @numba.njit
 def _strip_thinking_inner(tokens, think_id, end_think_id, out):
-    """Numba-compiled one-pass state machine. Returns write count."""
+    """Numba-compiled one-pass state machine.
+
+    Returns the write count and whether the sequence ended mid-span.
+    """
     w = 0
     inside = False
     for i in range(len(tokens)):
@@ -85,15 +88,15 @@ def _strip_thinking_inner(tokens, think_id, end_think_id, out):
         else:
             out[w] = tok
             w += 1
-    return w
+    return w, inside
 
 
 def strip_thinking_tokens(
     tokens: np.ndarray,
-    think_id: int = 32,
-    end_think_id: int = 33,
-) -> Optional[np.ndarray]:
-    """Remove ``<think>...</think>`` spans from a token sequence.
+    think_id: int,
+    end_think_id: int,
+) -> Tuple[Optional[np.ndarray], bool]:
+    """Remove reasoning spans from a token sequence.
 
     One-pass two-state delimiter machine (numba-compiled):
 
@@ -102,18 +105,23 @@ def strip_thinking_tokens(
     - **inside**: drop everything including repeated ``think_id``;
       ``end_think_id`` exits back to *outside*.
 
-    Returns ``None`` if the result is empty after stripping.
+    Returns the stripped sequence (``None`` if empty afterwards),
+    and whether the sequence ended still inside a span.
+    An unclosed span drops everything after the opener,
+    which the output cannot be distinguished from a correct strip.
+    Hence the flag rather than silence.
     """
     n = len(tokens)
     if n == 0:
-        return None
+        return None, False
     if not ((tokens == think_id) | (tokens == end_think_id)).any():
-        return tokens  # fast path — no copy
+        # fast path — no copy
+        return tokens, False
 
     out = np.empty(n, dtype=tokens.dtype)
-    w = _strip_thinking_inner(tokens, think_id, end_think_id, out)
+    w, unclosed = _strip_thinking_inner(tokens, think_id, end_think_id, out)
 
-    return out[:w] if w > 0 else None
+    return (out[:w] if w > 0 else None), unclosed
 
 
 # ---------------------------------------------------------------------------
@@ -172,33 +180,61 @@ def _index_has_sequence_modes(path_prefix: str) -> bool:
     )
 
 
-def resolve_thinking_token_ids(tokenizer_path: str) -> tuple[int, int]:
-    """Resolve ``<think>``/``</think>`` token IDs from a tokenizer.json file.
+def resolve_reasoning_delimiters(tokenizer_dir: str) -> Tuple[int, int]:
+    """Delimiter ids for *tokenizer_dir*, by encoding the strings a chat template writes.
 
-    Uses the Rust-based ``tokenizers`` library for fast loading (no full
-    HuggingFace AutoTokenizer initialization).
+    Encoding rather than looking the names up is what makes this correct across tokenizer
+    revisions: apertus_emu3.5_wavtok_instruct_thinking_token_fixed normalizes ``<think>``
+    into ``<|inner_prefix|>``, so a name lookup returns 69 while the id in its data is 32.
 
-    Raises ``ValueError`` if either token is not in the vocabulary.
+    TODO: recheck once the Apertus 2 chat template lands. Apertus 2 carries ``<think>`` (22)
+    and ``<|inner_prefix|>`` (12) as separate unaliased tokens, so this returns 22/23 —
+    correct only if the template writes ``<think>`` for reasoning turns. If it writes
+    ``<|inner_prefix|>``, stripping matches nothing and says so only in the warning count.
     """
     from tokenizers import Tokenizer
 
-    json_path = Path(tokenizer_path)
-    if json_path.is_dir():
-        json_path = json_path / "tokenizer.json"
-    if not json_path.is_file():
-        raise FileNotFoundError(f"tokenizer.json not found at {json_path}")
+    path = Path(tokenizer_dir)
+    if path.is_dir():
+        path = path / "tokenizer.json"
+    tok = Tokenizer.from_file(str(path))
 
-    tok = Tokenizer.from_file(str(json_path))
+    ids = []
+    for text in ("<think>", "</think>"):
+        encoded = tok.encode(text, add_special_tokens=False).ids
+        if len(encoded) != 1:
+            raise ValueError(
+                f"{text!r} is not a single token in {path} (encodes to {encoded}). "
+                f"Pass --think-id/--end-think-id explicitly."
+            )
+        ids.append(encoded[0])
+    return ids[0], ids[1]
 
-    think_id = tok.token_to_id("<think>")
-    end_think_id = tok.token_to_id("</think>")
 
-    if think_id is None:
-        raise ValueError(f"<think> not found in tokenizer at {json_path}")
-    if end_think_id is None:
-        raise ValueError(f"</think> not found in tokenizer at {json_path}")
+def strip_thinking_dataset(
+    input_prefix: str,
+    output_prefix: str,
+    think_id: int,
+    end_think_id: int,
+) -> RewriteStats:
+    """Write *input_prefix* to *output_prefix* with reasoning spans removed."""
+    unclosed = 0
 
-    return think_id, end_think_id
+    def transform(seq):
+        nonlocal unclosed
+        stripped, ended_inside = strip_thinking_tokens(seq, think_id, end_think_id)
+        unclosed += ended_inside
+        return stripped
+
+    stats = rewrite_dataset(input_prefix, output_prefix, transform)
+    if unclosed:
+        logger.warning(
+            "%d of %d sequences ended inside an unclosed reasoning span — everything "
+            "after the opener was dropped. Expected for truncated generations; if it is "
+            "most of the dataset, think_id=%d/end_think_id=%d belong to another tokenizer.",
+            unclosed, stats.input_count, think_id, end_think_id,
+        )
+    return stats
 
 
 def rewrite_dataset(
@@ -279,6 +315,13 @@ def _find_shard_pairs(directory: Path) -> list[tuple[str, str]]:
         if idx.exists() and f.stat().st_size > 0:
             pairs.append((str(f), str(idx)))
     return pairs
+
+
+def _run_tokenizer_path(manifests: list) -> Optional[str]:
+    """The tokenizer this run was written with, if every rank agrees on it."""
+    paths = {m.get("tokenizer_path") for m in manifests}
+    paths.discard(None)
+    return paths.pop() if len(paths) == 1 else None
 
 
 def verify_manifests(output_dir: Path, manifests: list) -> tuple:
@@ -470,35 +513,17 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     parser.add_argument("--no-cot-output-name", default="merged_no_cot")
     parser.add_argument(
-        "--think-id", type=int, default=32,
-        help="<think> token ID (default: 32)",
+        "--think-id", type=int, default=None,
+        help="Override the reasoning-span opening token ID; by default it is "
+             "resolved from the tokenizer this run recorded",
     )
     parser.add_argument(
-        "--end-think-id", type=int, default=33,
-        help="</think> token ID (default: 33)",
-    )
-    parser.add_argument(
-        "--resolve-thinking-ids", action="store_true",
-        help="Resolve think/end-think IDs from --tokenizer-path instead of using defaults",
-    )
-    parser.add_argument(
-        "--tokenizer-path",
-        default="/capstor/store/cscs/swissai/infra01/MLLM/tokenizer/"
-        "apertus_emu3.5_wavtok_instruct",
-        help="Tokenizer path for --resolve-thinking-ids",
+        "--end-think-id", type=int, default=None,
+        help="Override the reasoning-span closing token ID",
     )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-
-    # Resolve thinking token IDs early so we fail before merge, not after
-    think_id, end_think_id = args.think_id, args.end_think_id
-    if args.strip_thinking and args.resolve_thinking_ids:
-        think_id, end_think_id = resolve_thinking_token_ids(args.tokenizer_path)
-        logger.info(
-            "Resolved thinking IDs from %s: think=%d, end_think=%d",
-            args.tokenizer_path, think_id, end_think_id,
-        )
 
     output_dir = Path(args.output_dir)
     from ..runtime.checkpoint import load_rank_manifests
@@ -537,19 +562,26 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(f"Merged to {result}.bin / {result}.idx")
 
     if args.strip_thinking:
-        from functools import partial
+        think_id, end_think_id = args.think_id, args.end_think_id
+        if think_id is None or end_think_id is None:
+            tokenizer_path = _run_tokenizer_path(manifests)
+            if tokenizer_path is None:
+                raise SystemExit(
+                    "--strip-thinking needs the delimiter ids. This run's manifests do "
+                    "not record a tokenizer_path (they predate it), so pass --think-id "
+                    "and --end-think-id, resolved from the tokenizer that produced it."
+                )
+            think_id, end_think_id = resolve_reasoning_delimiters(tokenizer_path)
+            logger.info("Resolved delimiters from %s: think=%d end_think=%d",
+                        tokenizer_path, think_id, end_think_id)
 
-        transform = partial(
-            strip_thinking_tokens,
-            think_id=think_id,
-            end_think_id=end_think_id,
-        )
         no_cot_prefix = str(output_dir / args.no_cot_output_name)
         logger.info(
             "Rewriting %s → %s (stripping think_id=%d, end_think_id=%d)",
             result, no_cot_prefix, think_id, end_think_id,
         )
-        stats = rewrite_dataset(str(result), no_cot_prefix, transform)
+        stats = strip_thinking_dataset(str(result), no_cot_prefix,
+                                       think_id, end_think_id)
         logger.info(
             "Rewrite complete: %d input → %d written (%d tokens), %d skipped",
             stats.input_count, stats.written_count, stats.output_tokens,

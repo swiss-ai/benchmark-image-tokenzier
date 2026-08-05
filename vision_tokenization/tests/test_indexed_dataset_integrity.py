@@ -32,7 +32,7 @@ import numpy as np
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from vision_tokenization.formats.megatron import IndexedDatasetBuilder, VisionTokenIndexedDatasetBuilder
+from vision_tokenization.formats.megatron import IndexedDatasetBuilder
 
 from .test_utils import compare_token_sequences, read_index_file
 
@@ -61,52 +61,6 @@ class TestDatasetVerification:
 
     # Note: test_sequence_pointer_calculation removed - duplicate of test_megatron_indexed_dataset.py::test_sequence_pointers
     # Note: test_document_indices_structure removed - duplicate of test_megatron_indexed_dataset.py::test_document_indices
-
-    def test_multimodal_token_recovery(self):
-        """Test recovering original tokens from multimodal dataset."""
-        # Original vision tokens (before offset)
-        original_tokens = [
-            np.array([100, 200, 300], dtype=np.int32),
-            np.array([1000, 2000], dtype=np.int32),
-            np.array([5000, 6000, 7000, 8000], dtype=np.int32),
-        ]
-
-        text_vocab_size = 131072
-        prefix = os.path.join(self.temp_dir, "test_recovery")
-
-        # Create dataset with offset
-        builder = VisionTokenIndexedDatasetBuilder(
-            output_prefix=prefix, image_vocab_size=32768, text_vocab_size=text_vocab_size
-        )
-
-        for tokens in original_tokens:
-            builder.add_image_tokens(tokens)
-
-        builder.finalize()
-
-        # Read saved tokens
-        saved_tokens_raw = np.fromfile(f"{prefix}.bin", dtype=np.int32)
-
-        # Verify offset was applied
-        assert saved_tokens_raw.min() >= text_vocab_size, "Multimodal offset not applied"
-
-        # Read index structure
-        data = read_index_file(f"{prefix}.idx")
-
-        # Extract and verify each sequence
-        for i, expected_tokens in enumerate(original_tokens):
-            start = data["seq_pointers"][i] // 4
-            length = data["seq_lengths"][i]
-
-            # Extract with offset
-            saved_with_offset = saved_tokens_raw[start : start + length]
-
-            # Remove offset
-            recovered = saved_with_offset - text_vocab_size
-
-            assert np.array_equal(recovered, expected_tokens), f"Sequence {i}: recovery failed"
-
-    # Note: test_empty_sequences_handling removed - similar to test_megatron_indexed_dataset.py::test_empty_dataset
 
     def test_large_dataset_structure(self):
         """Test structure with many sequences."""
@@ -143,28 +97,27 @@ class TestDatasetVerification:
         assert actual_bin_size == expected_bin_size, f"Binary size mismatch: {actual_bin_size} != {expected_bin_size}"
 
     def test_token_value_preservation(self):
-        """Test that token values are preserved exactly."""
-        # Test with edge case values
+        """Token values must survive the bin/idx round trip exactly.
+
+        The interesting values are the dtype boundaries and the id ranges
+        the Apertus tokenizers actually use:
+        2^15, 2^16, the 1.5 base vocab at 131072, and the Apertus 2 vision band at 200064+.
+        """
         test_sequences = [
-            [0, 1, 2, 3, 4],  # Small values
-            [32767, 32768, 32769],  # Around 2^15
-            [65535, 65536, 65537],  # Around 2^16
-            [131071, 131072, 131073],  # Around text vocab boundary
+            [0, 1, 2, 3, 4],
+            [32767, 32768, 32769],
+            [65535, 65536, 65537],
+            [131071, 131072, 131073],
+            [200063, 200064, 331135, 331136],
         ]
 
         prefix = os.path.join(self.temp_dir, "test_values")
-
-        # Test without offset
-        builder = VisionTokenIndexedDatasetBuilder(
-            output_prefix=prefix, image_vocab_size=200000, text_vocab_size=0  # No offset
-        )
-
+        builder = IndexedDatasetBuilder(f"{prefix}.bin", dtype=np.int32)
         for seq in test_sequences:
-            builder.add_image_tokens(np.array(seq, dtype=np.int32))
+            builder.add_item(np.array(seq, dtype=np.int32))
+            builder.end_document()
+        builder.finalize(f"{prefix}.idx")
 
-        builder.finalize()
-
-        # Read and verify each sequence
         all_tokens = np.fromfile(f"{prefix}.bin", dtype=np.int32)
         data = read_index_file(f"{prefix}.idx")
 
@@ -173,9 +126,10 @@ class TestDatasetVerification:
             length = data["seq_lengths"][i]
             saved_seq = all_tokens[start : start + length]
 
-            assert np.array_equal(
-                saved_seq, expected_seq
-            ), f"Sequence {i} values not preserved: {saved_seq.tolist()} != {expected_seq}"
+            assert np.array_equal(saved_seq, expected_seq), (
+                f"Sequence {i} values not preserved: "
+                f"{saved_seq.tolist()} != {expected_seq}"
+            )
 
 
 def test_compare_tokens_functionality():

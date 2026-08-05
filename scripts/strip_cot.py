@@ -38,10 +38,7 @@ from pathlib import Path
 # Megatron path is handled by merge._ensure_megatron_importable() at call time.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from vision_tokenization.pipeline.output.merge import (
-    rewrite_dataset,
-    strip_thinking_tokens,
-)
+from vision_tokenization.pipeline.output.merge import strip_thinking_dataset
 
 
 # Default output dir for stripped variants. Lands directly in
@@ -57,8 +54,8 @@ def strip_cot(
     input_prefix: str,
     output_prefix: str | None = None,
     *,
-    think_id: int = 32,
-    end_think_id: int = 33,
+    think_id: int,
+    end_think_id: int,
 ) -> str:
     """Strip `<think>...</think>` from a merged dataset; return output prefix.
 
@@ -69,8 +66,9 @@ def strip_cot(
             stripped variants live alongside the symlinked no-CoT-native
             datasets in the capability-filtering dir. The canonical
             `Apertus1p5_sft_tokenized/` dir is never modified.
-        think_id: token ID for `<think>` (default 32 = Apertus EMU3.5 instruct).
-        end_think_id: token ID for `</think>` (default 33).
+        think_id: token ID opening a reasoning span,
+            in the tokenizer that produced this dataset.
+        end_think_id: token ID closing it.
 
     Returns the output prefix.
     """
@@ -80,13 +78,8 @@ def strip_cot(
         basename = os.path.basename(input_prefix)
         output_prefix = os.path.join(_DEFAULT_OUTPUT_DIR, basename)
 
-    transform = (
-        lambda toks: strip_thinking_tokens(toks, think_id, end_think_id)
-        if think_id != 32 or end_think_id != 33
-        else strip_thinking_tokens(toks)
-    )
-
-    stats = rewrite_dataset(input_prefix, output_prefix, transform)
+    stats = strip_thinking_dataset(input_prefix, output_prefix,
+                                   think_id, end_think_id)
     print(f"input:    {stats.input_count:,} sequences")
     print(f"written:  {stats.written_count:,} sequences")
     print(f"skipped:  {stats.skipped_count:,} sequences (empty after strip)")
@@ -99,8 +92,11 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("input_prefix", help="Dataset prefix (no .bin/.idx suffix).")
     p.add_argument("--output", default=None, help="Output prefix (default: {input}_no_cot).")
-    p.add_argument("--think-id", type=int, default=32)
-    p.add_argument("--end-think-id", type=int, default=33)
+    p.add_argument("--think-id", type=int, required=True,
+                   help="Reasoning-span opening token ID in the tokenizer that "
+                        "produced this dataset")
+    p.add_argument("--end-think-id", type=int, required=True,
+                   help="Reasoning-span closing token ID")
     args = p.parse_args(argv)
 
     if not os.path.exists(args.input_prefix + ".bin"):

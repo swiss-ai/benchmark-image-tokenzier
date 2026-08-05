@@ -1,6 +1,5 @@
 #!/bin/bash
-# Bucket one lct dataset into the medium (16k-131k) or long (131k-262k) pool,
-# with the 80/20 default-sysprompt dropout + edge-strip (so max+43 fits max).
+# Bucket one lct dataset into the medium (16k-131k) or long (131k-262k) pool.
 # Usage: build_lct_bucket.sh <dataset> <medium|long>
 set -euo pipefail
 DS="$1"; BAND="$2"
@@ -22,5 +21,4 @@ echo ">>> $DS / $BAND  [$MIN,$MAX] -> $OUTP"
 python -m vision_tokenization.pipeline.output.bucket_by_length \
   --input "$IN" --output "$OUTP" \
   --min-token "$MIN" --max-token "$MAX" \
-  --strip-default-sysprompt --sysprompt-dropout-rate 0.8 --seed 42 \
   2>&1 | grep -viE "futurewarning|pynvml|warnings.warn"

@@ -1,9 +1,11 @@
+import json
+
 import pytest
 
 from vision_tokenization.discrete.emu.token_layout import (
     STRUCTURE_TOKENS,
     resolve_token_ids,
-    resolve_token_ids_from_config,
+    resolve_token_ids_from_dir,
     vision_band,
 )
 
@@ -46,15 +48,37 @@ def test_vision_band_missing_vocab_size_fails_loud():
         vision_band(cfg)
 
 
-def test_resolve_token_ids_from_config_uses_added_tokens_decoder():
-    cfg = {"added_tokens_decoder": {"0": {"content": "<unk>"},
-                                    "131073": {"content": "<|img_start|>"}},
-           "unk_token": "<unk>"}
-    assert resolve_token_ids_from_config(
-        cfg, {"img_start": "<|img_start|>"}) == {"img_start": 131073}
+def _tokenizer_dir(tmp_path, added_tokens):
+    (tmp_path / "tokenizer.json").write_text(
+        json.dumps({"added_tokens": added_tokens}), encoding="utf-8")
+    return tmp_path
 
 
-def test_resolve_token_ids_from_config_refuses_missing_token():
-    cfg = {"added_tokens_decoder": {"0": {"content": "<unk>"}}, "unk_token": "<unk>"}
-    with pytest.raises(ValueError, match="UNK"):
-        resolve_token_ids_from_config(cfg, {"img_start": "<|img_start|>"})
+def test_resolve_token_ids_from_dir_reads_added_tokens(tmp_path):
+    d = _tokenizer_dir(tmp_path, [{"id": 0, "content": "<unk>"},
+                                  {"id": 131073, "content": "<|img_start|>"},
+                                  {"id": 27, "content": "<|img_end|>"}])
+    assert resolve_token_ids_from_dir(
+        d, {"img_start": "<|img_start|>", "img_end": "<|img_end|>"}
+    ) == {"img_start": 131073, "img_end": 27}
+
+
+def test_tokenizer_sha256_distinguishes_tokenizers(tmp_path):
+    from vision_tokenization.discrete.emu.token_layout import tokenizer_sha256
+
+    def make(name, added):
+        d = tmp_path / name
+        d.mkdir()
+        (d / "tokenizer.json").write_text(json.dumps({"added_tokens": added}), encoding="utf-8")
+        return d
+
+    a = make("a", [{"id": 131073, "content": "<|img_start|>"}])
+    b = make("b", [{"id": 27, "content": "<|img_start|>"}])
+    assert tokenizer_sha256(a) != tokenizer_sha256(b)
+    assert tokenizer_sha256(a) == tokenizer_sha256(a)
+
+
+def test_resolve_token_ids_from_dir_refuses_missing_token(tmp_path):
+    d = _tokenizer_dir(tmp_path, [{"id": 0, "content": "<unk>"}])
+    with pytest.raises(ValueError, match="missing"):
+        resolve_token_ids_from_dir(d, {"img_start": "<|img_start|>"})
