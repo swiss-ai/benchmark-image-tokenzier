@@ -1,0 +1,49 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# LLaVA-OneVision 1.5 Instruct — vision-curated, permissive subset.
+#
+# Source: mvp-lab/LLaVA-OneVision-1.5-Instruct-Data (overall Apache-2.0),
+# filtered to the 125 vision SFT subsets that satisfy ALL of:
+#   - actual image data (excludes text-only subsets like mathqa, magpie_pro, ...)
+#   - permissive upstream license (MIT / Apache-2.0 / CC-BY-4.0 family)
+#   - excluded: GPL-3 (chartqa), non-commercial CC-BY-NC-SA (scienceqa), and
+#     share-alike CC-BY-SA (arxivqa, wikipedia_2m, wit-part-00..09)
+#   - included: sharegpt4o is MIT-licensed upstream (OpenGVLab/ShareGPT-4o)
+#
+# All 125 subsets use HF Arrow IPC format with schema
+#   {id: str, image: struct<bytes, path>, conversations: list<{role,content}>,
+#    data_source: str}.
+#
+# Differs from llava_onevision_sft.yaml (which targets the full unfiltered
+# 161-subset tree) by pointing input_pattern at the curated _valid_subsets/
+# symlink dir; same conversation parser + policy applies.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: llava_ov_permissive
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/sft/hf___mvp-lab___LLaVA-OneVision-1.5-Instruct-Data_valid_subsets/**/*.arrow"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/llava_ov_permissive/manifest.parquet
+
+image_column: image
+
+parser: conversation
+parser_columns:
+  - conversations
+
+conversation_policy:
+  add_image_placeholder: true
+  add_system_message: true
+
+# Manifest-level pixel cap left wide open; smart_resize handles large Docmatix
+# scans (multi-thousand pixel sides) at the tokenizer layer.
+max_pixels: "65536*65536"
+
+# Stage 2 / lct split at 8K; multi-image Docmatix and OmniDocBench rows are the
+# main lct contributors.
+max_sequence_tokens: 262_144
+max_batch_tokens: 32_768
+
+plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/llava_ov_permissive.pt

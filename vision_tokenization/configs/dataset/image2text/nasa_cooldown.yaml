@@ -30,4 +30,3 @@ max_batch_tokens: 32_768
 # samples will land in stage2/ (image tokens dominate at ~6-7K post-downscale,
 # captions are ~150 tokens), with a small lct/ tail for very large images
 # (some source >15000×15000).
-seqlen_threshold: 8192

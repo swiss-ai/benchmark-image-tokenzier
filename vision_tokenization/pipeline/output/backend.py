@@ -3,12 +3,13 @@
 - ``DirectBackend``: assembles and writes final bin/idx immediately.
 - ``SpillBackend``: writes keyed component payloads for offline rebuild.
 
-The executor instantiates one based on ``use_spill = multi_image or mode == "interleave"``.
+The executor instantiates one based on mode/multi_image.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -22,6 +23,20 @@ from ...discrete.sft_segments import build_segment_component_maps
 logger = logging.getLogger(__name__)
 
 
+def write_rank_success_marker(output_dir: Path, rank: int) -> None:
+    """Mark this rank's SPILL as complete by touching ``rank_NNNN/_SUCCESS``.
+
+    Spill-only: ``rebuild_rank`` refuses rank dirs without it. Rank-level
+    completion is asserted by the completion manifest, not this marker.
+
+    Read by ``merge._all_ranks_done`` to gate the merge step. Both backends
+    write the same marker at the same path so the merge contract is uniform.
+    """
+    rank_dir = output_dir / f"rank_{rank:04d}"
+    rank_dir.mkdir(parents=True, exist_ok=True)
+    (rank_dir / "_SUCCESS").touch()
+
+
 class DirectBackend:
     """Assemble and write final bin/idx sequences immediately.
 
@@ -29,38 +44,37 @@ class DirectBackend:
     No intermediate spill, no offline rebuild.
     """
 
-    def __init__(self, mode: str, seqlen_threshold: Optional[int] = None):
+    name = "direct"
+
+    def __init__(self, mode: str):
         self._mode = mode
-        self._seqlen_threshold = seqlen_threshold
         self._handler = None
-        self._chunk_id = 0
+        self._output_dir: Optional[Path] = None
+        self._rank: Optional[int] = None
 
-    def open(self, output_dir: str, rank: int, resume_state: Optional[dict] = None, tokenizer=None) -> None:
+    def open(self, output_dir: str, rank: int, writer_state: Optional[dict] = None, tokenizer=None) -> None:
+        """*writer_state* is the opaque dict this backend returned from
+        ``checkpoint()`` — round-tripped through the checkpoint, interpreted
+        only by the writer that produced it."""
         from .direct.handler import TokenizationHandler
-        from .direct.writer import MicroShardWriter, SplitMicroShardWriter
+        from .direct.writer import MicroShardWriter
 
-        if self._seqlen_threshold is not None:
-            writer = SplitMicroShardWriter(seqlen_threshold=self._seqlen_threshold)
-        else:
-            writer = MicroShardWriter()
-
+        writer = MicroShardWriter()
+        self._writer = writer
         needs_text = self._mode in ("sft", "image2text", "text2image")
         self._handler = TokenizationHandler(writer, needs_text)
 
-        start_chunk = 0
-        if resume_state:
-            start_chunk = resume_state.get("chunk_id", 0) + 1
-        self._chunk_id = start_chunk
+        self._output_dir = Path(output_dir)
+        self._rank = rank
 
-        if self._seqlen_threshold is not None:
-            self._handler.setup_writer(
-                output_dir, rank,
-                resume_state.get("stage2_chunk_id", 0) + 1 if resume_state else 0,
-                resume_state.get("lct_chunk_id", 0) + 1 if resume_state else 0,
-                tokenizer,
-            )
-        else:
-            self._handler.setup_writer(output_dir, rank, start_chunk, tokenizer)
+        start_chunk = MicroShardWriter.resume_chunk(writer_state) if writer_state else 0
+        self._handler.setup_writer(output_dir, rank, start_chunk, tokenizer)
+        if writer_state:
+            writer.restore(writer_state)
+
+    def completed_files(self) -> list:
+        """Finalized-shard records for the rank completion manifest."""
+        return list(self._writer.finalized_files)
 
     def write_batch(
         self,
@@ -79,12 +93,13 @@ class DirectBackend:
             texts=texts, group_slices=group_slices, timing_enabled=timing_enabled,
         )
 
-    def checkpoint(self) -> Any:
-        done = self._handler.checkpoint_writer()
-        self._chunk_id = done + 1 if isinstance(done, int) else self._chunk_id + 1
-        return {"chunk_id": done}
+    def checkpoint(self) -> dict:
+        """Roll the chunk; return the writer's opaque resume state."""
+        return self._handler.checkpoint_writer()
 
     def finalize(self) -> None:
+        # No marker: rank completion is asserted by the manifest the
+        # executor publishes after finalize succeeds.
         if self._handler:
             self._handler.finalize_writer()
 
@@ -92,17 +107,25 @@ class DirectBackend:
 class SpillBackend:
     """Write keyed component payloads for offline rebuild."""
 
+    name = "spill"
+
     def __init__(self):
         self._writer = None
         self._dropped_sft_docs: set[int] = set()
+        self._output_dir: Optional[Path] = None
+        self._rank: Optional[int] = None
 
-    def open(self, output_dir: str, rank: int, resume_state: Optional[dict] = None) -> None:
+    def open(self, output_dir: str, rank: int, writer_state: Optional[dict] = None) -> None:
+        """Spill resume is filesystem-truth: *writer_state* marks that a
+        resume was requested; the shard cursor is recovered from disk."""
         from .spill import ComponentSpillWriter, recover_worker_shards
 
         self._writer = ComponentSpillWriter(output_dir, rank, token_dtype=np.int32)
         self._dropped_sft_docs.clear()
+        self._output_dir = Path(output_dir)
+        self._rank = rank
         start_shard = 0
-        if resume_state:
+        if writer_state is not None:
             rank_dir = Path(output_dir) / f"rank_{rank:04d}"
             start_shard = recover_worker_shards(rank_dir)
         self._writer.open(start_shard_id=start_shard)
@@ -120,7 +143,6 @@ class SpillBackend:
         stats: WorkerStats,
     ) -> dict:
         """Spill one batch's components to disk for offline rebuild."""
-        import time
         t0 = time.perf_counter()
         kwargs = dict(
             image_tokens=image_tokens,
@@ -182,27 +204,24 @@ class SpillBackend:
         # Spill one text component per document for non-interleave modes.
         if texts is None:
             return
-        if group_slices is not None:
-            for g_idx, (start, end) in enumerate(group_slices):
-                start, end = int(start), int(end)
-                if start >= end:
-                    continue
-                text = texts[g_idx] if g_idx < len(texts) else None
-                if text is None:
-                    continue
-                doc_comp_indices = component_indices[start:end]
-                # Spill doc-level text only once, from the batch containing image_index=0.
-                if not np.any(plan.components.image_index[doc_comp_indices] == 0):
-                    continue
-                doc_id = int(plan.components.document_id[int(doc_comp_indices[0])])
-                self._spill_doc_text(text, doc_id, plan, tokenizer, stats)
-        else:
-            for i, comp_idx in enumerate(component_indices):
-                text = texts[i] if i < len(texts) else None
-                if text is None:
-                    continue
-                doc_id = int(plan.components.document_id[int(comp_idx)])
-                self._spill_doc_text(text, doc_id, plan, tokenizer, stats)
+        if group_slices is None:
+            # Spill mode implies multi_image, and the executor always builds
+            # group_slices for multi_image runs — flat text spill would silently
+            # produce docs with missing text at rebuild.
+            raise ValueError("Unsegmented spill with texts requires group_slices")
+        for g_idx, (start, end) in enumerate(group_slices):
+            start, end = int(start), int(end)
+            if start >= end:
+                continue
+            text = texts[g_idx] if g_idx < len(texts) else None
+            if text is None:
+                continue
+            doc_comp_indices = component_indices[start:end]
+            # Spill doc-level text only once, from the batch containing image_index=0.
+            if not np.any(plan.components.image_index[doc_comp_indices] == 0):
+                continue
+            doc_id = int(plan.components.document_id[int(doc_comp_indices[0])])
+            self._spill_doc_text(text, doc_id, plan, tokenizer, stats)
 
     def _spill_doc_text(
         self,
@@ -224,13 +243,16 @@ class SpillBackend:
         stats.text_tokens += len(text_np)
         stats.tokens_generated += len(text_np)
 
-    def checkpoint(self) -> Any:
-        done = self._writer.checkpoint()
-        return {"shard_id": done}
+    def checkpoint(self) -> dict:
+        """Flush the shard; resume state is recovered from disk, not stored."""
+        self._writer.checkpoint()
+        return {}
 
     def finalize(self) -> None:
         if self._writer:
             self._writer.finalize()
+        if self._output_dir is not None and self._rank is not None:
+            write_rank_success_marker(self._output_dir, self._rank)
 
     def _mark_sft_doc_dropped(
         self,

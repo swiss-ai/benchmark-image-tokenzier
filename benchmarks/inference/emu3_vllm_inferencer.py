@@ -42,7 +42,7 @@ class EMU3Inferencer:
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
 
         # Load vision token mapping and special token IDs
-        self.vision_mapping = self._load_vision_mapping()
+        self.vision_lo, self.vision_hi = self._load_vision_band()
         self.special_token_ids = self._get_special_token_ids()
 
         # Auto-detect tensor parallel size
@@ -81,15 +81,17 @@ class EMU3Inferencer:
 
         return self.tokenizer.tokenize(chat_text)
 
-    def _load_vision_mapping(self) -> Dict[int, int]:
-        """Load vision token mapping (visual_index -> token_id)."""
-        mapping_path = os.path.join(self.tokenizer_path, "vision_token_mapping.json")
-        if os.path.exists(mapping_path):
-            with open(mapping_path, "r") as f:
-                data = json.load(f)
-                # Convert string keys to integers
-                return {int(k): v for k, v in data.get("vision_token_ids", {}).items()}
-        return {}
+    def _load_vision_band(self) -> Tuple[int, int]:
+        """Inclusive [lo, hi] id range of the vision codebook.
+
+        Codebook index i is id lo + i, so the mapping is derived rather than read.
+        It used to come from a vision_token_mapping.json sidecar, which Apertus 2 does not ship.
+        The loader then returned {}, and both callers below silently produced nothing.
+        """
+        from vision_tokenization.discrete.emu.token_layout import vision_band
+        from vision_tokenization.utils.json import json_load
+
+        return vision_band(json_load(os.path.join(self.tokenizer_path, "tokenizer_config.json")))
 
     def _get_special_token_ids(self) -> Dict[str, int]:
         """Get special token IDs."""
@@ -188,16 +190,11 @@ class EMU3Inferencer:
         Returns:
             List of visual token indices (0-32767)
         """
-        visual_indices = []
-
-        # Create reverse mapping from token_id to visual index
-        reverse_mapping = {v: k for k, v in self.vision_mapping.items()}
-
-        for token_id in token_ids:
-            if token_id in reverse_mapping:
-                visual_indices.append(reverse_mapping[token_id])
-
-        return visual_indices
+        return [
+            token_id - self.vision_lo
+            for token_id in token_ids
+            if self.vision_lo <= token_id <= self.vision_hi
+        ]
 
     def count_structure_tokens(self, token_ids: List[int]) -> Dict[str, int]:
         """Count structure tokens in token ID list."""
@@ -270,9 +267,11 @@ class EMU3Inferencer:
         token_idx = 0
         for row in range(min(given_rows, height)):
             for col in range(width):
-                # Get token ID for this visual index
-                if token_idx in self.vision_mapping:
-                    prompt_parts.append(self.vision_mapping[token_idx])
+                # Codebook index -> id.
+                # Placeholder content: complete_image probes structure,
+                # so the indices are 0..N rather than a real encode.
+                if token_idx <= self.vision_hi - self.vision_lo:
+                    prompt_parts.append(self.vision_lo + token_idx)
                 token_idx += 1
 
             # Add end of row token after each row (including the last given row)

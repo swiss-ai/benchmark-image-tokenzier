@@ -8,7 +8,7 @@ import struct
 from typing import Any, Dict
 
 import numpy as np
-from indexed_dataset_megatron import _INDEX_HEADER, DType
+from vision_tokenization.formats.megatron import _INDEX_HEADER, DType
 
 
 def inspect_idx_file(idx_path: str) -> Dict[str, Any]:
@@ -129,7 +129,7 @@ def demonstrate_idx_structure():
     import os
     import tempfile
 
-    from indexed_dataset_megatron import DType, IndexedDatasetBuilder
+    from vision_tokenization.formats.megatron import IndexedDatasetBuilder
 
     # Create a temporary sample dataset
     temp_dir = tempfile.mkdtemp()

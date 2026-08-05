@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 from vision_tokenization.qualitative_benchmark.publish_to_docs import publish_result_to_docs
 

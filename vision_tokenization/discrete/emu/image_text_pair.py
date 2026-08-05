@@ -4,7 +4,6 @@ EMU tokenizer for image-text pairs with parallel GPU/CPU processing.
 """
 
 from concurrent.futures import ThreadPoolExecutor
-from typing import List, Optional
 
 import numpy as np
 import torch

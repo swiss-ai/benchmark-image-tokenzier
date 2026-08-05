@@ -5,7 +5,7 @@ Computes PSNR, SSIM, and LPIPS between completed images and reference images,
 both for the full image and for the generated region only.
 """
 
-from typing import ClassVar, Dict, Set
+from typing import ClassVar, Set
 
 import numpy as np
 import torch

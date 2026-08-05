@@ -1,0 +1,35 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Molmo2-SynMultiImageQA — multi-image SFT (allenai/Molmo2-SynMultiImageQA).
+# Row = synthetic image set (median 5 imgs, range 1-19) + 10 QA pairs.
+# Pretraining/interleave parse of the same source lives at
+# configs/dataset/interleave/molmo_syn_multiimage.yaml and uses the `code`
+# field; this SFT pass reads `qa_pairs` and is independent supervision.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: molmo2_syn_multiimage
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/stage2/hf___allenai___Molmo2-SynMultiImageQA/*/train-*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/molmo2_syn_multiimage/manifest.parquet
+
+image_list_column: images
+multi_image: true
+
+# Parser prepends N <image> markers to turn 0 itself; default role_map handles
+# the {role,content} shape it emits — no conversation_policy override needed.
+parser: molmo_multi_image_qa
+parser_columns:
+  - qa_pairs
+
+# Source p99 ≈ 5.3M px (above the 2048² default filter); disable the
+# manifest-level filter so partial drops don't break ordinal NL references
+# ("the third image"). Smart-resize at the tokenizer caps at 1400².
+max_pixels: "65536*65536"
+
+# Per-doc p50 ≈ 23K vis_tok at 1400² resize — mostly long-context.
+# SFT docs can't be safely split mid-conversation (images pinned to turn 0);
+# length banding happens at merge time (merge --bands).
+max_batch_tokens: 32_768

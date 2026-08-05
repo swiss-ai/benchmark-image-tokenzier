@@ -1,0 +1,18 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# MMPR-v1.2 — 1-part SMOKE for pre-flight validation of the alignment pipeline
+# end-to-end inside the nemo_26_02 container, BEFORE the full 99-part / ~200 GB
+# run (see mmpr_v1_2.yaml). input_pattern is restricted to a single processed
+# parquet part; everything else mirrors the full config.
+# Output root: <output_dir>/alignment/<output_name>.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_task/alignment@_here_
+
+# Data location:
+source_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/processed/alignment/mmpr-v1.2/data
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+
+input_pattern: ${.source_dir}/part-00000.parquet
+output_name: mmpr_v1_2_smoke
+val_rows: 32

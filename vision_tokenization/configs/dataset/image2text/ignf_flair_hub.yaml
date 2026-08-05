@@ -1,0 +1,22 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# IGNF FLAIR-HUB — image2text, WDS tar, single-image + txt sidecar (~99K rows)
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/wds@_here_
+  - /dataset/_task/image2text@_here_
+
+output_name: ignf_flair_hub
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: /capstor/store/cscs/swissai/infra01/vision-datasets/processed/ign___IGNF___FLAIR-HUB___processed___cleaned/part-*.tar
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/ignf_flair_hub/manifest.parquet
+text_column: txt
+
+multi_image: false
+image_field_pattern: img
+
+# Stage2/lct split + safety cap (matches innovator/nemotron convention)
+max_sequence_tokens: 262_144
+
+plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/ignf_flair_hub.pt
+max_batch_tokens: 32_768

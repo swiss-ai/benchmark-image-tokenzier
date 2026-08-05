@@ -5,7 +5,7 @@ from typing import Any, List, Tuple
 import matplotlib.pyplot as plt
 import torch
 from PIL import Image
-from transformers import AutoImageProcessor, AutoModel
+from transformers import AutoModel
 
 from Tokenizer.base import Tokenizer
 from Tokenizer.Emu3.emu3.tokenizer.image_processing_emu3visionvq import Emu3VisionVQImageProcessor
@@ -22,6 +22,11 @@ class Emu3VisionTokenizer(Tokenizer):
         metadata_only: bool = False,
         **kwargs,
     ):
+        # Pin TF32 so token output doesn't depend on container defaults —
+        # see Emu3_5_IBQ.__init__ for the rationale and measurements.
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+
         self.model_path = model_path
         self.name = "Emu3VisionTokenizer"
         self.processor = None

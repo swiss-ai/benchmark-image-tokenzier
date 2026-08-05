@@ -34,19 +34,9 @@ class DummyTextTokenizerNoPadding:
         return table.get(token, self.unk_token_id)
 
 
-def test_visual_token_format_uses_mapping_file_without_zero_padding(monkeypatch, tmp_path):
+def test_visual_token_format_probed_without_zero_padding(monkeypatch, tmp_path):
     tokenizer_dir = tmp_path / "tok"
     tokenizer_dir.mkdir()
-    (tokenizer_dir / "vision_token_mapping.json").write_text(
-        json.dumps(
-            {
-                "vision_token_format": "<|visual token N|>",
-                "vision_token_offset": 131272,
-                "visual_vocab_size": 131072,
-            }
-        )
-    )
-
     fake_module = types.ModuleType("Tokenizer.Emu3VisionTokenizer")
     fake_module.Emu3VisionTokenizer = DummyCoreEmu3Tokenizer
     monkeypatch.setitem(sys.modules, "Tokenizer.Emu3VisionTokenizer", fake_module)

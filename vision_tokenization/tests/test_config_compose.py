@@ -31,6 +31,9 @@ def _all_dataset_choices() -> list[str]:
         str(path.relative_to(_DATASET_DIR)).replace("\\", "/")[:-5]
         for path in _DATASET_DIR.rglob("*.yaml")
         if not any(part.startswith("_") for part in path.relative_to(_DATASET_DIR).parts)
+        # `alignment` mode reads `input_parquet` directly (no storage backend),
+        # so it has no `dataset_type`; it is covered by tests/alignment/test_config.py.
+        and path.relative_to(_DATASET_DIR).parts[0] != "alignment"
     )
 
 
@@ -43,6 +46,7 @@ def test_all_dataset_configs_compose_with_storage_only_dataset_types(dataset: st
     assert cfg.dataset.dataset_type in {"hf", "jsonl_tar", "wds"}
     assert OmegaConf.select(cfg, "dataset._storage") is None
     assert OmegaConf.select(cfg, "dataset._task") is None
+    assert isinstance(cfg.dataset.compute_media_sha256, bool)
 
 
 @pytest.mark.parametrize(
@@ -80,7 +84,9 @@ def test_sft_datasets_keep_instruct_tokenizer_override():
     for dataset in ("sft/path_vqa", "sft/tcm_shizhen_vision"):
         cfg = _compose_dataset_cfg(dataset, "sft")
         _assert_resolves(cfg)
-        assert str(cfg.dataset.tokenizer_path).endswith("apertus_emu3.5_wavtok_instruct")
+        assert str(cfg.dataset.tokenizer_path).endswith(
+            "apertus_emu3.5_wavtok_instruct_thinking_token_fixed"
+        )
 
 
 def test_non_sft_dataset_does_not_define_dataset_tokenizer_override():

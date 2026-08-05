@@ -1,0 +1,31 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# ChartNet (IBM core_permissive) — image2text, image → matplotlib/seaborn/plotly
+# Python code that produces the chart. Sister config of chartnet_summary.yaml,
+# same source data, same manifest, different `text_column`.
+#
+# 2.5 M synthetic charts × 6 plotting libraries; code is the "deparse" target
+# the original synthesis pipeline produced. Teaches structured chart-to-code
+# generation at cooldown — the model learns the joint p(code | chart) and
+# disambiguates from distributional cues at inference.
+#
+# Same image is also tokenized once with `summary` (chartnet_summary.yaml)
+# → 2× effective sample count from one image encode pass per row.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/image2text@_here_
+
+output_name: chartnet_code
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/cooldown
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/hf___ibm-granite___ChartNet/core_permissive/*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/chartnet_core_permissive/manifest.parquet
+image_column: image
+text_column: code
+
+max_pixels: "65536*65536"
+max_batch_tokens: 32_768
+
+# Code is longer than summary on average (max ~2,600 chars vs summary's
+# ~1,900) so more rows here will spill into the lct/ tail than in
+# chartnet_summary.yaml. Threshold kept at 8192 for layout consistency.

@@ -1,0 +1,25 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# swisstopo map↔sat — image2text, WDS, 2 images + 1 txt caption per record
+# Source: 256 WDS tars, ~121,856 records. multi_image=true: the
+# EMUImageTextPair tokenizer stacks both images before the text into one
+# sequence per record (BOS + img1 + img2 + caption + EOS).
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/wds@_here_
+  - /dataset/_task/image2text@_here_
+
+output_name: swisstopo
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: /capstor/store/cscs/swissai/infra01/vision-datasets/processed/swisstopo___map_sat___processed___cleaned/part-*.tar
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/swisstopo_map_sat/manifest.parquet
+text_column: txt
+
+multi_image: true
+image_field_pattern: img
+
+# Stage2/lct split + safety cap
+max_sequence_tokens: 262_144
+
+plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/swisstopo_map_sat.pt
+max_batch_tokens: 32_768

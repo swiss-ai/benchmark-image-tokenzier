@@ -8,8 +8,6 @@ import os
 from pathlib import Path
 from typing import Any, Dict
 
-import torch
-
 logger = logging.getLogger(__name__)
 
 __all__ = ["run_distributed_pipeline"]
@@ -25,6 +23,7 @@ def _build_output_subdir(cfg: Dict[str, Any]) -> str:
         image2text:     image2text/{output_name}
         text2image:     text2image/{output_name}
         interleave:     interleave/{output_name}
+        alignment:      alignment/{output_name}
     """
     output_name = cfg.get("output_name")
     if not output_name:
@@ -46,12 +45,33 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
     world_size = int(os.environ.get("WORLD_SIZE", os.environ.get("SLURM_NTASKS", 1)))
     local_rank = int(os.environ.get("LOCAL_RANK", os.environ.get("SLURM_LOCALID", 0)))
 
+    if cfg["mode"] == "alignment":
+        # One single-image document per unique media — grouping knobs don't apply.
+        if cfg.get("multi_image", False):
+            raise ValueError("multi_image is meaningless for alignment")
+
     # Handle dry-run mode early (no GPU, no world-size check needed)
     if cfg.get("dry_run", False):
         cfg["rank"] = 0
         cfg["world_size"] = 1
         cfg["local_rank"] = 0
         cfg["output_dir"] = str(Path(cfg["output_dir"]) / _build_output_subdir(cfg))
+        public_dir = Path(cfg["output_dir"])
+
+        if cfg["mode"] == "alignment":
+            # The plan is built from scan.parquet, which only the scan stage
+            # produces — so the dry run runs the real scan stage (ingest IS
+            # the scan; CPU-only), then reports plan-derived token counts. The
+            # persisted scan.parquet is byte-identical to the GPU job's
+            # (deterministic ingest), making this a true pre-flight.
+            from .runtime.alignment import (
+                run_scan_stage,
+                _stage_scan_into_work,
+                _unstage_work,
+            )
+
+            _stage_scan_into_work(cfg)
+            run_scan_stage(cfg)
 
         from .runtime.dry_run import export_dry_run
 
@@ -67,9 +87,13 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
                 b.batch_token_count for b in plan.execution.image_batches
             ),
         }
-        result["output_dir"] = cfg["output_dir"]
-        export_dry_run(result, cfg["output_dir"])
+        result["output_dir"] = str(public_dir)
+        export_dry_run(result, str(public_dir))
+        if cfg["mode"] == "alignment":
+            _unstage_work(public_dir, cfg)
         return result
+
+    import torch
 
     # Cross-check num_gpus against env-derived world_size
     if num_gpus is not None:
@@ -114,6 +138,14 @@ def run_distributed_pipeline(cfg: Dict[str, Any]) -> Dict[str, Any]:
         f"[rank {rank}/{world_size}] starting (local_rank={local_rank}, "
         f"no NCCL — each rank is independent)"
     )
+
+    # Alignment ENCODE phase (multi-rank): read the pre-built scan and spill this
+    # rank's disjoint media slice via SpillBackend. The scan runs inline
+    # beforehand; publish_alignment_store assembles the store + manifest after.
+    if cfg["mode"] == "alignment":
+        from .runtime.alignment import run_alignment
+
+        return run_alignment(cfg)
 
     from .runtime.executor import run_executor
 

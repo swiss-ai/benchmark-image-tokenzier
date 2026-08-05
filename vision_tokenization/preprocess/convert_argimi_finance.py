@@ -20,9 +20,8 @@ import argparse
 import io
 import json
 import logging
-import os
 import tarfile
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 

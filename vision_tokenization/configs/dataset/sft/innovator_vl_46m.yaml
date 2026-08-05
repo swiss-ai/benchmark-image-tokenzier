@@ -1,5 +1,16 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # Innovator-VL-Instruct-46M — SFT, mixed single/multi-image (36M image docs)
+#
+# Source variant: `_restored_think_tokens2` (NOT the original raw, NOT the v1
+# `_restored_think_tokens`). The v2 variant has `<think>…</think>` blocks added
+# by upstream restoration with five quality fixes applied:
+#   1. ROUGE-L score threshold raised to 0.9
+#   2. Whitespace stripped around `<think>` / `</think>`
+#   3. Rows with empty/short reasoning (<20 char) filtered
+#   4. Rows with no answer after `</think>` filtered (catches the
+#      "everything-wrapped-in-think" degeneracy that affected ~5% of v1)
+#   5. Rows with stray/orphan think tokens filtered
+# Verified clean across 100 random shards (21k CoT rows, 0 critical issues).
 # ──────────────────────────────────────────────────────────────────────────────
 defaults:
   - /dataset/_pipeline@_here_
@@ -8,8 +19,16 @@ defaults:
 
 output_name: innovator_vl_46m
 output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
-input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/sft/hf___InnovatorLab___Innovator-VL-Instruct-46M/*/SFT_*.parquet"
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/hf___InnovatorLab___Innovator-VL-Instruct-46M___restored_think_tokens2/*/SFT_*.parquet"
 manifest_path: /capstor/scratch/cscs/xyixuan/manifests/innovator_vl_46m/manifest.parquet
 image_list_column: images
 text_column: conversations
 multi_image: true
+
+# Innovator includes high-DPI multi-image samples; the default 2048² cap drops
+# ~3.6% of rows (1.3M). Disable the manifest-level cap; the tokenizer's 1400²
+# smart-resize handles large images downstream.
+max_pixels: "65536*65536"
+
+# CoT + image tokens commonly exceed 8K; route the long-context tail to lct/.
+# (Same convention as nemotron_image_training_v3.)

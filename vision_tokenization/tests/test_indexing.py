@@ -1,10 +1,9 @@
 """Tests for vision_tokenization.indexing — CPU-only, no tokenizer needed."""
 
 import io
+import hashlib
 import logging
-import os
 import tarfile
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,22 +17,25 @@ from PIL import Image
 
 from vision_tokenization.indexing.scanners._workers.wds import scan_single_tar
 from vision_tokenization.indexing.planning.tokenization_plan import (
-    TokenizationPlan,
     build_tokenization_plan,
 )
 from vision_tokenization.indexing.manifest import (
     load_hf_manifest,
-    load_resolution_arrays,
     load_wds_manifest,
     save_wds_manifest,
 )
 from vision_tokenization.indexing.scanners.hf import scan_hf_dataset
+from vision_tokenization.indexing.scanners._workers.hf_common import (
+    build_hf_output_columns,
+    scan_hf_batch_columns,
+)
 from vision_tokenization.indexing.reader import TarRandomAccessReader
 from vision_tokenization.indexing.scanners.wds import scan_wds_dataset
-from vision_tokenization.pipeline.runtime.data import HFImageLoader, WDSImageLoader
+from vision_tokenization.pipeline.runtime.data import HFImageLoader
 from vision_tokenization.pipeline.runtime.dry_run import dry_run_batch_plan
 from vision_tokenization.utils.partitioning import weighted_contiguous_split
 from vision_tokenization.utils.image_geometry import estimate_image_tokens, smart_resize_dims
+from vision_tokenization.utils.json import json_load
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +317,32 @@ class TestWDSScanner:
         expected = {"sample_key", "tar_path", "offset_data", "file_size", "width", "height", "image_ext"}
         assert set(schema.names) == expected
 
+    def test_scan_wds_dataset_can_emit_raw_byte_sha256(self, tmp_path):
+        """Opt-in media_sha256 should hash the original encoded tar member bytes."""
+        samples = [
+            {"key": "000001", "ext": "jpg", "width": 32, "height": 32, "color": (1, 2, 3)},
+            {"key": "000002", "ext": "jpg", "width": 48, "height": 48, "color": (4, 5, 6)},
+        ]
+        tar_path = str(tmp_path / "shard.tar")
+        _create_tar(tar_path, samples)
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        scan_wds_dataset(
+            input_pattern=tar_path,
+            output_manifest=manifest_path,
+            compute_media_sha256=True,
+            num_workers=1,
+        )
+
+        table = load_wds_manifest(manifest_path)
+        assert table.schema.field("media_sha256").type == pa.binary(32)
+        with tarfile.open(tar_path, "r") as tf:
+            expected = []
+            for member in sorted((m for m in tf if m.isfile()), key=lambda m: m.name):
+                raw = tf.extractfile(member).read()
+                expected.append(hashlib.sha256(raw).digest())
+        assert table.column("media_sha256").to_pylist() == expected
+
     def test_image_field_pattern_without_multi_image_keeps_single_image_manifest(self, tmp_path):
         """image_field_pattern should normalize sample keys without forcing grouped output."""
         samples = [
@@ -451,6 +479,34 @@ class TestWDSScanner:
 # ======================================================================
 class TestHFScanner:
 
+    def test_hf_batch_scan_skips_contamination_lookup_when_empty(self):
+        class EmptyRows:
+            def __bool__(self):
+                return False
+
+            def __contains__(self, _item):
+                raise AssertionError("empty contamination index should not be checked")
+
+        out = build_hf_output_columns(is_multi=False)
+        image_col = pa.array(
+            [_hf_image_cell(10, 20), _hf_image_cell(30, 40)],
+            type=_HF_IMAGE_TYPE,
+        )
+
+        out, source_rows, failed_dims, contaminated_skipped = scan_hf_batch_columns(
+            out,
+            image_col,
+            chunk_index=0,
+            source_rows=0,
+            failed_dims=0,
+            is_multi=False,
+            contaminated_rows=EmptyRows(),
+        )
+
+        assert source_rows == 2
+        assert failed_dims == 0
+        assert contaminated_skipped == 0
+
     def test_scan_hf_arrow_single_image(self, tmp_path):
         rows_a = [(32, 48), (64, 96)]
         rows_b = [(20, 30)]
@@ -500,6 +556,27 @@ class TestHFScanner:
             str(tmp_path / "part_000.parquet"),
             str(tmp_path / "part_001.parquet"),
         ]
+
+    def test_scan_hf_parquet_can_emit_raw_byte_sha256(self, tmp_path):
+        rows = [(80, 40), (120, 60), (25, 35)]
+        shard_path = str(tmp_path / "part_000.parquet")
+        _write_hf_parquet_shard(shard_path, rows)
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        scan_hf_dataset(
+            input_pattern=shard_path,
+            output_manifest=manifest_path,
+            compute_media_sha256=True,
+            num_workers=1,
+        )
+
+        table = load_hf_manifest(manifest_path)
+        assert table.schema.field("media_sha256").type == pa.binary(32)
+        expected = [
+            hashlib.sha256(_hf_image_cell(width, height)["bytes"]).digest()
+            for width, height in rows
+        ]
+        assert table.column("media_sha256").to_pylist() == expected
 
     def test_scan_hf_parquet_skips_shards_missing_image_column(self, tmp_path, caplog):
         (tmp_path / "good").mkdir()
@@ -603,6 +680,120 @@ class TestHFScanner:
         assert table.column("height").to_pylist() == [21, 41, 61, 81, 101]
         assert table.column("chunk_index").to_pylist() == [0, 0, 0, 0, 0]
         assert table.column("row_in_chunk").to_pylist() == [0, 0, 1, 0, 0]
+
+    def test_scan_hf_parquet_multi_image_can_emit_marker_order_sha256(self, tmp_path):
+        rows = [
+            [(11, 21), (31, 41)],
+            [(51, 61)],
+        ]
+        shard_path = str(tmp_path / "part_000.parquet")
+        _write_hf_parquet_shard(
+            shard_path,
+            rows,
+            column_name="images",
+            multi_image=True,
+        )
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        scan_hf_dataset(
+            input_pattern=shard_path,
+            output_manifest=manifest_path,
+            image_list_column="images",
+            compute_media_sha256=True,
+            num_workers=1,
+        )
+
+        table = load_hf_manifest(manifest_path)
+        expected = [
+            hashlib.sha256(_hf_image_cell(width, height)["bytes"]).digest()
+            for sample in rows
+            for width, height in sample
+        ]
+        assert table.column("media_sha256").to_pylist() == expected
+
+    def test_scan_hf_parquet_skips_contaminated_source_rows(self, tmp_path):
+        rows = [
+            [(10, 20)],
+            [(30, 40), (31, 41)],
+            [(50, 60)],
+            [(70, 80), (71, 81)],
+            [(90, 100)],
+        ]
+        _write_hf_parquet_shard(
+            str(tmp_path / "SFT_000099.parquet"),
+            rows,
+            column_name="images",
+            multi_image=True,
+            row_group_size=2,
+        )
+        ids_path = tmp_path / "contaminated.txt"
+        ids_path.write_text("SFT_000099_000001,SFT_000099_000003\n")
+
+        manifest_path = str(tmp_path / "manifest.parquet")
+        scan_hf_dataset(
+            input_pattern=str(tmp_path / "SFT_*.parquet"),
+            output_manifest=manifest_path,
+            image_list_column="images",
+            contamination_ids_path=ids_path,
+            contamination_format="innovator_vl",
+            num_workers=1,
+        )
+
+        table = load_hf_manifest(manifest_path)
+        assert table.column("sample_index").to_pylist() == [0, 2, 4]
+        assert table.column("group_id").to_pylist() == [0, 2, 4]
+        assert table.column("chunk_index").to_pylist() == [0, 1, 2]
+        assert table.column("row_in_chunk").to_pylist() == [0, 0, 0]
+
+        meta = json_load(Path(manifest_path).with_name("manifest_meta.json"))
+        assert meta["contaminated_skipped"] == 2
+        assert meta["contamination_format"] == "innovator_vl"
+        assert meta["contamination_ids"] == 2
+
+    def test_decontaminate_manifest_filters_existing_hf_manifest(self, tmp_path):
+        from scripts.decontaminate_manifest import decontaminate_manifest
+
+        rows = [
+            [(10, 20)],
+            [(30, 40), (31, 41)],
+            [(50, 60)],
+            [(70, 80), (71, 81)],
+            [(90, 100)],
+        ]
+        _write_hf_parquet_shard(
+            str(tmp_path / "SFT_000100.parquet"),
+            rows,
+            column_name="images",
+            multi_image=True,
+            row_group_size=2,
+        )
+        ids_path = tmp_path / "contaminated.txt"
+        ids_path.write_text("SFT_000100_000001 SFT_000100_000003\n")
+
+        raw_manifest = tmp_path / "raw_manifest.parquet"
+        clean_manifest = tmp_path / "clean_manifest.parquet"
+        scan_hf_dataset(
+            input_pattern=str(tmp_path / "SFT_*.parquet"),
+            output_manifest=raw_manifest,
+            image_list_column="images",
+            num_workers=1,
+        )
+
+        summary = decontaminate_manifest(
+            raw_manifest,
+            clean_manifest,
+            ids_path,
+            contamination_format="innovator_vl",
+        )
+
+        table = load_hf_manifest(clean_manifest)
+        assert table.column("sample_index").to_pylist() == [0, 2, 4]
+        assert summary["rows_in"] == 7
+        assert summary["rows_out"] == 3
+        assert summary["manifest_rows_dropped"] == 4
+        assert summary["source_docs_dropped"] == 2
+        meta = json_load(clean_manifest.with_name("clean_manifest_decontamination_meta.json"))
+        assert meta["source_docs_dropped"] == 2
 
 
 # ======================================================================
@@ -959,40 +1150,6 @@ class TestEndToEnd:
 
 
 # ======================================================================
-# TestWDSLoader
-# ======================================================================
-class TestWDSLoader:
-
-    def test_load_text_batch_reads_text_without_loading_images(self, tmp_path, monkeypatch):
-        samples = [
-            {"key": "000001", "ext": "jpg", "width": 64, "height": 64, "text": "alpha"},
-            {"key": "000002", "ext": "jpg", "width": 32, "height": 48, "text": "beta"},
-        ]
-        tar_path = str(tmp_path / "shard.tar")
-        _create_tar(tar_path, samples)
-
-        manifest_path = str(tmp_path / "manifest.parquet")
-        scan_wds_dataset(
-            input_pattern=tar_path,
-            output_manifest=manifest_path,
-            num_workers=1,
-            text_extensions=frozenset({"txt"}),
-        )
-
-        loader = WDSImageLoader(manifest_path=manifest_path, text_field="text")
-        monkeypatch.setattr(
-            loader._reader,
-            "read_batch",
-            lambda refs: pytest.fail("load_text_batch should not load images"),
-        )
-
-        texts = loader.load_text_batch(np.array([0, 1], dtype=np.int64))
-        loader.close()
-
-        assert texts == ["alpha", "beta"]
-
-
-# ======================================================================
 # TestHFLoader
 # ======================================================================
 class TestHFLoader:
@@ -1072,72 +1229,6 @@ class TestHFLoader:
 
         assert loader._uses_physical_manifest is True
         assert [img.size for img in images] == [(32, 48), (80, 120), (20, 30)]
-
-    def test_parquet_loader_load_text_batch_avoids_image_decode(self, tmp_path, monkeypatch):
-        rows = [(32, 48), (64, 96), (80, 120)]
-        texts = ["alpha", "beta", "gamma"]
-        _write_hf_parquet_shard(
-            str(tmp_path / "part_000.parquet"),
-            rows,
-            row_group_size=1,
-            text_rows=texts,
-        )
-
-        loader = HFImageLoader(input_pattern=tmp_path, text_column="text")
-        monkeypatch.setattr(
-            loader,
-            "_decode_image",
-            lambda img_data: pytest.fail("load_text_batch should not decode images"),
-        )
-
-        loaded = loader.load_text_batch(np.array([0, 2], dtype=np.int64))
-        loader.close()
-
-        assert loaded == ["alpha", "gamma"]
-
-    def test_parquet_multi_image_loader_load_text_batch_groups_docs(self, tmp_path, monkeypatch):
-        rows = [
-            [(11, 21), (31, 41)],
-            [(51, 61)],
-        ]
-        texts = ["doc0", "doc1"]
-        shard_path = str(tmp_path / "part_000.parquet")
-        _write_hf_parquet_shard(
-            shard_path,
-            rows,
-            column_name="images",
-            multi_image=True,
-            row_group_size=1,
-            text_rows=texts,
-        )
-
-        manifest_path = str(tmp_path / "physical_multi_manifest.parquet")
-        scan_hf_dataset(
-            input_pattern=str(tmp_path / "*.parquet"),
-            output_manifest=manifest_path,
-            image_list_column="images",
-            num_workers=1,
-        )
-
-        loader = HFImageLoader(
-            input_pattern=str(tmp_path / "*.does_not_matter"),
-            manifest_path=manifest_path,
-            image_list_column="images",
-            text_column="text",
-        )
-        monkeypatch.setattr(
-            loader,
-            "_decode_image",
-            lambda img_data: pytest.fail("load_text_batch should not decode images"),
-        )
-
-        loaded = loader.load_text_batch(
-            np.array([0, 1, 2], dtype=np.int64),
-            group_slices=np.array([[0, 2], [2, 3]], dtype=np.int64),
-        )
-        loader.close()
-
-        assert loaded == ["doc0", "doc1"]
 
     def test_parquet_multi_image_loader_uses_physical_manifest_coordinates(self, tmp_path):
         rows_a = [
@@ -1245,7 +1336,7 @@ class TestMergeShards:
                 IndexedDatasetBuilder,
             )
         except ImportError:
-            pytest.skip("indexed_dataset_megatron not available")
+            pytest.skip("formats.megatron not available")
 
         builder = IndexedDatasetBuilder(str(path) + ".bin", dtype=np.int32)
         for seq in sequences:
@@ -1283,50 +1374,31 @@ class TestMergeShards:
         assert seqs[2] == [6, 7]
         assert seqs[3] == [8, 9, 10, 11]
 
-    def test_maybe_merge_waits_for_all_ranks(self, tmp_path):
-        """maybe_merge_shards returns None until all checkpoints exist."""
-        try:
-            from megatron.core.datasets.indexed_dataset import IndexedDataset
-        except ImportError:
-            pytest.skip("megatron not available")
-
-        from vision_tokenization.pipeline.output.merge import maybe_merge_shards
-
-        self._create_shard(tmp_path / "rank_0000_chunk_0000", [[1, 2]])
-        self._create_shard(tmp_path / "rank_0001_chunk_0000", [[3, 4]])
-
-        # Only rank 0 checkpoint exists
-        torch.save({}, tmp_path / "rank_0000_checkpoint.pt")
-        result = maybe_merge_shards(tmp_path, expected_ranks=2)
-        assert result is None
-        assert not (tmp_path / "merged.bin").exists()
-
-        # Now rank 1 finishes
-        torch.save({}, tmp_path / "rank_0001_checkpoint.pt")
-        result = maybe_merge_shards(tmp_path, expected_ranks=2)
-        assert result is not None
-        assert (tmp_path / "merged.bin").exists()
+    @staticmethod
+    def _mark_rank_done(output_dir, rank):
+        """Write the per-rank _SUCCESS marker that gates the merge."""
+        rank_dir = output_dir / f"rank_{rank:04d}"
+        rank_dir.mkdir(parents=True, exist_ok=True)
+        (rank_dir / "_SUCCESS").touch()
 
     def test_maybe_merge_is_idempotent(self, tmp_path):
-        """Calling maybe_merge_shards again skips if merged file exists."""
+        """Re-merging skips the concat when the merged file already exists."""
         try:
             from megatron.core.datasets.indexed_dataset import IndexedDataset
         except ImportError:
             pytest.skip("megatron not available")
 
-        from vision_tokenization.pipeline.output.merge import maybe_merge_shards
+        from vision_tokenization.pipeline.output.merge import merge_shards
 
         self._create_shard(tmp_path / "rank_0000_chunk_0000", [[1, 2]])
-        torch.save({}, tmp_path / "rank_0000_checkpoint.pt")
+        self._mark_rank_done(tmp_path, 0)
 
         # First call merges
-        result1 = maybe_merge_shards(tmp_path, expected_ranks=1)
-        assert result1 is not None
+        assert merge_shards(tmp_path) is not None
         mtime1 = (tmp_path / "merged.bin").stat().st_mtime
 
         # Second call skips (file already exists)
-        result2 = maybe_merge_shards(tmp_path, expected_ranks=1)
-        assert result2 is not None
+        assert merge_shards(tmp_path) is not None
         mtime2 = (tmp_path / "merged.bin").stat().st_mtime
         assert mtime1 == mtime2
 

@@ -1,0 +1,56 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# FineVision / CoSyn-400k — AllenAI's code-grounded synthetic structured-data
+# corpus. 8 sub-types consolidated (chemistry, circuit, document, graphic,
+# math, music, nutrition, table). All CC-BY-4.0.
+#
+# Pipeline (per AllenAI's CoSyn paper, arxiv 2502.14846):
+#   1. Claude generates Python code that renders a structured image
+#      (matplotlib chart, chemistry diagram, circuit schematic, etc.)
+#   2. Code is executed → image rendered
+#   3. GPT-4o-mini reads the CODE (not the image) → generates Q&A
+#
+# This is fundamentally different from typical VLM distillation: the teacher
+# never sees the image, so it cannot hallucinate visual content. The code is
+# the source of truth. Result: gold-standard accuracy for structured content.
+#
+# Sub-types under processed/sft/finevision/CoSyn_400k/{chemical, circuit,
+# document, graphic, math, music, nutrition, table}/ — each row's `source`
+# column preserves the sub-type ("CoSyn-400k-chart", etc.).
+#
+# Row counts after factual-floor filter: 93,466 total (~3-31K per sub-type).
+# Unique capability for our SFT pool: chemistry, circuits, sheet music,
+# nutrition labels are not covered by any other dataset.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: finevision___CoSyn_400k
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/sft/finevision/CoSyn_400k/**/*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/CoSyn_400k/manifest.parquet
+
+image_list_column: images
+multi_image: true
+
+# FineVision native: texts = list[{user, assistant}] turn pairs.
+# CoSyn rows often have 6-20 turns (sub-questions about one rendered image).
+parser: user_assistant_pairs
+parser_columns:
+  - texts
+
+conversation_policy:
+  add_image_placeholder: true
+  add_system_message: true
+
+# Synthetic renders cover a wide range: tiny chemistry crops to full-page
+# documents. Smart-resize at 1400^2 handles the upper end.
+max_pixels: "65536*65536"
+
+# CoSyn rows can be very text-heavy (long Q&A chains about one chart).
+# Most fit in stage2 but doc/table sub-types with 10+ turns may overflow.
+max_sequence_tokens: 262_144
+max_batch_tokens: 32_768
+
+plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/finevision___CoSyn_400k.pt

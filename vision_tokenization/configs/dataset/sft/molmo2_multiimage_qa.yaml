@@ -1,0 +1,39 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Molmo2-MultiImageQA — multi-image SFT (allenai/Molmo2-MultiImageQA, the
+# "real-image" sibling of Syn-MultiImageQA). PixMo-AskModelAnything extended
+# to multi-image; human-authored long-form answers.
+#
+# Source: URL-keyed raw + fetch-log downloaded shards, joined offline (strict
+# drop on any failed fetch) into doc-keyed parquets at:
+#   /capstor/store/cscs/swissai/infra01/vision-datasets/processed/
+#     hf___allenai___Molmo2-MultiImageQA___doc_keyed/part-*.parquet
+# Join script: /capstor/scratch/cscs/xyixuan/scripts/join_molmo2_mmqa/join.py
+#
+# Row schema after join (matches Syn for parser compatibility):
+#   image_urls : list<string>          (provenance, parser ignores)
+#   images     : list<struct<bytes,path>>
+#   qa_pairs   : struct<question: list<string>, answer: list<string>>
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: molmo2_multiimage_qa
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/hf___allenai___Molmo2-MultiImageQA___doc_keyed/part-*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/molmo2_multiimage_qa/manifest.parquet
+
+image_list_column: images
+multi_image: true
+
+parser: molmo_multi_image_qa
+parser_columns:
+  - qa_pairs
+
+# Real-world web images; size unknown a priori — match Syn's permissive filter.
+max_pixels: "65536*65536"
+
+# Median doc is ~2 images + 1 long-form answer; most fit in stage2/, but
+# split anyway so the long tail (rare 5-image, multi-QA docs) routes to lct/.
+max_batch_tokens: 32_768

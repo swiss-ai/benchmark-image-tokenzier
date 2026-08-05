@@ -33,6 +33,20 @@ def load_latest_rank_stats(stats_path: Path) -> List[Dict[str, Any]]:
 
 def build_aggregate(rank_stats: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Aggregate a deduplicated list of per-rank stats."""
+    def _setup_elapsed(s: Dict[str, Any]) -> float:
+        return float(s.get("setup_elapsed_time", 0) or 0)
+
+    def _loop_elapsed(s: Dict[str, Any]) -> float:
+        return float(s.get("elapsed_time", 0) or 0)
+
+    def _total_elapsed(s: Dict[str, Any]) -> float:
+        if "total_elapsed_time" in s:
+            return float(s.get("total_elapsed_time", 0) or 0)
+        return _setup_elapsed(s) + _loop_elapsed(s)
+
+    def _stat_time(s: Dict[str, Any], key: str) -> float:
+        return float(s.get(key, 0) or 0)
+
     agg = {
         "type": "aggregate",
         "num_ranks": len(rank_stats),
@@ -40,14 +54,21 @@ def build_aggregate(rank_stats: List[Dict[str, Any]]) -> Dict[str, Any]:
         "tokens_generated": sum(s.get("tokens_generated", 0) for s in rank_stats),
         "image_tokens": sum(s.get("image_tokens", 0) for s in rank_stats),
         "text_tokens": sum(s.get("text_tokens", 0) for s in rank_stats),
-        "stage2_tokens": sum(s.get("stage2_tokens", 0) for s in rank_stats),
-        "stage2_samples": sum(s.get("stage2_samples", 0) for s in rank_stats),
-        "lct_tokens": sum(s.get("lct_tokens", 0) for s in rank_stats),
-        "lct_samples": sum(s.get("lct_samples", 0) for s in rank_stats),
         "errors": sum(s.get("errors", 0) for s in rank_stats),
         "samples_skipped": sum(s.get("samples_skipped", 0) for s in rank_stats),
         "cuda_oom_errors": sum(s.get("cuda_oom_errors", 0) for s in rank_stats),
-        "max_elapsed_s": max((s.get("elapsed_time", 0) for s in rank_stats), default=0),
+        "max_elapsed_s": max((_loop_elapsed(s) for s in rank_stats), default=0),
+        "max_setup_elapsed_s": max((_setup_elapsed(s) for s in rank_stats), default=0),
+        "max_total_elapsed_s": max((_total_elapsed(s) for s in rank_stats), default=0),
+        "max_tokenizer_load_time_s": max(
+            (_stat_time(s, "tokenizer_load_time") for s in rank_stats), default=0
+        ),
+        "max_model_load_time_s": max(
+            (_stat_time(s, "model_load_time") for s in rank_stats), default=0
+        ),
+        "max_text_tokenizer_load_time_s": max(
+            (_stat_time(s, "text_tokenizer_load_time") for s in rank_stats), default=0
+        ),
         "per_rank": rank_stats,
     }
     elapsed = agg["max_elapsed_s"]

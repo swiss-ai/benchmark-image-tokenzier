@@ -9,6 +9,8 @@ from typing import Dict, FrozenSet, List, Optional, Tuple
 import imagesize
 from PIL import Image
 
+from vision_tokenization.indexing.media_identity import sha256_fileobj
+
 # Default image extensions to look for in tar files
 DEFAULT_IMAGE_EXTENSIONS: FrozenSet[str] = frozenset(
     {"jpg", "jpeg", "png", "webp", "bmp", "tiff", "tif"}
@@ -65,6 +67,7 @@ def scan_single_tar(
     text_extensions: Optional[FrozenSet[str]] = None,
     image_field_pattern: Optional[str] = None,
     multi_image: bool = False,
+    compute_media_sha256: bool = False,
 ) -> List[Dict]:
     """Scan a single tar file and extract image metadata without full decode.
 
@@ -118,7 +121,11 @@ def scan_single_tar(
 
     if multi_image:
         return _scan_single_tar_multi_image(
-            tar_path, image_extensions, text_extensions, image_field_pattern
+            tar_path,
+            image_extensions,
+            text_extensions,
+            image_field_pattern,
+            compute_media_sha256,
         )
 
     # --- Single-image mode ---
@@ -155,6 +162,8 @@ def scan_single_tar(
                     "height": height,
                     "image_ext": ext,
                 })
+                if compute_media_sha256:
+                    image_entries[-1]["media_sha256"] = sha256_fileobj(fobj, member.size)
 
             elif text_extensions is not None and ext in text_extensions:
                 sample_key, _image_index = _parse_sample_key_and_index(stem, field_re)
@@ -207,6 +216,7 @@ def _scan_single_tar_multi_image(
     image_extensions: FrozenSet[str],
     text_extensions: Optional[FrozenSet[str]],
     image_field_pattern: str,
+    compute_media_sha256: bool = False,
 ) -> List[Dict]:
     """Multi-image scanning: one row per image, grouped by sample_key.
 
@@ -216,7 +226,7 @@ def _scan_single_tar_multi_image(
     field_re = _compile_image_field_re(image_field_pattern)
     assert field_re is not None
 
-    # sample_key -> {field_name: (offset, size, w, h, ext)}
+    # sample_key -> {field_name: (offset, size, w, h, ext, sha)}
     groups: Dict[str, Dict[str, tuple]] = {}
     text_entries: Dict[str, tuple] = {}
 
@@ -248,8 +258,13 @@ def _scan_single_tar_multi_image(
                 if width < 0 or height < 0:
                     continue
 
+                media_sha256 = (
+                    sha256_fileobj(fobj, member.size)
+                    if compute_media_sha256
+                    else None
+                )
                 groups.setdefault(sample_key, {})[image_index] = (
-                    member.offset_data, member.size, width, height, ext,
+                    member.offset_data, member.size, width, height, ext, media_sha256,
                 )
 
             elif text_extensions is not None and ext in text_extensions:
@@ -264,7 +279,7 @@ def _scan_single_tar_multi_image(
     for local_gid, sample_key in enumerate(sorted(groups.keys())):
         fields = groups[sample_key]
         for img_idx, image_index in enumerate(sorted(fields.keys())):
-            offset, size, w, h, ext = fields[image_index]
+            offset, size, w, h, ext, media_sha256 = fields[image_index]
             rec: Dict = {
                 "sample_key": sample_key,
                 "tar_path": tar_path,
@@ -276,6 +291,8 @@ def _scan_single_tar_multi_image(
                 "group_id": local_gid,
                 "image_index": img_idx,
             }
+            if compute_media_sha256:
+                rec["media_sha256"] = media_sha256
             if text_extensions is not None:
                 text = text_entries.get(sample_key)
                 if text is not None:

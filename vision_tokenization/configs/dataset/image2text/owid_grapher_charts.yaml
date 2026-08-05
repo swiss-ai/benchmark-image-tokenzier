@@ -27,4 +27,3 @@ max_batch_tokens: 32_768
 # Split output into stage2/ (≤ threshold) and lct/ (> threshold) for layout
 # consistency with the other cooldown datasets. Captions run long (avg ~1,400
 # chars / ~350 tokens) so a meaningful fraction will end up in lct/.
-seqlen_threshold: 8192

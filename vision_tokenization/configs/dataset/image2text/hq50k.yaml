@@ -32,4 +32,3 @@ max_batch_tokens: 32_768
 # ~6K per sample after downscale. Virtually no sample exceeds 8K, but
 # keep the split for cooldown-layout consistency with docci and
 # owid_grapher_charts.
-seqlen_threshold: 8192

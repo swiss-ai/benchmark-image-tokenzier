@@ -1,0 +1,33 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Swisstopo maps recap — image2text, HF Parquet (440 parts, 280,535 rows,
+# 213 GB raw). Map tiles from Swisstopo's pixelkarte-farbe and
+# kantone.cadastralwebmap-farbe layers, captioned with dense
+# location/feature descriptions across en/de/fr/it/rm.
+#
+# Resolution distribution (from manifest, all square):
+#   1024×1024 → 75.6%
+#    768×768  → 20.3%
+#    512×512  →  4.2%
+# All tiles fit comfortably below the 1400×1400 tokenizer cap, so
+# smart-resize is mostly a no-op (only 1024 → 1024 / 768 → 768 / 512 → 512).
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/image2text@_here_
+
+output_name: swisstopo_maps_recap
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/cooldown
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/cooldown/swisstopo___maps_recap/*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/swisstopo_maps_recap/manifest.parquet
+image_column: image_bytes
+text_column: caption
+
+max_pixels: "65536*65536"
+max_batch_tokens: 32_768
+
+# Cooldown convention: split sequences ≥ 8192 tokens into the lct/ tail
+# (long-context training) and the rest into stage2/. Matches nasa_cooldown,
+# hq50k, smithsonian, owid_grapher_charts. For swisstopo the lct/ tail will
+# be tiny — 1024² tiles produce ~4096 image tokens + ~150–500 text tokens,
+# so almost everything lands in stage2/.

@@ -20,4 +20,3 @@ max_batch_tokens: 32_768
 # Split output into stage2/ (≤ threshold tokens) and lct/ (> threshold),
 # matching the interleave datasets so downstream training can bucket
 # short- and long-context sequences.
-seqlen_threshold: 8192

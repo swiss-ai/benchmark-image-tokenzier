@@ -16,6 +16,8 @@ from typing import Any, Callable, List, Optional, Sequence
 
 import torch
 
+from .layout import image_block_length
+
 
 #
 # ---------------------------------------------------------------------------
@@ -66,15 +68,7 @@ def encapsulate_image_structure(
         raise ValueError("dim_tokens_fn is required for image encapsulation")
     dim_tokens = token_ids.dim_tokens_fn(height, width)
 
-    total_size = (
-        1  # img_start
-        + len(dim_tokens)
-        + 1  # img_token_start
-        + num_tokens_needed
-        + height  # one EOL marker per row
-        + 1  # EOF
-        + 1  # img_end
-    )
+    total_size = image_block_length(height, width, len(dim_tokens))
 
     output = torch.empty(total_size, dtype=torch.long)
     idx = 0

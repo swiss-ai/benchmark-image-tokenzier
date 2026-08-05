@@ -49,6 +49,15 @@ class Emu3_5_IBQ(Tokenizer):
             metadata_only: If True, only load metadata (codebook_size, name) without model weights
             verbose: If True, print detailed information during processing (default: False)
         """
+        # Token output depends on TF32 (~0.5% of codes flip vs strict FP32 —
+        # measured in vision_tokenization/profile/precision_parity.py). Pin it
+        # HERE, at the layer every consumer shares (tokenize pipeline,
+        # qualitative benchmark, demo notebooks, audit tools), so training-time
+        # and inference-time tokenization stay the same function regardless of
+        # the host environment's defaults. All shipped corpora used TF32.
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+
         self.model_path = model_path
         self.name = "Emu3_5_IBQ"
         self.min_pixels = min_pixels
@@ -203,31 +212,63 @@ class Emu3_5_IBQ(Tokenizer):
         # Batch dimension will be added in encode() method when needed
         return image_tensor
 
-    def preprocess_batch(self, images: List[Image.Image], resize_size: Tuple[int, int]) -> torch.Tensor:
+    def preprocess_cpu(self, images: List[Image.Image], resize_size: Tuple[int, int]) -> torch.Tensor:
+        """CPU phase of preprocessing: RGB convert + BICUBIC resize + stack.
+
+        Pure CPU work with no device interaction, safe to run in loader
+        threads (PIL releases the GIL during decode/resample). Returns a
+        pinned uint8 ``[B, H, W, C]`` tensor ready for one async H2D copy.
         """
-        Preprocess batch of PIL images to tensor format with specific resize dimensions.
+        height, width = resize_size
+        # Write each image straight into the (pinned) batch buffer — avoids
+        # a per-image copy plus a pageable full-batch temporary.
+        pixels = torch.empty(
+            (len(images), height, width, 3), dtype=torch.uint8,
+            pin_memory=self.device.type == "cuda",
+        )
+        out = pixels.numpy()
+        for i, image in enumerate(images):
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+            iw, ih = image.size
+            if iw != width or ih != height:
+                image = image.resize((width, height), Image.BICUBIC)
+            out[i] = np.asarray(image, dtype=np.uint8)
+        return pixels
+
+    def to_device(self, pixels: torch.Tensor) -> torch.Tensor:
+        """Device phase: one async H2D copy + batched cast/normalize.
+
+        Elementwise ops match the legacy per-image path exactly (uint8→fp32
+        cast is exact; div/sub are IEEE-rounded identically), so tokens are
+        bit-identical — verified at 0/1,048,576 mismatches on real data.
+        """
+        pixels = pixels.to(self.device, non_blocking=True)
+        # Make NCHW contiguous while still uint8 (2 B/px traffic, not 8 B/px).
+        x = pixels.permute(0, 3, 1, 2).contiguous().to(self.dtype)
+        x.div_(127.5).sub_(1.0)
+        return x
+
+    def preprocess_batch(self, images, resize_size: Tuple[int, int]) -> torch.Tensor:
+        """
+        Preprocess batch of images to tensor format with specific resize dimensions.
+
+        Composition of ``preprocess_cpu`` + ``to_device``. The CPU phase may
+        run elsewhere (the pipeline runs it in prefetch workers), in which
+        case *images* arrives as the uint8 ``[B, H, W, C]`` tensor and only
+        the device phase remains — this entry point owns both forms.
 
         Args:
-            images: List of PIL Images
+            images: List of PIL Images, or a CPU uint8 ``[B, H, W, C]`` tensor
+                already produced by ``preprocess_cpu``
             resize_size: Target (height, width) for resizing all images
 
         Returns:
             Batched tensor of shape [B, C, H, W]
         """
-        height, width = resize_size
-        batch_tensors = []
-        for image in images:
-            if image.mode != "RGB":
-                image = image.convert("RGB")
-
-            # Skip resize when the image already matches the target dimensions
-            iw, ih = image.size
-            if iw != width or ih != height:
-                image = image.resize((width, height), Image.BICUBIC)
-
-            batch_tensors.append(self._pil_to_tensor(image))
-
-        return torch.stack(batch_tensors, dim=0)
+        if isinstance(images, torch.Tensor):
+            return self.to_device(images)
+        return self.to_device(self.preprocess_cpu(images, resize_size))
 
     def postprocess(self, tensor: torch.Tensor) -> Image.Image:
         """

@@ -34,4 +34,13 @@ max_batch_tokens: 32_768
 # Captions are short (median ~95 tokens), image tokens dominate at ~6.8K
 # post-downscale. Keep stage2/lct split for layout consistency with
 # docci, owid_grapher_charts, hq50k, nasa_cooldown.
-seqlen_threshold: 8192
+
+# Override pipeline default prefetch (num_workers=8, queue_size=32) because
+# Smithsonian holds gigapixel source images (max 25,887×17,152 = 178 MP).
+# At default settings a single rank could buffer 8×32=256 batches with
+# decoded RGBA tensors of ~700 MB each → host OOM (job 2055082 was
+# OOM-killed on first attempt). With 4×8=32 in-flight batches per rank
+# the worst-case host memory drops 8× while still hiding I/O latency.
+prefetch:
+  num_workers: 4     # was 8
+  queue_size: 8      # was 32

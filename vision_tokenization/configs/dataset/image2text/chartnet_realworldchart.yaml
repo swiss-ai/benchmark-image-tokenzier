@@ -1,0 +1,26 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# ChartNet RealWorldChart (2077AI / Abaka AI) — image2text, real-world chart → caption.
+# ~30K real-world charts with detailed captions. License: CC-BY-4.0.
+#
+# Companion to the synthetic ibm-granite/ChartNet (see chartnet_code.yaml /
+# chartnet_summary.yaml): those are code-guided synthetic renders; this is real
+# charts scraped/curated from the wild with human-style captions.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/image2text@_here_
+
+output_name: chartnet_realworldchart
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/image2text/hf___2077AIDataFoundation___ChartNet_RealWorldChart/data/*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/chartnet_realworldchart/manifest.parquet
+image_column: image
+text_column: caption
+
+# Real-world charts vary in size; disable any cap defensively (tokenizer
+# downscales to its own pixel cap).
+max_pixels: "65536*65536"
+max_batch_tokens: 32_768
+
+# Split sequences >= 8192 tokens into the lct/ tail (image tokens dominate).

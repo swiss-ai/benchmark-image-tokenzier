@@ -5,12 +5,10 @@ base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(base_dir)
 sys.path.insert(0, os.path.join(base_dir, "repos", "FQGAN"))
 
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Tuple, Union
 
 import numpy as np
 import torch
-import torch.nn.functional as F
-import torchvision.transforms as T
 from PIL import Image
 
 from Tokenizer.base import Tokenizer
@@ -403,7 +401,6 @@ if __name__ == "__main__":
     # Import here to avoid circular imports when used as module
     from utils import load_all_images
 
-    from Tiler import Tiler
 
     # Initialize tokenizer
     tokenizer = FQGAN(

@@ -5,10 +5,9 @@ Uses CLIP model to compute cosine similarity between image and text embeddings,
 useful for evaluating caption quality in captioning benchmarks.
 """
 
-from typing import ClassVar, Dict, Set
+from typing import ClassVar, Set
 
 import torch
-from PIL import Image
 
 from vision_tokenization.qualitative_benchmark.metrics import register_metric
 from vision_tokenization.qualitative_benchmark.metrics.base import BaseMetric

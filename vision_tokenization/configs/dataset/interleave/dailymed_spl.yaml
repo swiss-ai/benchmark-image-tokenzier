@@ -1,0 +1,56 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# DailyMed SPL — interleave, HF Parquet, multi-image drug-label documents.
+#
+# 24 parquets, ~25 GB raw (deduped from ~49 GB original at ../interleaved/).
+# Each row is one drug Structured Product Labeling (SPL) document with
+# its images and pre-segmented text in document reading order.
+#
+# Schema (per row):
+#   id              : doc identifier (e.g. animal/<date>_<uuid>)
+#   n_segments      : number of segments
+#   n_images        : number of embedded images
+#   n_text_chars    : total text chars across text segments
+#   segments_json   : JSON-encoded list of segments (text + image, in order)
+#                     each image segment has an `alt` field (VLM-generated description)
+#   images_bytes    : list<binary> of raw image bytes, indexed by image_index
+#
+# The dailymed parser decodes segments_json and emits canonical interleave
+# segments. Each image segment is followed by its `alt` text — this captures
+# the VLM-generated descriptions which are the dominant text signal (pure
+# text segments are often empty for these scanned product labels).
+#
+# Image dims: median 686×441, p90 1612×1373, max 26112×26217 (gigapixel tail).
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/interleave@_here_
+
+multi_image: true
+
+output_name: dailymed_spl
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/medical-datasets/raw/dailymed_spl/interleaved2/*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/dailymed_spl_interleaved2/manifest.parquet
+
+image_list_column: images_bytes
+parser: dailymed
+parser_columns:
+  - segments_json
+
+# Source images include a gigapixel tail (max 26K×26K). Don't filter at
+# manifest level; the tokenizer's smart-resize handles down to 1400×1400.
+max_pixels: "65536*65536"
+max_batch_tokens: 32_768
+
+# Standard interleave layout: split sequences ≥ 8192 tokens into lct/.
+# Matches mit_10m_recap, art_museums_recap, owid_articles, medpix.
+max_sequence_tokens: 262_144
+
+# Override pipeline defaults defensively — same protection as smithsonian
+# because dailymed has the same gigapixel-image hazard. With 4×8=32
+# in-flight batches per rank instead of 8×32=256, host RAM stays bounded
+# even when several giant scanned product labels coincide in flight.
+prefetch:
+  num_workers: 4
+  queue_size: 8

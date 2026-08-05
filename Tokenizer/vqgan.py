@@ -9,10 +9,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from pathlib import Path
 from typing import Any, Tuple
 
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torch.nn.functional as F
 from omegaconf import OmegaConf
 from PIL import Image
 
@@ -127,7 +125,7 @@ class VQGAN(Tokenizer):
 if __name__ == "__main__":
 
     # Example usage replicating your original code structure
-    from utils import load_all_images, resize_by_ratio
+    from utils import load_all_images
 
     images, image_names, image_paths = load_all_images(
         "/iopsstor/scratch/cscs/xyixuan/benchmark-image-tokenzier/assets/original"

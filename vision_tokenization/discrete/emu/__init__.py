@@ -17,7 +17,11 @@ def create_tokenizer(
     max_pixels: int,
     **kwargs: Any,
 ):
-    """Create the concrete EMU tokenizer for the requested tokenization mode."""
+    """Create the concrete EMU tokenizer for the requested tokenization mode.
+
+    TF32 pinning lives in the vision-wrapper constructors (Emu3_5_IBQ,
+    Emu3VisionTokenizer) — the layer every consumer shares.
+    """
     if mode == "image_only":
         from .image_only import EMUImageOnlyTokenizer
 
@@ -34,10 +38,17 @@ def create_tokenizer(
         from .interleave import EMUInterleaveTokenizer
 
         tokenizer_class = EMUInterleaveTokenizer
+    elif mode == "alignment":
+        # Alignment freezes media as raw image blocks (no paired text
+        # render); the image-only tokenizer is exactly the encode + encapsulate
+        # path it needs. It swallows the unused ``mode`` kwarg via ``**kwargs``.
+        from .image_only import EMUImageOnlyTokenizer
+
+        tokenizer_class = EMUImageOnlyTokenizer
     else:
         raise ValueError(
             f"Unknown tokenizer mode: {mode}. "
-            "Must be one of: image_only, image2text, text2image, sft, interleave"
+            "Must be one of: image_only, image2text, text2image, sft, interleave, alignment"
         )
 
     return tokenizer_class(

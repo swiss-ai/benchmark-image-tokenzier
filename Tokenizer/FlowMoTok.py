@@ -10,10 +10,8 @@ sys.path.insert(0, os.path.join(base_dir, "repos", "FlowMo"))
 
 from typing import Any, Tuple
 
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torchvision.transforms as T
 from flowmo import train_utils
 from omegaconf import OmegaConf
 from PIL import Image

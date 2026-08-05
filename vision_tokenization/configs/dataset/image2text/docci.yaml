@@ -18,3 +18,7 @@ text_column: description
 # Disable the 2048*2048 default cap — DOCCI images go up to 3500*3500 (~12M px).
 max_pixels: "65536*65536"
 max_batch_tokens: 32_768
+
+# Cooldown convention: split sequences ≥ 8192 tokens into the lct/ tail
+# (long-context training) and the rest into stage2/. Matches nasa_cooldown,
+# hq50k, smithsonian, owid_grapher_charts.

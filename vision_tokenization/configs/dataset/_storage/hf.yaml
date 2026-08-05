@@ -6,9 +6,9 @@ input_pattern: ???
 image_column: image
 image_list_column: null
 multi_image: null
+compute_media_sha256: false
 max_cached_chunks: 128
 
 window_size: 2000
 prefetch:
   queue_size: 32
-seqlen_threshold: null

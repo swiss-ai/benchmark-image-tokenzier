@@ -1,0 +1,40 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# LaTeX Formulas 80M (OleehyO) — INLINE formulas pass.
+#
+# Companion to latex_formulas_80m.yaml.  The first pass kept area ∈ [8192, 4194304]
+# px² (45.6M docs); this pass targets the *previously-filtered tail*: 27.7M
+# wide-thin inline formulas that were rejected for being below the old min.
+#
+# Typical image: 154×28 px (~4,620 px²) — a single line of math like
+# \alpha + \beta = \gamma^2 .  These have height < 64 so they fail the old
+# 64×128 area gate, but their width is fine and the LaTeX text is intact.
+#
+# Filter window for this pass:
+#   * min_pixels=1024 (=32*32)  — drops true tiny single-glyph noise (<32×32 sqrt)
+#   * max_pixels=8192 (=64*128) — caps at the old min so we DO NOT re-tokenize
+#                                  the 45.6M already in the main bucket.
+#
+# Tokenizer's resize_min_pixels=16384 will smart-upscale these short images to
+# meet the encoder's minimum patch grid — e.g. a 154×28 image becomes ~282×52
+# preserving aspect, fitting cleanly into 1-2 tile-tall × 5-7 wide patch grid.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/image2text@_here_
+
+output_name: latex_formulas_80m_inline
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/stage2/hf___OleehyO___latex-formulas-80M/**/*.parquet"
+manifest_path: /capstor/store/cscs/swissai/infra01/vision-datasets/manifest/latex_formulas_80m/manifest.parquet
+image_column: image
+text_column: latex_formula
+multi_image: false
+
+# --- Filter window targeting the previously-rejected wide-thin tail ----------
+min_pixels: "32*32"     # 1024 px² — drops single-glyph noise (<32×32 sqrt)
+max_pixels: "64*128"    # 8192 px² — = old min; excludes the 45.6M already done
+
+# --- Pipeline overrides ------------------------------------------------------
+max_batch_tokens: 32_768
+checkpoint_interval_batches: 5_000

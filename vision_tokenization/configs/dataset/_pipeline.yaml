@@ -7,13 +7,20 @@ min_pixels: "64*128"
 max_pixels: "2048*2048"
 max_images_per_doc: null
 
+# The discrete vision tokenizer.
+# Apertus 1.5 also names these in its own tokenizer_config.json; Apertus 2 does not.
+vision_tokenizer_type: Emu3.5
+vision_tokenizer_path: /capstor/store/cscs/swissai/infra01/MLLM/tokenizer/Emu3.5-VisionTokenizer
+
 plan_path: null
 batch_size: 128
 max_batch_tokens: 32_768
 spatial_factor: 16
+window_size: 2000
 
 prefetch:
   num_workers: 8
+  queue_size: 32
 
 checkpoint_interval_batches: 2_500
 max_consecutive_errors: 50

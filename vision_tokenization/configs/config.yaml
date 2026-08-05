@@ -18,12 +18,15 @@ defaults:
 # --- Pipeline -----------------------------------------------------------------
 
 num_gpus: ???                      # total GPU count (verified against SLURM_NTASKS)
-mode: ???                          # required: image_only | sft | image2text | text2image | interleave
+mode: ???                          # required: image_only | sft | image2text | text2image | interleave | alignment
 
 # --- Tokenizer ----------------------------------------------------------------
 
 tokenizer:
   path: /capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_wavtok
+  # Resize band ALIGNED ACROSS PRETRAIN/SFT/ALIGNMENT (user decision
+  # 2026-06-11): post-training never silently changes the vision front-end.
+  # 1400^2 -> <=~7.7k tokens/image; recorded in alignment's manifest.json.
   min_pixels: "128*128"
   max_pixels: "1400*1400"
   max_encode_pixels: 8_000_000
@@ -43,4 +46,5 @@ wandb:
   project: vision-tokenization
   entity: null
   name: null
+  group: null   # nest related runs (e.g. sharded alignment: one group, N shard runs)
   tags: []

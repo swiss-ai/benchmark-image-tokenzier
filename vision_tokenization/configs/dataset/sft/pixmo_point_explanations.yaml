@@ -1,0 +1,46 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Pixmo-Point-Explanations (AllenAI, Apache 2.0) — SFT in cooldown bucket.
+#
+# 11,573 multi-turn conversations grounded on a single image. Each conversation
+# alternates: descriptive Q/A about image content, then "where is X?" probes
+# answered with `[x, y]` percentage coordinates and `[ptN=(0.X, 0.Y)]` point
+# tokens. Median 4 turns/conv (mean 4.9, p95=10).
+#
+# Output lands at `tokenized/cooldown/sft/pixmo_point_explanations/` —
+# tokenized as SFT (assistant-loss-masked chat format) but placed in the
+# cooldown tree so the cooldown training loop can pull it alongside the
+# image2text/interleave cooldown buckets.
+#
+# Schema (per row):
+#   image_url : original CDN URL (informational)
+#   messages  : list<{role, content}> — canonical chat format
+#   width     : int32
+#   height    : int32
+#   jpg       : binary (raw JPEG bytes — what we tokenize from)
+#
+# Image dims: median 830×900, max 5151×11594.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: pixmo_point_explanations
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/cooldown
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/sft/hf___allenai___pixmo-point-explanations/preprocessed2/0*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/pixmo_point_explanations/manifest.parquet
+image_column: jpg
+
+# Same chat format as pixmo_ask_model_anything: ``messages`` is already a
+# list of {role, content} dicts. The user's first turn has no ``<image>``
+# marker, so the conversation policy auto-prepends one.
+parser: conversation
+parser_columns:
+  - messages
+
+conversation_policy:
+  add_image_placeholder: true
+
+# Source images can reach 5K×11K; don't filter at manifest level.
+max_pixels: "65536*65536"
+max_batch_tokens: 32_768

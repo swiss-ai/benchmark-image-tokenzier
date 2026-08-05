@@ -1,26 +1,25 @@
 """Merge per-rank tokenized shards into a single dataset.
 
-Follows the same "last rank out" pattern as ``stats_reducer``: each rank
-calls ``maybe_merge_shards`` after finishing tokenization. The call checks
-whether all expected ranks have completed (checkpoint files exist). The
-first rank to observe a complete set performs the merge; others return
-immediately.
+Run standalone after all ranks finish::
 
-Can also be run standalone::
+    python -m vision_tokenization.pipeline.output.merge /path/to/output_dir \
+        [--bands 8192,16384,...] [--dry-run]
 
-    python -m vision_tokenization.pipeline.output.merge \
-        /path/to/output_dir --expected-ranks 80
+Gating verifies rank completion manifests (rank_NNNN_DONE.json): a dataset
+merges iff every rank's claim verifies against disk. Pre-manifest run dirs
+are not mergeable — re-tokenize with current code.
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import json
 import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 
 import numpy as np
 
@@ -71,7 +70,10 @@ import numba
 
 @numba.njit
 def _strip_thinking_inner(tokens, think_id, end_think_id, out):
-    """Numba-compiled one-pass state machine. Returns write count."""
+    """Numba-compiled one-pass state machine.
+
+    Returns the write count and whether the sequence ended mid-span.
+    """
     w = 0
     inside = False
     for i in range(len(tokens)):
@@ -86,15 +88,15 @@ def _strip_thinking_inner(tokens, think_id, end_think_id, out):
         else:
             out[w] = tok
             w += 1
-    return w
+    return w, inside
 
 
 def strip_thinking_tokens(
     tokens: np.ndarray,
-    think_id: int = 32,
-    end_think_id: int = 33,
-) -> Optional[np.ndarray]:
-    """Remove ``<think>...</think>`` spans from a token sequence.
+    think_id: int,
+    end_think_id: int,
+) -> Tuple[Optional[np.ndarray], bool]:
+    """Remove reasoning spans from a token sequence.
 
     One-pass two-state delimiter machine (numba-compiled):
 
@@ -103,18 +105,23 @@ def strip_thinking_tokens(
     - **inside**: drop everything including repeated ``think_id``;
       ``end_think_id`` exits back to *outside*.
 
-    Returns ``None`` if the result is empty after stripping.
+    Returns the stripped sequence (``None`` if empty afterwards),
+    and whether the sequence ended still inside a span.
+    An unclosed span drops everything after the opener,
+    which the output cannot be distinguished from a correct strip.
+    Hence the flag rather than silence.
     """
     n = len(tokens)
     if n == 0:
-        return None
+        return None, False
     if not ((tokens == think_id) | (tokens == end_think_id)).any():
-        return tokens  # fast path — no copy
+        # fast path — no copy
+        return tokens, False
 
     out = np.empty(n, dtype=tokens.dtype)
-    w = _strip_thinking_inner(tokens, think_id, end_think_id, out)
+    w, unclosed = _strip_thinking_inner(tokens, think_id, end_think_id, out)
 
-    return out[:w] if w > 0 else None
+    return (out[:w] if w > 0 else None), unclosed
 
 
 # ---------------------------------------------------------------------------
@@ -173,33 +180,61 @@ def _index_has_sequence_modes(path_prefix: str) -> bool:
     )
 
 
-def resolve_thinking_token_ids(tokenizer_path: str) -> tuple[int, int]:
-    """Resolve ``<think>``/``</think>`` token IDs from a tokenizer.json file.
+def resolve_reasoning_delimiters(tokenizer_dir: str) -> Tuple[int, int]:
+    """Delimiter ids for *tokenizer_dir*, by encoding the strings a chat template writes.
 
-    Uses the Rust-based ``tokenizers`` library for fast loading (no full
-    HuggingFace AutoTokenizer initialization).
+    Encoding rather than looking the names up is what makes this correct across tokenizer
+    revisions: apertus_emu3.5_wavtok_instruct_thinking_token_fixed normalizes ``<think>``
+    into ``<|inner_prefix|>``, so a name lookup returns 69 while the id in its data is 32.
 
-    Raises ``ValueError`` if either token is not in the vocabulary.
+    TODO: recheck once the Apertus 2 chat template lands. Apertus 2 carries ``<think>`` (22)
+    and ``<|inner_prefix|>`` (12) as separate unaliased tokens, so this returns 22/23 —
+    correct only if the template writes ``<think>`` for reasoning turns. If it writes
+    ``<|inner_prefix|>``, stripping matches nothing and says so only in the warning count.
     """
     from tokenizers import Tokenizer
 
-    json_path = Path(tokenizer_path)
-    if json_path.is_dir():
-        json_path = json_path / "tokenizer.json"
-    if not json_path.is_file():
-        raise FileNotFoundError(f"tokenizer.json not found at {json_path}")
+    path = Path(tokenizer_dir)
+    if path.is_dir():
+        path = path / "tokenizer.json"
+    tok = Tokenizer.from_file(str(path))
 
-    tok = Tokenizer.from_file(str(json_path))
+    ids = []
+    for text in ("<think>", "</think>"):
+        encoded = tok.encode(text, add_special_tokens=False).ids
+        if len(encoded) != 1:
+            raise ValueError(
+                f"{text!r} is not a single token in {path} (encodes to {encoded}). "
+                f"Pass --think-id/--end-think-id explicitly."
+            )
+        ids.append(encoded[0])
+    return ids[0], ids[1]
 
-    think_id = tok.token_to_id("<think>")
-    end_think_id = tok.token_to_id("</think>")
 
-    if think_id is None:
-        raise ValueError(f"<think> not found in tokenizer at {json_path}")
-    if end_think_id is None:
-        raise ValueError(f"</think> not found in tokenizer at {json_path}")
+def strip_thinking_dataset(
+    input_prefix: str,
+    output_prefix: str,
+    think_id: int,
+    end_think_id: int,
+) -> RewriteStats:
+    """Write *input_prefix* to *output_prefix* with reasoning spans removed."""
+    unclosed = 0
 
-    return think_id, end_think_id
+    def transform(seq):
+        nonlocal unclosed
+        stripped, ended_inside = strip_thinking_tokens(seq, think_id, end_think_id)
+        unclosed += ended_inside
+        return stripped
+
+    stats = rewrite_dataset(input_prefix, output_prefix, transform)
+    if unclosed:
+        logger.warning(
+            "%d of %d sequences ended inside an unclosed reasoning span — everything "
+            "after the opener was dropped. Expected for truncated generations; if it is "
+            "most of the dataset, think_id=%d/end_think_id=%d belong to another tokenizer.",
+            unclosed, stats.input_count, think_id, end_think_id,
+        )
+    return stats
 
 
 def rewrite_dataset(
@@ -272,34 +307,126 @@ def rewrite_dataset(
     )
 
 
-def _find_shard_pairs(
-    directory: Path,
-    *,
-    subdirs: Optional[List[str]] = None,
-) -> list[tuple[str, str]]:
-    """Find all matching .bin/.idx pairs in *directory* (and optional subdirs)."""
-    search_dirs = [directory]
-    if subdirs:
-        search_dirs.extend(directory / s for s in subdirs if (directory / s).is_dir())
-
+def _find_shard_pairs(directory: Path) -> list[tuple[str, str]]:
+    """All rank chunk .bin/.idx pairs in *directory* (flat — one stream per rank)."""
     pairs = []
-    seen = set()
-    for search_dir in search_dirs:
-        for f in sorted(search_dir.glob("rank_*_chunk_*.bin")):
-            idx = f.with_suffix(".idx")
-            if idx.exists() and f.stat().st_size > 0 and f.stem not in seen:
-                seen.add(f.stem)
-                pairs.append((str(f), str(idx)))
+    for f in sorted(directory.glob("rank_*_chunk_*.bin")):
+        idx = f.with_suffix(".idx")
+        if idx.exists() and f.stat().st_size > 0:
+            pairs.append((str(f), str(idx)))
     return pairs
 
 
-def _all_ranks_done(output_dir: Path, expected_ranks: int) -> bool:
-    """Check if all ranks have written their checkpoint files."""
-    for rank in range(expected_ranks):
-        ckpt = output_dir / f"rank_{rank:04d}_checkpoint.pt"
-        if not ckpt.exists():
-            return False
-    return True
+def _run_tokenizer_path(manifests: list) -> Optional[str]:
+    """The tokenizer this run was written with, if every rank agrees on it."""
+    paths = {m.get("tokenizer_path") for m in manifests}
+    paths.discard(None)
+    return paths.pop() if len(paths) == 1 else None
+
+
+def verify_manifests(output_dir: Path, manifests: list) -> tuple:
+    """Verify rank completion claims against disk. Returns (problems, totals).
+
+    A dataset merges iff: manifests form ranks 0..N-1 with unanimous
+    world_size and plan fingerprint, and the union of claimed shard files
+    matches the rank shards on disk exactly — both directions, with sizes.
+    """
+    problems = []
+    sizes = {m["world_size"] for m in manifests}
+    if len(sizes) > 1:
+        problems.append(f"manifests disagree on world_size {sorted(sizes)} — mixed runs")
+        return problems, None
+    world_size = sizes.pop()
+    ranks = [m["rank"] for m in manifests]
+    missing = sorted(set(range(world_size)) - set(ranks))
+    if missing:
+        problems.append(f"no completion manifest for ranks {missing} — run incomplete or crashed")
+    extra = sorted(set(ranks) - set(range(world_size)))
+    if extra:
+        problems.append(f"manifests for ranks {extra} exceed world_size={world_size} — stale leftovers")
+    plans = {json.dumps(m.get("plan"), sort_keys=True) for m in manifests}
+    if len(plans) > 1:
+        problems.append("manifests carry different plan fingerprints — mixed runs in one directory")
+
+    claimed = {f["name"]: f["bytes"] for m in manifests for f in m["files"]}
+    on_disk = {p.name: p.stat().st_size for p in output_dir.glob("rank_*_chunk_*.bin")}
+    for name, nbytes in sorted(claimed.items()):
+        if name not in on_disk:
+            problems.append(f"claimed shard missing on disk: {name}")
+        elif on_disk[name] != nbytes:
+            problems.append(f"size mismatch for {name}: manifest {nbytes:,} B, disk {on_disk[name]:,} B")
+        elif not (output_dir / name).with_suffix(".idx").exists():
+            problems.append(f"claimed shard has no .idx: {name}")
+    stale = sorted(set(on_disk) - set(claimed))
+    if stale:
+        problems.append(f"shards on disk not claimed by any manifest (stale leftovers?): {stale}")
+
+    totals = {
+        "ranks": world_size,
+        "files": len(claimed),
+        "sequences": sum(m["sequences"] for m in manifests),
+        "tokens": sum(m["tokens"] for m in manifests),
+    }
+    return problems, totals
+
+
+def _band_name(edges, i):
+    return f"{edges[i]//1024}k" if i < len(edges) else f"gt{edges[-1]//1024}k"
+
+
+def _validate_edges(edges) -> list:
+    """np.searchsorted needs ascending edges; KiB-floored names must be unique
+    or one band's view file silently overwrites another's."""
+    edges = [int(e) for e in edges]
+    if any(b <= a for a, b in zip(edges, edges[1:])) or edges[0] <= 0:
+        raise ValueError(f"band edges must be positive and strictly ascending, got {edges}")
+    names = [_band_name(edges, i) for i in range(len(edges))]
+    if len(set(names)) != len(names):
+        raise ValueError(f"band edges collide on names {names} — keep edges >= 1 KiB apart")
+    return edges
+
+
+def _band_of(lengths, edges):
+    return np.searchsorted(edges, lengths.astype(np.int64), side="left")
+
+
+def band_table(pairs, edges):
+    """Per-band (sequences, tokens) from .idx headers only — no .bin reads."""
+    from vision_tokenization.formats.megatron import read_idx
+
+    edges = _validate_edges(edges)
+    counts = np.zeros(len(edges) + 1, dtype=np.int64)
+    tokens = np.zeros(len(edges) + 1, dtype=np.int64)
+    for bin_path, _ in pairs:
+        _, lens, _, _ = read_idx(bin_path[:-4])
+        b = _band_of(lens, edges)
+        counts += np.bincount(b, minlength=len(edges) + 1)
+        tokens += np.bincount(b, weights=lens, minlength=len(edges) + 1).astype(np.int64)
+    return counts, tokens
+
+
+def split_bands(merged_prefix: str, edges) -> dict:
+    """Write per-band .idx views over the merged .bin (idx-only; bytes shared)."""
+    from vision_tokenization.formats.megatron import read_idx, write_idx_view
+
+    edges = _validate_edges(edges)
+    header, lens, ptrs, _ = read_idx(merged_prefix)
+    bands = _band_of(lens, edges)
+    out = {}
+    for i in range(len(edges) + 1):
+        sel = np.where(bands == i)[0]
+        if len(sel) == 0:
+            continue
+        name = _band_name(edges, i)
+        path = f"{merged_prefix}_{name}.idx"
+        write_idx_view(path, header, lens[sel], ptrs[sel])
+        # Megatron derives <prefix>.bin from the idx prefix: alias the shared
+        # bin per view (hardlink: same inode, zero bytes).
+        alias = Path(f"{merged_prefix}_{name}.bin")
+        alias.unlink(missing_ok=True)
+        os.link(merged_prefix + ".bin", alias)
+        out[name] = (len(sel), int(lens[sel].astype(np.int64).sum()), path)
+    return out
 
 
 def merge_shards(
@@ -308,105 +435,77 @@ def merge_shards(
     *,
     shuffle: bool = False,
     seed: int = 42,
+    bands: Optional[List[int]] = None,
+    dry_run: bool = False,
 ) -> Optional[Path]:
-    """Merge all rank shard pairs in *output_dir* into a single dataset.
+    """Concatenate all rank shard pairs; optionally split per-band idx views.
 
-    Returns the output prefix path, or None if no shards were found.
+    ``dry_run`` prints the gating + band table from .idx headers and writes nothing.
     """
     _ensure_megatron_importable()
+    import shutil
+    shutil.COPY_BUFSIZE = 64 << 20  # 64 KiB default cripples multi-100GB merges
     from megatron.core.datasets.indexed_dataset import (
-        IndexedDataset,
-        IndexedDatasetBuilder,
-        get_bin_path,
-        get_idx_path,
+        IndexedDataset, IndexedDatasetBuilder, get_bin_path, get_idx_path,
     )
 
     output_dir = Path(output_dir)
-
-    # Collect shard pairs from main dir and split subdirs
-    pairs = _find_shard_pairs(output_dir, subdirs=["stage2", "lct"])
+    output_prefix = str(output_dir / output_name)
+    pairs = _find_shard_pairs(output_dir)
     if not pairs:
         logger.warning("No shard pairs found in %s", output_dir)
         return None
 
-    # Sort for deterministic order
-    import random
+    if dry_run:
+        edges = bands or DEFAULT_BANDS
+        counts, tokens = band_table(pairs, edges)
+        total_bytes = sum(Path(b).stat().st_size for b, _ in pairs)
+        print(f"shards: {len(pairs)} pairs, {total_bytes/2**30:.1f} GB -> {output_prefix}.bin")
+        print(f"{'band':>8} {'seqs':>12} {'tokens':>18}")
+        for i in range(len(edges) + 1):
+            if counts[i]:
+                print(f"{_band_name(edges, i):>8} {counts[i]:>12,} {tokens[i]:>18,}")
+        print(f"{'TOTAL':>8} {counts.sum():>12,} {tokens.sum():>18,}")
+        return None
 
-    prefixes = [bin_path.rsplit(".bin", 1)[0] for bin_path, _ in pairs]
-    if shuffle:
-        random.seed(seed)
-        random.shuffle(prefixes)
+    if Path(output_prefix + ".bin").exists():
+        logger.info("Merged file already exists: %s.bin — skipping to band views", output_prefix)
+    else:
+        import random
+        prefixes = [bp.rsplit(".bin", 1)[0] for bp, _ in pairs]
+        if shuffle:
+            random.seed(seed)
+            random.shuffle(prefixes)
 
-    output_prefix = str(output_dir / output_name)
+        logger.info("Merging %d shard pairs into %s", len(prefixes), output_prefix)
+        builder = None
+        for prefix in prefixes:
+            if builder is None:
+                dataset = IndexedDataset(prefix)
+                builder = IndexedDatasetBuilder(get_bin_path(output_prefix), dtype=dataset.index.dtype)
+                del dataset
+            builder.add_index(prefix)
+        builder.finalize(get_idx_path(output_prefix))
 
-    logger.info("Merging %d shard pairs into %s", len(prefixes), output_prefix)
+    if bands:
+        for name, (n, tok, path) in split_bands(output_prefix, bands).items():
+            logger.info("band %s: %s seqs, %s tokens -> %s", name, f"{n:,}", f"{tok:,}", path)
 
-    builder = None
-    for prefix in prefixes:
-        if builder is None:
-            dataset = IndexedDataset(prefix)
-            builder = IndexedDatasetBuilder(
-                get_bin_path(output_prefix), dtype=dataset.index.dtype,
-            )
-            del dataset
-        builder.add_index(prefix)
-
-    builder.finalize(get_idx_path(output_prefix))
-
-    out_bin = Path(get_bin_path(output_prefix))
-    out_tokens = out_bin.stat().st_size // 4
-    logger.info(
-        "Merge complete: %s (%d shards, %s tokens)",
-        output_prefix,
-        len(prefixes),
-        f"{out_tokens:,}",
-    )
+    logger.info("Merge complete: %s (%d shards)", output_prefix, len(pairs))
     return Path(output_prefix)
-
-
-def maybe_merge_shards(
-    output_dir: Path | str,
-    *,
-    expected_ranks: int,
-    output_name: str = "merged",
-    shuffle: bool = False,
-    seed: int = 42,
-) -> Optional[Path]:
-    """Merge shards if all ranks are done. Returns None if not ready or merge disabled."""
-    output_dir = Path(output_dir)
-
-    # Check if already merged
-    merged_bin = output_dir / f"{output_name}.bin"
-    if merged_bin.exists():
-        logger.debug("Merged file already exists: %s", merged_bin)
-        return Path(output_dir / output_name)
-
-    if not _all_ranks_done(output_dir, expected_ranks):
-        return None
-
-    try:
-        return merge_shards(
-            output_dir,
-            output_name=output_name,
-            shuffle=shuffle,
-            seed=seed,
-        )
-    except Exception:
-        logger.warning("Failed to merge shards in %s", output_dir, exc_info=True)
-        return None
 
 
 def main(argv: Optional[list[str]] = None) -> int:
     """CLI entry point."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output_dir", help="Directory containing rank shard files")
-    parser.add_argument(
-        "--expected-ranks", type=int, default=None,
-        help="Wait for this many rank checkpoints before merging",
-    )
     parser.add_argument("--output-name", default="merged", help="Output prefix name")
     parser.add_argument("--shuffle", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--bands", type=lambda v: _validate_edges(v.split(",")),
+                        default=None, help="Band edges, e.g. 8192,16384,32768")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Print gating + per-band table; write nothing")
     parser.add_argument(
         "--strip-thinking", action="store_true",
         help="After merging, produce a second no-CoT variant with "
@@ -414,39 +513,37 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     parser.add_argument("--no-cot-output-name", default="merged_no_cot")
     parser.add_argument(
-        "--think-id", type=int, default=32,
-        help="<think> token ID (default: 32)",
+        "--think-id", type=int, default=None,
+        help="Override the reasoning-span opening token ID; by default it is "
+             "resolved from the tokenizer this run recorded",
     )
     parser.add_argument(
-        "--end-think-id", type=int, default=33,
-        help="</think> token ID (default: 33)",
-    )
-    parser.add_argument(
-        "--resolve-thinking-ids", action="store_true",
-        help="Resolve think/end-think IDs from --tokenizer-path instead of using defaults",
-    )
-    parser.add_argument(
-        "--tokenizer-path",
-        default="/capstor/store/cscs/swissai/infra01/MLLM/tokenizer/"
-        "apertus_emu3.5_wavtok_instruct",
-        help="Tokenizer path for --resolve-thinking-ids",
+        "--end-think-id", type=int, default=None,
+        help="Override the reasoning-span closing token ID",
     )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-    # Resolve thinking token IDs early so we fail before merge, not after
-    think_id, end_think_id = args.think_id, args.end_think_id
-    if args.strip_thinking and args.resolve_thinking_ids:
-        think_id, end_think_id = resolve_thinking_token_ids(args.tokenizer_path)
-        logger.info(
-            "Resolved thinking IDs from %s: think=%d, end_think=%d",
-            args.tokenizer_path, think_id, end_think_id,
-        )
-
     output_dir = Path(args.output_dir)
-    if args.expected_ranks is not None and not _all_ranks_done(output_dir, args.expected_ranks):
-        print(f"Not all {args.expected_ranks} ranks have finished yet.")
+    from ..runtime.checkpoint import load_rank_manifests
+    manifests = load_rank_manifests(output_dir)
+    if manifests:
+        problems, totals = verify_manifests(output_dir, manifests)
+        if problems:
+            print("REFUSING to merge — completion manifests do not verify:")
+            for prob in problems:
+                print(f"  - {prob}")
+            return 1
+        print(
+            f"manifest gate: {totals['ranks']} ranks verified — {totals['files']} shards, "
+            f"{totals['sequences']:,} sequences, {totals['tokens']:,} tokens"
+        )
+    else:
+        print(
+            "No completion manifests found — this directory predates the manifest "
+            "protocol (or the run never finished). Re-tokenize with current code."
+        )
         return 1
 
     result = merge_shards(
@@ -454,26 +551,37 @@ def main(argv: Optional[list[str]] = None) -> int:
         output_name=args.output_name,
         shuffle=args.shuffle,
         seed=args.seed,
+        bands=args.bands,
+        dry_run=args.dry_run,
     )
+    if args.dry_run:
+        return 0
     if result is None:
         print("No shards found to merge.")
         return 1
     print(f"Merged to {result}.bin / {result}.idx")
 
     if args.strip_thinking:
-        from functools import partial
+        think_id, end_think_id = args.think_id, args.end_think_id
+        if think_id is None or end_think_id is None:
+            tokenizer_path = _run_tokenizer_path(manifests)
+            if tokenizer_path is None:
+                raise SystemExit(
+                    "--strip-thinking needs the delimiter ids. This run's manifests do "
+                    "not record a tokenizer_path (they predate it), so pass --think-id "
+                    "and --end-think-id, resolved from the tokenizer that produced it."
+                )
+            think_id, end_think_id = resolve_reasoning_delimiters(tokenizer_path)
+            logger.info("Resolved delimiters from %s: think=%d end_think=%d",
+                        tokenizer_path, think_id, end_think_id)
 
-        transform = partial(
-            strip_thinking_tokens,
-            think_id=think_id,
-            end_think_id=end_think_id,
-        )
         no_cot_prefix = str(output_dir / args.no_cot_output_name)
         logger.info(
             "Rewriting %s → %s (stripping think_id=%d, end_think_id=%d)",
             result, no_cot_prefix, think_id, end_think_id,
         )
-        stats = rewrite_dataset(str(result), no_cot_prefix, transform)
+        stats = strip_thinking_dataset(str(result), no_cot_prefix,
+                                       think_id, end_think_id)
         logger.info(
             "Rewrite complete: %d input → %d written (%d tokens), %d skipped",
             stats.input_count, stats.written_count, stats.output_tokens,

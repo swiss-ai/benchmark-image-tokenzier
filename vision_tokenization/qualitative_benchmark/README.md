@@ -281,7 +281,7 @@ The repo-root `docs/` folder is the supported viewer. It is a static site that G
 - View input images, prompts, and model outputs side-by-side
 - Compare multiple experiments side-by-side
 - Filter results by tags
-- Works without Flask or a server-side runtime
+- Works without a server-side runtime
 
 ### Usage
 

@@ -1,0 +1,4 @@
+# Runtime packages the NeMo container does not ship.
+# Everything else the pipeline imports (torch, numpy, pyarrow, webdataset,
+# hydra, numba, transformers, tokenizers, datasets, wandb) is already in the image.
+orjson

@@ -1,0 +1,59 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# FineVision / chinesememe — Qwen3.6-27B English re-distill.
+#
+# Source: HuggingFaceM4/FineVision::chinesememe (43,595 rows after the
+# factual-floor filter at visual_dependency_min>=2 AND image_correspondence_min>=2).
+#
+# Re-distill pipeline (multimodal-data/.../redistill_chinesememe_qwen.py):
+#   - Qwen3.6-27B (smatreno's 64-node serving cluster)
+#   - Strategy F + 2-turn natural flow:
+#       Turn 1 = original English question + comprehensive answer with embedded
+#               Chinese OCR + English translation + brief humor
+#       Turn 2 = Qwen-generated follow-up (varied angle: usage, Western
+#               parallel, cultural depth, etc.) + situational extension
+#   - Safety gate: NSFW filtered (suicide/sexual/violence/hate); ~0.1-0.5% drop
+#   - Output: 41,960 SAFE rows (99.7% of input) across 29 shards (~11 GB)
+#
+# Why re-distill: original Chinese-language answers don't teach the model to
+# explain memes for non-Chinese readers; this English re-distill adds OCR +
+# translation + cultural context all in one rich turn.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: finevision___chinesememe_recap_en
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/sft/finevision/chinesememe_recap_en/**/*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/chinesememe_recap_en/manifest.parquet
+
+# Each row has exactly 1 image stored as list[struct<bytes,path>] (FineVision
+# convention). Use image_list_column to read it; multi_image=true so the loader
+# uses the list path even though length is always 1.
+image_list_column: images
+multi_image: true
+
+# FineVision native: texts = list[{user, assistant}] turn pairs. The
+# user_assistant_pairs parser flattens these into canonical [{role, content}]
+# messages (and is reusable for any dataset using the same packed-pair shape).
+parser: user_assistant_pairs
+parser_columns:
+  - texts
+
+# Original English question already in turn 0; fv_conversation auto-prepends
+# <image> on first user turn if absent.
+conversation_policy:
+  add_image_placeholder: true
+  add_system_message: true
+
+# Most chinesememe images are small (200x200 to 1000x1000); smart_resize at
+# 1400^2 handles the few larger ones.
+max_pixels: "65536*65536"
+
+# Two-turn assistant outputs are ~250-400 text tokens + ~1100 image tokens =
+# ~1500-2000 tokens per sample — well under 8K stage2 cap.
+max_sequence_tokens: 262_144
+max_batch_tokens: 32_768
+
+plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/finevision___chinesememe_recap_en.pt

@@ -1,0 +1,33 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# GMAI-VL-5.5M OpenSource — CC BY 4.0 permissive medical subset (3 sources only):
+#   TotalSegmentator_v2 (614,144 rows) — CT/MR anatomy: caption + region-ID + grounding
+#   crc100k / NCT-CRC-HE (35,521)      — colorectal histology: caption / tissue classify
+#   PAD-UFES-20 (9,166)                — dermoscopy: skin-lesion classification VQA
+# 658,831 rows / 163,308 unique images. Filtered from GMAI-VL-5.5M-OpenSource (the
+# full set mixes in RadImageNet/ISIC/challenge sources that are NON-commercial — excluded).
+# LLaVA {from,value} conversations; grounding uses Qwen-style <ref>X</ref><box>[[x1,y1,x2,y2]]</box>
+# with 0–1000 NORMALIZED integer coords. Images streamed from the OpenSource zips into tars/.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/jsonl_tar@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: gmai_vl_permissive
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: /capstor/store/cscs/swissai/infra01/vision-datasets/processed/sft/gmai_vl_permissive/gmai_vl_permissive.jsonl
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/gmai_vl_permissive/manifest.parquet
+
+image_field: image
+text_column: conversations
+tar_pattern: "*.tar"
+tar_scope: global
+tar_root: /capstor/store/cscs/swissai/infra01/vision-datasets/processed/sft/gmai_vl_permissive/tars
+# tar member names == the jsonl "image" field verbatim (images/...), so no prefix strip.
+image_path_prefix_strip: null
+multi_image: false
+
+# System prompt: tokenize WITH the Apertus 1.5 Omni default block (no override here),
+# matching the innovator/nemotron pattern — the 80/20 strip is applied later at the
+# bucket/merge stage via bucket_by_length (reversible). Flip to add_system_message: true
+# to bake an empty block instead (lov2-style 100% disabled) — but that can't be undone.

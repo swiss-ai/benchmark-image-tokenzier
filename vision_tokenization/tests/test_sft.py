@@ -3,7 +3,6 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
-import pytest
 import torch
 
 from vision_tokenization.common.assembly import StructureTokenIds
@@ -576,11 +575,13 @@ def test_rebuild_rank_skips_incomplete_sft_spill_document(tmp_path):
         tokens=np.array([210, 211], dtype=np.int32),
     )
     writer.finalize()
+    # _SUCCESS is owned by the backend layer; rebuild refuses rank dirs without it.
+    (output_dir / "rank_0000" / "_SUCCESS").touch()
 
     result = rebuild_rank(
         plan,
-        output_dir,
         rank=0,
+        spill_dir=output_dir,
         token_ids=token_ids,
         vocab_size=200000,
     )
@@ -669,11 +670,13 @@ def test_rebuild_rank_skips_sft_spill_document_missing_later_fragment_images(tmp
         tokens=np.array([105], dtype=np.int32),
     )
     writer.finalize()
+    # _SUCCESS is owned by the backend layer; rebuild refuses rank dirs without it.
+    (output_dir / "rank_0000" / "_SUCCESS").touch()
 
     result = rebuild_rank(
         plan,
-        output_dir,
         rank=0,
+        spill_dir=output_dir,
         token_ids=token_ids,
         vocab_size=200000,
     )

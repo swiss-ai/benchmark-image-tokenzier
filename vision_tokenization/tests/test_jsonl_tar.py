@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 import tarfile
 
 import numpy as np
+import pyarrow as pa
 import pytest
 from PIL import Image
 
@@ -75,6 +77,43 @@ def test_scan_jsonl_tar_dataset_resolves_global_tar_scope_and_prefix_strip(tmp_p
     assert table.column("tar_path").to_pylist() == [str(tar_path)]
 
 
+def test_scan_jsonl_tar_dataset_can_emit_raw_byte_sha256(tmp_path):
+    pytest.importorskip("orjson")
+
+    from vision_tokenization.indexing.manifest import load_interleave_manifest
+    from vision_tokenization.indexing.scanners.jsonl_tar import scan_jsonl_tar_dataset
+
+    part_dir = tmp_path / "part00000"
+    part_dir.mkdir()
+    jsonl_path = part_dir / "data.jsonl"
+    tar_path = part_dir / "imgs.tar"
+    manifest_path = tmp_path / "manifest.parquet"
+
+    _create_content_tar(str(tar_path), {"imgs/1.png": (40, 30), "imgs/2.png": (64, 48)})
+    with open(jsonl_path, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps({"image": ["./imgs/1.png", "./imgs/2.png"]}))
+        fh.write("\n")
+
+    scan_jsonl_tar_dataset(
+        input_pattern=str(jsonl_path),
+        output_manifest=str(manifest_path),
+        image_field="image",
+        tar_pattern="imgs.tar",
+        tar_scope="parent_dir",
+        compute_media_sha256=True,
+        num_workers=1,
+    )
+
+    table = load_interleave_manifest(manifest_path)
+    assert table.schema.field("media_sha256").type == pa.binary(32)
+    with tarfile.open(tar_path, "r") as tf:
+        expected = []
+        for name in ("imgs/1.png", "imgs/2.png"):
+            raw = tf.extractfile(name).read()
+            expected.append(hashlib.sha256(raw).digest())
+    assert table.column("media_sha256").to_pylist() == expected
+
+
 def test_jsonl_tar_loader_sft_loads_grouped_and_flat_texts(tmp_path):
     pytest.importorskip("orjson")
 
@@ -132,14 +171,12 @@ def test_jsonl_tar_loader_sft_loads_grouped_and_flat_texts(tmp_path):
         np.array([0, 1], dtype=np.int64),
         group_slices=np.array([[0, 2]], dtype=np.int64),
     )
-    flat_texts = loader.load_text_batch(np.array([0, 1], dtype=np.int64), group_slices=None)
     loader.close()
 
     assert len(images) == 2
     assert all(img is not None for img in images)
     assert len(texts) == 1
     assert texts[0] == conversations
-    assert flat_texts == [conversations, conversations]
 
 
 def test_create_loader_rejects_parser_backed_jsonl_tar(tmp_path):

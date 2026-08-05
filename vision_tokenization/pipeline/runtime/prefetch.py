@@ -15,13 +15,17 @@ _SENTINEL = None
 
 @dataclass
 class PrefetchResult:
-    """Result from the prefetch thread for one batch."""
+    """Result from the prefetch thread for one batch.
+
+    ``payload`` is the loader's ``(images, texts)`` tuple, or — when a
+    ``prepare`` hook is installed — whatever the hook returned (the executor's
+    hook returns a ``PreparedBatch``).
+    """
 
     batch_index: int
     assignment: object
-    images: object  # List[Optional[PIL.Image]]
-    texts: object  # Optional[List]
-    timing: dict  # {"load_s": float}
+    payload: object
+    timing: dict  # {"load_ms": float}
     error: Optional[Exception] = None
 
 
@@ -36,8 +40,13 @@ class BatchPrefetcher:
     batches are kept in memory at any time.
     """
 
-    def __init__(self, data_loader, augmenter=None, queue_size=2, num_workers=1):
+    def __init__(self, data_loader, prepare=None, queue_size=2, num_workers=1):
+        """*prepare* is an optional ``(images, texts, assignment) -> payload``
+        hook run in the worker thread after loading — e.g. CPU-side image
+        preprocessing, so it overlaps with GPU work instead of serializing
+        on the consumer thread."""
         self._loader = data_loader
+        self._prepare = prepare
         self._queue: Queue = Queue(maxsize=queue_size)
         self._thread: Optional[threading.Thread] = None
         self._num_workers = max(1, num_workers)
@@ -49,21 +58,23 @@ class BatchPrefetcher:
             images, texts = self._loader.load_batch(
                 ba.sample_indices, group_slices=ba.group_slices,
             )
+            payload = (
+                self._prepare(images, texts, ba) if self._prepare is not None
+                else (images, texts)
+            )
             load_ms = (time.perf_counter() - t0) * 1000
 
             return PrefetchResult(
                 batch_index=batch_index,
                 assignment=ba,
-                images=images,
-                texts=texts,
+                payload=payload,
                 timing={"load_ms": load_ms},
             )
         except Exception as exc:
             return PrefetchResult(
                 batch_index=batch_index,
                 assignment=ba,
-                images=None,
-                texts=None,
+                payload=None,
                 timing={},
                 error=exc,
             )

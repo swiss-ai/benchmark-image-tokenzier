@@ -7,13 +7,17 @@ defaults:
   - /dataset/_task/image2text@_here_
 
 output_name: medtrinity_full
-output_dir: /capstor/scratch/cscs/xyixuan/vision-datasets-tokenized
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: /capstor/store/cscs/swissai/infra01/vision-datasets/raw/stage2/hf___UCSC-VLAA___MedTrinity-25M___cleaned/part-*.tar
 manifest_path: /capstor/scratch/cscs/xyixuan/manifests/medtrinity_full/manifest.parquet
 text_column: txt
 
 # --- Single-image: each sample has img1.png ----------------------------------
 multi_image: false
 image_field_pattern: img
+
+# --- Stage2/lct split + safety cap (matches innovator/nemotron convention) ---
+max_sequence_tokens: 262_144
 
 # --- Overrides ----------------------------------------------------------------
 batch_size: 32

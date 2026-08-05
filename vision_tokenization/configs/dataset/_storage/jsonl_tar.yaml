@@ -5,6 +5,7 @@ dataset_type: jsonl_tar
 input_pattern: null
 image_field: null
 multi_image: null
+compute_media_sha256: false
 max_open_files: 64
 
 tar_pattern: ???
@@ -15,4 +16,3 @@ image_path_prefix_strip: null
 window_size: 2000
 prefetch:
   queue_size: 32
-seqlen_threshold: null

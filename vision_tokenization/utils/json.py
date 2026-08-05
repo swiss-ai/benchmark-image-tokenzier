@@ -10,6 +10,7 @@ deserialization, which matters for JSONL manifests and large metadata files.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Union
 
@@ -48,3 +49,18 @@ def json_dump(obj: Any, path: Union[str, Path], *, indent: bool = True, default=
         opts |= orjson.OPT_INDENT_2
     with open(path, "wb") as f:
         f.write(orjson.dumps(obj, option=opts, default=default))
+
+
+def json_dump_atomic(obj: Any, path: Union[str, Path], *, indent: bool = True, default=None) -> None:
+    """Write a JSON file via tmp + fsync + os.replace.
+
+    For commit-record files (e.g. an alignment store's manifest.json, written
+    last): a crash mid-write leaves the prior file intact, never a partial one.
+    """
+    path = Path(path)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp, "w") as f:
+        f.write(json_dumps(obj, indent=indent, default=default))
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)

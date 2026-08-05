@@ -4,21 +4,25 @@ EMU image-only tokenizer with core functionality.
 Supports both Emu3 and Emu3.5 vision tokenizers.
 """
 
-from vision_tokenization.utils.json import json_load
-import os
-import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+import time
+from typing import List, Optional, Tuple
 
 import torch
 from transformers import AutoTokenizer
 
+from vision_tokenization.common.layout import image_sequence_length
+from vision_tokenization.utils.json import json_load
+from vision_tokenization.discrete.emu.token_layout import (
+    STRUCTURE_TOKENS,
+    resolve_token_ids,
+    vision_band,
+)
+
 # Tokenizer imports require the repo root on PYTHONPATH (set by SLURM scripts)
 
-from ..base import BaseTokenizer
 
-
-class EMUImageOnlyTokenizer(BaseTokenizer):
+class EMUImageOnlyTokenizer:
     """
     EMU tokenizer for image-only sequences.
     Provides direct image tokenization with EMU special tokens.
@@ -34,6 +38,8 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
         max_encode_pixels: Optional[int] = 8_000_000,
         torch_compile: bool = False,
         torch_compile_mode: str = "reduce-overhead",
+        vision_tokenizer_type: Optional[str] = None,
+        vision_tokenizer_path: Optional[str] = None,
         **kwargs,
     ):
         """
@@ -44,6 +50,10 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
             min_pixels: Minimum pixels for image preprocessing (required)
             max_pixels: Maximum pixels for image preprocessing (required)
             device: Device for image tokenizer (default: "cuda")
+            vision_tokenizer_type: Which discrete vision tokenizer to use, "Emu3" or "Emu3.5".
+                Falls back to the text tokenizer's ``vision_tokenizer`` config section,
+                which only the Apertus 1.5 artifacts carry.
+            vision_tokenizer_path: Weights path for that tokenizer, same fallback.
         """
 
         # Store device
@@ -51,9 +61,18 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
         self.torch_compile = torch_compile
         self.torch_compile_mode = torch_compile_mode
 
-        # Load tokenizer with trust_remote_code for custom tokenizer class
-        # Use fast tokenizer for better performance
-        self.text_tokenizer = AutoTokenizer.from_pretrained(text_tokenizer_path, trust_remote_code=True, use_fast=True)
+        self.text_tokenizer_load_time = 0.0
+        self.model_load_time = 0.0
+
+        # Load tokenizer with trust_remote_code for custom tokenizer class.
+        # Use fast tokenizer for better performance.
+        text_load_t0 = time.perf_counter()
+        self.text_tokenizer = AutoTokenizer.from_pretrained(
+            text_tokenizer_path,
+            trust_remote_code=True,
+            use_fast=True,
+        )
+        self.text_tokenizer_load_time = time.perf_counter() - text_load_t0
 
         # min_pixels and max_pixels are required parameters
         assert min_pixels is not None, "min_pixels must be provided"
@@ -63,19 +82,33 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
         config_path = Path(text_tokenizer_path) / "tokenizer_config.json"
         tokenizer_config = json_load(config_path)
 
-        if "vision_tokenizer" not in tokenizer_config:
+        # Apertus 1.5 names the vision tokenizer in its own config; Apertus 2 does not,
+        # so the pipeline config supplies it.
+        # The type must agree where both declare one, or the wrong front end encodes the
+        # codebook indices in silence. The path is free to differ — pointing at other
+        # weights is why the pipeline owns it, and 1.5 ships an absolute capstor mount.
+        vision_config = tokenizer_config.get("vision_tokenizer", {})
+        declared_type, declared_path = vision_config.get("type"), vision_config.get("path")
+        if vision_tokenizer_type and declared_type and vision_tokenizer_type != declared_type:
             raise ValueError(
-                f"No vision_tokenizer config found in {config_path}. "
-                f"Make sure the omni-tokenizer was created with vision tokenizer info."
+                f"vision_tokenizer_type {vision_tokenizer_type!r} from the pipeline config "
+                f"disagrees with {declared_type!r} declared in {config_path}."
             )
+        vision_tokenizer_type = vision_tokenizer_type or declared_type
+        vision_tokenizer_path = vision_tokenizer_path or declared_path
 
-        vision_config = tokenizer_config["vision_tokenizer"]
-        vision_tokenizer_type = vision_config["type"]
-        vision_tokenizer_path = vision_config["path"]
+        if not (vision_tokenizer_type and vision_tokenizer_path):
+            raise ValueError(
+                f"vision tokenizer unresolved (type={vision_tokenizer_type!r}, "
+                f"path={vision_tokenizer_path!r}). Set vision_tokenizer_type and "
+                f"vision_tokenizer_path in the pipeline config, or use a text tokenizer "
+                f"whose vision_tokenizer section supplies them ({config_path})."
+            )
 
         print(f"Loading vision tokenizer: {vision_tokenizer_type} from {vision_tokenizer_path}")
 
         # Dynamically load the correct vision tokenizer class
+        model_load_t0 = time.perf_counter()
         if vision_tokenizer_type == "Emu3":
             from Tokenizer.Emu3VisionTokenizer import Emu3VisionTokenizer
 
@@ -97,6 +130,7 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
             raise ValueError(
                 f"Unsupported vision tokenizer type: {vision_tokenizer_type}. " f"Supported types: Emu3, Emu3.5"
             )
+        self.model_load_time = time.perf_counter() - model_load_t0
 
         # Pixel budget per encode call — controls GPU memory chunking.
         self.max_encode_pixels = max_encode_pixels
@@ -116,42 +150,14 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
         self.bos_id = self.text_tokenizer.bos_token_id
         self.eos_id = self.text_tokenizer.eos_token_id
 
-        # EMU3 special tokens — validate none resolved to UNK
-        unk_id = self.text_tokenizer.unk_token_id
-        special_tokens = {
-            "img_start": "<|img_start|>",
-            "img_end": "<|img_end|>",
-            "img_token_start": "<|img_token_start|>",
-            "eol": "<|img_end_of_row|>",
-            "eof": "<|img_end_of_frame|>",
-        }
-        resolved = {}
-        for name, token in special_tokens.items():
-            tid = self.text_tokenizer.convert_tokens_to_ids(token)
-            if tid == unk_id:
-                raise ValueError(
-                    f"Special token {token} resolved to UNK (id={unk_id}). "
-                    f"Ensure the tokenizer vocabulary contains this token."
-                )
-            resolved[name] = tid
-
+        resolved = resolve_token_ids(self.text_tokenizer, STRUCTURE_TOKENS)
         self.img_start_id = resolved["img_start"]
         self.img_end_id = resolved["img_end"]
         self.img_token_start_id = resolved["img_token_start"]
         self.eol_id = resolved["eol"]
         self.eof_id = resolved["eof"]
 
-        # Read vision token offset from omnimodal_config in tokenizer_config.json
-        omni_cfg = tokenizer_config.get("omnimodal_config", {})
-        vision_modality = next(
-            (m for m in omni_cfg.get("modalities", []) if m["name"] == "vision"), None
-        )
-        if vision_modality is None:
-            raise ValueError(
-                "No vision modality found in tokenizer_config.json omnimodal_config. "
-                "Ensure the tokenizer has omnimodal_config.modalities with a 'vision' entry."
-            )
-        self.vision_token_offset = vision_modality["offset"]
+        self.vision_token_offset, _ = vision_band(tokenizer_config)
 
     def _get_dim_tokens(self, height: int, width: int) -> List[int]:
         """
@@ -192,18 +198,7 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
         # Use cached dimension tokens to avoid repeated encoding
         dim_tokens = self._get_dim_tokens(height, width)
 
-        # Calculate total size
-        total_size = (
-            1  # BOS
-            + 1  # img_start
-            + len(dim_tokens)  # dimension tokens
-            + 1  # img_token_start
-            + num_tokens_needed  # vision tokens
-            + height  # EOL after each row
-            + 1  # EOF
-            + 1  # img_end
-            + 1  # EOS
-        )
+        total_size = image_sequence_length(height, width, len(dim_tokens))
 
         # Pre-allocate the entire output tensor
         output = torch.empty(total_size, dtype=torch.long)
@@ -321,7 +316,6 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
         # Create the structural suffix template.
         suffix_tokens = [self.eof_id, self.img_end_id, self.eos_id]
         suffix_tensor = torch.tensor(suffix_tokens, dtype=torch.long, device=image_indices.device)
-        suffix_len = len(suffix_tokens)
 
         # 4. Fill the final output tensor [B, T_total]
 
@@ -389,13 +383,15 @@ class EMUImageOnlyTokenizer(BaseTokenizer):
         return text
 
     @torch.inference_mode()
-    def tokenize_images(self, images: List, resize_size: Tuple[int, int]) -> torch.Tensor:
+    def tokenize_images(self, images, resize_size: Tuple[int, int]) -> torch.Tensor:
         """
         Batched tokenization of images.
         As a batch is resized to have similar shape, output num tokens is equal.
 
         Args:
-            images: List [PIL Image]
+            images: List [PIL Image], or a CPU uint8 ``[B, H, W, C]`` tensor
+                already preprocessed by ``preprocess_cpu`` in the prefetch
+                workers (the resize to *resize_size* has then already happened).
             resize_size: Target size for resizing images
 
         Returns:

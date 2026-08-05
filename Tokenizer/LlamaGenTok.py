@@ -7,7 +7,6 @@ from typing import Any, Tuple
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from PIL import Image
 from repos.LlamaGen.tokenizer.tokenizer_image.vq_model import VQ_models
 
@@ -126,9 +125,7 @@ class LlamaGen(Tokenizer):
 if __name__ == "__main__":
     import os
     import sys
-    from pathlib import Path
 
-    import matplotlib.pyplot as plt
 
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 

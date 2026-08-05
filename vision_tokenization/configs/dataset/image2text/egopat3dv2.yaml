@@ -1,0 +1,25 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# EgoPAT3D v2 — image2text, WDS, 3 images + 1 txt narrative per record
+# Source: 23 WDS tars, ~6,839 records (fixed 3-image groups). The
+# EMUImageTextPair tokenizer stacks all 3 frames before the narrative text
+# into one sequence per record (BOS + img1 + img2 + img3 + text + EOS).
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/wds@_here_
+  - /dataset/_task/image2text@_here_
+
+output_name: egopat3dv2
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: /capstor/store/cscs/swissai/infra01/vision-datasets/raw/stage2/hf___ai4ce___EgoPAT3Dv2___cleaned/part-*.tar
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/egopat3dv2/manifest.parquet
+text_column: txt
+
+multi_image: true
+image_field_pattern: img
+
+# Stage2/lct split + safety cap
+max_sequence_tokens: 262_144
+
+plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/egopat3dv2.pt
+max_batch_tokens: 32_768

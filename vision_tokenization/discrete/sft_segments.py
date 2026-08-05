@@ -86,6 +86,34 @@ def build_image_marker_candidates(
     ]))
 
 
+# Open-side reasoning markers across known generator conventions. Detecting
+# the opening marker is enough — we only need a boolean signal per sample, not
+# extraction. Close-side markers are intentionally not listed (presence of an
+# opener already implies the sample is CoT, and partial/unclosed traces should
+# still trigger `enable_thinking=True`).
+_THINKING_OPEN_MARKERS: tuple[str, ...] = (
+    "<think>",            # Qwen 3, DeepSeek R1, prompted-style outputs
+    "<|channel>thought",  # Gemma 4 native (`<|channel>thought\n…<channel|>`)
+    "<thought>",          # Gemini API streamed-text mode
+)
+
+
+def _has_thinking_content(messages: Sequence[dict[str, Any]]) -> bool:
+    """True if any assistant turn's string content carries a CoT marker.
+
+    Drives `enable_thinking` per-sample so the chat template's developer
+    header reads `Deliberation: enabled` for CoT-bearing conversations and
+    `disabled` otherwise. Datasets mixing CoT and non-CoT samples are
+    handled correctly without a per-dataset config flag.
+    """
+    return any(
+        m.get("role") == "assistant"
+        and isinstance(m.get("content"), str)
+        and any(marker in m["content"] for marker in _THINKING_OPEN_MARKERS)
+        for m in messages
+    )
+
+
 def render_sft_segments(
     messages: list[dict[str, Any]],
     *,
@@ -103,6 +131,7 @@ def render_sft_segments(
         messages,
         tokenize=False,
         add_generation_prompt=False,
+        enable_thinking=_has_thinking_content(messages),
     )
     if not isinstance(rendered, str):
         raise ValueError(

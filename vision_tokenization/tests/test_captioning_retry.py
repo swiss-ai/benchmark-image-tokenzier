@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 from typing import Iterable, List, Optional
 
-import pytest
 
 from vision_tokenization.qualitative_benchmark.benchmarks.captioning import CaptioningBenchmark
 

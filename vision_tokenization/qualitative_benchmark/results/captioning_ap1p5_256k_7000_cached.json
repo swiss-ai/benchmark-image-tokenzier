@@ -1,0 +1,602 @@
+{
+  "timestamp": "2026-05-13T19:00:20.732969",
+  "model_path": "/capstor/store/cscs/swissai/infra01/apertus_1p5/hf_checkpoints/apertus-1p5_8b_seq_len_256k_7000_steps",
+  "tokenizer_path": "/capstor/store/cscs/swissai/infra01/MLLM/tokenizer/apertus_emu3.5_wavtok",
+  "vision_tokenizer": "EMU3.5-IBQ",
+  "inferencer": "VLLMInferencer",
+  "inference_args": {
+    "apply_chat_template": false,
+    "prompt_builder": null,
+    "temperature": 0.3,
+    "top_p": 0.9,
+    "max_new_tokens": 300,
+    "max_emu_aspect_ratio": 1048576,
+    "min_emu_aspect_ratio": 65536,
+    "stop_token_ids": [
+      2
+    ]
+  },
+  "total_runs": 40,
+  "runs": [
+    {
+      "image": {
+        "path": "assets/3objects.png",
+        "tags": [
+          "objects",
+          "general",
+          "colors"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "This image features a simple, cartoon-style illustration of three fruits set against a light gray background. On the left, there is a red apple with a green leaf and a brown stem. In the center, a yellow banana with a brown stem and tip is depicted. On the right, an orange with a green leaf and a brown stem is shown. The fruits are arranged in a horizontal line, with the apple on the left, the banana in the middle, and the orange on the right. The overall style is simplistic and childlike, with no additional text or elements present.</s>",
+      "metrics": {
+        "clip_score": 0.3616176247596741
+      }
+    },
+    {
+      "image": {
+        "path": "assets/building.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "outdoor",
+          "objects"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image depicts a detailed architectural rendering of a tall, rectangular apartment building, approximately 20 stories high, with a predominantly white facade and numerous balconies. The building is situated in a lush, green environment, surrounded by trees and other smaller buildings. In the foreground, there is a swimming pool with a grayish-blue hue, bordered by a concrete area. To the left of the pool, there is a smaller building with a brown roof and white walls. The background features a mix of trees and additional structures, including another tall building with a grayish-brown exterior. The sky above is a light blue with scattered white clouds, suggesting a sunny day. The overall scene is set in a park-like area, with a variety of trees and greenery enhancing the serene atmosphere.</s>",
+      "metrics": {
+        "clip_score": 0.2832375168800354
+      }
+    },
+    {
+      "image": {
+        "path": "assets/checkerboard_pattern.png",
+        "tags": [
+          "general",
+          "pattern",
+          "general"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "A black and white checkerboard pattern consisting of alternating squares. The grid is composed of five rows and five columns, creating a total of 25 squares. The pattern follows a standard alternating arrangement where no two squares of the same color are adjacent horizontally or vertically. There are no axes, labels, legends, or annotations present.</s>",
+      "metrics": {
+        "clip_score": 0.35415011644363403
+      }
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_1.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image features a pie chart titled \"Access to Irrigated vs. Non-Irrigated Land\" in bold brown text at the top. The chart is set against a light tan background and is enclosed in a white box with rounded corners. The pie chart itself is divided into two segments: a larger green section representing \"Irrigated Land\" and a smaller orange section representing \"Non-Irrigated Land.\" The green segment, labeled \"Irrigated Land,\" occupies approximately 70% of the pie, while the orange segment, labeled \"Non-Irrigated Land,\" takes up about 30%. The chart also includes a legend at the bottom, with a green bar for \"Irrigated Land\" and an orange bar for \"Non-Irrigated Land.\" The overall design is simple and clear, effectively illustrating the proportion of irrigated versus non-irrigated land.</s>",
+      "metrics": {
+        "clip_score": 0.4442916512489319
+      }
+    },
+    {
+      "image": {
+        "path": "assets/csyn400chart_2.jpg",
+        "tags": [
+          "general",
+          "chart",
+          "statistics"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image is a detailed bar graph titled \"HVAC Maintenance Requests per Month,\" prominently displayed in blue text at the top. Below the title, the subtitle \"Last Year Overview\" is written in black. The graph features a white background with a light blue border and a light gray grid. The vertical axis on the left side is labeled with numbers ranging from 0 to 80 in increments of 10. The horizontal axis lists the months of the year from January to December. The bars, all in blue, represent the number of HVAC maintenance requests for each month. The data shows that the highest number of requests occurred in July, with 73 requests, followed by August with 68 requests. The lowest number of requests was in February, with 30 requests. The graph visually depicts the monthly fluctuations in HVAC maintenance requests throughout the year.</s>",
+      "metrics": {
+        "clip_score": 0.3891691565513611
+      }
+    },
+    {
+      "image": {
+        "path": "assets/cute_dog.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "This photograph captures a small, fluffy white dog with a long, thick coat, sitting on a lush green lawn. The dog, which appears to be a Pomeranian or a similar breed, has a round face with a black nose and dark, expressive eyes. Its mouth is open, revealing a pink tongue and a few teeth, giving the impression of a happy, smiling expression. The dog's ears are perked up, and its tail is curled around its body. The background is a blurred, green grassy field, emphasizing the dog as the main focus of the image. The dog is positioned slightly to the left of the center, with its front paws extended forward and its body facing the camera. The overall scene exudes a sense of joy and contentment, highlighting the dog's adorable and playful nature.</s>",
+      "metrics": {
+        "clip_score": 0.3627844452857971
+      }
+    },
+    {
+      "image": {
+        "path": "assets/line_chart.png",
+        "tags": [
+          "general",
+          "chart",
+          "statistics",
+          "ocr"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image is a screenshot of a news article. The headline reads: \"Oil Prices Jump: Benchmark U.S. Crude Futures Rose by More Than 8% to Trade Above $73 a Barrel, the Highest Price Since February.\" The article is set against a white background, with the headline text in black. The chart accompanying the article is displayed in red and shows a significant upward trend in oil prices. The y-axis of the chart ranges from $55 to $80 a barrel, while the x-axis spans from January 2025 to June. The chart indicates that oil prices peaked in February, then experienced a decline, hitting a low point in May. However, the prices rebounded sharply in June, reaching their highest level since February.</s>",
+      "metrics": {
+        "clip_score": 0.34268125891685486
+      }
+    },
+    {
+      "image": {
+        "path": "assets/logo1.png",
+        "tags": [
+          "general",
+          "colors"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image depicts a detailed coat of arms, prominently featuring a red and white shield with a blue border. The shield is divided into three distinct sections. The top section is red, adorned with two yellow diamonds and a white crescent moon in the center. The middle section is white, showcasing an open book with brown edges and white pages. The bottom section is white and features a red lion with blue claws and a blue tongue, standing on its hind legs. The shield is set against a white background, emphasizing its intricate design and vibrant colors.</s>",
+      "metrics": {
+        "clip_score": 0.2917361855506897
+      }
+    },
+    {
+      "image": {
+        "path": "assets/math_draft1.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "This image features a detailed mathematical problem set against a white background with a grid pattern. The grid consists of thin gray lines forming small squares. The text is written in blue ink, with the title \"Exercise 2 Solution\" prominently displayed at the top. Below the title, the problem is presented in a series of steps, each step numbered sequentially from 1 to 5. The steps are as follows:\n\n1. **Equation Setup**: The equation \\(x^2 + 2x - 4x - 12 = x^2 - 2\\) is provided.\n2. **Simplification**: The equation is simplified to \\(x^2 - 2x - 12 = (x^2 - 2)^2\\).\n3. **Expansion**: The equation is expanded to \\(x^2 - 2x - 12 = x^4 - 4x^2 + 4\\).\n4. **Rearrangement**: The equation is rearranged to \\(x^4 - 2x^2 - 12 = x^4 - 4x^2 + 4\\), simplifying to \\(0 = 2x^2 - 12\\).\n5. **Final Solution**: The equation is further simplified to \\(x^2 - 6 = 0\\), and the solution is found to be \\(x = \\pm\\sqrt{6}\\).\n\nAt the bottom of the image, there is a note",
+      "metrics": {
+        "clip_score": 0.3088279366493225
+      }
+    },
+    {
+      "image": {
+        "path": "assets/mri_human_brain.png",
+        "tags": [
+          "general",
+          "ocr"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "This figure presents a comparative analysis of two different image reconstruction methods, \"Acquired FA25\" and \"Synthesized FLASH25,\" applied to brain MRI scans. The layout is organized into three rows, each showing a different anatomical slice of the brain: a sagittal view (top), an axial view (middle), and a coronal view (bottom). The left column represents the ground truth or acquired data, while the right column shows the results of the synthesized method.\n\nThe key finding is the high degree of visual similarity between the acquired FA25 images and the synthesized FLASH25 images across all three orientations. The anatomical structures, including the cerebral cortex, ventricles, and cerebellum, are preserved with consistent contrast and edge definition in both columns. The synthesized images appear to maintain the same level of detail and noise characteristics as the acquired images, suggesting that the synthesis method is capable of accurately replicating the spatial distribution of the original signal.\n\nFrom a methodological standpoint, the results indicate that the FLASH25 synthesis approach is effective at reconstructing the FA25 data. The conclusion drawn is that the synthesized images are a reliable proxy for the acquired data, likely intended to reduce scan time or noise while preserving the essential anatomical and functional information of the original FA25 acquisition.</s>",
+      "metrics": {
+        "clip_score": 0.34216147661209106
+      }
+    },
+    {
+      "image": {
+        "path": "assets/olmOcrDocuments_1.jpg",
+        "tags": [
+          "document",
+          "ocr"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image is a page from a book, specifically page 76, titled \"Caloric Value\" in bold, capital letters at the top center. The text, written in black on a white background, details the calorific value of various materials. It explains that the calorific value is determined by the means of screw plugs, through which a platinum wire passes, insulated from the cover itself and reaching the center of the bomb. The wire is attached to a small platinum crucible, which is also suspended from the lower surface of the lid. This setup allows the ignition wire to be used in starting combustion, which can be suspended. The lid carries two terminals in contact with these wires. The ignition is caused by means of an iron or thin platinum wire embedded in the coal, which can be heated to redness or fused by the short passage of an electric current from accumulators. The text further describes the determination process: a piece of iron wire of appropriate diameter is weighed, made into a little coil, and incorporated into about one gram of coal by compressing the two in a small briquetting press. The whole is weighed, and the weight of the coal found by difference. The briquette is then placed in the platinum crucible and the ends of the iron wire connected with the platinum terminals. The cover is screwed tightly onto the bomb, which is then filled with oxygen at about 20 atmospheres' pressure. The whole is placed in a nickel-plated calorimeter vessel",
+      "metrics": {
+        "clip_score": 0.24861980974674225
+      }
+    },
+    {
+      "image": {
+        "path": "assets/physics2.png",
+        "tags": [
+          "math",
+          "ocr",
+          "document"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "A scientific plot showing the relationship between energy $E$ on the horizontal axis and a quantity $N(E)$ on the vertical axis. The plot features two distinct peaks, or bands, separated by a gap. The first band is shaded with diagonal lines and is centered around $-6.5\\text{ eV}$, while the second band is an unshaded region centered around $-3\\text{ eV}$. \n\nSeveral annotations provide specific details about the bands. An arrow points to the shaded region labeled \"Valence band,\" and another arrow points to the unshaded region labeled \"Conduction band.\" A horizontal double-headed arrow indicates a distance of $15\\text{ eV}$ between the edges of the two bands. To the right of the conduction band, a horizontal dashed arrow points outward, accompanied by the mathematical expression $n_0 = 2 \\times 10^{21}\\text{ cm}^{-3}\\text{ eV}^{-1}$. The figure is captioned \"Fig. 1.23\" at the bottom center.</s>",
+      "metrics": {
+        "clip_score": 0.27261674404144287
+      }
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_1.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image features a white piece of paper with a handwritten note in purple ink, set against a gray background. The note, written in a casual, slightly slanted cursive, reads: \"and that they will begin recording their next album in August 2016 on January 1st.\" The paper appears slightly wrinkled, suggesting it might have been folded or crumpled before being photographed. The handwriting is somewhat difficult to decipher due to the slant and the casual style of the script. The overall composition of the image is simple, with the white paper and purple text standing out against the gray backdrop.</s>",
+      "metrics": {
+        "clip_score": 0.29648303985595703
+      }
+    },
+    {
+      "image": {
+        "path": "assets/renderedtext_2.jpg",
+        "tags": [
+          "general",
+          "ocr",
+          "document"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image depicts a square-shaped sign with a gray background, positioned on a cobblestone pavement. The sign features black text that reads, \"Our current house is starting to feel a little cramped. I see.\" The sign is illuminated by a light source, casting a shadow of a person's hand holding a phone onto the sign. The hand's shadow is visible, with the thumb and index finger forming a circle around the phone, and the remaining fingers extending downward. The cobblestone pavement beneath the sign is composed of gray stones with visible cracks between them.</s>",
+      "metrics": {
+        "clip_score": 0.3351825773715973
+      }
+    },
+    {
+      "image": {
+        "path": "assets/spark_1.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "This image depicts a cozy, well-lit living room with a warm, yellowish-orange hue. The room features a polished wooden floor and a beige rug. On the left side, there is a flat-screen TV mounted on the wall, accompanied by a white stand and a black entertainment center. Above the TV, a framed picture with a black border hangs on the wall. In the center of the room, a dining area with a wooden table and four chairs is visible, adorned with a vase of flowers. To the right, a fireplace with a black mantle and a green wall above it adds a touch of elegance. The room is further illuminated by a chandelier hanging from the ceiling and a lamp on a side table. A woman with long hair, dressed in a black dress, is seen standing near the dining table, possibly preparing a meal. The overall ambiance of the room is inviting and homely, with a mix of modern and traditional decor elements.</s>",
+      "metrics": {
+        "clip_score": 0.30540651082992554
+      }
+    },
+    {
+      "image": {
+        "path": "assets/spark_2.jpg",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "This photograph captures a group of elephants in a natural setting, likely a savanna or a riverbank. The primary subject is a large elephant in the foreground, facing the camera directly. Its skin is a textured, dusty brown, and its large ears are spread slightly outward. The elephant's trunk hangs straight down, ending in a flared nostril. Behind this primary subject, several other elephants are visible, including a smaller elephant to the left and larger ones further back, creating a sense of depth and a social herd structure. The ground is reddish-brown earth, and in the background, there is a body of water and sparse green vegetation under a bright, slightly overcast sky. The composition emphasizes the scale and presence of the animals within their environment.</s>",
+      "metrics": {
+        "clip_score": 0.2826685309410095
+      }
+    },
+    {
+      "image": {
+        "path": "assets/latexformulas80M_bmsample01.jpg",
+        "tags": [
+          "math",
+          "ocr"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "\\[x^{2}(x^{2}-\\frac{1}{4}\\exp\\{2i\\diamond\\}y^{2})\\]</s>",
+      "metrics": {
+        "clip_score": 0.287047803401947
+      }
+    },
+    {
+      "image": {
+        "path": "assets/latexformulas80m_bmsample02.jpg",
+        "tags": [
+          "math",
+          "ocr"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "\\[\\mathcal{N}(A^{\\notin_{m}})=\\mathcal{N}((A^{k})^{*}A^{m}P_{A^{m}})\\]</s>",
+      "metrics": {
+        "clip_score": 0.29552507400512695
+      }
+    },
+    {
+      "image": {
+        "path": "assets/medmnist_train_01.png",
+        "tags": [
+          "general",
+          "medical"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "<|img1|>\nThe image is a histological slide showing a section of tissue that includes a section of the gastrointestinal tract, likely the stomach, with the muscularis mucosa and submucosa layers visible, including the muscularis mucosa and submucosa and mucosa-associated lymphatic tissue, which are typically located in the upper left quadrant of the abdomen, just below the diaphragm and above the muscularis mucosa layer, suggesting a potential abnormality in the gastrointestinal tract. The region of interest, situated in the upper left quadrant, shows a cluster of cells with a high nucleus-to-cytoplasmic ratio of 1:1 ratio, indicative of a high cell density, which could imply a high degree of cellular proliferation or a high rate of cell division, possibly pointing to a high-grade malignancy. The unusual features within this region, such as altered cellular structures and patterns, such as irregular cell shapes and sizes, could be associated with a specific type of adenocarcinoma, potentially signet ringed by the presence of signet ring mitotic figures, which are indicative of a high-grade malignancy. The region of interest, located in the upper left quadrant, is characterized by a high nucleus-to-cytoplasmic ratio and the presence of signet ring mitotic figures, suggesting a high rate of cell division and possibly aggressive behavior, which could be indicative of a poorly differentiated or undifferentiated tumor, such as a high-grade malignancy. The abnormal cells within this area, which is not typical of the surrounding tissue, may have a direct relationship with",
+      "metrics": {
+        "clip_score": 0.3117839992046356
+      }
+    },
+    {
+      "image": {
+        "path": "assets/medmnist_train_02.png",
+        "tags": [
+          "general",
+          "medical"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "This histological section, stained with hematoxylin and eosin (H&E), reveals a complex tissue architecture characterized by glandular structures and cellular proliferation. The image is dominated by irregular, branching, and tubular formations with varying diameters, suggesting a neoplastic process. Within these structures, there is a notable variation in cellular morphology; some areas show densely packed, small, round nuclei indicative of high cellularity, while other regions contain larger, more vacuolated cells with pale cytoplasm.\n\nThe distribution of these cells is uneven, with clusters of darker-staining nuclei interspersed among lighter, more eosinophilic areas. The presence of these glandular-like patterns and the irregular arrangement of the nuclei are key morphological features often associated with glandular tumors. The overall pattern suggests a proliferative lesion where the tissue has lost its normal organized structure, replaced by a disorganized growth of epithelial-like cells. This level of cellular atypia and architectural distortion is characteristic of a malignant process, where the tissue has undergone significant transformation from its original state.</s>",
+      "metrics": {
+        "clip_score": 0.33811071515083313
+      }
+    },
+    {
+      "image": {
+        "path": "assets/medmnist_train_03.png",
+        "tags": [
+          "general",
+          "medical"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "A high-magnification histological section stained with hematoxylin and eosin (H&E) reveals a complex architecture of glandular and stromal tissue. The image is characterized by irregularly shaped, branching tubular structures lined by columnar epithelial cells with basophilic nuclei, interspersed with areas of dense, eosinophilic connective tissue. The distribution of the glandular elements is non-uniform, showing varying degrees of luminal dilation and architectural distortion. The overall morphology is consistent with a neoplastic process, where the proliferation of these glandular units is displacing the surrounding stroma. The clarity of the cellular detail is high, allowing for the observation of nuclear pleomorphism and the structural integrity of the glandular walls.</s>",
+      "metrics": {
+        "clip_score": 0.34804368019104004
+      }
+    },
+    {
+      "image": {
+        "path": "assets/cute_cat.png",
+        "tags": [
+          "general",
+          "natural_image",
+          "objects"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "This close-up photograph captures the serene face of a fluffy, long-haired cat. The cat's fur is a mix of light brown and white, with a striking white patch around its nose and mouth. Its eyes are a captivating blend of brown and black, and its nose is a delicate pink. The cat's ears are not visible in this shot, but its long whiskers are prominently displayed. The cat appears to be lying on a gray fabric surface, which could be a couch or a bed, with its head tilted to the side. The background is a soft gray, complementing the cat's fur and adding to the overall calm and cozy atmosphere of the image.</s>",
+      "metrics": {
+        "clip_score": 0.29166078567504883
+      }
+    },
+    {
+      "image": {
+        "path": "assets/face1.png",
+        "tags": [
+          "general",
+          "natural_image",
+          "face"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image depicts a man with dark hair and a beard, wearing a white shirt and a black microphone around his neck. He is smiling broadly, showing his teeth, and his eyes are squinting slightly, suggesting he is laughing. The background is a plain white, and the image is cropped to focus on his face. The man's expression conveys a sense of joy and amusement.</s>",
+      "metrics": {
+        "clip_score": 0.2762857675552368
+      }
+    },
+    {
+      "image": {
+        "path": "assets/face2.png",
+        "tags": [
+          "general",
+          "natural_image",
+          "face"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image features a man with short, dark brown hair, neatly combed back, and a clean-shaven face. He is smiling warmly, revealing his white teeth. The man is dressed in a green hoodie, which is zipped up to his neck. On the left side of his chest, there is a white Puma logo, while on the right side, there is a shield emblem with a red border and a white center, featuring a blue cross and a red lion. The background of the image is blurred, with indistinct colors including white, red, yellow, blue, and green, suggesting a setting that might be a sports field or stadium. The man appears to be in his late 30s or early 40s, and his attire and the emblem on his hoodie hint at a possible connection to a sports team, potentially the Puma team.</s>",
+      "metrics": {
+        "clip_score": 0.25150537490844727
+      }
+    },
+    {
+      "image": {
+        "path": "assets/food1.png",
+        "tags": [
+          "general",
+          "food",
+          "objects"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "This image showcases a delectable dessert from Doodoo Fruit Shop, featuring a generous serving of fresh, green kiwi slices arranged in a circular pattern around the edges of a pristine white bowl. At the center of the bowl, a creamy, white substance, possibly whipped cream or yogurt, is elegantly swirled, adding a touch of sophistication to the presentation. Scattered among the kiwi slices are a few plump blueberries, enhancing the visual appeal and adding a burst of color. The dessert is garnished with delicate, thin shavings of what appears to be white chocolate, providing a subtle contrast to the vibrant green and blue hues. A small, whimsical figurine of a character with a blue hat and red cheeks is perched on the edge of the bowl, adding a playful element to the overall presentation.</s>",
+      "metrics": {
+        "clip_score": 0.28212592005729675
+      }
+    },
+    {
+      "image": {
+        "path": "assets/food2.png",
+        "tags": [
+          "general",
+          "food",
+          "objects"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image showcases a beautifully arranged dessert table featuring a variety of colorful and intricate desserts. On the left, there is a glass bowl filled with a pink dessert, topped with a strawberry and a dollop of whipped cream. Next to it, a glass bowl contains a mix of colorful candies, including a prominent strawberry-shaped candy. In the center, a clear glass bowl holds an assortment of cookies and candies, with a large cookie standing out. To the right, a tall glass bowl displays a layered dessert with a pink bottom and a green top, crowned with a mint-colored ball and a strawberry. Additionally, there are two small glass bowls with pink and green desserts, respectively. The table is set against a backdrop of a large green plant and a window, with a framed picture on the wall to the left. The overall scene is vibrant and inviting, with a mix of pink, green, and white hues dominating the desserts.</s>",
+      "metrics": {
+        "clip_score": 0.32006603479385376
+      }
+    },
+    {
+      "image": {
+        "path": "assets/item1.png",
+        "tags": [
+          "general",
+          "objects"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image features a black leather wallet, partially open to reveal its contents. Inside, there are three cards: a green card at the bottom, a black card in the middle, and a white card with a red stripe at the top. The wallet also has a green strap attached to it. Leaning against the wallet is a small, round, pink object resembling a baby's head, complete with black eyebrows, black eyes, and a black nose. The background is a plain white surface, providing a stark contrast to the wallet and the pink object.</s>",
+      "metrics": {
+        "clip_score": 0.3500436544418335
+      }
+    },
+    {
+      "image": {
+        "path": "assets/item2.png",
+        "tags": [
+          "general",
+          "objects",
+          "ocr"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "This image showcases a vibrant and festive birthday cake, meticulously decorated to celebrate Theo's first birthday. The cake is a round, white confection, adorned with a red banner that reads \"Happy First Birthday Theo\" in white letters, flanked by two white hearts. The cake is further embellished with yellow and white icing drips cascading down its sides, adding a touch of elegance.\n\nAtop the cake, a variety of whimsical decorations bring the celebration to life. There are three charming figurines: one resembling a baby, another a cow, and a third a dog, all adding a playful touch. Additionally, there are colorful balloons in shades of blue, yellow, orange, and green, enhancing the festive atmosphere. The cake is also decorated with several cookies, including a heart-shaped one and a paw print, contributing to the delightful theme.\n\nIn the background, a small pink party hat with a yellow pom-pom adds to the celebratory ambiance. The cake is placed on a white table, set against a white wall, ensuring that the vibrant decorations stand out beautifully. The overall scene is a joyful and heartwarming depiction of Theo's first birthday celebration.</s>",
+      "metrics": {
+        "clip_score": 0.3097957670688629
+      }
+    },
+    {
+      "image": {
+        "path": "assets/site_plan.png",
+        "tags": [
+          "document",
+          "ocr",
+          "map"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "A cadastral map titled \"PROJEKTESTUDIE NEUBAU\" details a property development site in the Schweiz, dated July 2013. The map is divided into several numbered parcels, with the central focus on a proposed construction area highlighted in green and red. A large green zone, labeled \"408,\" encompasses a red rectangular building footprint and a smaller blue rectangular structure. This area is bounded by a road to the north and east, and by parcel 660 to the south. A blue line indicates a water feature or utility line running through the site, with labels \"1.1 m Wasserstand\" and \"1.3 m Wasserstand\" marking elevation levels. A small green circular feature is located within the green zone, near the red building.\n\nTo the north, parcel 321 is separated from the construction site by a road labeled \"W\u00e4ngiweg.\" To the west, parcels 324, 497, and 649 form a cluster of residential or agricultural plots. To the south, parcels 657, 658, and 659 are arranged linearly, with parcel 658 containing a red line labeled \"1.7 m Wasserstand.\" The eastern boundary is defined by parcel 660 and a road labeled \"W\u00e4ngihalde.\"\n\nThe right side of the map contains a text block with project details: \"2 Familien",
+      "metrics": {
+        "clip_score": 0.3504241704940796
+      }
+    },
+    {
+      "image": {
+        "path": "assets/meme1.png",
+        "tags": [
+          "general",
+          "face",
+          "ocr",
+          "meme"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "The image features a young woman in a military uniform, smiling and saluting. She is wearing a black hat adorned with a gold emblem and a white band, along with a black jacket that has gold stripes on the shoulders and a white collar. Her hair is pulled back into a ponytail, and she has a light complexion. The background is a solid blue color. At the bottom of the image, white text reads, \"Let's kill this love.\" The woman's expression and salute suggest a sense of duty and discipline, while the text adds a contrasting, somewhat dark undertone to the image.</s>",
+      "metrics": {
+        "clip_score": 0.2054554522037506
+      }
+    },
+    {
+      "image": {
+        "path": "assets/painting1.png",
+        "tags": [
+          "general",
+          "painting",
+          "face"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "This image depicts a framed painting hanging on a light gray wall. The painting is encased in a black frame with a gold inner border and a white mat. The artwork itself is an abstract representation of a woman seated in a chair, her body composed of geometric shapes and vibrant colors. She is wearing a blue dress with a white collar, and her face is rendered in a stylized, almost cubist manner, featuring a purple background and a black and white grid pattern on her shoulder. Her right arm rests on the chair, and her left hand is placed on her lap. The background of the painting includes a mix of colors and shapes, such as a blue sky with a white moon, a red and white church, and a yellow bird. The overall style is modern and abstract, with a focus on bold colors and geometric forms.</s>",
+      "metrics": {
+        "clip_score": 0.3569567799568176
+      }
+    },
+    {
+      "image": {
+        "path": "assets/map-1.png",
+        "tags": [
+          "map"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "A detailed map of the area surrounding the Western Central Business Services. The map is divided into several sections, each with its own distinct features and landmarks. \n\nIn the upper left corner, there is a green area labeled \"North Building,\" which is surrounded by a network of roads and pathways. To the right of this area, there is a large gray building labeled \"West Building,\" which is connected to the North Building by a series of walkways and roads. \n\nThe center of the map is dominated by a large open space, which appears to be a parking lot or a plaza. This area is surrounded by several buildings and roads, including the \"East Building\" and the \"McDonald's.\" \n\nIn the lower left corner, there is a section of the map that shows a more urban environment, with several buildings and roads. This area includes the \"Huntington Road\" and the \"Huntington Road Road,\" which are major thoroughfares that run through the area. \n\nThe map also includes several smaller landmarks, such as the \"Zinc\" building and the \"Sandcastle\" building, which are located in the lower right corner. \n\nOverall, the map provides a detailed view of the Western Central Business Services area, highlighting the various buildings, roads, and landmarks that make up the area.</s>",
+      "metrics": {
+        "clip_score": 0.26589688658714294
+      }
+    },
+    {
+      "image": {
+        "path": "assets/map-2.png",
+        "tags": [
+          "map"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "A detailed map of the area around Church Street and Old Street in London. The map shows various streets, buildings, and landmarks. Church Street runs diagonally from the top left to the bottom right, with several side streets branching off. Old Street runs parallel to Church Street, further to the right. The map includes labels for various businesses, such as \"Tobacco La Poste,\" \"Postmaster,\" \"Dry Park,\" \"Lima,\" \"Arttecks,\" \"Fred Perry Manchester,\" \"Jula,\" \"Dunkin' Donuts,\" \"Nero,\" \"Fred Aldous,\" \"Severalls House,\" \"Severalls House,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real Junk,\" \"The Real",
+      "metrics": {
+        "clip_score": 0.28245529532432556
+      }
+    },
+    {
+      "image": {
+        "path": "assets/map-3.png",
+        "tags": [
+          "map"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "A detailed map of a residential area features a mix of natural and built environments. On the left, a large green area with scattered trees is bordered by a blue stream labeled \"Copper Creek,\" which flows southward. To the right of the stream, a narrow path called \"Copper Creek Trail\" runs parallel to the water. Further east, a light green open space contains several irregularly shaped ponds or wetlands, some shaded in light blue and others in pale yellow, surrounded by patches of darker green vegetation. A red dotted line marks a boundary or trail that curves around the eastern edge of this green space.\n\nTo the northeast, a residential neighborhood is laid out with numerous light gray rectangular buildings, each labeled with a number such as 2655, 2656, 2657, and 2658. These buildings are arranged along a street called \"Lake Road,\" which curves from the top right toward the bottom right. Another road, \"Ridge Road,\" runs along the northern edge of the residential area. A small white area with a circular feature is located near the top right, adjacent to the residential zone. In the bottom left corner, a scale bar indicates a distance of 50 meters. The bottom right corner contains a legend with a blue square and the text \"Lake Road\" and \"OpenStreetMap contributors.\"</s>",
+      "metrics": {
+        "clip_score": 0.34485602378845215
+      }
+    },
+    {
+      "image": {
+        "path": "assets/rs-1.png",
+        "tags": [
+          "remote_sensing"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "An aerial view of an airport tarmac reveals the operational layout of a terminal area, characterized by the presence of multiple aircraft and ground support equipment. The scene captures a large commercial jet positioned centrally, with its wings and fuselage clearly visible, alongside other parked aircraft and a white service vehicle. The surrounding infrastructure includes taxiway markings, designated parking bays, and a perimeter of red ground support vehicles, illustrating the spatial organization required for aircraft turnaround and maintenance. This perspective provides a practical example of urban aviation logistics, highlighting the coordination of ground traffic and the physical footprint of air travel infrastructure.</s>",
+      "metrics": {
+        "clip_score": 0.32069131731987
+      }
+    },
+    {
+      "image": {
+        "path": "assets/rs-2.png",
+        "tags": [
+          "remote_sensing"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "An aerial orthophoto of an urban complex reveals a high degree of spatial organization and functional zoning. The layout is characterized by a central parking area containing numerous vehicles, flanked by a mix of low-rise commercial or industrial structures and larger institutional buildings. A prominent architectural feature is the presence of two large, curved, dark-roofed structures at the bottom of the frame, which contrast with the predominantly rectangular geometry of the surrounding buildings. To the right, a series of parallel, linear structures suggests a specialized facility, possibly a transit hub or a series of storage units. The integration of green spaces, including manicured lawns and tree-lined perimeters, indicates a planned urban environment designed to balance built infrastructure with landscape elements. The overall arrangement suggests a campus or a specialized industrial park where accessibility and vehicle circulation are prioritized.</s>",
+      "metrics": {
+        "clip_score": 0.31344732642173767
+      }
+    },
+    {
+      "image": {
+        "path": "assets/rs-3.png",
+        "tags": [
+          "remote_sensing"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "An aerial satellite view captures a coastal landscape where a developed urban area meets a large body of water. The image highlights a stark contrast between the structured, geometric patterns of agricultural land and the organic, irregular shapes of the coastline. In the upper left, rectangular plots of land suggest organized farming or managed vegetation, while the lower left shows a cluster of buildings and infrastructure, indicating a residential or industrial settlement. A long, linear concrete structure, likely a pier or breakwater, extends from the shoreline into the water, serving as a boundary between the land and the sea. The varying shades of green and brown across the terrain indicate different types of vegetation or soil composition, while the deep blue of the water provides a clear demarcation of the aquatic environment. This perspective allows for the analysis of land-use patterns and the interaction between human development and the natural coastal boundary.</s>",
+      "metrics": {
+        "clip_score": 0.2883915901184082
+      }
+    },
+    {
+      "image": {
+        "path": "assets/rs-4.png",
+        "tags": [
+          "remote_sensing"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "An aerial satellite view of a rural landscape reveals a stark contrast between human settlement and natural vegetation. On the left side of the frame, a dense cluster of small, light-colored structures and narrow paths indicates a village or residential area, where buildings are tightly packed and interspersed with small patches of greenery. Moving toward the center and right, the landscape transitions into a more open, forested environment characterized by deep green tones and irregular shapes, suggesting a mix of dense woodland and cleared agricultural plots. A distinct, linear feature\u2014likely a road or a cleared path\u2014runs vertically through the left side of the image, serving as a primary artery connecting the residential cluster to the surrounding countryside. The rightmost edge of the frame shows a more rugged, textured terrain with lighter green and brown hues, indicating a different type of vegetation or perhaps a riverbed and adjacent slopes. The overall composition highlights the fragmented nature of land use, where human habitation is concentrated in specific pockets while the majority of the area remains under natural or semi-natural cover.</s>",
+      "metrics": {
+        "clip_score": 0.31845730543136597
+      }
+    },
+    {
+      "image": {
+        "path": "assets/rs-5.png",
+        "tags": [
+          "remote_sensing"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "An aerial view of an industrial facility reveals a cluster of large, cylindrical storage tanks, likely used for chemical or fuel storage. The tanks are arranged in a semi-organized grid, with some featuring white domed roofs and others appearing darker or partially obscured. The surrounding infrastructure includes a network of piping and a concrete access road that winds through the site. To the right, a more complex industrial area is visible, characterized by metal scaffolding, processing equipment, and additional smaller storage vessels. The surrounding terrain is a mix of barren, brown earth and patches of green vegetation, suggesting a semi-arid environment. The image quality is somewhat grainy, with visible compression artifacts and a lack of sharp detail, which makes it difficult to discern specific labels or precise measurements, though the overall layout of the industrial site remains clear.</s>",
+      "metrics": {
+        "clip_score": 0.35024741291999817
+      }
+    },
+    {
+      "image": {
+        "path": "assets/cool_guy.png",
+        "tags": [
+          "face",
+          "general",
+          "outdoor"
+        ]
+      },
+      "init_phrase": "",
+      "caption": "In this image, a man is seated at a table in a quaint cafe. He is wearing a blue and white checkered button-down shirt with the sleeves rolled up to his elbows, revealing his forearms. His short, dark hair is neatly styled, and he sports a short beard and mustache. He is also wearing sunglasses and is smiling warmly at the camera. In his hands, he holds a white bowl containing a dessert topped with whipped cream and a strawberry. A spoon rests in the bowl, ready for use.\n\nThe table in front of him is black, and a white coffee cup with a matching saucer is placed beside the bowl. The cafe has a charming yellow exterior, with a sign that reads \"Cafe\" visible on the windows. The windows reflect the surroundings, adding depth to the scene. Outside, there are several tables and chairs, some occupied by other patrons. The cafe's ambiance is further enhanced by a tree and a flower pot situated to the left of the man. The overall setting exudes a cozy and inviting atmosphere.</s>",
+      "metrics": {
+        "clip_score": 0.27349016070365906
+      }
+    }
+  ],
+  "mode": "captioning",
+  "caption_init_phrase": null
+}

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -21,9 +20,8 @@ from vision_tokenization.indexing.planning.tokenization_plan import (
 from vision_tokenization.pipeline.output.backend import SpillBackend
 from vision_tokenization.pipeline.runtime.checkpoint import WorkerStats
 from vision_tokenization.common.assembly import StructureTokenIds
-from vision_tokenization.pipeline.output.rebuild import rebuild_from_plan
+from vision_tokenization.pipeline.output.rebuild import rebuild_rank
 from vision_tokenization.pipeline.output.spill import (
-    ComponentSpillReader,
     ComponentSpillWriter,
 )
 
@@ -113,7 +111,7 @@ def test_interleave_plan_contains_only_image_components(tmp_path):
 
 
 
-def test_rebuild_from_plan_interleave_uses_runtime_component_order(tmp_path, token_ids):
+def test_rebuild_rank_interleave_uses_runtime_component_order(tmp_path, token_ids):
     manifest_path = _write_interleave_manifest(tmp_path)
     plan = build_tokenization_plan(
         manifest_path,
@@ -135,16 +133,19 @@ def test_rebuild_from_plan_interleave_uses_runtime_component_order(tmp_path, tok
     writer.add_component(document_id=0, component_index=3, kind=0, tokens=np.array([40, 41], dtype=np.int32))
     writer.add_component(document_id=1, component_index=0, kind=0, tokens=np.array([50, 51], dtype=np.int32))
     writer.finalize()
+    # _SUCCESS is owned by the backend layer; rebuild refuses rank dirs without it.
+    (output_dir / "rank_0000" / "_SUCCESS").touch()
 
-    result = rebuild_from_plan(
+    result = rebuild_rank(
         plan,
-        output_dir,
+        rank=0,
+        spill_dir=output_dir,
         token_ids=token_ids,
         vocab_size=200000,
-        output_name="rebuilt_interleave",
     )
 
-    prefix = Path(result["output_prefix"])
+    assert result["sequences"] > 0
+    prefix = output_dir / "rank_0000_chunk_0000"
     assert prefix.with_suffix(".bin").exists()
     assert prefix.with_suffix(".idx").exists()
 

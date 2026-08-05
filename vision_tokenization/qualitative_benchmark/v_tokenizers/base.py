@@ -5,16 +5,14 @@ Abstract base classes for vision v_tokenizers used in VLM benchmarking.
 This module provides the interface for vision v_tokenizers that prepare image tokens
 for VLM inference. It is separate from:
 - Tokenizer/base.py: For reconstruction benchmarking
-- vision_tokenization/vokenizers/base.py: For dataset tokenization
+- vision_tokenization/discrete/emu/: For dataset tokenization
 
 This focuses specifically on VLM inference needs: encoding images and formatting
 tokens for insertion into chat templates.
 """
 
-import json
 import logging
 from abc import ABC, abstractmethod
-from pathlib import Path
 from typing import Any, Dict, Tuple, Union
 
 import torch
@@ -137,32 +135,12 @@ class SpatialTokenizer(VLMVisionTokenizer):
         self.eoi_token = _get_attr(txt_tokenizer, "eoi_token", "<|img_end|>")
         self.visual_token_template = self._detect_visual_token_template(txt_tokenizer)
 
-    def _load_vision_token_mapping(self) -> Dict[str, Any] | None:
-        """Load optional vision-token metadata from a local tokenizer directory."""
-        if not self.tokenizer_path:
-            return None
-
-        mapping_path = Path(self.tokenizer_path).expanduser() / "vision_token_mapping.json"
-        if not mapping_path.exists():
-            return None
-
-        try:
-            return json.loads(mapping_path.read_text())
-        except Exception as exc:
-            logger.warning(f"Failed to read vision token mapping from {mapping_path}: {exc}")
-            return None
-
     def _detect_visual_token_template(self, txt_tokenizer) -> str:
-        """Infer the text form used for visual tokens from mapping metadata or tokenizer probes."""
-        mapping = self._load_vision_token_mapping()
-        if mapping is not None:
-            mapping_format = mapping.get("vision_token_format")
-            if isinstance(mapping_format, str) and "N" in mapping_format:
-                probe_token = mapping_format.replace("N", "0")
-                probe_id = txt_tokenizer.convert_tokens_to_ids(probe_token)
-                if probe_id != txt_tokenizer.unk_token_id:
-                    return mapping_format.replace("N", "{token}")
+        """Infer the text form used for visual tokens by probing the tokenizer.
 
+        Every tokenizer that shipped a vision_token_mapping.json declared the format
+        this probes for first, and Apertus 2 ships no such file.
+        """
         probe_formats = [
             ("<|visual token 0|>", "<|visual token {token}|>"),
             ("<|visual token 000000|>", "<|visual token {token:06d}|>"),

@@ -1,0 +1,61 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# FineVision / lnqa — Qwen3.6-27B redistill (questions preserved, answers
+# rewritten with rich grounded detail).
+#
+# Source: HuggingFaceM4/FineVision::lnqa (302,780 rows; localized-narratives QA).
+#
+# Why re-distill: original lnqa assistant turns are template-driven single-fact
+# echoes of the question ("There is X in the image." style; sometimes wrong
+# identifications like "trees" for close-up diseased leaves). Qwen3.6-27B
+# regenerates each assistant turn with 2-4 sentences of specific visual detail
+# (colors, materials, positions, named entities). User questions are preserved
+# as-is; <image> placeholder kept on turn 0 only (multi-turn → 1 image / row).
+#
+# Redistill pipeline (multimodal-data/.../redistill_lnqa.py):
+#   - Qwen3.6-27B (40-node serving cluster, 80 endpoints, TP=2 only, no DP,
+#     default graph capture — the proven-stable serve_qwen36_40n.slurm pattern)
+#   - CONCURRENCY=400, ~30 rows/sec, 100% retention (0 dropped turns)
+#   - Output: 302,780 rows / 1,520,942 turns / 0 empty assistants
+#
+# Shape: single image / row × 5.02 turns/row avg (range 1–12+ turns).
+# Each turn ~60–100-word answer with cross-turn entity persistence.
+#
+# License: CC-BY-4.0 (commercial OK).
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: finevision___lnqa_recap
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/sft/finevision/lnqa_recap/**/*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/lnqa_recap/manifest.parquet
+
+# 1 image per row stored as list[struct<bytes,path>]; multi_image=true for the
+# list loader path.
+image_list_column: images
+multi_image: true
+
+# FineVision schema: texts = list[{user, assistant}] turn pairs.
+parser: user_assistant_pairs
+parser_columns:
+  - texts
+
+# Redistill script placed exactly one <image>\n on turn 0; the parser will
+# ensure single-image placeholder count matches.
+conversation_policy:
+  add_image_placeholder: true
+  add_system_message: true
+
+# lnqa source images are from Open Images / Localized Narratives — natural
+# photos at varied resolutions. Smart_resize at 1400^2 covers all.
+max_pixels: "65536*65536"
+
+# Multi-turn (avg 5 turns × ~80 words / turn = ~400 words) + 1 image token
+# block ≈ 2k–6k tokens per row. Most rows stay under 8K; the small tail at
+# 9–12 turns will spill to lct.
+max_sequence_tokens: 262_144
+max_batch_tokens: 32_768
+
+plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/finevision___lnqa_recap.pt

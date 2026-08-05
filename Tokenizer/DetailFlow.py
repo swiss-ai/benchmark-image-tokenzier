@@ -1,8 +1,6 @@
 import os
 import sys
-from typing import Any, Tuple
 
-import numpy as np
 import torch
 from PIL import Image
 from torchvision import transforms
@@ -12,7 +10,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from pathlib import Path
 
 from base import Tokenizer
-from torchvision.utils import make_grid
 
 from Tiler import Tiler
 from utils_benchmark import load_all_images

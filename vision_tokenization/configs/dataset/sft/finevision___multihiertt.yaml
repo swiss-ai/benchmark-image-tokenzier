@@ -1,0 +1,49 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# FineVision / multihiertt — expert-annotated hierarchical financial tables.
+#
+# Source: Zhao et al. ACL 2022 (https://aclanthology.org/2022.acl-long.454/) —
+# 10,440 QA pairs built from FinTabNet S&P 500 annual reports. Hand-annotated
+# by 23 graduate students majoring in finance, with explicit reasoning programs
+# baked into every answer (e.g., "Computations: ((10881 + 8729) / 2)\n
+# Answer: 9805.0"). Inter-annotator κ = 0.89 ("almost perfect").
+#
+# License: MIT (data + code).
+#
+# Pre-tokenize filter (floor): vis_dep_min >= 2 AND img_corr_min >= 2 already
+# applied in processed/. Retention 5,445 / 7,619 = 71.5%.
+#
+# Shape: 1 turn / row, 3-5 images / row (multi-page financial reports rendered
+# as table screenshots). Answers carry the gold computation trace + final
+# numerical answer — strong CoT signal for table-grounded financial reasoning.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: finevision___multihiertt
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/sft/finevision/multihiertt_cleaned/**/*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/multihiertt/manifest.parquet
+
+image_list_column: images
+multi_image: true
+
+# FineVision native schema: texts = list[{user, assistant}] turn pairs.
+parser: user_assistant_pairs
+parser_columns:
+  - texts
+
+conversation_policy:
+  add_image_placeholder: true
+  add_system_message: true
+
+# Rendered financial-table screenshots; smart_resize at 1400^2 covers them all.
+max_pixels: "65536*65536"
+
+# Multi-image (3-5 / row) × single dense turn means total tokens per row can
+# exceed 8K. Split routes long rows to lct stream.
+max_sequence_tokens: 262_144
+max_batch_tokens: 32_768
+
+plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/finevision___multihiertt.pt

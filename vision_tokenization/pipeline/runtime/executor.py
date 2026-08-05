@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -25,9 +26,16 @@ from ...indexing.planning.tokenization_plan import (
     TokenizationPlan,
     build_tokenization_plan,
 )
-from .checkpoint import WorkerStats, load_checkpoint, save_checkpoint
+from .checkpoint import (
+    WorkerStats,
+    load_checkpoint,
+    save_checkpoint,
+    verify_plan_fingerprint,
+    verify_run_world_size,
+    write_rank_manifest,
+)
 from .data import create_loader
-from .prefetch import BatchPrefetcher, PrefetchResult
+from .prefetch import BatchPrefetcher
 from .wandb_logger import SimpleWandbLogger
 
 logger = logging.getLogger(__name__)
@@ -52,12 +60,14 @@ def _load_or_build_plan(cfg: Dict[str, Any]) -> TokenizationPlan:
         min_pixels=cfg.get("filter_min_pixels"),
         max_pixels=cfg.get("filter_max_pixels"),
         max_images_per_doc=cfg.get("max_images_per_doc"),
-        batch_size=cfg.get("batch_size", 128),
-        max_batch_tokens=cfg.get("max_batch_tokens", 32768),
-        spatial_factor=cfg.get("spatial_factor", 16),
-        resize_min_pixels=cfg.get("tokenizer_min_pixels", 16384),
-        resize_max_pixels=cfg.get("tokenizer_max_pixels", 1960000),
-        window_size=cfg.get("window_size", 2000),
+        # No Python-side fallbacks: configs/dataset/_pipeline.yaml owns these
+        # defaults; a missing key is a config bug and should fail loudly.
+        batch_size=cfg["batch_size"],
+        max_batch_tokens=cfg["max_batch_tokens"],
+        spatial_factor=cfg["spatial_factor"],
+        resize_min_pixels=cfg["tokenizer_min_pixels"],
+        resize_max_pixels=cfg["tokenizer_max_pixels"],
+        window_size=cfg["window_size"],
     )
 
     if plan_path:
@@ -86,9 +96,9 @@ def _is_cuda_oom(err: BaseException) -> bool:
 
 
 def _build_run_name(cfg: Dict[str, Any], mode: str, world_size: int) -> str:
-    output_name = cfg.get("output_name", "unknown")
-    mbt = cfg.get("max_batch_tokens", "")
-    bs = cfg.get("batch_size", "")
+    output_name = cfg["output_name"]
+    mbt = cfg["max_batch_tokens"]
+    bs = cfg["batch_size"]
     return f"{output_name}_{mode}_g{world_size}_mbt{mbt}_bs{bs}"
 
 
@@ -109,14 +119,34 @@ def _build_group_slices(doc_ids: np.ndarray) -> Optional[np.ndarray]:
     return slices if len(slices) > 0 else None
 
 
+@dataclass
+class PreparedBatch:
+    """Worker-prepared batch: filtered, and (when the wrapper supports it)
+    already CPU-preprocessed to a pinned uint8 ``[B, H, W, C]`` tensor.
+
+    Produced by the prefetch ``prepare`` hook so that None-filtering and
+    image preprocessing run in loader threads, overlapping GPU encode.
+    """
+
+    images: Any  # pinned uint8 tensor, or List[PIL] when no preprocess_cpu
+    texts: Optional[List[Any]]
+    comp_indices: np.ndarray
+    group_slices: Optional[np.ndarray]
+    skipped: int
+
+
 def _filter_prefetched_batch(
     images: List[Any],
     texts: Optional[List[Any]],
     component_indices: np.ndarray,
     group_slices: Optional[np.ndarray],
-    stats: WorkerStats,
-) -> tuple[List[Any], Optional[List[Any]], np.ndarray, Optional[np.ndarray]]:
-    """Filter out invalid images, preserving grouped document structure."""
+) -> tuple[List[Any], Optional[List[Any]], np.ndarray, Optional[np.ndarray], int]:
+    """Filter out invalid images, preserving grouped document structure.
+
+    Runs in prefetch worker threads — returns the skip count instead of
+    mutating shared stats.
+    """
+    skipped = 0
     if group_slices is not None:
         valid_images: List[Any] = []
         valid_texts: List[Any] = []
@@ -129,7 +159,7 @@ def _filter_prefetched_batch(
             group_text = texts[g_idx] if texts is not None else None
 
             if (texts is not None and group_text is None) or any(img is None for img in group_images):
-                stats.samples_skipped += 1
+                skipped += 1
                 continue
 
             new_start = len(valid_images)
@@ -145,6 +175,7 @@ def _filter_prefetched_batch(
             valid_texts if texts is not None else None,
             np.asarray(valid_comp_indices, dtype=np.int64),
             valid_slice_arr,
+            skipped,
         )
 
     if texts is not None:
@@ -158,21 +189,23 @@ def _filter_prefetched_batch(
                 valid_texts.append(txt)
                 valid_comp_indices.append(int(component_indices[i]))
             else:
-                stats.samples_skipped += 1
+                skipped += 1
         return (
             valid_images,
             valid_texts,
             np.asarray(valid_comp_indices, dtype=np.int64),
             None,
+            skipped,
         )
 
     valid_positions = [i for i, img in enumerate(images) if img is not None]
-    stats.samples_skipped += len(images) - len(valid_positions)
+    skipped = len(images) - len(valid_positions)
     return (
         [images[i] for i in valid_positions],
         None,
         np.asarray([int(component_indices[i]) for i in valid_positions], dtype=np.int64),
         None,
+        skipped,
     )
 
 
@@ -194,6 +227,9 @@ def run_executor(
     output_dir = cfg["output_dir"]
     mode = cfg["mode"]
     Path(output_dir).mkdir(parents=True, exist_ok=True)
+    # Fail in seconds — before the plan load — if this directory belongs to a
+    # run with a different world size (resuming would duplicate documents).
+    verify_run_world_size(output_dir, world_size, rank)
 
     # ------------------------------------------------------------------
     # 1. Load / build TokenizationPlan and split for this rank
@@ -204,32 +240,47 @@ def run_executor(
     worker_splits = plan.split_image_batches_for_workers(world_size)
     my_batches = worker_splits[rank] if rank < len(worker_splits) else []
 
+    # A checkpoint's batch_index is only valid against this exact plan,
+    # and its ids only against the tokenizer that wrote them.
+    # Every rank must agree, so this is computed before the empty-rank branch.
+    from vision_tokenization.discrete.emu.token_layout import tokenizer_sha256
+    plan_fingerprint = {**plan.fingerprint(),
+                        "tokenizer_sha256": tokenizer_sha256(cfg["tokenizer_path"])}
+
     logger.info(
         f"[rank {rank}/{world_size}] Assigned {len(my_batches)} image batches"
     )
 
     if not my_batches:
-        logger.warning(f"[rank {rank}] No batches assigned — exiting early")
-        return {"rank": rank, "samples_processed": 0, "tokens_generated": 0}
+        # Still satisfy the completion contracts so merge gating and stats
+        # aggregation don't hang on small datasets (world_size > batches).
+        from ..output.stats_reducer import maybe_write_stats_summary
+        from vision_tokenization.utils.json import json_dump
+
+        logger.warning(f"[rank {rank}] No batches assigned — finalizing empty rank")
+        result = WorkerStats().finalize()
+        result["rank"] = rank
+        result["output_dir"] = output_dir
+        json_dump(result, Path(output_dir) / f"rank_{rank:04d}_stats.json")
+        write_rank_manifest(output_dir, rank, world_size, plan_fingerprint,
+                            backend="empty", files=[],
+                            tokenizer_path=cfg["tokenizer_path"])
+        maybe_write_stats_summary(output_dir, expected_ranks=world_size)
+        return result
 
     # ------------------------------------------------------------------
     # 3. Resume from checkpoint
     # ------------------------------------------------------------------
-    resume = cfg.get("resume", False)
+    resume = cfg["resume"]
     start_batch_index = 0
     cumulative_stats = WorkerStats()
     ckpt = None
 
     if resume:
+        # World-size identity is enforced by verify_run_world_size above.
         ckpt = load_checkpoint(output_dir, rank)
         if ckpt is not None:
-            ckpt_ws = ckpt.get("world_size")
-            if ckpt_ws is not None and ckpt_ws != world_size:
-                logger.warning(
-                    f"[rank {rank}] Checkpoint world_size ({ckpt_ws}) != current ({world_size}). Ignoring."
-                )
-                ckpt = None
-        if ckpt is not None:
+            verify_plan_fingerprint(ckpt, plan_fingerprint, rank)
             start_batch_index = ckpt["batch_index"] + 1
             prev = ckpt.get("stats", {})
             cumulative_stats.load_from_dict(prev)
@@ -243,7 +294,8 @@ def run_executor(
     # ------------------------------------------------------------------
     from vision_tokenization.discrete.emu import create_tokenizer
 
-    device = f"cuda:{cfg.get('local_rank', 0)}"
+    device = f"cuda:{cfg['local_rank']}"
+    tokenizer_load_t0 = time.perf_counter()
     tokenizer = create_tokenizer(
         mode=mode,
         text_tokenizer_path=cfg["tokenizer_path"],
@@ -251,41 +303,70 @@ def run_executor(
         min_pixels=cfg["tokenizer_min_pixels"],
         max_pixels=cfg["tokenizer_max_pixels"],
         max_encode_pixels=cfg.get("max_encode_pixels"),
+        vision_tokenizer_type=cfg.get("vision_tokenizer_type"),
+        vision_tokenizer_path=cfg.get("vision_tokenizer_path"),
         **(cfg.get("tokenizer_kwargs", {})),
+    )
+    tokenizer_load_time = time.perf_counter() - tokenizer_load_t0
+    model_load_time = float(getattr(tokenizer, "model_load_time", 0.0) or 0.0)
+    text_tokenizer_load_time = float(
+        getattr(tokenizer, "text_tokenizer_load_time", 0.0) or 0.0
+    )
+    cumulative_stats.record_tokenizer_load_time(
+        tokenizer_load_time=tokenizer_load_time,
+        model_load_time=model_load_time,
+        text_tokenizer_load_time=text_tokenizer_load_time,
+    )
+    logger.info(
+        "[rank %s] Tokenizer setup loaded in %.1fs "
+        "(text_tokenizer=%.1fs, model=%.1fs)",
+        rank,
+        tokenizer_load_time,
+        text_tokenizer_load_time,
+        model_load_time,
     )
 
     # ------------------------------------------------------------------
     # 5. Setup output backend, data loader, prefetcher, W&B
     # ------------------------------------------------------------------
     multi_image = bool(cfg.get("multi_image", False))
-    use_spill = multi_image or mode == "interleave"
+    # alignment rides the spill path: each rank spills its disjoint media-block
+    # slice, and the offline alignment merge (materialize_alignment) assembles
+    # the views/tokens/raw store. The executor GPU-encodes for every spill mode.
+    use_spill = multi_image or mode in ("interleave", "alignment")
+    executor_encodes = use_spill
+    # alignment spills but produces no per-rank bin/idx — its merge reads the
+    # spills directly. Every other spill mode rebuilds shards for merge_shards.
+    rebuilds_shards = mode != "alignment"
 
+    writer_state = ckpt.get("writer") if ckpt else None
     if use_spill:
         from ..output.backend import SpillBackend
         backend = SpillBackend()
-        backend.open(output_dir, rank, resume_state=ckpt)
+        backend.open(output_dir, rank, writer_state=writer_state)
     else:
         from ..output.backend import DirectBackend
-        backend = DirectBackend(mode=mode, seqlen_threshold=cfg.get("seqlen_threshold"))
-        backend.open(output_dir, rank, resume_state=ckpt, tokenizer=tokenizer)
+        backend = DirectBackend(mode=mode)
+        backend.open(output_dir, rank, writer_state=writer_state, tokenizer=tokenizer)
 
     data_loader = create_loader(cfg)
 
     # W&B logger (rank 0 only)
     wandb_logger = None
-    wandb_cfg = cfg.get("wandb", {})
-    if wandb_cfg.get("enabled", False) and rank == 0:
+    wandb_cfg = cfg["wandb"]
+    if wandb_cfg["enabled"] and rank == 0:
         wandb_resume_state = load_wandb_resume_state(resume, ckpt)
         wandb_logger = SimpleWandbLogger(
-            project=wandb_cfg.get("project", "vision-tokenization"),
-            entity=wandb_cfg.get("entity"),
-            name=wandb_cfg.get("name") or _build_run_name(cfg, mode, world_size),
-            tags=wandb_cfg.get("tags", []),
+            project=wandb_cfg["project"],
+            entity=wandb_cfg["entity"],
+            name=wandb_cfg["name"] or _build_run_name(cfg, mode, world_size),
+            group=wandb_cfg.get("group"),
+            tags=wandb_cfg["tags"],
             config={
                 "rank": rank, "world_size": world_size, "mode": mode,
                 **{k: v for k, v in cfg.items() if isinstance(v, (int, float, str, bool))},
             },
-            log_interval_seconds=wandb_cfg.get("log_interval_seconds", 10.0),
+            log_interval_seconds=wandb_cfg["log_interval_seconds"],
             run_id=wandb_resume_state["run_id"] if wandb_resume_state else None,
             start_step=wandb_resume_state["step"] if wandb_resume_state else 0,
         )
@@ -296,7 +377,7 @@ def run_executor(
     # The prefetcher expects objects with .sample_indices and .resize_height/width.
     # We adapt ImageBatch to work with the existing prefetcher by mapping
     # component_indices → manifest_rows.
-    from dataclasses import dataclass, field as dc_field
+    from dataclasses import field as dc_field
 
     @dataclass
     class _PrefetchBatch:
@@ -339,26 +420,46 @@ def run_executor(
     # ------------------------------------------------------------------
     # 7. Main loop
     # ------------------------------------------------------------------
-    checkpoint_interval = cfg.get("checkpoint_interval_batches", 2500)
+    checkpoint_interval = cfg["checkpoint_interval_batches"]
+    last_writer_state = writer_state or {}
     stats = cumulative_stats
     batch_count = 0
     last_batch_index = start_batch_index - 1
     consecutive_errors = 0
-    max_consecutive_errors = cfg.get("max_consecutive_errors", 50)
+    max_consecutive_errors = cfg["max_consecutive_errors"]
     _loop_error = None
 
-    prefetch_cfg = cfg.get("prefetch", {})
+    # Filtering + CPU-phase preprocessing run inside the prefetch workers so
+    # they overlap GPU encode instead of serializing on this thread
+    # (measured +60% end-to-end on decode-heavy datasets). Falls back to
+    # PIL lists for wrappers without a two-phase preprocess.
+    image_wrapper = getattr(tokenizer, "image_tokenizer", None)
+    preprocess_cpu = getattr(image_wrapper, "preprocess_cpu", None)
+
+    def _prepare_batch(images, texts, ba):
+        valid_images, valid_texts, comp_indices, group_slices, skipped = (
+            _filter_prefetched_batch(images, texts, ba._component_indices, ba.group_slices)
+        )
+        if preprocess_cpu is not None and valid_images:
+            valid_images = preprocess_cpu(
+                valid_images, (ba.resize_height, ba.resize_width)
+            )
+        return PreparedBatch(valid_images, valid_texts, comp_indices, group_slices, skipped)
+
+    prefetch_cfg = cfg["prefetch"]
     prefetcher = BatchPrefetcher(
         data_loader,
-        queue_size=prefetch_cfg.get("queue_size", 32),
-        num_workers=prefetch_cfg.get("num_workers", 8),
+        prepare=_prepare_batch,
+        queue_size=prefetch_cfg["queue_size"],
+        num_workers=prefetch_cfg["num_workers"],
     )
 
+    stats.start_loop_timer()
     logger.info(
         f"[rank {rank}] Starting unified tokenization loop "
         f"(start_batch={start_batch_index}, "
         f"checkpoint_interval={checkpoint_interval}, "
-        f"prefetch_workers={prefetch_cfg.get('num_workers', 8)})"
+        f"prefetch_workers={prefetch_cfg['num_workers']})"
     )
 
     try:
@@ -405,25 +506,24 @@ def run_executor(
 
             try:
                 resize_size = (pb.resize_height, pb.resize_width)
-                valid_images, valid_texts, valid_comp_indices, valid_group_slices = (
-                    _filter_prefetched_batch(
-                        result.images,
-                        result.texts,
-                        pb._component_indices,
-                        pb.group_slices,
-                        stats,
-                    )
-                )
+                # Filtering + CPU preprocessing already happened in the
+                # prefetch workers (the `_prepare_batch` hook).
+                prepared: PreparedBatch = result.payload
+                stats.samples_skipped += prepared.skipped
+                valid_images = prepared.images
+                valid_texts = prepared.texts
+                valid_comp_indices = prepared.comp_indices
+                valid_group_slices = prepared.group_slices
 
-                if not valid_images:
+                if len(valid_images) == 0:
                     consecutive_errors = 0
                     batch_count += 1
                     continue
 
-                if use_spill:
-                    # Spill path: GPU encode images, then spill components
-                    # Spill mode tokenizes images eagerly in the executor, so
-                    # tokenize wall time is exactly this encode section.
+                if executor_encodes:
+                    # GPU encode here, then hand components to the backend
+                    # (spill or media store) — tokenize wall time is exactly
+                    # this encode section.
                     t0 = time.perf_counter() if log_now else None
                     token_sequences = tokenizer.tokenize_images(
                         valid_images, resize_size,
@@ -448,7 +548,6 @@ def run_executor(
                     )
                 else:
                     # Direct path: handler tokenizes + writes in one step
-                    device = f"cuda:{cfg.get('local_rank', 0)}"
                     write_timing = backend.write_batch(
                         images=valid_images,
                         resize_size=resize_size,
@@ -511,11 +610,12 @@ def run_executor(
 
             # Periodic checkpoint
             if batch_count % checkpoint_interval == 0:
-                ckpt_meta = backend.checkpoint()
+                last_writer_state = backend.checkpoint()
                 save_checkpoint(
                     output_dir, rank,
                     batch_index=result.batch_index,
-                    chunk_id=ckpt_meta.get("chunk_id", ckpt_meta.get("shard_id", 0)),
+                    writer_state=last_writer_state,
+                    plan_fingerprint=plan_fingerprint,
                     stats=stats.to_dict(),
                     world_size=world_size,
                     extra={"wandb": wandb_logger.state_dict()} if wandb_logger else None,
@@ -533,14 +633,16 @@ def run_executor(
         prefetcher.shutdown()
 
     # ------------------------------------------------------------------
-    # 8. Finalize
+    # 8. Finalize (clean loop only — a crashed run re-raises its own error
+    #    below, rather than the backend's completeness gate)
     # ------------------------------------------------------------------
-    backend.finalize()
+    if _loop_error is None:
+        backend.finalize()
 
     # Per-rank rebuild: assemble documents from this rank's spill into
     # rank_XXXX_chunk_0000.bin/.idx so merge_shards works identically
     # for both spill and direct backend paths.
-    if use_spill and _loop_error is None and cfg.get("rebuild", True):
+    if use_spill and _loop_error is None and cfg["rebuild"] and rebuilds_shards:
         from ..output.rebuild import rebuild_rank
         from ...common.assembly import StructureTokenIds
 
@@ -558,22 +660,41 @@ def run_executor(
         )
         rebuild_stats = rebuild_rank(
             plan=plan,
-            output_dir=output_dir,
             rank=rank,
+            spill_dir=output_dir,
             token_ids=rebuild_token_ids,
             vocab_size=len(tokenizer.text_tokenizer),
             max_sequence_tokens=cfg.get("max_sequence_tokens"),
-            seqlen_threshold=cfg.get("seqlen_threshold"),
         )
-        stats.stage2_tokens = rebuild_stats.get("stage2_tokens", 0)
-        stats.stage2_samples = rebuild_stats.get("stage2_sequences", 0)
-        stats.lct_tokens = rebuild_stats.get("lct_tokens", 0)
-        stats.lct_samples = rebuild_stats.get("lct_sequences", 0)
+        logger.info(
+            f"[rank {rank}] Spill rebuild: {rebuild_stats.get('sequences', 0):,} sequences"
+        )
+
+    # Completion manifest — the rank's verifiable claim of what it shipped,
+    # written only when every final artifact is atomically in place. The
+    # merge gate verifies this claim against disk; no manifest, no merge.
+    if _loop_error is None:
+        if not rebuilds_shards:
+            # Spill-only (alignment): the merge reads each rank's spill directly,
+            # so the manifest carries no shard files — its presence plus the
+            # world-size + fingerprint agreement is the completion gate.
+            manifest_files = []
+        elif use_spill:
+            manifest_files = rebuild_stats["files"] if cfg["rebuild"] else None
+        else:
+            manifest_files = backend.completed_files()
+        if manifest_files is not None:
+            write_rank_manifest(
+                output_dir, rank, world_size, plan_fingerprint,
+                backend=backend.name, files=manifest_files,
+                tokenizer_path=cfg["tokenizer_path"],
+            )
 
     save_checkpoint(
         output_dir, rank,
         batch_index=last_batch_index,
-        chunk_id=0,
+        writer_state=last_writer_state,
+        plan_fingerprint=plan_fingerprint,
         stats=stats.to_dict(),
         world_size=world_size,
         extra={"wandb": wandb_logger.state_dict()} if wandb_logger else None,

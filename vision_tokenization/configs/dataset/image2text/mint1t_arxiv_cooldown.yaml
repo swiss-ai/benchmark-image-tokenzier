@@ -1,0 +1,36 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# MINT-1T-ArXiv cooldown — image2text, HF Parquet (454 parts, 4.42 M rows,
+# 624 GB raw). ArXiv figures captioned by gemma-4-31B-it across an 8 × 4
+# (persona × style) grid → ~138 k unique figures × 32 caption variants each.
+#
+# Quality probe:
+#   - 0 empty / 0 < 50-char / 0 malformed-think captions across 4.42 M rows
+#   - Caption length p50 = 1,437 chars (mean 1,441), uniformly long
+#   - Persona + style mix balanced within ±2 % each
+#   - Captioner: gemma-4-31B-it (single model, no thinking tokens)
+#
+# Resolution: highly variable (1.1 M unique sizes). p50 901×667, p90
+# 2351×1728, max 8000×8000 — most images need downscaling (1400² cap).
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/image2text@_here_
+
+output_name: mint1t_arxiv_cooldown
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/cooldown
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/hf___mlfoundations___MINT-1T-ArXiv___cooldown/*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/mint1t_arxiv_cooldown/manifest.parquet
+image_column: image_bytes
+text_column: caption
+
+# Disable the 2048*2048 default cap — some figures reach 8000*8000 (~64 M px).
+max_pixels: "65536*65536"
+max_batch_tokens: 32_768
+
+# Cooldown convention: split sequences ≥ 8192 tokens into the lct/ tail
+# (long-context training) and the rest into stage2/. Matches docci,
+# nasa_cooldown, hq50k, smithsonian, owid_grapher_charts, swisstopo_maps_recap.
+# Captions average 1,441 chars (~360 tokens) so most rows will land in stage2/;
+# the lct/ tail holds the high-resolution figures whose post-resize image
+# tokens push the sequence above 8192.

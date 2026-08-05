@@ -1,0 +1,37 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# ChartNet (IBM core_permissive) — image2text, image → natural-language summary.
+# 2.5 M synthetic charts (24 chart types × 6 plotting libraries), generated
+# via a code-guided synthesis pipeline (Mistral-family VLM produces seed code,
+# code regenerates charts with stylistic variation, summary derived from code).
+#
+# Used to train IBM Granite Vision 4 (granite-4.0-3b-vision, granite-vision-4.1-4b).
+# License: cdla-permissive-2.0 (research + permissive commercial use).
+#
+# Pair this config with chartnet_code.yaml to train both
+#   chart→summary    (this file, dense NL description)
+#   chart→code       (chartnet_code.yaml, matplotlib/seaborn/plotly Python)
+# objectives during cooldown — same image, two output modalities. Standard
+# multi-target chart-VLM practice (UniChart, ChartLlama, ChartGemma, etc.).
+# Cooldown is raw next-token prediction, no task prefix needed; the model
+# disambiguates from distributional cues at inference.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/image2text@_here_
+
+output_name: chartnet_summary
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized/cooldown
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/raw/hf___ibm-granite___ChartNet/core_permissive/*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/chartnet_core_permissive/manifest.parquet
+image_column: image
+text_column: summary
+
+# Charts are mostly small (synthetic renders, typically 800×600 to 1600×1200).
+# Disable any 2048² cap defensively; tokenizer handles downscale to 1400² cap.
+max_pixels: "65536*65536"
+max_batch_tokens: 32_768
+
+# Cooldown convention: split sequences ≥ 8192 tokens into the lct/ tail.
+# Summary length p50 ~1,800 chars (~450 tokens); image tokens dominate at
+# ~4-6K post-downscale, so most rows land in stage2/.

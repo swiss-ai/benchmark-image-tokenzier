@@ -1,0 +1,50 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# MolmoPoint-GUISyn — SFT, single-image multi-turn GUI grounding.
+#
+# Source: allenai/MolmoPoint-GUISyn (3 configs: desktop/web/mobile, all train).
+# Code-guided synthetic GUI screenshots; each has dense element-level grounding
+# annotations with 5 paraphrased "intent" phrasings per element.
+#
+# Preprocessing (multimodal-data/.../molmopoint_guisyn/prep.py):
+#   - One sample per source row (Molmo's "message-trees" approach).
+#   - One random intent picked per annotation (deterministic via --seed).
+#   - Coords normalized pixel -> 0-1000 integer (same as our other grounding).
+#   - Assistant format: <point x="X" y="Y">{element_name}</point>
+#   - User content for first turn includes "<image>\n" prefix.
+#
+# Per-row density: desktop ~54 annotations / web ~50 / mobile ~25. Some very
+# dense IDE screens have 200-700 annotations -> overflow to lct bucket via
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_storage/hf@_here_
+  - /dataset/_task/sft@_here_
+
+output_name: molmopoint_guisyn
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+input_pattern: "/capstor/store/cscs/swissai/infra01/vision-datasets/processed/sft/molmopoint_guisyn/**/*.parquet"
+manifest_path: /capstor/scratch/cscs/xyixuan/manifests/molmopoint_guisyn/manifest.parquet
+
+# One image per row, binary bytes column.
+image_column: image
+multi_image: false
+
+# Pre-formed multi-turn messages list (one per row, ~25-700 turn pairs).
+parser: conversation
+parser_columns:
+  - messages
+
+# Prep already added "<image>\n" to the first user turn; don't add again.
+conversation_policy:
+  add_image_placeholder: false
+
+# Smart-resize cap stays at the EMU3.5 IBQ default (1400^2 ~= 1.96M pixels).
+# 37% of source images exceed this and get downscaled at tokenize time.
+max_pixels: "65536*65536"
+
+# Dense screens with >200 annotations + 1400^2 image will overflow 8K; route
+# to lct. Most desktop / all web / all mobile fit in stage2.
+max_sequence_tokens: 262_144
+max_batch_tokens: 32_768
+
+plan_path: /capstor/scratch/cscs/xyixuan/batch_plans/molmopoint_guisyn.pt

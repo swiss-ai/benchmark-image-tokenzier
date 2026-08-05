@@ -1,0 +1,35 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# MMPR-v1.2 (OpenGVLab) — alignment/preference, sized parquet with embedded
+# image bytes, single- & multi-image. InternVL's Multimodal Preference dataset;
+# the training data MPO (arXiv:2411.10442) was built for.
+#
+# Provenance:
+#   raw:       vision-datasets/raw/preference/hf___OpenGVLab___MMPR-v1.2 (51 GB,
+#              annotations.zip [148 jsonl] + images.zip_a{a,b,c} [266,908 imgs])
+#   converter: multimodal-data/01-dataset-download/image/mmpr/
+#              convert_mmpr_v1_2_sized.py
+#   processed: vision-datasets/processed/alignment/mmpr-v1.2/data/part-*.parquet
+#              (99 sized parquet parts; 813,427 rows; 200.7 GB)
+#
+# Converter audit (815,293 seen -> 813,427 kept, 99.77%):
+#   drops: 14 missing-image, 12 marker-in-response, 33 empty, 1,396 identical,
+#          411 self-commentary-in-chosen
+#   flags: 288,239 zero-marker prompts <image>-prepended, 72,489 multi-image,
+#          32,227 <think>-in-chosen (kept; per-pair deliberation set at train
+#          time, keyed on chosen), 539 self-commentary-in-rejected (kept = signal)
+#   dry-run (1400^2 resize band): ~260k unique imgs, 793,211,943 image tokens
+#
+# Scope: one logical alignment dataset. The scanner reads the sized parquet
+# parts via input_pattern and handles exact SHA/dedup before tokenization.
+# Output root: <output_dir>/alignment/<output_name>.
+# ──────────────────────────────────────────────────────────────────────────────
+defaults:
+  - /dataset/_pipeline@_here_
+  - /dataset/_task/alignment@_here_
+
+# Data location:
+source_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/processed/alignment/mmpr-v1.2/data
+output_dir: /capstor/store/cscs/swissai/infra01/vision-datasets/tokenized
+
+input_pattern: ${.source_dir}/part-*.parquet
+output_name: mmpr_v1_2

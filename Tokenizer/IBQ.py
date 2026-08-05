@@ -7,10 +7,8 @@ sys.path.insert(0, os.path.join(base_dir, "repos", "OpenMAGViT2_IBQ"))
 
 from typing import Any, Dict, Optional, Tuple
 
-import numpy as np
 import torch
 from evaluation_image import load_config, load_vqgan_new
-from src.Open_MAGVIT2.models.lfqgan import VQModel
 
 from Tokenizer.OpenMAGViT2 import OpenMAGViT2
 

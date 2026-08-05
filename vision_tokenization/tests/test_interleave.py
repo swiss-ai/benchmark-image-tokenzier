@@ -152,7 +152,7 @@ def test_jsonl_tar_interleave_loader_reconstructs_grouped_document(tmp_path):
     pytest.importorskip("orjson")
 
     from vision_tokenization.indexing.scanners.interleave import scan_jsonl_tar_interleave_dataset
-    from vision_tokenization.pipeline.runtime.data import JSONLTarInterleaveLoader
+    from vision_tokenization.pipeline.runtime.data import JSONLTarLoader
 
     part_dir = tmp_path / "part00000"
     part_dir.mkdir()
@@ -187,7 +187,7 @@ def test_jsonl_tar_interleave_loader_reconstructs_grouped_document(tmp_path):
         num_workers=2,
     )
 
-    loader = JSONLTarInterleaveLoader(
+    loader = JSONLTarLoader(
         manifest_path=str(manifest_path),
         document_format="pin_markdown",
         document_field="md",
@@ -208,71 +208,11 @@ def test_jsonl_tar_interleave_loader_reconstructs_grouped_document(tmp_path):
     ]
 
 
-def test_jsonl_tar_interleave_loader_load_text_batch_avoids_image_reads(tmp_path, monkeypatch):
-    pytest.importorskip("orjson")
-
-    from vision_tokenization.indexing.scanners.interleave import scan_jsonl_tar_interleave_dataset
-    from vision_tokenization.pipeline.runtime.data import JSONLTarInterleaveLoader
-
-    part_dir = tmp_path / "part00000"
-    part_dir.mkdir()
-
-    jsonl_path = part_dir / "part00000.jsonl"
-    tar_path = part_dir / "content_image.tar"
-    manifest_path = tmp_path / "manifest.parquet"
-
-    _create_content_tar(
-        str(tar_path),
-        {
-            "content_image/0-0.png": (40, 30),
-            "content_image/0-1.png": (64, 48),
-        },
-    )
-
-    row = {
-        "md": "head <img src='content_image/0-0.png'> tail "
-        "![chart](content_image/0-1.png) done",
-    }
-    with open(jsonl_path, "w", encoding="utf-8") as fh:
-        fh.write(json.dumps(row))
-        fh.write("\n")
-
-    scan_jsonl_tar_interleave_dataset(
-        input_pattern=str(jsonl_path),
-        output_manifest=str(manifest_path),
-        document_format="pin_markdown",
-        document_field="md",
-        tar_pattern="content_image.tar*",
-        tar_scope="parent_dir",
-        num_workers=1,
-    )
-
-    loader = JSONLTarInterleaveLoader(
-        manifest_path=str(manifest_path),
-        document_format="pin_markdown",
-        document_field="md",
-    )
-    monkeypatch.setattr(
-        loader._reader,
-        "read_batch",
-        lambda refs: pytest.fail("load_text_batch should not load images"),
-    )
-
-    texts = loader.load_text_batch(
-        np.array([0, 1], dtype=np.int64),
-        group_slices=np.array([[0, 2]], dtype=np.int64),
-    )
-    loader.close()
-
-    assert len(texts) == 1
-    assert [seg["type"] for seg in texts[0]] == ["text", "image", "text", "image", "text"]
-
-
 def test_jsonl_tar_interleave_loader_accepts_partial_batch_fragment(tmp_path):
     pytest.importorskip("orjson")
 
     from vision_tokenization.indexing.scanners.interleave import scan_jsonl_tar_interleave_dataset
-    from vision_tokenization.pipeline.runtime.data import JSONLTarInterleaveLoader
+    from vision_tokenization.pipeline.runtime.data import JSONLTarLoader
 
     part_dir = tmp_path / "part00000"
     part_dir.mkdir()
@@ -307,12 +247,12 @@ def test_jsonl_tar_interleave_loader_accepts_partial_batch_fragment(tmp_path):
         num_workers=1,
     )
 
-    loader = JSONLTarInterleaveLoader(
+    loader = JSONLTarLoader(
         manifest_path=str(manifest_path),
         document_format="pin_markdown",
         document_field="md",
     )
-    texts = loader.load_text_batch(
+    _, texts = loader.load_batch(
         np.array([1], dtype=np.int64),
         group_slices=np.array([[0, 1]], dtype=np.int64),
     )
@@ -321,10 +261,6 @@ def test_jsonl_tar_interleave_loader_accepts_partial_batch_fragment(tmp_path):
     assert len(texts) == 1
     assert texts[0] is not None
     assert [seg["type"] for seg in texts[0]] == ["text", "image", "text", "image", "text"]
-    assert extract_local_image_refs(texts[0]) == [
-        "content_image/0-0.png",
-        "content_image/0-1.png",
-    ]
     assert extract_local_image_refs(texts[0]) == [
         "content_image/0-0.png",
         "content_image/0-1.png",
@@ -368,7 +304,7 @@ def test_wds_interleave_loader_accepts_partial_batch_fragment(tmp_path):
             "max_open_files": 8,
         }
     )
-    texts = loader.load_text_batch(
+    _, texts = loader.load_batch(
         np.array([1], dtype=np.int64),
         group_slices=np.array([[0, 1]], dtype=np.int64),
     )
@@ -415,7 +351,7 @@ def test_wds_interleave_loader_returns_none_on_image_count_mismatch(tmp_path):
             "max_open_files": 8,
         }
     )
-    texts = loader.load_text_batch(
+    _, texts = loader.load_batch(
         np.array([0], dtype=np.int64),
         group_slices=np.array([[0, 1]], dtype=np.int64),
     )
@@ -1113,7 +1049,7 @@ class TestLoaderMultiGroup:
         from vision_tokenization.indexing.scanners.interleave import (
             scan_jsonl_tar_interleave_dataset,
         )
-        from vision_tokenization.pipeline.runtime.data import JSONLTarInterleaveLoader
+        from vision_tokenization.pipeline.runtime.data import JSONLTarLoader
 
         part_dir = tmp_path / "part00000"
         part_dir.mkdir()
@@ -1146,7 +1082,7 @@ class TestLoaderMultiGroup:
             tar_scope="parent_dir",
         )
 
-        loader = JSONLTarInterleaveLoader(
+        loader = JSONLTarLoader(
             manifest_path=str(manifest_path),
             document_format="pin_markdown",
             document_field="md",
@@ -1178,7 +1114,7 @@ class TestLoaderMultiGroup:
         from vision_tokenization.indexing.scanners.interleave import (
             scan_jsonl_tar_interleave_dataset,
         )
-        from vision_tokenization.pipeline.runtime.data import JSONLTarInterleaveLoader
+        from vision_tokenization.pipeline.runtime.data import JSONLTarLoader
 
         part_dir = tmp_path / "part00000"
         part_dir.mkdir()
@@ -1204,7 +1140,7 @@ class TestLoaderMultiGroup:
             tar_scope="parent_dir",
         )
 
-        loader = JSONLTarInterleaveLoader(
+        loader = JSONLTarLoader(
             manifest_path=str(manifest_path),
             document_format="pin_markdown",
             document_field="md",
@@ -1229,7 +1165,7 @@ class TestCreateLoaderFactory:
             scan_jsonl_tar_interleave_dataset,
         )
         from vision_tokenization.pipeline.runtime.data import (
-            JSONLTarInterleaveLoader,
+            JSONLTarLoader,
             create_loader,
         )
 
@@ -1265,7 +1201,7 @@ class TestCreateLoaderFactory:
         }
 
         loader = create_loader(cfg)
-        assert isinstance(loader, JSONLTarInterleaveLoader)
+        assert isinstance(loader, JSONLTarLoader)
         loader.close()
 
 
@@ -1273,13 +1209,10 @@ class TestCreateTokenizerFactory:
     """Test that create_tokenizer accepts interleave mode."""
 
     def test_interleave_mode_recognized(self):
-        from vision_tokenization.discrete.emu import create_tokenizer
-        from vision_tokenization.discrete.emu.interleave import EMUInterleaveTokenizer
 
         # We can't actually instantiate without the model weights,
         # but we can verify the mode is in the map and wouldn't raise
         # ValueError for unrecognized mode.
-        from vision_tokenization.discrete.emu import __init__ as emu_init
 
         # Just check the tokenizers dict has interleave
         tokenizers = {
