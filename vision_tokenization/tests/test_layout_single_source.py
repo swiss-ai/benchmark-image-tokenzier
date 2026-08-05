@@ -13,10 +13,7 @@ from vision_tokenization.common.layout import (
     image_block_length,
     image_sequence_length,
 )
-from vision_tokenization.utils.image_geometry import (
-    estimate_image_tokens,
-    estimate_image_tokens_batch,
-)
+from vision_tokenization.utils.image_geometry import estimate_image_tokens
 
 SIZES = [(14, 14), (32, 32), (64, 96), (128, 128)]
 
@@ -41,26 +38,6 @@ def test_estimator_matches_the_formula(h, w):
         image_sequence_length(h, w, dim_tokens_upper_bound(h, w))
 
 
-def test_numba_batch_equals_the_scalar_estimator():
-    """njit(cache=True) freezes globals into an on-disk cache that does not invalidate
-    when a global changes, so the structural count is passed as an argument.
-    Comparing values (not just shapes) is what catches a frozen copy."""
-    from vision_tokenization.utils.image_geometry import smart_resize_dims
-
-    rng = np.random.default_rng(0)
-    heights = rng.integers(64, 2048, 250).astype(np.int64)
-    widths = rng.integers(64, 2048, 250).astype(np.int64)
-    kw = dict(min_pixels=64 * 128, max_pixels=2048 * 2048)
-
-    batch = estimate_image_tokens_batch(heights, widths, spatial_factor=16, **kw)
-    scalar = np.array([
-        estimate_image_tokens(
-            *smart_resize_dims(int(h), int(w), factor=16, **kw), spatial_factor=16)
-        for h, w in zip(heights, widths)
-    ])
-    np.testing.assert_array_equal(batch, scalar)
-
-
 @pytest.mark.parametrize("h,w", SIZES + [(1024, 1024), (2048, 2048)])
 def test_bound_is_never_below_the_real_token_count(h, w):
     """A token is never shorter than a character,
@@ -78,23 +55,6 @@ def test_bound_grows_with_the_dimensions():
     assert dim_tokens_upper_bound(32, 32) == 5
     assert dim_tokens_upper_bound(100, 100) == 7
     assert dim_tokens_upper_bound(1024, 1024) == 9
-
-
-@pytest.mark.parametrize("h,w", [(1, 100), (8, 512), (15, 64), (16, 16), (1, 1)])
-def test_numba_matches_python_when_a_token_dimension_is_zero(h, w):
-    """Images smaller than spatial_factor give a token dimension of 0.
-
-    Counting digits by repeated //10 skips zero entirely, so the compiled path
-    undercounted by one against len("0*6"). Random dimensions in the hundreds
-    never reach this, which is why the agreement test alone did not catch it.
-    """
-    from vision_tokenization.utils.image_geometry import estimate_image_tokens_batch
-
-    scalar = estimate_image_tokens(h, w, spatial_factor=16)
-    batch = int(estimate_image_tokens_batch(
-        np.array([h]), np.array([w]), spatial_factor=16,
-        min_pixels=None, max_pixels=None)[0])
-    assert scalar == batch
 
 
 def test_bound_counts_zero_as_a_digit():

@@ -7,8 +7,6 @@ from typing import Optional, Tuple
 import numpy as np
 
 from vision_tokenization.common.layout import (
-    IMAGE_BLOCK_FIXED_TOKENS,
-    SEQUENCE_WRAPPER_TOKENS,
     dim_tokens_upper_bound,
     image_sequence_length,
 )
@@ -84,57 +82,6 @@ if njit is not None:
         return out_h, out_w
 
 
-    @njit(cache=True)
-    def _estimate_image_tokens_numba(
-        height: int,
-        width: int,
-        spatial_factor: int,
-        structural: int,
-    ) -> int:
-        token_height = height // spatial_factor
-        token_width = width // spatial_factor
-        # Character count of "H*W" bounds its token count; digits without str().
-        # Starts at 3 because the shortest form is one digit either side of the
-        # separator, so zero counts as a digit rather than none.
-        dims = 3
-        v = token_height // 10
-        while v > 0:
-            dims += 1
-            v //= 10
-        v = token_width // 10
-        while v > 0:
-            dims += 1
-            v //= 10
-        return token_height * token_width + structural + dims + token_height
-
-
-    @njit(parallel=True, cache=True)
-    def _estimate_image_tokens_batch_numba(
-        heights: np.ndarray,
-        widths: np.ndarray,
-        spatial_factor: int,
-        min_pixels: int,
-        max_pixels: int,
-        structural: int,
-    ) -> np.ndarray:
-        tokens = np.empty(len(heights), dtype=np.int64)
-        for idx in prange(len(heights)):
-            final_height, final_width = _smart_resize_dims_numba(
-                int(heights[idx]),
-                int(widths[idx]),
-                min_pixels,
-                max_pixels,
-                spatial_factor,
-            )
-            tokens[idx] = _estimate_image_tokens_numba(
-                final_height,
-                final_width,
-                spatial_factor,
-                structural,
-            )
-        return tokens
-
-
 def smart_resize_dims(
     height: int,
     width: int,
@@ -178,53 +125,6 @@ def estimate_image_tokens(
     token_width = width // spatial_factor
     return image_sequence_length(
         token_height, token_width, dim_tokens_upper_bound(token_height, token_width))
-
-
-def estimate_image_tokens_batch(
-    heights: np.ndarray,
-    widths: np.ndarray,
-    *,
-    spatial_factor: int = 16,
-    min_pixels: Optional[int],
-    max_pixels: Optional[int],
-) -> np.ndarray:
-    """Estimate image tokens for many images, using Numba when available."""
-    if len(heights) != len(widths):
-        raise ValueError("heights and widths must have the same length")
-
-    heights_arr = np.asarray(heights, dtype=np.int64)
-    widths_arr = np.asarray(widths, dtype=np.int64)
-    min_pixels_i = _pixel_limit(min_pixels)
-    max_pixels_i = _pixel_limit(max_pixels)
-
-    if _NUMBA_AVAILABLE:
-        # Passed rather than read from a global:
-        # @njit(cache=True) freezes globals into the on-disk cache
-        # and will not notice one of them changing.
-        return _estimate_image_tokens_batch_numba(
-            heights_arr,
-            widths_arr,
-            int(spatial_factor),
-            min_pixels_i,
-            max_pixels_i,
-            SEQUENCE_WRAPPER_TOKENS + IMAGE_BLOCK_FIXED_TOKENS,
-        )
-
-    tokens = np.empty(len(heights_arr), dtype=np.int64)
-    for idx, (height, width) in enumerate(zip(heights_arr, widths_arr)):
-        final_height, final_width = smart_resize_dims(
-            int(height),
-            int(width),
-            min_pixels=min_pixels,
-            max_pixels=max_pixels,
-            factor=spatial_factor,
-        )
-        tokens[idx] = estimate_image_tokens(
-            final_height,
-            final_width,
-            spatial_factor=spatial_factor,
-        )
-    return tokens
 
 
 def smart_resize_dims_batch(
