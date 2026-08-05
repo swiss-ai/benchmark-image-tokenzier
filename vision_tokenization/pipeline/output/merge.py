@@ -186,6 +186,11 @@ def resolve_reasoning_delimiters(tokenizer_dir: str) -> Tuple[int, int]:
     Encoding rather than looking the names up is what makes this correct across tokenizer
     revisions: apertus_emu3.5_wavtok_instruct_thinking_token_fixed normalizes ``<think>``
     into ``<|inner_prefix|>``, so a name lookup returns 69 while the id in its data is 32.
+
+    TODO: recheck once the Apertus 2 chat template lands. Apertus 2 carries ``<think>`` (22)
+    and ``<|inner_prefix|>`` (12) as separate unaliased tokens, so this returns 22/23 —
+    correct only if the template writes ``<think>`` for reasoning turns. If it writes
+    ``<|inner_prefix|>``, stripping matches nothing and says so only in the warning count.
     """
     from tokenizers import Tokenizer
 
