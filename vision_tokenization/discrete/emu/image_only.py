@@ -82,9 +82,11 @@ class EMUImageOnlyTokenizer:
         config_path = Path(text_tokenizer_path) / "tokenizer_config.json"
         tokenizer_config = json_load(config_path)
 
-        # Apertus 1.5 names the vision tokenizer in its own config; Apertus 2 does
-        # not, so the pipeline config supplies it. Where both speak they must agree,
-        # otherwise the wrong front end encodes the codebook indices in silence.
+        # Apertus 1.5 names the vision tokenizer in its own config; Apertus 2 does not,
+        # so the pipeline config supplies it.
+        # The type must agree where both declare one, or the wrong front end encodes the
+        # codebook indices in silence. The path is free to differ — pointing at other
+        # weights is why the pipeline owns it, and 1.5 ships an absolute capstor mount.
         vision_config = tokenizer_config.get("vision_tokenizer", {})
         declared_type, declared_path = vision_config.get("type"), vision_config.get("path")
         if vision_tokenizer_type and declared_type and vision_tokenizer_type != declared_type:

@@ -107,14 +107,16 @@ def strip_thinking_tokens(
 
     Returns the stripped sequence (``None`` if empty afterwards),
     and whether the sequence ended still inside a span.
-    An unclosed span drops everything after the opener, which the output cannot be
-    distinguished from a correct strip — hence the flag rather than silence.
+    An unclosed span drops everything after the opener,
+    which the output cannot be distinguished from a correct strip.
+    Hence the flag rather than silence.
     """
     n = len(tokens)
     if n == 0:
         return None, False
     if not ((tokens == think_id) | (tokens == end_think_id)).any():
-        return tokens, False  # fast path — no copy
+        # fast path — no copy
+        return tokens, False
 
     out = np.empty(n, dtype=tokens.dtype)
     w, unclosed = _strip_thinking_inner(tokens, think_id, end_think_id, out)
@@ -181,10 +183,9 @@ def _index_has_sequence_modes(path_prefix: str) -> bool:
 def resolve_reasoning_delimiters(tokenizer_dir: str) -> Tuple[int, int]:
     """Delimiter ids for *tokenizer_dir*, by encoding the strings a chat template writes.
 
-    Encoding rather than looking the names up is what makes this correct across
-    tokenizer revisions: apertus_emu3.5_wavtok_instruct_thinking_token_fixed
-    normalizes ``<think>`` into ``<|inner_prefix|>``, so a name lookup returns 69
-    while the id actually present in its data is 32.
+    Encoding rather than looking the names up is what makes this correct across tokenizer
+    revisions: apertus_emu3.5_wavtok_instruct_thinking_token_fixed normalizes ``<think>``
+    into ``<|inner_prefix|>``, so a name lookup returns 69 while the id in its data is 32.
     """
     from tokenizers import Tokenizer
 

@@ -1,9 +1,8 @@
 """The image-block formula must have exactly one definition.
 
-It used to be written four times — allocated in image_only, allocated again in
-common.assembly, predicted in image_geometry, and predicted a fourth time inside
-a numba kernel as a bare ``9``. They agreed by coincidence, and the numba copy
-could not be corrected by fixing the others.
+It used to be written four times: allocated in image_only, allocated again in common.assembly,
+predicted in image_geometry, and predicted a fourth time inside a numba kernel as a bare ``9``.
+They agreed by coincidence, and the numba copy could not be corrected by fixing the others.
 """
 
 import numpy as np
@@ -43,9 +42,9 @@ def test_estimator_matches_the_formula(h, w):
 
 
 def test_numba_batch_equals_the_scalar_estimator():
-    """njit(cache=True) freezes globals into an on-disk cache that does not
-    invalidate when a global changes, so the structural count is passed as an
-    argument. Comparing values (not just shapes) is what catches a frozen copy."""
+    """njit(cache=True) freezes globals into an on-disk cache that does not invalidate
+    when a global changes, so the structural count is passed as an argument.
+    Comparing values (not just shapes) is what catches a frozen copy."""
     from vision_tokenization.utils.image_geometry import smart_resize_dims
 
     rng = np.random.default_rng(0)
@@ -64,9 +63,10 @@ def test_numba_batch_equals_the_scalar_estimator():
 
 @pytest.mark.parametrize("h,w", SIZES + [(1024, 1024), (2048, 2048)])
 def test_bound_is_never_below_the_real_token_count(h, w):
-    """A token is never shorter than a character, so the character count of "H*W"
-    bounds its token count from above for any tokenizer that does not split a
-    character. Exact for the Apertus tokenizers, which keep digits separate."""
+    """A token is never shorter than a character,
+    so the character count of "H*W" bounds its token count from above
+    for any tokenizer that does not split a character.
+    Exact for the Apertus tokenizers, which keep digits separate."""
     assert dim_tokens_upper_bound(h, w) == len(f"{h}*{w}")
     for actual in range(1, dim_tokens_upper_bound(h, w) + 1):
         assert image_sequence_length(h, w, dim_tokens_upper_bound(h, w)) >= \
@@ -78,3 +78,25 @@ def test_bound_grows_with_the_dimensions():
     assert dim_tokens_upper_bound(32, 32) == 5
     assert dim_tokens_upper_bound(100, 100) == 7
     assert dim_tokens_upper_bound(1024, 1024) == 9
+
+
+@pytest.mark.parametrize("h,w", [(1, 100), (8, 512), (15, 64), (16, 16), (1, 1)])
+def test_numba_matches_python_when_a_token_dimension_is_zero(h, w):
+    """Images smaller than spatial_factor give a token dimension of 0.
+
+    Counting digits by repeated //10 skips zero entirely, so the compiled path
+    undercounted by one against len("0*6"). Random dimensions in the hundreds
+    never reach this, which is why the agreement test alone did not catch it.
+    """
+    from vision_tokenization.utils.image_geometry import estimate_image_tokens_batch
+
+    scalar = estimate_image_tokens(h, w, spatial_factor=16)
+    batch = int(estimate_image_tokens_batch(
+        np.array([h]), np.array([w]), spatial_factor=16,
+        min_pixels=None, max_pixels=None)[0])
+    assert scalar == batch
+
+
+def test_bound_counts_zero_as_a_digit():
+    assert dim_tokens_upper_bound(0, 6) == len("0*6")
+    assert dim_tokens_upper_bound(0, 0) == len("0*0")

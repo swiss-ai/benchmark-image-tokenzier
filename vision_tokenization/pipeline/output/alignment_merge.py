@@ -445,9 +445,9 @@ def materialize_alignment(
 def _token_layout(tokenizer_dir, tokenizer_config: dict) -> dict:
     """Manifest ``token_layout``, derived from the tokenizer's static files alone.
 
-    Ids come from the snapshot's ``added_tokens``, bands from its
-    ``omnimodal_config`` — consumers read ids from the manifest, never from
-    literals, and publish never loads the tokenizer.
+    Ids come from the snapshot's ``added_tokens``, bands from its ``omnimodal_config``.
+    Consumers read ids from the manifest, never from literals,
+    and publish never loads the tokenizer.
     """
     ids = resolve_token_ids_from_dir(
         tokenizer_dir, {"image_marker": MARKER, **STRUCTURE_TOKENS})

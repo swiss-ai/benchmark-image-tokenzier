@@ -144,8 +144,8 @@ class TestUnclosedSpanIsReported:
 
 
 class TestResolveReasoningDelimiters:
-    """Delimiters are resolved by ENCODING the authored string, so a tokenizer that
-    normalizes <think> into another token still answers with the id in its data."""
+    """Delimiters are resolved by ENCODING the authored string.
+    A tokenizer that normalizes <think> into another token still answers with the id in its data."""
 
     def _tokenizer(self, tmp_path, vocab, replacements=()):
         from tokenizers import Tokenizer, models, normalizers
@@ -163,8 +163,8 @@ class TestResolveReasoningDelimiters:
         assert resolve_reasoning_delimiters(str(p)) == (32, 33)
 
     def test_follows_the_normalizer_alias(self, tmp_path):
-        """The _thinking_token_fixed shape: <think> is not a token, it rewrites
-        into <|inner_prefix|>, and the id in the data is that one."""
+        """The _thinking_token_fixed shape: <think> is not a token.
+        It rewrites into <|inner_prefix|>, and the id in the data is that one."""
         from vision_tokenization.pipeline.output.merge import resolve_reasoning_delimiters
         p = self._tokenizer(
             tmp_path,
@@ -174,9 +174,9 @@ class TestResolveReasoningDelimiters:
         assert resolve_reasoning_delimiters(str(p)) == (32, 33)
 
     def test_refuses_when_the_delimiter_is_not_one_token(self, tmp_path):
-        """A byte-level BPE shreds an absent delimiter into pieces rather than
-        answering UNK, so the single-token test is what catches it. This is the
-        real llama_emu3.5 case, where "<think>" encodes to three tokens."""
+        """A byte-level BPE shreds an absent delimiter into pieces rather than answering UNK,
+        so the single-token test is what catches it.
+        This is the real llama_emu3.5 case, where "<think>" encodes to three tokens."""
         from tokenizers import Tokenizer, models, pre_tokenizers
         from vision_tokenization.pipeline.output.merge import resolve_reasoning_delimiters
 
@@ -411,8 +411,8 @@ class TestCLI:
             main([str(tmp_path), "--strip-thinking"])
 
     def test_wrong_ids_warn_but_still_write(self, tmp_path, caplog):
-        """A wrong pair truncates sequences. It is reported, not fatal — one
-        legitimately truncated generation must not kill a whole corpus."""
+        """A wrong pair truncates sequences. It is reported, not fatal:
+        one legitimately truncated generation must not kill a whole corpus."""
         import logging
         from vision_tokenization.pipeline.output.merge import strip_thinking_dataset
 

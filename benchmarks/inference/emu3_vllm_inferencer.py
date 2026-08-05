@@ -84,10 +84,9 @@ class EMU3Inferencer:
     def _load_vision_band(self) -> Tuple[int, int]:
         """Inclusive [lo, hi] id range of the vision codebook.
 
-        Codebook index i is id lo + i, so the mapping is derived rather than
-        read. It used to come from a vision_token_mapping.json sidecar, which
-        Apertus 2 does not ship — the loader then returned {} and both callers
-        below silently produced nothing.
+        Codebook index i is id lo + i, so the mapping is derived rather than read.
+        It used to come from a vision_token_mapping.json sidecar, which Apertus 2 does not ship.
+        The loader then returned {}, and both callers below silently produced nothing.
         """
         from vision_tokenization.discrete.emu.token_layout import vision_band
         from vision_tokenization.utils.json import json_load
@@ -268,9 +267,9 @@ class EMU3Inferencer:
         token_idx = 0
         for row in range(min(given_rows, height)):
             for col in range(width):
-                # Codebook index -> id. Placeholder content: complete_image
-                # probes structure, so the indices are 0..N rather than a real
-                # encode.
+                # Codebook index -> id.
+                # Placeholder content: complete_image probes structure,
+                # so the indices are 0..N rather than a real encode.
                 if token_idx <= self.vision_hi - self.vision_lo:
                     prompt_parts.append(self.vision_lo + token_idx)
                 token_idx += 1

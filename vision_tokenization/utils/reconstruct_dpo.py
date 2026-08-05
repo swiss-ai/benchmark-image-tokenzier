@@ -73,8 +73,8 @@ def main():
     tok_dir = Path(args.tokenizer or manifest["tokenizer"]["path"])
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(str(tok_dir), trust_remote_code=True, use_fast=True)
-    # The manifest describes this store, so its band is the one these ids were
-    # written against — the tokenizer directory is second-hand and can be repointed.
+    # The manifest describes this store, so its band is the one these ids were written
+    # against. The tokenizer directory is second-hand and can be repointed.
     vision_token_offset = manifest["token_layout"]["vision_lo"]
 
     idx = pq.read_table(store / f"index_{args.split}.parquet").to_pylist()

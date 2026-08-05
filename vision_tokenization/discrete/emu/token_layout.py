@@ -3,8 +3,8 @@ no torch.
 
 Structure-token ids come from ``tokenizer.json``'s ``added_tokens``;
 the modality bands come from ``tokenizer_config.json``'s ``omnimodal_config``.
-That lets the alignment scan and the inline merge derive the manifest's
-``token_layout`` without importing the EMU encoder, which pulls torch.
+That lets the alignment scan and the inline merge derive the manifest's ``token_layout``
+without importing the EMU encoder, which pulls torch.
 ``EMUImageOnlyTokenizer`` re-imports ``resolve_token_ids`` / ``vision_band`` /
 ``STRUCTURE_TOKENS`` from here.
 """

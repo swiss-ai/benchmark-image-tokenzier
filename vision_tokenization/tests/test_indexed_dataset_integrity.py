@@ -99,16 +99,16 @@ class TestDatasetVerification:
     def test_token_value_preservation(self):
         """Token values must survive the bin/idx round trip exactly.
 
-        The interesting values are the dtype boundaries and the id ranges the
-        Apertus tokenizers actually use — 2^15, 2^16, the 1.5 base vocab at
-        131072, and the Apertus 2 vision band at 200064+.
+        The interesting values are the dtype boundaries and the id ranges
+        the Apertus tokenizers actually use:
+        2^15, 2^16, the 1.5 base vocab at 131072, and the Apertus 2 vision band at 200064+.
         """
         test_sequences = [
             [0, 1, 2, 3, 4],
-            [32767, 32768, 32769],            # around 2^15
-            [65535, 65536, 65537],            # around 2^16, where uint16 would wrap
-            [131071, 131072, 131073],         # Apertus 1.5 base vocab boundary
-            [200063, 200064, 331135, 331136],  # Apertus 2 vision band edges, audio start
+            [32767, 32768, 32769],
+            [65535, 65536, 65537],
+            [131071, 131072, 131073],
+            [200063, 200064, 331135, 331136],
         ]
 
         prefix = os.path.join(self.temp_dir, "test_values")

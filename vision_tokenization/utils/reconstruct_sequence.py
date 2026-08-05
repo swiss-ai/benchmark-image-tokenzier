@@ -24,9 +24,9 @@ import numpy as np
 def _parse_sequence(seq: np.ndarray, tokenizer, vision_token_offset: int):
     """Parse a token sequence into logical segments.
 
-    Structure tokens (img_start, img_end, img_token_start, img_end_of_row,
-    img_end_of_frame) are resolved from the tokenizer by name — Apertus 1.5
-    appends them above the text vocab, Apertus 2 renames them in place inside it.
+    Structure tokens (img_start, img_end, img_token_start, img_end_of_row, img_end_of_frame)
+    are resolved from the tokenizer by name.
+    Apertus 1.5 appends them above the text vocab; Apertus 2 renames them in place inside it.
     Vision codebook IDs start at *vision_token_offset*.
     """
     IMG_START = tokenizer.encode("<|img_start|>", add_special_tokens=False)[0]

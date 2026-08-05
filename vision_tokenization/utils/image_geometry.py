@@ -93,13 +93,15 @@ if njit is not None:
     ) -> int:
         token_height = height // spatial_factor
         token_width = width // spatial_factor
-        # Character count of "H*W" bounds its token count; digits computed without str().
-        dims = 1
-        v = token_height
+        # Character count of "H*W" bounds its token count; digits without str().
+        # Starts at 3 because the shortest form is one digit either side of the
+        # separator, so zero counts as a digit rather than none.
+        dims = 3
+        v = token_height // 10
         while v > 0:
             dims += 1
             v //= 10
-        v = token_width
+        v = token_width // 10
         while v > 0:
             dims += 1
             v //= 10
@@ -196,8 +198,9 @@ def estimate_image_tokens_batch(
     max_pixels_i = _pixel_limit(max_pixels)
 
     if _NUMBA_AVAILABLE:
-        # Passed rather than read from a global: @njit(cache=True) freezes globals
-        # into the on-disk cache and will not notice one of them changing.
+        # Passed rather than read from a global:
+        # @njit(cache=True) freezes globals into the on-disk cache
+        # and will not notice one of them changing.
         return _estimate_image_tokens_batch_numba(
             heights_arr,
             widths_arr,

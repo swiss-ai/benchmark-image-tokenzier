@@ -10,10 +10,11 @@ This format is directly compatible with Megatron-LM's data loaders.
 Usage
 -----
 
-``IndexedDatasetBuilder`` writes the .bin/.idx pair; callers pass complete
-sequences whose ids are already in the model's id space. Vision ids are offset
-at encode time from ``omnimodal_config``, not here — the writer has no view of
-modalities, and the vision band does not begin where the text vocabulary ends
+``IndexedDatasetBuilder`` writes the .bin/.idx pair;
+callers pass complete sequences whose ids are already in the model's id space.
+Vision ids are offset at encode time from ``omnimodal_config``, not here —
+the writer has no view of modalities,
+and the vision band does not begin where the text vocabulary ends
 (Apertus 1.5 leaves 200 reserved slots between them).
 
 ```python

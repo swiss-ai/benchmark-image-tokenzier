@@ -263,7 +263,8 @@ def run_executor(
         result["output_dir"] = output_dir
         json_dump(result, Path(output_dir) / f"rank_{rank:04d}_stats.json")
         write_rank_manifest(output_dir, rank, world_size, plan_fingerprint,
-                            backend="empty", files=[])
+                            backend="empty", files=[],
+                            tokenizer_path=cfg["tokenizer_path"])
         maybe_write_stats_summary(output_dir, expected_ranks=world_size)
         return result
 

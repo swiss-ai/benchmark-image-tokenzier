@@ -230,8 +230,8 @@ def save_checkpoint(
 
     The checkpoint must capture every cursor needed to resume:
     *writer_state* is an opaque dict owned by the writer (round-tripped,
-    never interpreted here), *plan_fingerprint* identifies the plan the
-    batch_index was counted against (resume refuses on mismatch).
+    never interpreted here), *plan_fingerprint* identifies the plan and the
+    tokenizer the batch_index was counted against (resume refuses on mismatch).
     """
     import torch
 
@@ -253,10 +253,10 @@ def save_checkpoint(
 
 
 def load_checkpoint(output_dir: str, rank: int) -> Optional[Dict[str, Any]]:
-    """Load this rank's checkpoint if it exists. v2 only.
+    """Load this rank's checkpoint if it exists.
 
-    Pre-v2 checkpoints (before writer-owned cursor state and plan
-    fingerprints) are refused: re-tokenize the dataset with current code.
+    A checkpoint written under an older payload schema is refused rather than
+    migrated — re-tokenize the dataset with current code.
     """
     import torch
 
@@ -265,11 +265,12 @@ def load_checkpoint(output_dir: str, rank: int) -> Optional[Dict[str, Any]]:
         return None
     logger.info(f"[rank {rank}] Loading checkpoint from {ckpt_path}")
     ckpt = torch.load(str(ckpt_path), map_location="cpu", weights_only=False)
-    if ckpt.get("version", 1) < CHECKPOINT_VERSION:
+    found = ckpt.get("version", 1)
+    if found < CHECKPOINT_VERSION:
         raise RuntimeError(
-            f"[rank {rank}] Checkpoint at {ckpt_path} predates the v2 resume "
-            f"protocol and cannot be resumed safely. Re-tokenize this dataset "
-            f"from scratch (resume=false, fresh output_dir)."
+            f"[rank {rank}] Checkpoint at {ckpt_path} uses schema version {found}, "
+            f"but this code writes {CHECKPOINT_VERSION}. It cannot be resumed safely. "
+            f"Re-tokenize this dataset from scratch (resume=false, fresh output_dir)."
         )
     return ckpt
 
@@ -296,11 +297,12 @@ def write_rank_manifest(
     ({name, bytes, sequences, tokens}); the merge gate verifies the claim
     against disk instead of inferring completeness from markers and globs.
 
-    *tokenizer_path* records which tokenizer wrote these ids, so post-hoc tools
-    resolve special tokens from the run's own tokenizer rather than from a
-    literal. It sits outside *plan_fingerprint* deliberately: a path can differ
-    between ranks (symlink, copy) while the tokenizer is identical, and the
-    fingerprint is compared for equality across ranks.
+    *tokenizer_path* records which tokenizer wrote these ids,
+    so post-hoc tools resolve special tokens from the run's own tokenizer rather than
+    from a literal.
+    It sits outside *plan_fingerprint* deliberately: a path can differ between ranks
+    via a symlink or a copy while the tokenizer is identical,
+    and the fingerprint is compared for equality across ranks.
     """
     payload = {
         "version": MANIFEST_VERSION,

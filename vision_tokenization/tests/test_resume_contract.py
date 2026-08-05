@@ -89,8 +89,8 @@ def test_checkpoint_roundtrip(tmp_path):
 def test_older_checkpoint_schema_refused(tmp_path):
     """Single-version protocol: any older payload means re-tokenize, loudly.
 
-    This is what retires checkpoints predating tokenizer fingerprinting — their
-    ids came from a tokenizer the checkpoint never recorded.
+    This is what retires checkpoints predating tokenizer fingerprinting:
+    their ids came from a tokenizer the checkpoint never recorded.
     """
     torch.save({"version": CHECKPOINT_VERSION - 1, "batch_index": 9,
                 "chunk_id": 4, "stats": {}, "world_size": 1},

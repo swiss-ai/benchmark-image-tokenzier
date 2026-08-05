@@ -138,8 +138,8 @@ class SpatialTokenizer(VLMVisionTokenizer):
     def _detect_visual_token_template(self, txt_tokenizer) -> str:
         """Infer the text form used for visual tokens by probing the tokenizer.
 
-        Every tokenizer that shipped a vision_token_mapping.json declared the
-        format this probes for first, and Apertus 2 ships no such file.
+        Every tokenizer that shipped a vision_token_mapping.json declared the format
+        this probes for first, and Apertus 2 ships no such file.
         """
         probe_formats = [
             ("<|visual token 0|>", "<|visual token {token}|>"),

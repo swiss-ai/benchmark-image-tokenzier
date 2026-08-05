@@ -4,14 +4,14 @@ Which one runs is decided by a single line in the executor::
 
     use_spill = multi_image or mode in ("interleave", "alignment")
 
-so the same mode takes a different assembler depending on a config flag. They
-share the size formula (common.layout) but still lay out the tokens
-independently — image_only builds inline from resolved ids, common.assembly
-rebuilds from a StructureTokenIds bundle. Nothing else checks that they agree.
+so the same mode takes a different assembler depending on a config flag.
+They share the size formula (common.layout) but still lay out the tokens independently:
+image_only builds inline from resolved ids, common.assembly rebuilds from a bundle.
+Nothing else checks that they agree.
 
-Assembly is tested directly rather than through the pipeline: the divergence is
-in the layout, and both entry points take already-encoded codebook indices, so
-no GPU or vision tokenizer is involved.
+Assembly is tested directly rather than through the pipeline.
+The divergence is in the layout, and both entry points take already-encoded indices,
+so no GPU or vision tokenizer is involved.
 """
 
 import pytest
